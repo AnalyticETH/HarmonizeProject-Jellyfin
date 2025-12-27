@@ -40,6 +40,37 @@ namespace Jellyfin.Plugin.Hue.Hue
             return "";
         }
 
+        public async Task<Api.HueRegistrationResult?> RegisterWithBridge(string ip)
+        {
+            try
+            {
+                var content = new StringContent("{\"devicetype\":\"jellyfin_hue#server\", \"generateclientkey\":true}", System.Text.Encoding.UTF8, "application/json");
+                var response = await _httpClient.PostAsync($"https://{ip}/api", content);
+                var json = await response.Content.ReadAsStringAsync();
+                
+                // Response: [{"success":{"username":"...","clientkey":"..."}}] OR [{"error":...}]
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+                {
+                    var first = doc.RootElement[0];
+                    if (first.TryGetProperty("success", out var success))
+                    {
+                        return new Api.HueRegistrationResult
+                        {
+                            Username = success.GetProperty("username").GetString() ?? "",
+                            ClientKey = success.GetProperty("clientkey").GetString() ?? ""
+                        };
+                    }
+                }
+                _logger.LogWarning("Registration failed: {0}", json);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calling Register API");
+            }
+            return null;
+        }
+
         public async Task<JsonElement?> GetEntertainmentConfiguration(string bridgeIp, string appKey, string areaId)
         {
             try

@@ -47,14 +47,16 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | Setting | Description |
 | :--- | :--- |
 | **Hue Bridge IP** | The local IP address of your bridge. |
-| **Hue App Key** | "Username" for the REST API. |
-| **Hue Client Key** | "ClientKey" for the streaming API (DTLS). |
+| **Link Bridge** | **NEW**: Press the physical button on your Bridge, then click this button to auto-generate keys! |
+| **Hue App Key** | "Username" for the REST API (auto-filled). |
+| **Hue Client Key** | "ClientKey" for the streaming API (auto-filled). |
 | **Entertainment Area ID** | UUID of the specific area to sync. |
+| **Target FPS** | Frames per second to process (Default: 20). Lower = less CPU. |
+| **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
 | **Enable Real-time Sync** | Master toggle for the sync feature. |
 
-> **Note**: To obtain your keys, see the [Key Generation Guide](#generating-hue-credentials) below.
-
-### Generating Hue Credentials
+### Generating Hue Credentials (Manual Fallback)
+If the **Link Bridge** button doesn't work for you, you can generate keys manually:
 1.  Go to `https://<BRIDGE_IP>/debug/clip.html`
 2.  Press the **Link Button** on your Hue Bridge.
 3.  Post to `/api` with body: `{"devicetype":"jellyfin_plugin#server", "generateclientkey":true}`
@@ -66,6 +68,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 Requirements: .NET 8.0 SDK.
 
 ```bash
+cd Jellyfin.Plugin.Hue
 dotnet build --configuration Release
 ```
 

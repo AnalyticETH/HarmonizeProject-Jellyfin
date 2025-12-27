@@ -39,6 +39,7 @@ namespace Jellyfin.Plugin.Hue
 
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
+            serviceCollection.AddSingleton<Hue.HueClient>();
             serviceCollection.AddHostedService<HueSyncService>();
         }
     }

@@ -25,11 +25,12 @@ namespace Jellyfin.Plugin.Hue.Service
         private CancellationTokenSource? _syncCts;
         private readonly ILoggerFactory _loggerFactory;
 
-        public HueSyncService(ISessionManager sessionManager, ILogger<HueSyncService> logger, ILoggerFactory loggerFactory)
+        public HueSyncService(ISessionManager sessionManager, ILogger<HueSyncService> logger, ILoggerFactory loggerFactory, HueClient hueClient)
         {
             _sessionManager = sessionManager;
             _logger = logger;
             _loggerFactory = loggerFactory;
+            _hueClient = hueClient;
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -39,7 +40,6 @@ namespace Jellyfin.Plugin.Hue.Service
             _sessionManager.PlaybackStopped += OnPlaybackStopped;
             
             // Helpers
-            _hueClient = new HueClient(_loggerFactory.CreateLogger<HueClient>());
             _hueStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
             _ffmpegStreamer = new FfmpegStreamer(_loggerFactory.CreateLogger<FfmpegStreamer>());
 
