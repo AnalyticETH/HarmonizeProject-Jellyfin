@@ -47,7 +47,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | Setting | Description |
 | :--- | :--- |
 | **Hue Bridge IP** | The local IP address of your bridge. |
-| **Link Bridge** | **NEW**: Press the physical button on your Bridge, then click this button to auto-generate keys! |
+| **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Hue App Key** | "Username" for the REST API (auto-filled). |
 | **Hue Client Key** | "ClientKey" for the streaming API (auto-filled). |
 | **Entertainment Area ID** | UUID of the specific area to sync. |
@@ -71,6 +71,11 @@ Requirements: .NET 8.0 SDK.
 cd Jellyfin.Plugin.Hue
 dotnet build --configuration Release
 ```
+
+The plugin DLL will be generated at:
+`bin/Release/net8.0/Jellyfin.Plugin.Hue.dll`
+
+> **Note**: You only need this one file. The other DLLs in that folder are dependencies that Jellyfin already provides.
 
 ### Project Structure
 *   `Configuration/`: Plugin settings UI and logic.

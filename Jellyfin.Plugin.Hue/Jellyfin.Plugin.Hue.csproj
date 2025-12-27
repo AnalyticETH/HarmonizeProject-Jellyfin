@@ -16,6 +16,9 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Configuration/configPage.html" />
+    <None Include="../meta.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

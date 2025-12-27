@@ -1,0 +1,19 @@
+{
+    "category": "General",
+    "changelog": "- Initial Release",
+    "description": "Synchronize Philips Hue lights with your media playback in real-time.",
+    "guid": "4e078f02-ec43-473e-85f1-98e86eb9a761",
+    "name": "Philips Hue Sync",
+    "overview": "Adds support for real-time lighting synchronization with Philips Hue Entertainment Areas using the streaming DTLS API. Supports instant bridge linking.",
+    "owner": "MCP Capital LLC",
+    "targetAbi": "10.9.0.0",
+    "version": "1.0.0.0",
+    "status": "Active",
+    "autoUpdate": false,
+    "images": [],
+    "assemblies": [
+        {
+            "filename": "Jellyfin.Plugin.Hue.dll"
+        }
+    ]
+}

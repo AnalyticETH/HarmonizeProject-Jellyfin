@@ -23,3 +23,4 @@
 /Users/m/Development/jellyfin-hue/Jellyfin.Plugin.Hue/obj/Release/net8.0/refint/Jellyfin.Plugin.Hue.dll
 /Users/m/Development/jellyfin-hue/Jellyfin.Plugin.Hue/obj/Release/net8.0/Jellyfin.Plugin.Hue.pdb
 /Users/m/Development/jellyfin-hue/Jellyfin.Plugin.Hue/obj/Release/net8.0/ref/Jellyfin.Plugin.Hue.dll
+/Users/m/Development/jellyfin-hue/Jellyfin.Plugin.Hue/bin/Release/net8.0/meta.json
