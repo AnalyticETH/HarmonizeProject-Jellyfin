@@ -112,6 +112,28 @@ Tests are automatically run in CI/CD on:
 
 See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
 
+## Recent Changes
+
+### Version 1.3.0 (Current)
+- **Scene Restoration**: Automatically saves and restores original light states
+- **Advanced Color Processing**: Brightness boost, saturation control, and blackout detection
+- **Network Resilience**: Retry logic with exponential backoff for HTTP operations
+- **Status API**: New `/HueSync/Status` endpoint for monitoring sync state
+- **Cinema Mode**: Automatic light dimming during playback
+- **Performance**: ~30-50% reduction in unnecessary updates during static scenes
+
+### Version 1.2.0
+- Cinema mode with configurable dim levels
+- Automatic DTLS reconnection with exponential backoff
+- Health monitoring for FFmpeg and OpenSSL processes
+- Configuration validation with helpful error messages
+
+### Version 1.1.0
+- Fixed critical coordinate mapping bug for proper light positioning
+- Added pause/resume support for playback
+- Improved error handling and process management
+- Enhanced logging and XML documentation
+
 ## License
 This project is licensed under the GPL-3.0 License.
 
