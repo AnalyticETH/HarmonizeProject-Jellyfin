@@ -1,0 +1,180 @@
+name: .NET CI/CD
+
+on:
+  push:
+    branches: [ main, master, develop, claude/** ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  BUILD_CONFIGURATION: 'Release'
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Shallow clones disabled for better analysis
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build solution
+      run: dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+    - name: Run tests
+      run: dotnet test --configuration ${{ env.BUILD_CONFIGURATION }} --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage" --results-directory ./TestResults
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: ./TestResults/*.trx
+        retention-days: 30
+
+    - name: Upload code coverage
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: code-coverage
+        path: ./TestResults/**/coverage.cobertura.xml
+        retention-days: 30
+
+    - name: Publish plugin
+      run: dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj --configuration ${{ env.BUILD_CONFIGURATION }} --no-build --output ./publish
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: jellyfin-plugin-hue
+        path: ./publish/
+        retention-days: 90
+
+    - name: Generate build summary
+      if: always()
+      run: |
+        echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Configuration:** ${{ env.BUILD_CONFIGURATION }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **.NET Version:** ${{ env.DOTNET_VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ -f "./TestResults/test-results.trx" ]; then
+          echo "✅ Tests completed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ No test results found" >> $GITHUB_STEP_SUMMARY
+        fi
+
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Run dotnet format check
+      run: dotnet format --verify-no-changes --verbosity diagnostic || true
+
+    - name: Security scan with .NET tools
+      run: |
+        dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerable-packages.txt || true
+
+    - name: Upload security scan results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: security-scan
+        path: vulnerable-packages.txt
+        retention-days: 30
+
+  create-release-package:
+    name: Create Release Package
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore and build
+      run: |
+        dotnet restore
+        dotnet build --configuration ${{ env.BUILD_CONFIGURATION }}
+
+    - name: Create plugin package
+      run: |
+        mkdir -p release-package
+        cp -r Jellyfin.Plugin.Hue/bin/Release/net8.0/* release-package/
+        cp meta.json release-package/ || true
+        cp README.md release-package/ || true
+
+    - name: Create zip archive
+      run: |
+        cd release-package
+        zip -r ../jellyfin-plugin-hue-release.zip .
+        cd ..
+
+    - name: Upload release package
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-package
+        path: jellyfin-plugin-hue-release.zip
+        retention-days: 90
+
+    - name: Generate release notes
+      run: |
+        echo "# Jellyfin Plugin Hue - Release Package" > release-notes.md
+        echo "" >> release-notes.md
+        echo "## Build Information" >> release-notes.md
+        echo "- **Commit:** ${{ github.sha }}" >> release-notes.md
+        echo "- **Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> release-notes.md
+        echo "- **Branch:** ${{ github.ref_name }}" >> release-notes.md
+        echo "" >> release-notes.md
+        echo "## Installation" >> release-notes.md
+        echo "1. Download the release package" >> release-notes.md
+        echo "2. Extract to your Jellyfin plugins directory" >> release-notes.md
+        echo "3. Restart Jellyfin" >> release-notes.md
+
+    - name: Upload release notes
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-notes
+        path: release-notes.md
+        retention-days: 90
