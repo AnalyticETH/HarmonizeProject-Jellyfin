@@ -19,6 +19,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool UseGpu { get; set; } = true;
         public string CustomFfmpegFlags { get; set; } = string.Empty; // e.g. -hwaccel auto
 
+        // New advanced settings
+        public bool RestoreLightState { get; set; } = true; // Save and restore light state before sync
+        public int BrightnessBoost { get; set; } = 100; // Brightness multiplier (50-200%)
+        public int ColorSaturation { get; set; } = 100; // Color saturation adjustment (0-200%)
+        public int BlackoutThreshold { get; set; } = 15; // Average brightness below which sync is skipped (0-255)
+        public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
+        public int NetworkRetryAttempts { get; set; } = 3; // Number of retry attempts for network operations
+
         public PluginConfiguration()
         {
             // Defaults
@@ -52,6 +60,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (BrightnessDimLevel < 0 || BrightnessDimLevel > 100)
                     errors.Add("Brightness dim level must be between 0 and 100");
+
+                if (BrightnessBoost < 50 || BrightnessBoost > 200)
+                    errors.Add("Brightness boost must be between 50 and 200");
+
+                if (ColorSaturation < 0 || ColorSaturation > 200)
+                    errors.Add("Color saturation must be between 0 and 200");
+
+                if (BlackoutThreshold < 0 || BlackoutThreshold > 255)
+                    errors.Add("Blackout threshold must be between 0 and 255");
+
+                if (ColorChangeThreshold < 0 || ColorChangeThreshold > 255)
+                    errors.Add("Color change threshold must be between 0 and 255");
+
+                if (NetworkRetryAttempts < 0 || NetworkRetryAttempts > 10)
+                    errors.Add("Network retry attempts must be between 0 and 10");
             }
 
             return errors;

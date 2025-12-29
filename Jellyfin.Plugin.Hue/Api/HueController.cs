@@ -4,22 +4,25 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Hue;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Http; // Ensure this is available
+using Microsoft.AspNetCore.Http;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Jellyfin.Plugin.Hue.Api
 {
     [ApiController]
-    [Route("HueSync")] 
+    [Route("HueSync")]
     [Authorize] // Require admin auth usually
     [Produces(MediaTypeNames.Application.Json)]
     public class HueApiController : ControllerBase
     {
         private readonly HueClient _hueClient;
+        private readonly Service.HueSyncService? _syncService;
 
-        public HueApiController(HueClient hueClient)
+        public HueApiController(HueClient hueClient, IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices)
         {
             _hueClient = hueClient;
+            _syncService = hostedServices.OfType<Service.HueSyncService>().FirstOrDefault();
         }
 
         [HttpPost("Register")]
@@ -64,6 +67,23 @@ namespace Jellyfin.Plugin.Hue.Api
 
             return Ok(areas);
         }
+
+        [HttpGet("Status")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<HueSyncStatus> GetStatus()
+        {
+            var config = Plugin.Instance?.Configuration;
+            var status = new HueSyncStatus
+            {
+                IsEnabled = config?.SyncEnabled ?? false,
+                IsSyncing = _syncService?.IsSyncing ?? false,
+                CurrentItem = _syncService?.CurrentItemName,
+                BridgeIp = config?.HueBridgeIp,
+                EntertainmentAreaId = config?.EntertainmentAreaId
+            };
+
+            return Ok(status);
+        }
     }
 
     public class HueRegistrationRequest
@@ -75,5 +95,14 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         public string Username { get; set; } = string.Empty;
         public string ClientKey { get; set; } = string.Empty;
+    }
+
+    public class HueSyncStatus
+    {
+        public bool IsEnabled { get; set; }
+        public bool IsSyncing { get; set; }
+        public string? CurrentItem { get; set; }
+        public string? BridgeIp { get; set; }
+        public string? EntertainmentAreaId { get; set; }
     }
 }

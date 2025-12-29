@@ -29,6 +29,11 @@ namespace Jellyfin.Plugin.Hue.Service
         private CancellationTokenSource? _syncCts;
         private readonly ILoggerFactory _loggerFactory;
         private string? _currentPlaySessionId;
+        private List<HueClient.LightState>? _savedLightStates;
+
+        // Public property to track sync state
+        public bool IsSyncing => _syncCts != null && !_syncCts.IsCancellationRequested;
+        public string? CurrentItemName { get; private set; }
 
         public HueSyncService(ISessionManager sessionManager, ILogger<HueSyncService> logger, ILoggerFactory loggerFactory, HueClient hueClient)
         {
@@ -80,13 +85,21 @@ namespace Jellyfin.Plugin.Hue.Service
 
             var config = Plugin.Instance?.Configuration;
 
-            // Restore lights if cinema mode was used
-            if (config != null && config.UseCinemaMode && config.SyncEnabled)
+            // Restore saved light states if configured
+            if (config != null && config.SyncEnabled && config.RestoreLightState && _savedLightStates != null)
+            {
+                _logger.LogInformation("Restoring saved light states");
+                await _hueClient.RestoreLightStates(config.HueBridgeIp, config.HueAppKey, _savedLightStates);
+                _savedLightStates = null;
+            }
+            // Otherwise restore lights if cinema mode was used
+            else if (config != null && config.UseCinemaMode && config.SyncEnabled)
             {
                 _logger.LogInformation("Restoring lights after playback");
                 await RestoreLightsAfterPlayback(config);
             }
 
+            CurrentItemName = null;
             StopSync();
         }
 
@@ -260,16 +273,84 @@ namespace Jellyfin.Plugin.Hue.Service
                         byte g = (byte)(gSum / count);
                         byte b = (byte)(bSum / count);
 
-                        // Format following HarmonizeProject: divide by 2 for 16-bit color compatibility
-                        // This maps 8-bit (0-255) to 16-bit space (0-32767) by duplicating each byte
-                        byte r2 = (byte)(r / 2);
-                        byte g2 = (byte)(g / 2);
-                        byte b2 = (byte)(b / 2);
-
-                        channelColors[kvp.Key] = new byte[] { r2, r2, g2, g2, b2, b2 };
+                        channelColors[kvp.Key] = new byte[] { r, g, b };
                     }
 
-                    await _hueStreamer!.SendColors(areaId, channelColors);
+                    // Get configuration for advanced color processing
+                    var config = Plugin.Instance?.Configuration;
+                    if (config != null)
+                    {
+                        // Check blackout threshold - skip sync if frame is mostly black
+                        if (config.BlackoutThreshold > 0)
+                        {
+                            var avgBrightness = channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0);
+                            if (avgBrightness < config.BlackoutThreshold)
+                            {
+                                // Skip this frame - screen is too dark
+                                var elapsedBlackout = loopTimer.ElapsedMilliseconds;
+                                if (targetFrameDurationMs > 0)
+                                {
+                                    var remainingBlackout = targetFrameDurationMs - (int)Math.Min(int.MaxValue, elapsedBlackout);
+                                    if (remainingBlackout > 0)
+                                    {
+                                        await Task.Delay(remainingBlackout, token);
+                                    }
+                                }
+                                continue;
+                            }
+                        }
+
+                        // Apply brightness boost and color saturation adjustments
+                        var processedColors = new Dictionary<int, byte[]>();
+                        foreach (var kvp in channelColors)
+                        {
+                            var rgb = kvp.Value;
+                            double r = rgb[0], g = rgb[1], b = rgb[2];
+
+                            // Apply brightness boost
+                            if (config.BrightnessBoost != 100)
+                            {
+                                double multiplier = config.BrightnessBoost / 100.0;
+                                r = Math.Min(255, r * multiplier);
+                                g = Math.Min(255, g * multiplier);
+                                b = Math.Min(255, b * multiplier);
+                            }
+
+                            // Apply color saturation adjustment
+                            if (config.ColorSaturation != 100)
+                            {
+                                // Convert to HSL, adjust saturation, convert back to RGB
+                                var (h, s, l) = RgbToHsl(r / 255.0, g / 255.0, b / 255.0);
+                                s = Math.Clamp(s * (config.ColorSaturation / 100.0), 0, 1);
+                                var (r2, g2, b2) = HslToRgb(h, s, l);
+                                r = r2 * 255;
+                                g = g2 * 255;
+                                b = b2 * 255;
+                            }
+
+                            // Format following HarmonizeProject: divide by 2 for 16-bit color compatibility
+                            byte r16 = (byte)(Math.Clamp(r, 0, 255) / 2);
+                            byte g16 = (byte)(Math.Clamp(g, 0, 255) / 2);
+                            byte b16 = (byte)(Math.Clamp(b, 0, 255) / 2);
+
+                            processedColors[kvp.Key] = new byte[] { r16, r16, g16, g16, b16, b16 };
+                        }
+
+                        await _hueStreamer!.SendColors(areaId, processedColors, config.ColorChangeThreshold);
+                    }
+                    else
+                    {
+                        // Fallback without advanced processing
+                        var simpleColors = new Dictionary<int, byte[]>();
+                        foreach (var kvp in channelColors)
+                        {
+                            byte r2 = (byte)(kvp.Value[0] / 2);
+                            byte g2 = (byte)(kvp.Value[1] / 2);
+                            byte b2 = (byte)(kvp.Value[2] / 2);
+                            simpleColors[kvp.Key] = new byte[] { r2, r2, g2, g2, b2, b2 };
+                        }
+                        await _hueStreamer!.SendColors(areaId, simpleColors);
+                    }
 
                     var elapsedMs = loopTimer.ElapsedMilliseconds;
                     if (targetFrameDurationMs > 0)
@@ -331,11 +412,20 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 }
 
+                // Save current light states if configured
+                if (config.RestoreLightState)
+                {
+                    _logger.LogInformation("Saving current light states for restoration");
+                    _savedLightStates = await _hueClient.GetLightStates(config.HueBridgeIp, config.HueAppKey, areaConfig.Value);
+                }
+
                 if (config.UseCinemaMode)
                 {
                     _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", config.BrightnessDimLevel);
                     await ApplyCinemaMode(config, areaConfig.Value);
                 }
+
+                CurrentItemName = e.Item?.Name;
 
                 var lights = new Dictionary<int, (double x, double z)>();
                 if (areaConfig.Value.TryGetProperty("channels", out var channels))
@@ -378,6 +468,70 @@ namespace Jellyfin.Plugin.Hue.Service
                 _logger.LogError(ex, "Error starting Hue sync session");
                 StopSync();
             }
+        }
+
+        /// <summary>
+        /// Converts RGB color to HSL (Hue, Saturation, Lightness)
+        /// </summary>
+        private (double h, double s, double l) RgbToHsl(double r, double g, double b)
+        {
+            double max = Math.Max(r, Math.Max(g, b));
+            double min = Math.Min(r, Math.Min(g, b));
+            double delta = max - min;
+
+            double h = 0, s = 0, l = (max + min) / 2.0;
+
+            if (delta != 0)
+            {
+                s = l < 0.5 ? delta / (max + min) : delta / (2.0 - max - min);
+
+                if (max == r)
+                    h = ((g - b) / delta) + (g < b ? 6 : 0);
+                else if (max == g)
+                    h = ((b - r) / delta) + 2;
+                else
+                    h = ((r - g) / delta) + 4;
+
+                h /= 6.0;
+            }
+
+            return (h, s, l);
+        }
+
+        /// <summary>
+        /// Converts HSL color to RGB
+        /// </summary>
+        private (double r, double g, double b) HslToRgb(double h, double s, double l)
+        {
+            double r, g, b;
+
+            if (s == 0)
+            {
+                r = g = b = l; // Achromatic
+            }
+            else
+            {
+                double q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                double p = 2 * l - q;
+                r = HueToRgb(p, q, h + 1.0 / 3.0);
+                g = HueToRgb(p, q, h);
+                b = HueToRgb(p, q, h - 1.0 / 3.0);
+            }
+
+            return (r, g, b);
+        }
+
+        /// <summary>
+        /// Helper method for HSL to RGB conversion
+        /// </summary>
+        private double HueToRgb(double p, double q, double t)
+        {
+            if (t < 0) t += 1;
+            if (t > 1) t -= 1;
+            if (t < 1.0 / 6.0) return p + (q - p) * 6 * t;
+            if (t < 1.0 / 2.0) return q;
+            if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6;
+            return p;
         }
     }
 }

@@ -22,10 +22,36 @@ namespace Jellyfin.Plugin.Hue.Hue
         private PluginConfiguration? _lastConfig;
         private int _reconnectAttempts = 0;
         private const int MaxReconnectAttempts = 3;
+        private Dictionary<int, byte[]>? _lastSentColors;
 
         public HueStreamer(ILogger<HueStreamer> logger)
         {
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Checks if colors have changed significantly compared to last sent colors
+        /// </summary>
+        private bool HasSignificantColorChange(Dictionary<int, byte[]> newColors, int threshold)
+        {
+            if (_lastSentColors == null || _lastSentColors.Count != newColors.Count)
+                return true;
+
+            foreach (var kvp in newColors)
+            {
+                if (!_lastSentColors.TryGetValue(kvp.Key, out var oldColor))
+                    return true;
+
+                // Compare RGB values (taking first component of each 16-bit pair)
+                for (int i = 0; i < 6; i += 2)
+                {
+                    var diff = Math.Abs(kvp.Value[i] - oldColor[i]);
+                    if (diff > threshold / 2) // Divide by 2 because we already halved the values
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -140,8 +166,15 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         /// <param name="areaId">The entertainment area ID</param>
         /// <param name="channelColors">Dictionary mapping channel IDs to RGB color data (6 bytes per channel)</param>
-        public async Task SendColors(string areaId, Dictionary<int, byte[]> channelColors)
+        /// <param name="colorChangeThreshold">Minimum color change to trigger update (0 to disable)</param>
+        public async Task SendColors(string areaId, Dictionary<int, byte[]> channelColors, int colorChangeThreshold = 0)
         {
+            // Skip if colors haven't changed significantly
+            if (colorChangeThreshold > 0 && !HasSignificantColorChange(channelColors, colorChangeThreshold))
+            {
+                return;
+            }
+
             // Check health and try to reconnect if needed
             if (!IsHealthy())
             {
@@ -193,6 +226,13 @@ namespace Jellyfin.Plugin.Hue.Hue
                     var packet = ms.ToArray();
                     await _stdin.WriteAsync(packet, 0, packet.Length);
                     await _stdin.FlushAsync();
+
+                    // Store last sent colors for change detection
+                    _lastSentColors = new Dictionary<int, byte[]>();
+                    foreach (var kvp in channelColors)
+                    {
+                        _lastSentColors[kvp.Key] = (byte[])kvp.Value.Clone();
+                    }
                 }
             }
             catch (ObjectDisposedException)
