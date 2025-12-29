@@ -178,3 +178,83 @@ jobs:
         name: release-notes
         path: release-notes.md
         retention-days: 90
+
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: create-release-package
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Extract version from meta.json
+      id: version
+      run: |
+        VERSION=$(cat meta.json | grep -oP '"version":\s*"\K[^"]+')
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+        echo "Detected version: $VERSION"
+
+    - name: Download release package
+      uses: actions/download-artifact@v4
+      with:
+        name: release-package
+        path: ./
+
+    - name: Extract changelog for current version
+      id: changelog
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        if [ -f CHANGELOG.md ]; then
+          # Extract changelog section for current version
+          CHANGES=$(sed -n "/## \[${VERSION}\]/,/## \[/p" CHANGELOG.md | sed '$d' | tail -n +2)
+          if [ -z "$CHANGES" ]; then
+            CHANGES="See CHANGELOG.md for details."
+          fi
+        else
+          CHANGES=$(cat meta.json | grep -oP '"changelog":\s*"\K[^"]+' | sed 's/\\n/\n/g')
+        fi
+        echo "changes<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: Jellyfin Hue Sync v${{ steps.version.outputs.version }}
+        body: |
+          ## Jellyfin Philips Hue Sync Plugin v${{ steps.version.outputs.version }}
+
+          ### Changes
+          ${{ steps.changelog.outputs.changes }}
+
+          ### Installation
+          1. Download `jellyfin-plugin-hue-release.zip`
+          2. Extract to your Jellyfin plugins directory:
+             - **Linux**: `/var/lib/jellyfin/plugins/HueSync/`
+             - **Windows**: `%ProgramData%\Jellyfin\Server\plugins\HueSync\`
+             - **Docker**: `/config/plugins/HueSync/`
+          3. Restart Jellyfin
+          4. Configure the plugin in Dashboard → Plugins → Philips Hue Sync
+
+          ### Requirements
+          - Jellyfin 10.9.0+
+          - Philips Hue Bridge V2
+          - `ffmpeg` and `openssl` installed on server
+
+          ### What's Included
+          - `Jellyfin.Plugin.Hue.dll` - Main plugin assembly
+          - `meta.json` - Plugin metadata for Jellyfin
+          - Additional dependencies and documentation
+        files: |
+          jellyfin-plugin-hue-release.zip
+        draft: false
+        prerelease: false
+        fail_on_unmatched_files: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
