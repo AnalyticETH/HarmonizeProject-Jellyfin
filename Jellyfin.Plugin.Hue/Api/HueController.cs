@@ -1,11 +1,11 @@
 using System;
-using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Hue;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http; // Ensure this is available
+using System.Collections.Generic;
 
 namespace Jellyfin.Plugin.Hue.Api
 {
@@ -39,6 +39,30 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             return Ok(result);
+        }
+
+        [HttpGet("EntertainmentAreas")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> GetEntertainmentAreas(
+            [FromQuery(Name = "ip")] string? bridgeIp,
+            [FromQuery(Name = "appKey")] string? appKey)
+        {
+            bridgeIp ??= Plugin.Instance?.Configuration?.HueBridgeIp;
+            appKey ??= Plugin.Instance?.Configuration?.HueAppKey;
+
+            if (string.IsNullOrWhiteSpace(bridgeIp) || string.IsNullOrWhiteSpace(appKey))
+            {
+                return BadRequest("Bridge IP and app key are required before loading entertainment areas.");
+            }
+
+            var areas = await _hueClient.GetEntertainmentAreas(bridgeIp, appKey);
+            if (areas == null)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, "Could not contact the Hue bridge.");
+            }
+
+            return Ok(areas);
         }
     }
 

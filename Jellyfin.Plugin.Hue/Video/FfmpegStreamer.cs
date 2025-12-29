@@ -17,11 +17,22 @@ namespace Jellyfin.Plugin.Hue.Video
             _logger = logger;
         }
 
-        public Stream? StartFfmpeg(string videoPath, int fps = 20, string customFlags = "", string ffmpegPath = "ffmpeg")
+        public Stream? StartFfmpeg(string videoPath, int fps = 20, bool useGpu = true, string customFlags = "", string ffmpegPath = "ffmpeg")
         {
              // -vf scale=160:90 -f rawvideo -pix_fmt rgb24
              // Add -r {fps} and custom flags
-             var flags = string.IsNullOrEmpty(customFlags) ? "" : customFlags + " ";
+             var flagParts = new System.Collections.Generic.List<string>();
+             if (useGpu)
+             {
+                 flagParts.Add("-hwaccel auto");
+             }
+
+             if (!string.IsNullOrWhiteSpace(customFlags))
+             {
+                 flagParts.Add(customFlags.Trim());
+             }
+
+             var flags = flagParts.Count > 0 ? string.Join(" ", flagParts) + " " : string.Empty;
              var startInfo = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
