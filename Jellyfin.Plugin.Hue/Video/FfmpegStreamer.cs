@@ -14,10 +14,39 @@ namespace Jellyfin.Plugin.Hue.Video
     {
         private readonly ILogger<FfmpegStreamer> _logger;
         private Process? _ffmpegProcess;
+        private DateTime _lastFrameTime;
+        private long _framesProcessed = 0;
 
         public FfmpegStreamer(ILogger<FfmpegStreamer> logger)
         {
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Checks if FFmpeg process is healthy and running
+        /// </summary>
+        public bool IsHealthy()
+        {
+            if (_ffmpegProcess == null || _ffmpegProcess.HasExited)
+                return false;
+
+            // Check if we received frames recently (within 5 seconds)
+            var timeSinceLastFrame = DateTime.UtcNow - _lastFrameTime;
+            return timeSinceLastFrame.TotalSeconds < 5;
+        }
+
+        /// <summary>
+        /// Gets the number of frames processed
+        /// </summary>
+        public long FramesProcessed => _framesProcessed;
+
+        /// <summary>
+        /// Marks that a frame was just read
+        /// </summary>
+        public void MarkFrameRead()
+        {
+            _lastFrameTime = DateTime.UtcNow;
+            _framesProcessed++;
         }
 
         /// <summary>
@@ -73,6 +102,8 @@ namespace Jellyfin.Plugin.Hue.Video
             {
                 _ffmpegProcess = new Process { StartInfo = startInfo };
                 _ffmpegProcess.Start();
+                _lastFrameTime = DateTime.UtcNow;
+                _framesProcessed = 0;
 
                 // Log stderr asynchronously to help with debugging
                 _ = Task.Run(() =>
@@ -92,6 +123,19 @@ namespace Jellyfin.Plugin.Hue.Video
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Error reading FFmpeg stderr");
+                    }
+                });
+
+                // Monitor process health
+                _ = Task.Run(async () =>
+                {
+                    while (_ffmpegProcess != null && !_ffmpegProcess.HasExited)
+                    {
+                        await Task.Delay(10000); // Check every 10 seconds
+                        if (!IsHealthy())
+                        {
+                            _logger.LogWarning("FFmpeg appears stalled - no frames received in 5+ seconds. Processed {0} frames total.", _framesProcessed);
+                        }
                     }
                 });
 

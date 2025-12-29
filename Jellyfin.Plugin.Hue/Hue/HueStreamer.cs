@@ -19,10 +19,24 @@ namespace Jellyfin.Plugin.Hue.Hue
         private Process? _opensslProcess;
         private Stream? _stdin;
         private readonly object _lock = new object();
+        private PluginConfiguration? _lastConfig;
+        private int _reconnectAttempts = 0;
+        private const int MaxReconnectAttempts = 3;
 
         public HueStreamer(ILogger<HueStreamer> logger)
         {
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Checks if the DTLS stream is healthy and connected
+        /// </summary>
+        public bool IsHealthy()
+        {
+            lock (_lock)
+            {
+                return _opensslProcess != null && !_opensslProcess.HasExited && _stdin != null;
+            }
         }
 
         /// <summary>
@@ -43,6 +57,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                 return;
             }
 
+            _lastConfig = config;
+
             try
             {
                 var startInfo = new ProcessStartInfo
@@ -60,12 +76,38 @@ namespace Jellyfin.Plugin.Hue.Hue
                 _opensslProcess.Start();
                 _stdin = _opensslProcess.StandardInput.BaseStream;
 
+                _reconnectAttempts = 0; // Reset on successful start
                 _logger.LogInformation("OpenSSL DTLS Tunnel started to {0}:2100", config.HueBridgeIp);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start OpenSSL process. Ensure openssl is installed.");
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to reconnect the DTLS stream if it has failed
+        /// </summary>
+        private bool TryReconnect()
+        {
+            if (_lastConfig == null || _reconnectAttempts >= MaxReconnectAttempts)
+                return false;
+
+            _reconnectAttempts++;
+            _logger.LogWarning("Attempting to reconnect DTLS stream (attempt {0}/{1})", _reconnectAttempts, MaxReconnectAttempts);
+
+            try
+            {
+                StopStream();
+                Thread.Sleep(1000 * _reconnectAttempts); // Exponential backoff
+                StartStream(_lastConfig);
+                return IsHealthy();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Reconnection attempt {0} failed", _reconnectAttempts);
+                return false;
             }
         }
 
@@ -100,6 +142,17 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="channelColors">Dictionary mapping channel IDs to RGB color data (6 bytes per channel)</param>
         public async Task SendColors(string areaId, Dictionary<int, byte[]> channelColors)
         {
+            // Check health and try to reconnect if needed
+            if (!IsHealthy())
+            {
+                _logger.LogWarning("DTLS stream unhealthy, attempting reconnect");
+                if (!TryReconnect())
+                {
+                    _logger.LogError("Failed to reconnect DTLS stream after {0} attempts", MaxReconnectAttempts);
+                    return;
+                }
+            }
+
             if (_stdin == null)
             {
                 _logger.LogWarning("Cannot send colors: DTLS stream not initialized");
@@ -148,7 +201,8 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
             catch (IOException ex)
             {
-                _logger.LogWarning(ex, "IO error sending colors to bridge, stream may be closed");
+                _logger.LogWarning(ex, "IO error sending colors to bridge, attempting reconnect");
+                TryReconnect();
             }
             catch (Exception ex)
             {

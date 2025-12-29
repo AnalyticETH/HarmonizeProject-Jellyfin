@@ -2,7 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.2.0] - 2024-12-29
+
+### Added
+- **Cinema Mode**: Automatically dims lights to configured level when playback starts and restores them when playback stops
+- **Automatic Reconnection**: DTLS tunnel automatically reconnects on failure with exponential backoff (up to 3 attempts)
+- **Health Monitoring**: Real-time monitoring of FFmpeg and OpenSSL processes with stall detection
+- **Configuration Validation**: Comprehensive validation with helpful error messages for all settings
+- **Performance Metrics**: Frame counter and processing statistics for debugging
+- **Performance Optimizations**:
+  - Optimized color calculation loops with pre-calculated row starts
+  - Better frame delay handling to prevent sync lag
+  - Improved memory access patterns
+
+### Improved
+- Enhanced logging with frame counts and health status
+- Better process lifecycle management with health checks
+- More robust error recovery throughout the plugin
+
+## [1.1.0] - 2024-12-29
 
 ### Fixed
 - **Critical Bug Fix**: Fixed coordinate parsing in HueSyncService.cs where `y` coordinate was used instead of `z` for vertical positioning (line 97). Now correctly maps x (horizontal) and z (vertical) to the 2D screen plane, matching HarmonizeProject implementation.
