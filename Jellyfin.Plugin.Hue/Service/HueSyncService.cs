@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -24,16 +25,17 @@ namespace Jellyfin.Plugin.Hue.Service
 
         private FfmpegStreamer? _ffmpegStreamer;
         private HueStreamer? _hueStreamer;
-        private HueClient? _hueClient;
+        private readonly HueClient _hueClient;
         private CancellationTokenSource? _syncCts;
         private readonly ILoggerFactory _loggerFactory;
+        private string? _currentPlaySessionId;
 
         public HueSyncService(ISessionManager sessionManager, ILogger<HueSyncService> logger, ILoggerFactory loggerFactory, HueClient hueClient)
         {
-            _sessionManager = sessionManager;
-            _logger = logger;
-            _loggerFactory = loggerFactory;
-            _hueClient = hueClient;
+            _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+            _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -60,88 +62,20 @@ namespace Jellyfin.Plugin.Hue.Service
             return Task.CompletedTask;
         }
 
-        private async void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
+        private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
         {
             _logger.LogInformation("Playback started for item {0}", e.Item.Name);
-
-            var config = Plugin.Instance?.Configuration;
-            if (config == null || !config.SyncEnabled)
-            {
-                _logger.LogInformation("Hue Sync disabled, skipping.");
-                return;
-            }
-
-            // Validate configuration
-            var validationErrors = config.Validate();
-            if (validationErrors.Count > 0)
-            {
-                _logger.LogWarning("Configuration validation failed: {0}", string.Join(", ", validationErrors));
-                return;
-            }
-
-            StopSync(); // Ensure previous stopped
-            _syncCts = new CancellationTokenSource();
-
-            try
-            {
-                // 1. Get Light Positions
-                var areaConfig = await _hueClient!.GetEntertainmentConfiguration(config.HueBridgeIp, config.HueAppKey, config.EntertainmentAreaId);
-                if (areaConfig == null) return;
-
-                // Cinema mode: Dim lights before starting sync
-                if (config.UseCinemaMode)
-                {
-                    _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", config.BrightnessDimLevel);
-                    await ApplyCinemaMode(config, areaConfig.Value);
-                }
-                
-                // Parse lights
-                // Expected: areaConfig is specific "data" element.
-                // "channels": [ { "channel_id": 0, "position": { "x": 0.5, "y": 0.5, "z": 0.0 } } ]
-                // Note: We use x (horizontal) and z (vertical) for the 2D screen plane, matching HarmonizeProject
-                var lights = new Dictionary<int, (double x, double z)>();
-                if (areaConfig.Value.TryGetProperty("channels", out var channels))
-                {
-                   int idx = 0;
-                   foreach (var channel in channels.EnumerateArray())
-                   {
-                       var channelId = channel.GetProperty("channel_id").GetInt32();
-                       var pos = channel.GetProperty("position");
-                       var x = pos.GetProperty("x").GetDouble();
-                       var z = pos.GetProperty("z").GetDouble();
-                       lights[channelId] = (x, z);
-                       idx++;
-                   }
-                }
-
-                // 2. Start Hue Streamer
-                _hueStreamer!.StartStream(config);
-
-                // 3. Start FFmpeg
-                // e.MediaInfo.Path? e.Item.Path?
-                // Need to verify where file path is.
-                var path = e.Item.Path; // Usually works for File items
-                if (string.IsNullOrEmpty(path)) 
-                {
-                     _logger.LogWarning("No media path found for item.");
-                     return;
-                }
-                
-                var videoStream = _ffmpegStreamer!.StartFfmpeg(path, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags);
-                if (videoStream == null) return;
-
-                // 4. Start Loop
-                _ = Task.Run(() => RunSyncLoop(videoStream, lights, config.EntertainmentAreaId, _syncCts.Token));
-
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to start Hue Sync");
-            }
+            _currentPlaySessionId = e.PlaySessionId;
+            _ = StartSyncForItem(e);
         }
 
         private async void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
         {
+            if (_currentPlaySessionId != null && !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
             _logger.LogInformation("Playback stopped for item {0}", e.Item?.Name ?? "Unknown");
 
             var config = Plugin.Instance?.Configuration;
@@ -158,17 +92,22 @@ namespace Jellyfin.Plugin.Hue.Service
 
         private void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
         {
+            if (_currentPlaySessionId != null && !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
             // Handle pause/unpause events
             if (e.IsPaused && _syncCts != null && !_syncCts.IsCancellationRequested)
             {
-                _logger.LogInformation("Playback paused, pausing light sync");
-                _syncCts?.Cancel();
+                _logger.LogInformation("Playback paused, stopping light sync");
+                StopSync();
             }
             else if (!e.IsPaused && _syncCts == null)
             {
                 _logger.LogInformation("Playback resumed, restarting light sync");
-                // Note: We don't restart from progress event to avoid complexity
-                // The user can restart playback if needed
+                _currentPlaySessionId = e.PlaySessionId;
+                _ = StartSyncForItem(e);
             }
         }
 
@@ -178,6 +117,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _ffmpegStreamer?.Stop();
             _hueStreamer?.StopStream();
             _syncCts = null;
+            _currentPlaySessionId = null;
         }
 
         /// <summary>
@@ -221,7 +161,7 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             try
             {
-                var areaConfig = await _hueClient!.GetEntertainmentConfiguration(config.HueBridgeIp, config.HueAppKey, config.EntertainmentAreaId);
+                var areaConfig = await _hueClient.GetEntertainmentConfiguration(config.HueBridgeIp, config.HueAppKey, config.EntertainmentAreaId);
                 if (areaConfig == null || !areaConfig.Value.TryGetProperty("channels", out var channels))
                     return;
 
@@ -245,7 +185,7 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private async Task RunSyncLoop(Stream videoStream, Dictionary<int, (double x, double z)> lights, string areaId, CancellationToken token)
+        private async Task RunSyncLoop(Stream videoStream, Dictionary<int, (double x, double z)> lights, string areaId, int targetFrameDurationMs, CancellationToken token)
         {
             int w = 160;
             int h = 90;
@@ -258,10 +198,12 @@ namespace Jellyfin.Plugin.Hue.Service
             int avgSize = (w + h) / 2;
             int dist = (int)(breadth * avgSize);
             
-            try 
+            try
             {
                 while (!token.IsCancellationRequested)
                 {
+                    var loopTimer = Stopwatch.StartNew();
+
                     // Read full frame
                     int bytesRead = 0;
                     while (bytesRead < frameSize)
@@ -329,16 +271,112 @@ namespace Jellyfin.Plugin.Hue.Service
 
                     await _hueStreamer!.SendColors(areaId, channelColors);
 
-                    // Throttle to match target FPS - but skip if processing already took enough time
-                    // This prevents sync loop from falling behind
-                    var frameDelay = 1000 / 20; // Default ~50ms for 20 FPS
-                    await Task.Delay(frameDelay, token); 
+                    var elapsedMs = loopTimer.ElapsedMilliseconds;
+                    if (targetFrameDurationMs > 0)
+                    {
+                        var remaining = targetFrameDurationMs - (int)Math.Min(int.MaxValue, elapsedMs);
+                        if (remaining > 0)
+                        {
+                            await Task.Delay(remaining, token);
+                        }
+                    }
                 }
             }
             catch (TaskCanceledException) {}
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in Sync Loop");
+            }
+        }
+
+        private async Task StartSyncForItem(PlaybackProgressEventArgs e)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null || !config.SyncEnabled)
+            {
+                _logger.LogInformation("Hue Sync disabled, skipping.");
+                return;
+            }
+
+            if (_hueStreamer == null || _ffmpegStreamer == null)
+            {
+                _logger.LogWarning("Hue sync helpers are not initialized yet");
+                return;
+            }
+
+            var validationErrors = config.Validate();
+            if (validationErrors.Count > 0)
+            {
+                _logger.LogWarning("Configuration validation failed: {0}", string.Join(", ", validationErrors));
+                return;
+            }
+
+            var videoPath = e.Item?.Path;
+            if (string.IsNullOrWhiteSpace(videoPath))
+            {
+                _logger.LogWarning("Unable to determine media path for playback item {0}", e.Item?.Name ?? "Unknown");
+                return;
+            }
+
+            StopSync();
+            _currentPlaySessionId = e.PlaySessionId;
+            _syncCts = new CancellationTokenSource();
+
+            try
+            {
+                var areaConfig = await _hueClient.GetEntertainmentConfiguration(config.HueBridgeIp, config.HueAppKey, config.EntertainmentAreaId);
+                if (areaConfig == null)
+                {
+                    _logger.LogWarning("Failed to load entertainment configuration from bridge");
+                    return;
+                }
+
+                if (config.UseCinemaMode)
+                {
+                    _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", config.BrightnessDimLevel);
+                    await ApplyCinemaMode(config, areaConfig.Value);
+                }
+
+                var lights = new Dictionary<int, (double x, double z)>();
+                if (areaConfig.Value.TryGetProperty("channels", out var channels))
+                {
+                    foreach (var channel in channels.EnumerateArray())
+                    {
+                        var channelId = channel.GetProperty("channel_id").GetInt32();
+                        var pos = channel.GetProperty("position");
+                        var x = pos.GetProperty("x").GetDouble();
+                        var z = pos.GetProperty("z").GetDouble();
+                        lights[channelId] = (x, z);
+                    }
+                }
+
+                if (lights.Count == 0)
+                {
+                    _logger.LogWarning("Entertainment area {0} returned no channels to control", config.EntertainmentAreaId);
+                    return;
+                }
+
+                _hueStreamer!.StartStream(config);
+
+                var targetFrameDurationMs = config.TargetFps > 0
+                    ? 1000 / Math.Clamp(config.TargetFps, 1, 60)
+                    : 50;
+
+                var videoStream = _ffmpegStreamer!.StartFfmpeg(videoPath, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags);
+                if (videoStream == null)
+                {
+                    _logger.LogWarning("FFmpeg stream could not be started for path {0}", videoPath);
+                    StopSync();
+                    return;
+                }
+
+                var token = _syncCts.Token;
+                _ = Task.Run(() => RunSyncLoop(videoStream, lights, config.EntertainmentAreaId, targetFrameDurationMs, token), token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error starting Hue sync session");
+                StopSync();
             }
         }
     }
