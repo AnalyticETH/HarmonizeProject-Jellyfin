@@ -1,0 +1,386 @@
+using Jellyfin.Plugin.Hue.Configuration;
+using Xunit;
+
+namespace Jellyfin.Plugin.Hue.Tests;
+
+public class PluginConfigurationTests
+{
+    [Fact]
+    public void Validate_WhenSyncDisabled_ReturnsNoErrors()
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = false
+            // All other fields can be invalid
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.True(config.IsValid());
+    }
+
+    [Fact]
+    public void Validate_WhenSyncEnabledWithValidConfig_ReturnsNoErrors()
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-app-key",
+            HueClientKey = "test-client-key",
+            EntertainmentAreaId = "test-area-id",
+            TargetFps = 20,
+            BrightnessDimLevel = 30,
+            BrightnessBoost = 100,
+            ColorSaturation = 100,
+            BlackoutThreshold = 15,
+            ColorChangeThreshold = 10,
+            NetworkRetryAttempts = 3
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.True(config.IsValid());
+    }
+
+    [Fact]
+    public void Validate_WhenHueBridgeIpMissing_ReturnsError()
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id"
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Hue Bridge IP is required when sync is enabled", errors);
+        Assert.False(config.IsValid());
+    }
+
+    [Fact]
+    public void Validate_WhenHueBridgeIpInvalid_ReturnsError()
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "invalid-ip-address",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id"
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Hue Bridge IP must be a valid IP address", errors);
+    }
+
+    [Fact]
+    public void Validate_WhenHueAppKeyMissing_ReturnsError()
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id"
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Hue App Key is required. Use the 'Link Bridge' button to generate credentials", errors);
+    }
+
+    [Fact]
+    public void Validate_WhenHueClientKeyMissing_ReturnsError()
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "",
+            EntertainmentAreaId = "test-id"
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Hue Client Key is required for streaming. Use the 'Link Bridge' button to generate credentials", errors);
+    }
+
+    [Fact]
+    public void Validate_WhenEntertainmentAreaIdMissing_ReturnsError()
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = ""
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Entertainment Area ID is required. Select an area from the dropdown or enter manually", errors);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(61)]
+    [InlineData(100)]
+    public void Validate_WhenTargetFpsOutOfRange_ReturnsError(int fps)
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            TargetFps = fps
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Target FPS must be between 1 and 60", errors);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(30)]
+    [InlineData(60)]
+    public void Validate_WhenTargetFpsValid_NoError(int fps)
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            TargetFps = fps
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.DoesNotContain("Target FPS", errors.ToString());
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void Validate_WhenBrightnessDimLevelOutOfRange_ReturnsError(int level)
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            BrightnessDimLevel = level
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Brightness dim level must be between 0 and 100", errors);
+    }
+
+    [Theory]
+    [InlineData(49)]
+    [InlineData(201)]
+    public void Validate_WhenBrightnessBoostOutOfRange_ReturnsError(int boost)
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            BrightnessBoost = boost
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Brightness boost must be between 50 and 200", errors);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(201)]
+    public void Validate_WhenColorSaturationOutOfRange_ReturnsError(int saturation)
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            ColorSaturation = saturation
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Color saturation must be between 0 and 200", errors);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(256)]
+    public void Validate_WhenBlackoutThresholdOutOfRange_ReturnsError(int threshold)
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            BlackoutThreshold = threshold
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Blackout threshold must be between 0 and 255", errors);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(256)]
+    public void Validate_WhenColorChangeThresholdOutOfRange_ReturnsError(int threshold)
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            ColorChangeThreshold = threshold
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Color change threshold must be between 0 and 255", errors);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(11)]
+    public void Validate_WhenNetworkRetryAttemptsOutOfRange_ReturnsError(int attempts)
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            NetworkRetryAttempts = attempts
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.Contains("Network retry attempts must be between 0 and 10", errors);
+    }
+
+    [Fact]
+    public void Validate_WithMultipleErrors_ReturnsAllErrors()
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "",
+            HueAppKey = "",
+            HueClientKey = "",
+            EntertainmentAreaId = "",
+            TargetFps = 0,
+            BrightnessDimLevel = -1,
+            BrightnessBoost = 300,
+            ColorSaturation = -50
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.True(errors.Count >= 5); // At least 5 validation errors
+    }
+
+    [Fact]
+    public void Constructor_SetsDefaultValues()
+    {
+        // Arrange & Act
+        var config = new PluginConfiguration();
+
+        // Assert
+        Assert.False(config.SyncEnabled);
+        Assert.True(config.UseCinemaMode);
+        Assert.True(config.RestoreLightState);
+        Assert.Equal(30, config.BrightnessDimLevel);
+        Assert.Equal(20, config.TargetFps);
+        Assert.True(config.UseGpu);
+        Assert.Equal(100, config.BrightnessBoost);
+        Assert.Equal(100, config.ColorSaturation);
+        Assert.Equal(15, config.BlackoutThreshold);
+        Assert.Equal(10, config.ColorChangeThreshold);
+        Assert.Equal(3, config.NetworkRetryAttempts);
+    }
+}

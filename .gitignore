@@ -1,0 +1,63 @@
+# .NET build artifacts
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.docstates
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# NuGet packages
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.DotSettings.user
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rm/
+[Aa]rm64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.vsidx
+*.vspscc
+*.vsscc
+*.sln.docstates
+
+# Publish artifacts
+publish/
+release-package/
+*.zip
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Security
+*.pfx
+*.key
+*.pem
+credentials.json
+.env

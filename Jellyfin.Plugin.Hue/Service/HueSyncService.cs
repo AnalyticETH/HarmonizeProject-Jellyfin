@@ -320,9 +320,9 @@ namespace Jellyfin.Plugin.Hue.Service
                             if (config.ColorSaturation != 100)
                             {
                                 // Convert to HSL, adjust saturation, convert back to RGB
-                                var (h, s, l) = RgbToHsl(r / 255.0, g / 255.0, b / 255.0);
-                                s = Math.Clamp(s * (config.ColorSaturation / 100.0), 0, 1);
-                                var (r2, g2, b2) = HslToRgb(h, s, l);
+                                var (hue, sat, lightness) = RgbToHsl(r / 255.0, g / 255.0, b / 255.0);
+                                sat = Math.Clamp(sat * (config.ColorSaturation / 100.0), 0, 1);
+                                var (r2, g2, b2) = HslToRgb(hue, sat, lightness);
                                 r = r2 * 255;
                                 g = g2 * 255;
                                 b = b2 * 255;
@@ -473,7 +473,7 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Converts RGB color to HSL (Hue, Saturation, Lightness)
         /// </summary>
-        private (double h, double s, double l) RgbToHsl(double r, double g, double b)
+        internal (double h, double s, double l) RgbToHsl(double r, double g, double b)
         {
             double max = Math.Max(r, Math.Max(g, b));
             double min = Math.Min(r, Math.Min(g, b));
@@ -501,7 +501,7 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Converts HSL color to RGB
         /// </summary>
-        private (double r, double g, double b) HslToRgb(double h, double s, double l)
+        internal (double r, double g, double b) HslToRgb(double h, double s, double l)
         {
             double r, g, b;
 
@@ -524,7 +524,7 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Helper method for HSL to RGB conversion
         /// </summary>
-        private double HueToRgb(double p, double q, double t)
+        internal double HueToRgb(double p, double q, double t)
         {
             if (t < 0) t += 1;
             if (t > 1) t -= 1;
