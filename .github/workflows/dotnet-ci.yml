@@ -141,9 +141,9 @@ jobs:
     - name: Create plugin package
       run: |
         mkdir -p release-package
-        cp -r Jellyfin.Plugin.Hue/bin/Release/net8.0/* release-package/
-        cp meta.json release-package/ || true
-        cp README.md release-package/ || true
+        # Only include the DLL and meta.json (Jellyfin requirements)
+        cp Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll release-package/
+        cp meta.json release-package/
 
     - name: Create zip archive
       run: |
@@ -249,8 +249,7 @@ jobs:
 
           ### What's Included
           - `Jellyfin.Plugin.Hue.dll` - Main plugin assembly
-          - `meta.json` - Plugin metadata for Jellyfin
-          - Additional dependencies and documentation
+          - `meta.json` - Plugin metadata (required by Jellyfin)
         files: |
           jellyfin-plugin-hue-release.zip
         draft: false
