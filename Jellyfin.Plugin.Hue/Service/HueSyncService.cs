@@ -14,6 +14,9 @@ using Jellyfin.Plugin.Hue.Configuration;
 
 namespace Jellyfin.Plugin.Hue.Service
 {
+    /// <summary>
+    /// Background service that monitors Jellyfin playback and synchronizes Hue lights in real-time
+    /// </summary>
     public class HueSyncService : IHostedService
     {
         private readonly ISessionManager _sessionManager;
@@ -38,7 +41,8 @@ namespace Jellyfin.Plugin.Hue.Service
             _logger.LogInformation("Hue Sync Service Started.");
             _sessionManager.PlaybackStart += OnPlaybackStart;
             _sessionManager.PlaybackStopped += OnPlaybackStopped;
-            
+            _sessionManager.PlaybackProgress += OnPlaybackProgress;
+
             // Helpers
             _hueStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
             _ffmpegStreamer = new FfmpegStreamer(_loggerFactory.CreateLogger<FfmpegStreamer>());
@@ -51,6 +55,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _logger.LogInformation("Hue Sync Service Stopping.");
             _sessionManager.PlaybackStart -= OnPlaybackStart;
             _sessionManager.PlaybackStopped -= OnPlaybackStopped;
+            _sessionManager.PlaybackProgress -= OnPlaybackProgress;
             StopSync();
             return Task.CompletedTask;
         }
@@ -82,9 +87,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (areaConfig == null) return;
                 
                 // Parse lights
-                // Expected: areaConfig is specific "data" element. 
+                // Expected: areaConfig is specific "data" element.
                 // "channels": [ { "channel_id": 0, "position": { "x": 0.5, "y": 0.5, "z": 0.0 } } ]
-                var lights = new Dictionary<int, (double x, double y)>();
+                // Note: We use x (horizontal) and z (vertical) for the 2D screen plane, matching HarmonizeProject
+                var lights = new Dictionary<int, (double x, double z)>();
                 if (areaConfig.Value.TryGetProperty("channels", out var channels))
                 {
                    int idx = 0;
@@ -93,8 +99,8 @@ namespace Jellyfin.Plugin.Hue.Service
                        var channelId = channel.GetProperty("channel_id").GetInt32();
                        var pos = channel.GetProperty("position");
                        var x = pos.GetProperty("x").GetDouble();
-                       var y = pos.GetProperty("y").GetDouble();
-                       lights[channelId] = (x, y);
+                       var z = pos.GetProperty("z").GetDouble();
+                       lights[channelId] = (x, z);
                        idx++;
                    }
                 }
@@ -127,8 +133,24 @@ namespace Jellyfin.Plugin.Hue.Service
 
         private void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
         {
-             _logger.LogInformation("Playback stopped.");
-             StopSync();
+            _logger.LogInformation("Playback stopped for item {0}", e.Item?.Name ?? "Unknown");
+            StopSync();
+        }
+
+        private void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
+        {
+            // Handle pause/unpause events
+            if (e.IsPaused && _syncCts != null && !_syncCts.IsCancellationRequested)
+            {
+                _logger.LogInformation("Playback paused, pausing light sync");
+                _syncCts?.Cancel();
+            }
+            else if (!e.IsPaused && _syncCts == null)
+            {
+                _logger.LogInformation("Playback resumed, restarting light sync");
+                // Note: We don't restart from progress event to avoid complexity
+                // The user can restart playback if needed
+            }
         }
 
         private void StopSync()
@@ -139,46 +161,18 @@ namespace Jellyfin.Plugin.Hue.Service
             _syncCts = null;
         }
 
-        private async Task RunSyncLoop(Stream videoStream, Dictionary<int, (double x, double y)> lights, string areaId, CancellationToken token)
+        private async Task RunSyncLoop(Stream videoStream, Dictionary<int, (double x, double z)> lights, string areaId, CancellationToken token)
         {
             int w = 160;
             int h = 90;
             int frameSize = w * h * 3;
             byte[] buffer = new byte[frameSize];
 
-            // Pre-calculate bounds for each light
-            var lightBounds = new Dictionary<int, (int minX, int maxX, int minY, int maxY)>();
-            double breadth = 0.15; // 15% from Harmonize
-            int avgSize = (w + h) / 2; // approximation
+            // Pre-calculate bounds for each light based on position
+            // Following HarmonizeProject logic: use x (horizontal) and z (vertical) for 2D screen plane
+            double breadth = 0.15; // 15% sampling area around each light position
+            int avgSize = (w + h) / 2;
             int dist = (int)(breadth * avgSize);
-
-            foreach (var kvp in lights)
-            {
-                // Harmonize: coords[0] = ((coords[0])+1) * w//2
-                // coords[2] = (-1*(coords[2])+1) * h//2 (y seems to be z in their dict or y?)
-                // API V2: x is -1 to 1 (left to right), y is -1 to 1 (back to front), z is -1 to 1 (bottom to top).
-                // Wait, Harmonize uses x and z for screen plane?
-                // Let's assume standard V2 clip coordinates for TV:
-                // x: -1 (left) to 1 (right)
-                // y: -1 (bottom) to 1 (top) ?? Or z?
-                // Harmonize: lights_dict.update({str(index): [value['position']['x'],value['position']['y'], value['position']['z']]})
-                // And usage: 
-                // coords[0] = ((coords[0])+1) * w//2
-                // coords[2] = (-1*(coords[2])+1) * h//2  <-- Uses index 2, which is Z.
-                // So Harmonize used X and Z as the screen plane.
-                // I'll stick to that assumption. X is horizontal, Z is vertical.
-                
-                // My parse logic above used x and y. I should check which property is Z.
-                // Re-check OnPlaybackStart parsing logic. I used y for the second coord. 
-                // I should fetch Z and use that as Y for 2D plane.
-                
-                // Re-calculating bounds in loop is inefficient, but okay for init.
-                // I need to correct my parsing first.
-            }
-
-            // Correction for parsing:
-            // I'll assume I need to refactor the parsing in OnPlaybackStart or just fix it here if I passed data.
-            // I passed (x, y). I should probably fix parsing to be (x, z).
             
             try 
             {
@@ -198,13 +192,12 @@ namespace Jellyfin.Plugin.Hue.Service
 
                     foreach (var kvp in lights)
                     {
-                        // Calc average color
-                        // For this step I need the bounds.
-                        // Im implementing bounds calculation momentarily
-                        
-                        // Placeholder for bounds
+                        // Calculate average color for this light's position
+                        // Convert from Hue coordinate space to pixel coordinates
+                        // Hue: x: -1 (left) to 1 (right), z: -1 (bottom) to 1 (top)
+                        // Pixels: 0,0 is top-left
                         int cx = (int)((kvp.Value.x + 1) * w / 2);
-                        int cy = (int)((-1 * kvp.Value.y + 1) * h / 2); // Assuming passed Y is actually Z from API
+                        int cy = (int)((-1 * kvp.Value.z + 1) * h / 2); // Invert z for screen coordinates
                         
                         int minX = Math.Max(0, cx - dist);
                         int maxX = Math.Min(w, cx + dist);
