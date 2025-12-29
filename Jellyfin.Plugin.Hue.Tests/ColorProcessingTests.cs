@@ -88,10 +88,10 @@ public class ColorProcessingTests : IDisposable
     }
 
     [Theory]
-    [InlineData(0.2, 0.8, 0.1, 0.44)] // t < 1/6
-    [InlineData(0.2, 0.8, 0.4, 0.8)] // t < 1/2
-    [InlineData(0.2, 0.8, 0.6, 0.68)] // t < 2/3
-    [InlineData(0.2, 0.8, 0.9, 0.2)] // t > 2/3
+    [InlineData(0.2, 0.8, 0.1, 0.56)] // t < 1/6: p + (q-p)*6*t = 0.2 + 0.6*0.6 = 0.56
+    [InlineData(0.2, 0.8, 0.4, 0.8)] // t < 1/2: returns q
+    [InlineData(0.2, 0.8, 0.6, 0.44)] // t < 2/3: p + (q-p)*(2/3-t)*6 = 0.2 + 0.6*0.067*6 = 0.44
+    [InlineData(0.2, 0.8, 0.9, 0.2)] // t > 2/3: returns p
     public void HueToRgb_CalculatesCorrectly(double p, double q, double t, double expected)
     {
         // Act
