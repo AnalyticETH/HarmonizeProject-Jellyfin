@@ -320,9 +320,9 @@ namespace Jellyfin.Plugin.Hue.Service
                             if (config.ColorSaturation != 100)
                             {
                                 // Convert to HSL, adjust saturation, convert back to RGB
-                                var (h, s, l) = RgbToHsl(r / 255.0, g / 255.0, b / 255.0);
-                                s = Math.Clamp(s * (config.ColorSaturation / 100.0), 0, 1);
-                                var (r2, g2, b2) = HslToRgb(h, s, l);
+                                var (hue, sat, lightness) = RgbToHsl(r / 255.0, g / 255.0, b / 255.0);
+                                sat = Math.Clamp(sat * (config.ColorSaturation / 100.0), 0, 1);
+                                var (r2, g2, b2) = HslToRgb(hue, sat, lightness);
                                 r = r2 * 255;
                                 g = g2 * 255;
                                 b = b2 * 255;
