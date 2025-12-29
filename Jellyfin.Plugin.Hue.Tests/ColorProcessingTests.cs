@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.Hue.Service;
+using Jellyfin.Plugin.Hue.Hue;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -6,18 +7,20 @@ using Xunit;
 
 namespace Jellyfin.Plugin.Hue.Tests;
 
-public class ColorProcessingTests
+public class ColorProcessingTests : IDisposable
 {
     private readonly HueSyncService _service;
+    private readonly HttpClient _httpClient;
 
     public ColorProcessingTests()
     {
         var mockSessionManager = new Mock<ISessionManager>();
         var mockLogger = new Mock<ILogger<HueSyncService>>();
         var mockLoggerFactory = new Mock<ILoggerFactory>();
-        var mockHueClient = new Mock<Jellyfin.Plugin.Hue.Hue.HueClient>(
-            mockLoggerFactory.Object.CreateLogger<Jellyfin.Plugin.Hue.Hue.HueClient>()
-        );
+        var mockHueClientLogger = new Mock<ILogger<HueClient>>();
+
+        _httpClient = new HttpClient();
+        var hueClient = new HueClient(_httpClient, mockHueClientLogger.Object);
 
         mockLoggerFactory.Setup(x => x.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
 
@@ -25,8 +28,13 @@ public class ColorProcessingTests
             mockSessionManager.Object,
             mockLogger.Object,
             mockLoggerFactory.Object,
-            mockHueClient.Object
+            hueClient
         );
+    }
+
+    public void Dispose()
+    {
+        _httpClient?.Dispose();
     }
 
     [Theory]
