@@ -19,6 +19,24 @@ namespace Jellyfin.Plugin.Hue.Service
     /// </summary>
     public class HueSyncService : IHostedService
     {
+        // Video frame processing constants
+        private const int FrameWidth = 160;
+        private const int FrameHeight = 90;
+        private const int BytesPerPixel = 3; // RGB24 format
+        private const double SamplingBreadth = 0.15; // 15% sampling area around each light position
+
+        // Timing constants
+        private const int CinemaModeDimmingDelayMs = 500;
+        private const int RestoreLightsDelayMs = 300;
+        private const int DefaultTargetFps = 20;
+        private const int MinFps = 1;
+        private const int MaxFps = 60;
+        private const int DefaultFrameDurationMs = 50;
+
+        // Color processing constants
+        private const int ColorDivisor = 2; // Divide by 2 for 16-bit color compatibility
+        private const int FullBrightnessValue = 127; // Full brightness for 16-bit representation
+
         private readonly ISessionManager _sessionManager;
         private readonly ILogger<HueSyncService> _logger;
 
@@ -166,7 +184,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 // Send dim command before starting stream
-                await SendTemporaryColors(config, channelColors, 500);
+                await SendTemporaryColors(config, channelColors, CinemaModeDimmingDelayMs);
             }
             catch (Exception ex)
             {
@@ -190,10 +208,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     var channelId = channel.GetProperty("channel_id").GetInt32();
                     // Full white
-                    channelColors[channelId] = new byte[] { 127, 127, 127, 127, 127, 127 };
+                    channelColors[channelId] = new byte[] { FullBrightnessValue, FullBrightnessValue, FullBrightnessValue, FullBrightnessValue, FullBrightnessValue, FullBrightnessValue };
                 }
 
-                await SendTemporaryColors(config, channelColors, 300);
+                await SendTemporaryColors(config, channelColors, RestoreLightsDelayMs);
             }
             catch (Exception ex)
             {
@@ -203,16 +221,13 @@ namespace Jellyfin.Plugin.Hue.Service
 
         private async Task RunSyncLoop(Stream videoStream, Dictionary<int, (double x, double z)> lights, string areaId, int targetFrameDurationMs, CancellationToken token)
         {
-            int w = 160;
-            int h = 90;
-            int frameSize = w * h * 3;
+            int frameSize = FrameWidth * FrameHeight * BytesPerPixel;
             byte[] buffer = new byte[frameSize];
 
             // Pre-calculate bounds for each light based on position
             // Following HarmonizeProject logic: use x (horizontal) and z (vertical) for 2D screen plane
-            double breadth = 0.15; // 15% sampling area around each light position
-            int avgSize = (w + h) / 2;
-            int dist = (int)(breadth * avgSize);
+            int avgSize = (FrameWidth + FrameHeight) / 2;
+            int dist = (int)(SamplingBreadth * avgSize);
             
             try
             {
@@ -246,13 +261,13 @@ namespace Jellyfin.Plugin.Hue.Service
                         // Convert from Hue coordinate space to pixel coordinates
                         // Hue: x: -1 (left) to 1 (right), z: -1 (bottom) to 1 (top)
                         // Pixels: 0,0 is top-left
-                        int cx = (int)((kvp.Value.x + 1) * w / 2);
-                        int cy = (int)((-1 * kvp.Value.z + 1) * h / 2); // Invert z for screen coordinates
+                        int cx = (int)((kvp.Value.x + 1) * FrameWidth / 2);
+                        int cy = (int)((-1 * kvp.Value.z + 1) * FrameHeight / 2); // Invert z for screen coordinates
 
                         int minX = Math.Max(0, cx - dist);
-                        int maxX = Math.Min(w, cx + dist);
+                        int maxX = Math.Min(FrameWidth, cx + dist);
                         int minY = Math.Max(0, cy - dist);
-                        int maxY = Math.Min(h, cy + dist);
+                        int maxY = Math.Min(FrameHeight, cy + dist);
 
                         long rSum = 0, gSum = 0, bSum = 0;
                         int count = 0;
@@ -260,10 +275,10 @@ namespace Jellyfin.Plugin.Hue.Service
                         // RGB24: R, G, B - Optimized tight loop
                         for (int y = minY; y < maxY; y++)
                         {
-                            int rowStart = y * w * 3;
+                            int rowStart = y * FrameWidth * BytesPerPixel;
                             for (int x = minX; x < maxX; x++)
                             {
-                                int idx = rowStart + x * 3;
+                                int idx = rowStart + x * BytesPerPixel;
                                 rSum += buffer[idx];
                                 gSum += buffer[idx + 1];
                                 bSum += buffer[idx + 2];
@@ -332,9 +347,9 @@ namespace Jellyfin.Plugin.Hue.Service
                             }
 
                             // Format following HarmonizeProject: divide by 2 for 16-bit color compatibility
-                            byte r16 = (byte)(Math.Clamp(r, 0, 255) / 2);
-                            byte g16 = (byte)(Math.Clamp(g, 0, 255) / 2);
-                            byte b16 = (byte)(Math.Clamp(b, 0, 255) / 2);
+                            byte r16 = (byte)(Math.Clamp(r, 0, 255) / ColorDivisor);
+                            byte g16 = (byte)(Math.Clamp(g, 0, 255) / ColorDivisor);
+                            byte b16 = (byte)(Math.Clamp(b, 0, 255) / ColorDivisor);
 
                             processedColors[kvp.Key] = new byte[] { r16, r16, g16, g16, b16, b16 };
                         }
@@ -347,9 +362,9 @@ namespace Jellyfin.Plugin.Hue.Service
                         var simpleColors = new Dictionary<int, byte[]>();
                         foreach (var kvp in channelColors)
                         {
-                            byte r2 = (byte)(kvp.Value[0] / 2);
-                            byte g2 = (byte)(kvp.Value[1] / 2);
-                            byte b2 = (byte)(kvp.Value[2] / 2);
+                            byte r2 = (byte)(kvp.Value[0] / ColorDivisor);
+                            byte g2 = (byte)(kvp.Value[1] / ColorDivisor);
+                            byte b2 = (byte)(kvp.Value[2] / ColorDivisor);
                             simpleColors[kvp.Key] = new byte[] { r2, r2, g2, g2, b2, b2 };
                         }
                         await _hueStreamer!.SendColors(areaId, simpleColors);
@@ -452,8 +467,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 _hueStreamer!.StartStream(config);
 
                 var targetFrameDurationMs = config.TargetFps > 0
-                    ? 1000 / Math.Clamp(config.TargetFps, 1, 60)
-                    : 50;
+                    ? 1000 / Math.Clamp(config.TargetFps, MinFps, MaxFps)
+                    : DefaultFrameDurationMs;
 
                 var videoStream = _ffmpegStreamer!.StartFfmpeg(videoPath, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags);
                 if (videoStream == null)
