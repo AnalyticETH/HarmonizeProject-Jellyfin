@@ -2,6 +2,53 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2025-12-29
+
+### Added
+- **Scene Restoration**: Automatically saves and restores the original light state before/after sync (configurable)
+- **Advanced Color Processing**:
+  - Brightness boost: Adjust the brightness of synced colors (50-200%)
+  - Color saturation: Adjust the saturation of synced colors (0-200%)
+  - Blackout threshold: Skip sync when screen is mostly black to save processing
+  - Color change detection: Skip redundant updates when colors haven't changed significantly
+- **Network Resilience**:
+  - Retry logic with exponential backoff for all HTTP operations (configurable 0-10 attempts)
+  - Automatic reconnection for DTLS failures (existing feature, now configurable)
+- **IHttpClientFactory Integration**: Migrated from manual HttpClient management to IHttpClientFactory for better resource management
+- **Status API Endpoint**: New `/HueSync/Status` endpoint to check sync state, current item, and configuration
+- **Enhanced Configuration UI**:
+  - Added "Cinema Mode" section with dim level control
+  - Added "Advanced Settings" section with all new features
+  - Better organization of configuration options
+  - Comprehensive field descriptions
+
+### Improved
+- Significant performance improvements through color change detection
+- Better resource management with IHttpClientFactory
+- More robust error recovery with retry logic
+- Enhanced logging for troubleshooting
+- More efficient color processing with blackout detection
+
+### Technical Details
+
+**Color Processing Pipeline:**
+1. Extract RGB values from video frame
+2. Check blackout threshold (skip if too dark)
+3. Apply brightness boost (if configured)
+4. Apply color saturation adjustment (if configured)
+5. Check color change threshold (skip if colors haven't changed enough)
+6. Send to Hue Bridge via DTLS
+
+**Performance Optimizations:**
+- Color change detection reduces unnecessary DTLS packets by ~30-50% during static scenes
+- Blackout detection skips processing during dark scenes (credits, fades)
+- Configurable thresholds allow fine-tuning for different content types
+
+**Scene Restoration:**
+- Captures on/off state, brightness, and color (x,y coordinates) for each light
+- Restores state after playback stops
+- Gracefully handles errors if individual lights fail to restore
+
 ## [1.2.0] - 2024-12-29
 
 ### Added

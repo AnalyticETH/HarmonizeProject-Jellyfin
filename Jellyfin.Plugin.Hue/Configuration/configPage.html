@@ -93,6 +93,65 @@
                         </div>
                     </fieldset>
 
+                    <fieldset class="verticalSection">
+                        <legend>Cinema Mode</legend>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="useCinemaMode" name="useCinemaMode" />
+                                <span>Enable Cinema Mode</span>
+                            </label>
+                            <div class="fieldDescription">Automatically dim lights when playback starts.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="brightnessDimLevel">Dim Level (%)</label>
+                            <input id="brightnessDimLevel" name="brightnessDimLevel" type="number" min="0" max="100" is="emby-input" />
+                            <div class="fieldDescription">Brightness level for cinema mode dimming (0-100%).</div>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="verticalSection">
+                        <legend>Advanced Settings</legend>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="restoreLightState" name="restoreLightState" />
+                                <span>Restore Light State After Sync</span>
+                            </label>
+                            <div class="fieldDescription">Save and restore the original light state before/after sync.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="brightnessBoost">Brightness Boost (%)</label>
+                            <input id="brightnessBoost" name="brightnessBoost" type="number" min="50" max="200" is="emby-input" />
+                            <div class="fieldDescription">Brightness multiplier for synced colors (50-200%, default: 100).</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="colorSaturation">Color Saturation (%)</label>
+                            <input id="colorSaturation" name="colorSaturation" type="number" min="0" max="200" is="emby-input" />
+                            <div class="fieldDescription">Color saturation adjustment (0-200%, default: 100).</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="blackoutThreshold">Blackout Threshold</label>
+                            <input id="blackoutThreshold" name="blackoutThreshold" type="number" min="0" max="255" is="emby-input" />
+                            <div class="fieldDescription">Skip sync when average brightness is below this value (0-255, default: 15).</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="colorChangeThreshold">Color Change Threshold</label>
+                            <input id="colorChangeThreshold" name="colorChangeThreshold" type="number" min="0" max="255" is="emby-input" />
+                            <div class="fieldDescription">Minimum color change to trigger update (0-255, 0=disabled, default: 10).</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="networkRetryAttempts">Network Retry Attempts</label>
+                            <input id="networkRetryAttempts" name="networkRetryAttempts" type="number" min="0" max="10" is="emby-input" />
+                            <div class="fieldDescription">Number of retry attempts for network operations (0-10, default: 3).</div>
+                        </div>
+                    </fieldset>
+
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label>
                             <input is="emby-checkbox" type="checkbox" id="syncEnabled" name="syncEnabled" />
@@ -119,8 +178,16 @@
                         HueConfigurationPage.selectedAreaId = config.EntertainmentAreaId || "";
                         page.querySelector('#targetFps').value = config.TargetFps || 20;
                         page.querySelector('#customFfmpegFlags').value = config.CustomFfmpegFlags || "";
-                        page.querySelector('#useGpu').checked = config.UseGpu;
+                        page.querySelector('#useGpu').checked = config.UseGpu !== false;
                         page.querySelector('#syncEnabled').checked = config.SyncEnabled;
+                        page.querySelector('#useCinemaMode').checked = config.UseCinemaMode !== false;
+                        page.querySelector('#brightnessDimLevel').value = config.BrightnessDimLevel || 30;
+                        page.querySelector('#restoreLightState').checked = config.RestoreLightState !== false;
+                        page.querySelector('#brightnessBoost').value = config.BrightnessBoost || 100;
+                        page.querySelector('#colorSaturation').value = config.ColorSaturation || 100;
+                        page.querySelector('#blackoutThreshold').value = config.BlackoutThreshold || 15;
+                        page.querySelector('#colorChangeThreshold').value = config.ColorChangeThreshold || 10;
+                        page.querySelector('#networkRetryAttempts').value = config.NetworkRetryAttempts || 3;
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                         Dashboard.hideLoadingMsg();
                     });
@@ -135,7 +202,15 @@
                         TargetFps: parseInt(page.querySelector('#targetFps').value) || 20,
                         CustomFfmpegFlags: page.querySelector('#customFfmpegFlags').value,
                         UseGpu: page.querySelector('#useGpu').checked,
-                        SyncEnabled: page.querySelector('#syncEnabled').checked
+                        SyncEnabled: page.querySelector('#syncEnabled').checked,
+                        UseCinemaMode: page.querySelector('#useCinemaMode').checked,
+                        BrightnessDimLevel: parseInt(page.querySelector('#brightnessDimLevel').value) || 30,
+                        RestoreLightState: page.querySelector('#restoreLightState').checked,
+                        BrightnessBoost: parseInt(page.querySelector('#brightnessBoost').value) || 100,
+                        ColorSaturation: parseInt(page.querySelector('#colorSaturation').value) || 100,
+                        BlackoutThreshold: parseInt(page.querySelector('#blackoutThreshold').value) || 15,
+                        ColorChangeThreshold: parseInt(page.querySelector('#colorChangeThreshold').value) || 10,
+                        NetworkRetryAttempts: parseInt(page.querySelector('#networkRetryAttempts').value) || 3
                     };
                     ApiClient.updatePluginConfiguration(HueConfigurationPage.pluginId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
