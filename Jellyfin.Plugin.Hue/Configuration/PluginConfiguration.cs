@@ -13,6 +13,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool UseCinemaMode { get; set; } = true; // Dimming behavior
         public int BrightnessDimLevel { get; set; } = 30;
         public int TargetFps { get; set; } = 20;
+        public bool UseGpu { get; set; } = true;
         public string CustomFfmpegFlags { get; set; } = string.Empty; // e.g. -hwaccel auto
 
         public PluginConfiguration()

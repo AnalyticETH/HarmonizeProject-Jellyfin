@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Hue.Hue
@@ -90,6 +91,48 @@ namespace Jellyfin.Plugin.Hue.Hue
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error fetching entertainment configuration");
+                return null;
+            }
+        }
+
+        public record EntertainmentArea(string Id, string Name);
+
+        public async Task<List<EntertainmentArea>?> GetEntertainmentAreas(string bridgeIp, string appKey)
+        {
+            try
+            {
+                var url = $"https://{bridgeIp}/clip/v2/resource/entertainment_configuration";
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("hue-application-key", appKey);
+
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+
+                var json = await response.Content.ReadAsStringAsync();
+                var doc = JsonDocument.Parse(json);
+
+                var results = new List<EntertainmentArea>();
+                if (doc.RootElement.TryGetProperty("data", out var dataElement))
+                {
+                    foreach (var area in dataElement.EnumerateArray())
+                    {
+                        var id = area.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? string.Empty : string.Empty;
+                        var name = area.TryGetProperty("metadata", out var meta) && meta.TryGetProperty("name", out var nameProp)
+                            ? nameProp.GetString() ?? string.Empty
+                            : string.Empty;
+
+                        if (!string.IsNullOrEmpty(id))
+                        {
+                            results.Add(new EntertainmentArea(id, string.IsNullOrEmpty(name) ? id : name));
+                        }
+                    }
+                }
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching entertainment areas");
                 return null;
             }
         }

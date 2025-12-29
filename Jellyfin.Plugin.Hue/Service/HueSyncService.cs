@@ -112,7 +112,7 @@ namespace Jellyfin.Plugin.Hue.Service
                      return;
                 }
                 
-                var videoStream = _ffmpegStreamer!.StartFfmpeg(path, config.TargetFps, config.CustomFfmpegFlags);
+                var videoStream = _ffmpegStreamer!.StartFfmpeg(path, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags);
                 if (videoStream == null) return;
 
                 // 4. Start Loop

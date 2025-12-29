@@ -12,59 +12,93 @@
             <div class="content-primary">
                 <h1>Philips Hue Sync Configuration</h1>
                 <form class="huePluginConfigurationForm">
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="hueBridgeIp">Hue Bridge IP Address</label>
-                        <input id="hueBridgeIp" name="hueBridgeIp" type="text" is="emby-input" />
-                        <div class="fieldDescription">The local IP address of your Hue Bridge (e.g., 192.168.1.50).
+                    <fieldset class="verticalSection">
+                        <legend>Bridge connection</legend>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="hueBridgeIp">Hue Bridge IP Address</label>
+                            <input id="hueBridgeIp" name="hueBridgeIp" type="text" is="emby-input" />
+                            <div class="fieldDescription">The local IP address of your Hue Bridge (e.g., 192.168.1.50).
+                            </div>
                         </div>
-                    </div>
 
-                    <div class="inputContainer" style="display: flex; align-items: flex-end;">
-                        <button is="emby-button" type="button" class="raised block" id="registerBtn"
-                            style="margin-bottom: 20px;">
-                            <span>Link Bridge</span>
-                        </button>
-                    </div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
+                            <button is="emby-button" type="button" class="raised" id="registerBtn"
+                                style="margin-bottom: 20px;">
+                                <span>Link Bridge</span>
+                            </button>
+                            <button is="emby-button" type="button" class="raised" id="refreshAreasBtn"
+                                style="margin-bottom: 20px;">
+                                <span>Refresh Entertainment Areas</span>
+                            </button>
+                            <div id="bridgeStatus" style="flex: 1 1 200px; color: #fff; padding: 6px 10px; border-radius: 6px; background: #3f51b5;">
+                                Enter bridge IP & keys, then refresh to test.
+                            </div>
+                        </div>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="hueAppKey">Hue App Key (Username)</label>
-                        <input id="hueAppKey" name="hueAppKey" type="text" is="emby-input" />
-                        <div class="fieldDescription">Auto-generated via Link.</div>
-                    </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="hueClientKey">Hue Client Key (DTLS)</label>
-                        <input id="hueClientKey" name="hueClientKey" type="text" is="emby-input" />
-                        <div class="fieldDescription">Auto-generated via Link.</div>
-                    </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="hueAppKey">Hue App Key (Username)</label>
+                            <input id="hueAppKey" name="hueAppKey" type="text" is="emby-input" />
+                            <div class="fieldDescription">Auto-generated via Link.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="hueClientKey">Hue Client Key (DTLS)</label>
+                            <input id="hueClientKey" name="hueClientKey" type="text" is="emby-input" />
+                            <div class="fieldDescription">Auto-generated via Link.</div>
+                        </div>
+                    </fieldset>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="entertainmentAreaId">Entertainment Area
-                            ID</label>
-                        <input id="entertainmentAreaId" name="entertainmentAreaId" type="text" is="emby-input" />
-                        <div class="fieldDescription">The UUID of the Entertainment Area to sync.</div>
-                    </div>
+                    <fieldset class="verticalSection">
+                        <legend>Lighting target</legend>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="entertainmentAreaSelect">Entertainment Area</label>
+                            <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
+                                <select id="entertainmentAreaSelect" name="entertainmentAreaSelect" is="emby-select"
+                                    class="emby-select-withcolor" style="min-width: 250px;">
+                                    <option value="">Load bridge data first</option>
+                                    <option value="manual">Enter ID manually</option>
+                                </select>
+                                <span id="entertainmentAreaStatus" style="flex: 1 1 auto;"></span>
+                            </div>
+                            <div class="inputContainer" id="manualAreaContainer" style="display: none; margin-top: 0.75em;">
+                                <input id="entertainmentAreaManual" name="entertainmentAreaManual" type="text" is="emby-input" />
+                                <div class="fieldDescription">If your area is not listed, paste the entertainment area ID here.</div>
+                            </div>
+                            <div class="fieldDescription">Pick the entertainment area discovered on your bridge. Make sure the bridge
+                                IP and app key are entered first. Refresh works with the values on this page — no need to
+                                save between edits.</div>
+                        </div>
+                    </fieldset>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="targetFps">Target FPS</label>
-                        <input id="targetFps" name="targetFps" type="number" is="emby-input" />
-                        <div class="fieldDescription">Frames per second to analyze. Lower values reduce CPU load.
-                            (Default: 20)</div>
-                    </div>
+                    <fieldset class="verticalSection">
+                        <legend>Sync performance</legend>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="targetFps">Target FPS</label>
+                            <input id="targetFps" name="targetFps" type="number" is="emby-input" />
+                            <div class="fieldDescription">Frames per second to analyze. Lower values reduce CPU load.
+                                (Default: 20)</div>
+                        </div>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="customFfmpegFlags">Custom FFmpeg
-                            Flags</label>
-                        <input id="customFfmpegFlags" name="customFfmpegFlags" type="text" is="emby-input" />
-                        <div class="fieldDescription">Advanced: Add flags like "-hwaccel auto" to use GPU.</div>
-                    </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="useGpu" name="useGpu" />
+                                <span>Use GPU acceleration</span>
+                            </label>
+                            <div class="fieldDescription">Adds <code>-hwaccel auto</code> to ffmpeg to lighten CPU use when available.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="customFfmpegFlags">Additional FFmpeg Flags</label>
+                            <input id="customFfmpegFlags" name="customFfmpegFlags" type="text" is="emby-input" />
+                            <div class="fieldDescription">Optional advanced flags appended to the ffmpeg command.</div>
+                        </div>
+                    </fieldset>
 
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label>
                             <input is="emby-checkbox" type="checkbox" id="syncEnabled" name="syncEnabled" />
                             <span>Enable Real-time Video Sync</span>
                         </label>
-                        <div class="fieldDescription">If enabled, lights will sync to the video in real-time. requires
-                            CPU.</div>
+                        <div class="fieldDescription">If enabled, lights will sync to the video in real-time (uses CPU/GPU resources).</div>
                     </div>
                     <br />
                     <button is="emby-button" type="submit" class="raised button-submit block">
@@ -82,10 +116,12 @@
                         page.querySelector('#hueBridgeIp').value = config.HueBridgeIp || "";
                         page.querySelector('#hueAppKey').value = config.HueAppKey || "";
                         page.querySelector('#hueClientKey').value = config.HueClientKey || "";
-                        page.querySelector('#entertainmentAreaId').value = config.EntertainmentAreaId || "";
+                        HueConfigurationPage.selectedAreaId = config.EntertainmentAreaId || "";
                         page.querySelector('#targetFps').value = config.TargetFps || 20;
                         page.querySelector('#customFfmpegFlags').value = config.CustomFfmpegFlags || "";
+                        page.querySelector('#useGpu').checked = config.UseGpu;
                         page.querySelector('#syncEnabled').checked = config.SyncEnabled;
+                        HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                         Dashboard.hideLoadingMsg();
                     });
                 },
@@ -95,14 +131,121 @@
                         HueBridgeIp: page.querySelector('#hueBridgeIp').value,
                         HueAppKey: page.querySelector('#hueAppKey').value,
                         HueClientKey: page.querySelector('#hueClientKey').value,
-                        EntertainmentAreaId: page.querySelector('#entertainmentAreaId').value,
+                        EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
                         TargetFps: parseInt(page.querySelector('#targetFps').value) || 20,
                         CustomFfmpegFlags: page.querySelector('#customFfmpegFlags').value,
+                        UseGpu: page.querySelector('#useGpu').checked,
                         SyncEnabled: page.querySelector('#syncEnabled').checked
                     };
                     ApiClient.updatePluginConfiguration(HueConfigurationPage.pluginId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
+                        HueConfigurationPage.refreshStatus(page, "Configuration saved.", "success");
                     });
+                },
+                loadEntertainmentAreas: function (page, selectedId) {
+                    var statusEl = page.querySelector('#entertainmentAreaStatus');
+                    var selectEl = page.querySelector('#entertainmentAreaSelect');
+                    var refreshBtn = page.querySelector('#refreshAreasBtn');
+                    var bridgeStatus = page.querySelector('#bridgeStatus');
+
+                    var bridgeIp = page.querySelector('#hueBridgeIp').value;
+                    var appKey = page.querySelector('#hueAppKey').value;
+
+                    statusEl.textContent = "";
+                    selectEl.innerHTML = '<option value="">Loading...</option>' +
+                        '<option value="manual">Enter ID manually</option>';
+                    selectEl.disabled = true;
+                    refreshBtn.disabled = true;
+                    HueConfigurationPage.refreshStatus(page, "Contacting bridge...", "info");
+
+                    if (!bridgeIp || !appKey) {
+                        statusEl.textContent = "Enter bridge IP and app key, then refresh.";
+                        selectEl.value = "";
+                        HueConfigurationPage.toggleManualArea(page, true, selectedId);
+                        selectEl.disabled = false;
+                        refreshBtn.disabled = false;
+                        return;
+                    }
+
+                    ApiClient.fetch({
+                        type: "GET",
+                        url: ApiClient.getUrl("HueSync/EntertainmentAreas", {
+                            ip: bridgeIp,
+                            appKey: appKey
+                        })
+                    }).then(function (response) {
+                        var data = typeof response === "string" ? JSON.parse(response) : response;
+                        selectEl.innerHTML = '';
+
+                        if (!data || data.length === 0) {
+                            statusEl.textContent = "No entertainment areas returned by the bridge.";
+                            HueConfigurationPage.refreshStatus(page, "Bridge responded but no areas were found.", "warning");
+                        } else {
+                            data.forEach(function (area) {
+                                var option = document.createElement('option');
+                                option.value = area.id;
+                                option.textContent = area.name || area.id;
+                                selectEl.appendChild(option);
+                            });
+                            HueConfigurationPage.refreshStatus(page, "Entertainment areas loaded from bridge.", "success");
+                        }
+
+                        var manualOption = document.createElement('option');
+                        manualOption.value = "manual";
+                        manualOption.textContent = "Enter ID manually";
+                        selectEl.appendChild(manualOption);
+
+                        HueConfigurationPage.syncSelectedArea(page, selectedId);
+                    }).catch(function (err) {
+                        statusEl.textContent = "Unable to load areas: " + err;
+                        HueConfigurationPage.refreshStatus(page, "Could not reach bridge. Verify IP, app key, and network access.", "error");
+                        HueConfigurationPage.syncSelectedArea(page, selectedId);
+                    }).finally(function () {
+                        selectEl.disabled = false;
+                        refreshBtn.disabled = false;
+                    });
+                },
+                syncSelectedArea: function (page, selectedId) {
+                    var selectEl = page.querySelector('#entertainmentAreaSelect');
+
+                    var option = selectEl.querySelector('option[value="' + selectedId + '"]');
+                    if (option) {
+                        selectEl.value = selectedId;
+                        HueConfigurationPage.toggleManualArea(page, false);
+                    } else {
+                        selectEl.value = "manual";
+                        HueConfigurationPage.toggleManualArea(page, true, selectedId);
+                    }
+                },
+                toggleManualArea: function (page, show, value) {
+                    var container = page.querySelector('#manualAreaContainer');
+                    var manualInput = page.querySelector('#entertainmentAreaManual');
+                    container.style.display = show ? "block" : "none";
+                    if (show && typeof value !== "undefined") {
+                        manualInput.value = value || "";
+                    }
+                },
+                refreshStatus: function (page, message, tone) {
+                    var bridgeStatus = page.querySelector('#bridgeStatus');
+                    if (!bridgeStatus) return;
+
+                    var colors = {
+                        info: "#3f51b5",
+                        success: "#4caf50",
+                        warning: "#f0ad4e",
+                        error: "#d9534f"
+                    };
+
+                    bridgeStatus.textContent = message;
+                    bridgeStatus.style.background = colors[tone] || colors.info;
+                },
+                getSelectedAreaId: function (page) {
+                    var selectEl = page.querySelector('#entertainmentAreaSelect');
+                    if (selectEl.value === "manual") {
+                        return page.querySelector('#entertainmentAreaManual').value;
+                    }
+
+                    return selectEl.value || "";
                 },
                 registerBridge: function (page) {
                     var ip = page.querySelector('#hueBridgeIp').value;
@@ -128,6 +271,8 @@
                                     page.querySelector('#hueAppKey').value = data.username || "";
                                     page.querySelector('#hueClientKey').value = data.clientKey || "";
                                     Dashboard.alert("Registration Successful! Keys saved to form.");
+                                    HueConfigurationPage.refreshStatus(page, "Bridge linked. Entertainment areas ready to refresh.", "success");
+                                    HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                                 }
                             }).catch(function (err) {
                                 Dashboard.hideLoadingMsg();
@@ -146,6 +291,16 @@
 
             document.querySelector('#registerBtn').addEventListener('click', function () {
                 HueConfigurationPage.registerBridge(this.closest('.page'));
+            });
+
+            document.querySelector('#refreshAreasBtn').addEventListener('click', function () {
+                var page = this.closest('.page');
+                HueConfigurationPage.selectedAreaId = HueConfigurationPage.getSelectedAreaId(page);
+                HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
+            });
+
+            document.querySelector('#entertainmentAreaSelect').addEventListener('change', function () {
+                HueConfigurationPage.toggleManualArea(this.closest('.page'), this.value === 'manual');
             });
 
             document.addEventListener('pageshow', function (e) {
