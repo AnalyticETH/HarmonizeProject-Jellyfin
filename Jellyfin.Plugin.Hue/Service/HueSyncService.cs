@@ -1,17 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-
+using Jellyfin.Plugin.Hue.Configuration;
+using Jellyfin.Plugin.Hue.Hue;
+using Jellyfin.Plugin.Hue.Video;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Collections.Generic;
-using System.IO;
-using Jellyfin.Plugin.Hue.Hue;
-using Jellyfin.Plugin.Hue.Video;
-using Jellyfin.Plugin.Hue.Configuration;
 
 namespace Jellyfin.Plugin.Hue.Service
 {
@@ -134,6 +133,18 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
+        /// Sends colors to lights using a temporary streamer instance
+        /// </summary>
+        private async Task SendTemporaryColors(PluginConfiguration config, Dictionary<int, byte[]> channelColors, int delayMs)
+        {
+            var tempStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
+            tempStreamer.StartStream(config);
+            await tempStreamer.SendColors(config.EntertainmentAreaId, channelColors);
+            await Task.Delay(delayMs);
+            tempStreamer.StopStream();
+        }
+
+        /// <summary>
         /// Applies cinema mode by dimming lights to configured level
         /// </summary>
         private async Task ApplyCinemaMode(PluginConfiguration config, System.Text.Json.JsonElement areaConfig)
@@ -155,11 +166,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 // Send dim command before starting stream
-                var tempStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
-                tempStreamer.StartStream(config);
-                await tempStreamer.SendColors(config.EntertainmentAreaId, channelColors);
-                await Task.Delay(500); // Let it settle
-                tempStreamer.StopStream();
+                await SendTemporaryColors(config, channelColors, 500);
             }
             catch (Exception ex)
             {
@@ -186,11 +193,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     channelColors[channelId] = new byte[] { 127, 127, 127, 127, 127, 127 };
                 }
 
-                var tempStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
-                tempStreamer.StartStream(config);
-                await tempStreamer.SendColors(config.EntertainmentAreaId, channelColors);
-                await Task.Delay(300);
-                tempStreamer.StopStream();
+                await SendTemporaryColors(config, channelColors, 300);
             }
             catch (Exception ex)
             {

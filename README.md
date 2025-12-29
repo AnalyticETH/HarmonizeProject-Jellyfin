@@ -83,6 +83,35 @@ The plugin DLL will be generated at:
 *   `Hue/`: Logic for communicating with the Hue Bridge (REST & DTLS).
 *   `Video/`: FFmpeg wrappers for frame extraction.
 
+### Testing
+
+The test suite covers color space conversion, configuration validation, edge cases, and round-trip conversions.
+
+#### Running Tests
+
+```bash
+# Run all tests
+dotnet test
+
+# Run tests with detailed output
+dotnet test --verbosity detailed
+
+# Run tests with code coverage
+dotnet test --collect:"XPlat Code Coverage"
+
+# Run specific test class
+dotnet test --filter FullyQualifiedName~ColorProcessingTests
+```
+
+#### Test Coverage
+
+Tests are automatically run in CI/CD on:
+- Push to main/master/develop branches
+- Pull requests
+- Manual workflow dispatch
+
+See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
+
 ## License
 This project is licensed under the GPL-3.0 License.
 
