@@ -7,6 +7,9 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Hue.Hue
 {
+    /// <summary>
+    /// Client for interacting with Philips Hue Bridge API v2
+    /// </summary>
     public class HueClient
     {
         private readonly HttpClient _httpClient;
@@ -14,14 +17,22 @@ namespace Jellyfin.Plugin.Hue.Hue
 
         public HueClient(ILogger<HueClient> logger)
         {
-            _httpClient = new HttpClient();
             _logger = logger;
             // Ignore SSL errors for local Hue Bridge (self-signed)
-            var handler = new HttpClientHandler();
-            handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
-            _httpClient = new HttpClient(handler);
+            var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+            };
+            _httpClient = new HttpClient(handler)
+            {
+                Timeout = TimeSpan.FromSeconds(10) // Add timeout for bridge communication
+            };
         }
 
+        /// <summary>
+        /// Discovers the IP address of a Hue Bridge on the local network using the meethue.com discovery service
+        /// </summary>
+        /// <returns>The IP address of the bridge, or empty string if not found</returns>
         public async Task<string> DiscoverBridgeIp()
         {
             // Simple discovery via meethue.com or mDNS (simplified for now)
@@ -41,6 +52,12 @@ namespace Jellyfin.Plugin.Hue.Hue
             return "";
         }
 
+        /// <summary>
+        /// Registers this application with the Hue Bridge to obtain credentials
+        /// </summary>
+        /// <param name="ip">The IP address of the Hue Bridge</param>
+        /// <returns>Registration result with username and client key, or null if failed</returns>
+        /// <remarks>The physical link button must be pressed on the bridge before calling this method</remarks>
         public async Task<Api.HueRegistrationResult?> RegisterWithBridge(string ip)
         {
             try
@@ -72,6 +89,13 @@ namespace Jellyfin.Plugin.Hue.Hue
             return null;
         }
 
+        /// <summary>
+        /// Retrieves the configuration for a specific entertainment area
+        /// </summary>
+        /// <param name="bridgeIp">The IP address of the Hue Bridge</param>
+        /// <param name="appKey">The application key for authentication</param>
+        /// <param name="areaId">The ID of the entertainment area</param>
+        /// <returns>JSON element containing the area configuration, or null if failed</returns>
         public async Task<JsonElement?> GetEntertainmentConfiguration(string bridgeIp, string appKey, string areaId)
         {
             try
@@ -97,6 +121,12 @@ namespace Jellyfin.Plugin.Hue.Hue
 
         public record EntertainmentArea(string Id, string Name);
 
+        /// <summary>
+        /// Retrieves all entertainment areas configured on the bridge
+        /// </summary>
+        /// <param name="bridgeIp">The IP address of the Hue Bridge</param>
+        /// <param name="appKey">The application key for authentication</param>
+        /// <returns>List of entertainment areas, or null if failed</returns>
         public async Task<List<EntertainmentArea>?> GetEntertainmentAreas(string bridgeIp, string appKey)
         {
             try

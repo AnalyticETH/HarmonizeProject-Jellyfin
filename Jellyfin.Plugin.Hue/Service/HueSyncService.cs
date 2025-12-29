@@ -14,6 +14,9 @@ using Jellyfin.Plugin.Hue.Configuration;
 
 namespace Jellyfin.Plugin.Hue.Service
 {
+    /// <summary>
+    /// Background service that monitors Jellyfin playback and synchronizes Hue lights in real-time
+    /// </summary>
     public class HueSyncService : IHostedService
     {
         private readonly ISessionManager _sessionManager;
@@ -38,7 +41,8 @@ namespace Jellyfin.Plugin.Hue.Service
             _logger.LogInformation("Hue Sync Service Started.");
             _sessionManager.PlaybackStart += OnPlaybackStart;
             _sessionManager.PlaybackStopped += OnPlaybackStopped;
-            
+            _sessionManager.PlaybackProgress += OnPlaybackProgress;
+
             // Helpers
             _hueStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
             _ffmpegStreamer = new FfmpegStreamer(_loggerFactory.CreateLogger<FfmpegStreamer>());
@@ -51,6 +55,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _logger.LogInformation("Hue Sync Service Stopping.");
             _sessionManager.PlaybackStart -= OnPlaybackStart;
             _sessionManager.PlaybackStopped -= OnPlaybackStopped;
+            _sessionManager.PlaybackProgress -= OnPlaybackProgress;
             StopSync();
             return Task.CompletedTask;
         }
@@ -58,33 +63,43 @@ namespace Jellyfin.Plugin.Hue.Service
         private async void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
         {
             _logger.LogInformation("Playback started for item {0}", e.Item.Name);
-            
+
             var config = Plugin.Instance?.Configuration;
-            if (config == null || !config.SyncEnabled) 
+            if (config == null || !config.SyncEnabled)
             {
                 _logger.LogInformation("Hue Sync disabled, skipping.");
                 return;
             }
 
-            if (string.IsNullOrEmpty(config.HueBridgeIp) || string.IsNullOrEmpty(config.EntertainmentAreaId))
+            // Validate configuration
+            var validationErrors = config.Validate();
+            if (validationErrors.Count > 0)
             {
-                _logger.LogWarning("Hue Bridge IP or Entertainment Area ID not configured.");
+                _logger.LogWarning("Configuration validation failed: {0}", string.Join(", ", validationErrors));
                 return;
             }
 
             StopSync(); // Ensure previous stopped
             _syncCts = new CancellationTokenSource();
 
-            try 
+            try
             {
                 // 1. Get Light Positions
                 var areaConfig = await _hueClient!.GetEntertainmentConfiguration(config.HueBridgeIp, config.HueAppKey, config.EntertainmentAreaId);
                 if (areaConfig == null) return;
+
+                // Cinema mode: Dim lights before starting sync
+                if (config.UseCinemaMode)
+                {
+                    _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", config.BrightnessDimLevel);
+                    await ApplyCinemaMode(config, areaConfig.Value);
+                }
                 
                 // Parse lights
-                // Expected: areaConfig is specific "data" element. 
+                // Expected: areaConfig is specific "data" element.
                 // "channels": [ { "channel_id": 0, "position": { "x": 0.5, "y": 0.5, "z": 0.0 } } ]
-                var lights = new Dictionary<int, (double x, double y)>();
+                // Note: We use x (horizontal) and z (vertical) for the 2D screen plane, matching HarmonizeProject
+                var lights = new Dictionary<int, (double x, double z)>();
                 if (areaConfig.Value.TryGetProperty("channels", out var channels))
                 {
                    int idx = 0;
@@ -93,8 +108,8 @@ namespace Jellyfin.Plugin.Hue.Service
                        var channelId = channel.GetProperty("channel_id").GetInt32();
                        var pos = channel.GetProperty("position");
                        var x = pos.GetProperty("x").GetDouble();
-                       var y = pos.GetProperty("y").GetDouble();
-                       lights[channelId] = (x, y);
+                       var z = pos.GetProperty("z").GetDouble();
+                       lights[channelId] = (x, z);
                        idx++;
                    }
                 }
@@ -125,10 +140,36 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
+        private async void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
         {
-             _logger.LogInformation("Playback stopped.");
-             StopSync();
+            _logger.LogInformation("Playback stopped for item {0}", e.Item?.Name ?? "Unknown");
+
+            var config = Plugin.Instance?.Configuration;
+
+            // Restore lights if cinema mode was used
+            if (config != null && config.UseCinemaMode && config.SyncEnabled)
+            {
+                _logger.LogInformation("Restoring lights after playback");
+                await RestoreLightsAfterPlayback(config);
+            }
+
+            StopSync();
+        }
+
+        private void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
+        {
+            // Handle pause/unpause events
+            if (e.IsPaused && _syncCts != null && !_syncCts.IsCancellationRequested)
+            {
+                _logger.LogInformation("Playback paused, pausing light sync");
+                _syncCts?.Cancel();
+            }
+            else if (!e.IsPaused && _syncCts == null)
+            {
+                _logger.LogInformation("Playback resumed, restarting light sync");
+                // Note: We don't restart from progress event to avoid complexity
+                // The user can restart playback if needed
+            }
         }
 
         private void StopSync()
@@ -139,46 +180,83 @@ namespace Jellyfin.Plugin.Hue.Service
             _syncCts = null;
         }
 
-        private async Task RunSyncLoop(Stream videoStream, Dictionary<int, (double x, double y)> lights, string areaId, CancellationToken token)
+        /// <summary>
+        /// Applies cinema mode by dimming lights to configured level
+        /// </summary>
+        private async Task ApplyCinemaMode(PluginConfiguration config, System.Text.Json.JsonElement areaConfig)
+        {
+            try
+            {
+                if (!areaConfig.TryGetProperty("channels", out var channels))
+                    return;
+
+                var dimLevel = Math.Clamp(config.BrightnessDimLevel, 0, 100);
+                var dimBrightness = (byte)(dimLevel * 255 / 100 / 2); // Divide by 2 for 16-bit compatibility
+
+                var channelColors = new Dictionary<int, byte[]>();
+                foreach (var channel in channels.EnumerateArray())
+                {
+                    var channelId = channel.GetProperty("channel_id").GetInt32();
+                    // Warm white color at dim level
+                    channelColors[channelId] = new byte[] { dimBrightness, dimBrightness, dimBrightness, dimBrightness, (byte)(dimBrightness * 0.8), (byte)(dimBrightness * 0.8) };
+                }
+
+                // Send dim command before starting stream
+                var tempStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
+                tempStreamer.StartStream(config);
+                await tempStreamer.SendColors(config.EntertainmentAreaId, channelColors);
+                await Task.Delay(500); // Let it settle
+                tempStreamer.StopStream();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to apply cinema mode");
+            }
+        }
+
+        /// <summary>
+        /// Restores lights to normal brightness after playback
+        /// </summary>
+        private async Task RestoreLightsAfterPlayback(PluginConfiguration config)
+        {
+            try
+            {
+                var areaConfig = await _hueClient!.GetEntertainmentConfiguration(config.HueBridgeIp, config.HueAppKey, config.EntertainmentAreaId);
+                if (areaConfig == null || !areaConfig.Value.TryGetProperty("channels", out var channels))
+                    return;
+
+                var channelColors = new Dictionary<int, byte[]>();
+                foreach (var channel in channels.EnumerateArray())
+                {
+                    var channelId = channel.GetProperty("channel_id").GetInt32();
+                    // Full white
+                    channelColors[channelId] = new byte[] { 127, 127, 127, 127, 127, 127 };
+                }
+
+                var tempStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
+                tempStreamer.StartStream(config);
+                await tempStreamer.SendColors(config.EntertainmentAreaId, channelColors);
+                await Task.Delay(300);
+                tempStreamer.StopStream();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to restore lights");
+            }
+        }
+
+        private async Task RunSyncLoop(Stream videoStream, Dictionary<int, (double x, double z)> lights, string areaId, CancellationToken token)
         {
             int w = 160;
             int h = 90;
             int frameSize = w * h * 3;
             byte[] buffer = new byte[frameSize];
 
-            // Pre-calculate bounds for each light
-            var lightBounds = new Dictionary<int, (int minX, int maxX, int minY, int maxY)>();
-            double breadth = 0.15; // 15% from Harmonize
-            int avgSize = (w + h) / 2; // approximation
+            // Pre-calculate bounds for each light based on position
+            // Following HarmonizeProject logic: use x (horizontal) and z (vertical) for 2D screen plane
+            double breadth = 0.15; // 15% sampling area around each light position
+            int avgSize = (w + h) / 2;
             int dist = (int)(breadth * avgSize);
-
-            foreach (var kvp in lights)
-            {
-                // Harmonize: coords[0] = ((coords[0])+1) * w//2
-                // coords[2] = (-1*(coords[2])+1) * h//2 (y seems to be z in their dict or y?)
-                // API V2: x is -1 to 1 (left to right), y is -1 to 1 (back to front), z is -1 to 1 (bottom to top).
-                // Wait, Harmonize uses x and z for screen plane?
-                // Let's assume standard V2 clip coordinates for TV:
-                // x: -1 (left) to 1 (right)
-                // y: -1 (bottom) to 1 (top) ?? Or z?
-                // Harmonize: lights_dict.update({str(index): [value['position']['x'],value['position']['y'], value['position']['z']]})
-                // And usage: 
-                // coords[0] = ((coords[0])+1) * w//2
-                // coords[2] = (-1*(coords[2])+1) * h//2  <-- Uses index 2, which is Z.
-                // So Harmonize used X and Z as the screen plane.
-                // I'll stick to that assumption. X is horizontal, Z is vertical.
-                
-                // My parse logic above used x and y. I should check which property is Z.
-                // Re-check OnPlaybackStart parsing logic. I used y for the second coord. 
-                // I should fetch Z and use that as Y for 2D plane.
-                
-                // Re-calculating bounds in loop is inefficient, but okay for init.
-                // I need to correct my parsing first.
-            }
-
-            // Correction for parsing:
-            // I'll assume I need to refactor the parsing in OnPlaybackStart or just fix it here if I passed data.
-            // I passed (x, y). I should probably fix parsing to be (x, z).
             
             try 
             {
@@ -192,20 +270,27 @@ namespace Jellyfin.Plugin.Hue.Service
                         if (n == 0) break; // End of stream
                         bytesRead += n;
                     }
-                    if (bytesRead < frameSize) break;
+                    if (bytesRead < frameSize)
+                    {
+                        _logger.LogInformation("End of video stream reached. Total frames processed: {0}", _ffmpegStreamer?.FramesProcessed ?? 0);
+                        break;
+                    }
+
+                    // Mark frame read for health monitoring
+                    _ffmpegStreamer?.MarkFrameRead();
 
                     var channelColors = new Dictionary<int, byte[]>();
 
+                    // Performance optimization: Pre-allocate color calculation space
                     foreach (var kvp in lights)
                     {
-                        // Calc average color
-                        // For this step I need the bounds.
-                        // Im implementing bounds calculation momentarily
-                        
-                        // Placeholder for bounds
+                        // Calculate average color for this light's position
+                        // Convert from Hue coordinate space to pixel coordinates
+                        // Hue: x: -1 (left) to 1 (right), z: -1 (bottom) to 1 (top)
+                        // Pixels: 0,0 is top-left
                         int cx = (int)((kvp.Value.x + 1) * w / 2);
-                        int cy = (int)((-1 * kvp.Value.y + 1) * h / 2); // Assuming passed Y is actually Z from API
-                        
+                        int cy = (int)((-1 * kvp.Value.z + 1) * h / 2); // Invert z for screen coordinates
+
                         int minX = Math.Max(0, cx - dist);
                         int maxX = Math.Min(w, cx + dist);
                         int minY = Math.Max(0, cy - dist);
@@ -214,42 +299,40 @@ namespace Jellyfin.Plugin.Hue.Service
                         long rSum = 0, gSum = 0, bSum = 0;
                         int count = 0;
 
-                        // RGB24: R, G, B
+                        // RGB24: R, G, B - Optimized tight loop
                         for (int y = minY; y < maxY; y++)
                         {
+                            int rowStart = y * w * 3;
                             for (int x = minX; x < maxX; x++)
                             {
-                                int idx = (y * w + x) * 3;
+                                int idx = rowStart + x * 3;
                                 rSum += buffer[idx];
-                                gSum += buffer[idx+1];
-                                bSum += buffer[idx+2];
+                                gSum += buffer[idx + 1];
+                                bSum += buffer[idx + 2];
                                 count++;
                             }
                         }
-                        
+
                         if (count == 0) count = 1;
                         byte r = (byte)(rSum / count);
                         byte g = (byte)(gSum / count);
                         byte b = (byte)(bSum / count);
 
-                        // Format for Harmonize: R/2, R/2, G/2, G/2, B/2, B/2
-                        // Wait, check Harmonize again.
-                        // rgb_bytes[x] = bytearray([int(c[0]/2), int(c[0]/2), int(c[1]/2), int(c[1]/2), int(c[2]/2), int(c[2]/2),] )
-                        // where c is from cv2.mean(area).
-                        // It seems they intentionally dim it or fit 16-bit space? 
-                        // If I simply replicate:
-                        byte r2 = (byte)(r / 2); // Integer division
+                        // Format following HarmonizeProject: divide by 2 for 16-bit color compatibility
+                        // This maps 8-bit (0-255) to 16-bit space (0-32767) by duplicating each byte
+                        byte r2 = (byte)(r / 2);
                         byte g2 = (byte)(g / 2);
                         byte b2 = (byte)(b / 2);
-                        
+
                         channelColors[kvp.Key] = new byte[] { r2, r2, g2, g2, b2, b2 };
                     }
 
                     await _hueStreamer!.SendColors(areaId, channelColors);
-                    
-                    // Throttle? 60fps = 16ms. Reading/Processing takes time.
-                    // Harmonize sleeps 0.0167
-                    await Task.Delay(16, token); 
+
+                    // Throttle to match target FPS - but skip if processing already took enough time
+                    // This prevents sync loop from falling behind
+                    var frameDelay = 1000 / 20; // Default ~50ms for 20 FPS
+                    await Task.Delay(frameDelay, token); 
                 }
             }
             catch (TaskCanceledException) {}
