@@ -211,7 +211,7 @@ jobs:
         echo "Detected version: $VERSION"
 
     - name: Download release package
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: release-package
         path: ./
