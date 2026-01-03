@@ -52,13 +52,24 @@ jobs:
         path: ./TestResults/*.trx
         retention-days: 30
 
-    - name: Upload code coverage
+    - name: Upload code coverage artifact
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: code-coverage
         path: ./TestResults/**/coverage.cobertura.xml
         retention-days: 30
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./TestResults/**/coverage.cobertura.xml
+        flags: unittests
+        name: jellyfin-hue-coverage
+        fail_ci_if_error: false
+        verbose: true
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
     - name: Publish plugin
       run: dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj --configuration ${{ env.BUILD_CONFIGURATION }} --no-build --output ./publish

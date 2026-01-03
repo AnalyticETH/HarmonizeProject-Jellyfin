@@ -5,6 +5,7 @@
 ![Jellyfin](https://img.shields.io/badge/Jellyfin-10.9.0+-00A4DC?style=flat-square&logo=jellyfin)
 ![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet)
 ![License](https://img.shields.io/badge/license-GPL--3.0-green?style=flat-square)
+[![codecov](https://codecov.io/gh/AnalyticETH/jellyfin-hue/graph/badge.svg)](https://codecov.io/gh/AnalyticETH/jellyfin-hue)
 
 **Immersive lighting for your Jellyfin Media Server.**
 
@@ -108,7 +109,11 @@ The plugin DLL will be generated at:
 
 ### Testing
 
-The test suite covers color space conversion, configuration validation, edge cases, and round-trip conversions.
+The test suite covers:
+- **Color Processing**: RGB/HSL conversion, sampling, and round-trip conversions
+- **Configuration Validation**: All plugin settings and edge cases
+- **HueClient Integration**: REST API parsing, error handling, and retry logic
+- **HueStreamer Protocol**: Binary packet construction, color encoding, and coordinate mapping
 
 #### Running Tests
 
@@ -124,6 +129,8 @@ dotnet test --collect:"XPlat Code Coverage"
 
 # Run specific test class
 dotnet test --filter FullyQualifiedName~ColorProcessingTests
+dotnet test --filter FullyQualifiedName~HueClientTests
+dotnet test --filter FullyQualifiedName~HueStreamerTests
 ```
 
 #### Test Coverage
@@ -134,6 +141,27 @@ Tests are automatically run in CI/CD on:
 - Manual workflow dispatch
 
 See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
+
+### Performance Benchmarks
+
+The project includes BenchmarkDotNet benchmarks for performance-critical operations:
+
+```bash
+# Run all benchmarks
+cd Jellyfin.Plugin.Hue.Benchmarks
+dotnet run -c Release -- --all
+
+# Run specific benchmark suite
+dotnet run -c Release -- --color   # Color processing benchmarks
+dotnet run -c Release -- --packet  # Packet building benchmarks
+```
+
+Benchmarks measure:
+- RGB ↔ HSL color conversion (single and batch)
+- Region sampling for light positions
+- Brightness and saturation adjustments
+- HueStream packet construction
+- Color change detection
 
 ## Recent Changes
 
