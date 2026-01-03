@@ -65,7 +65,30 @@ If the **Link Bridge** button doesn't work for you, you can generate keys manual
 ## Development
 
 ### Building
+
 Requirements: .NET 8.0 SDK.
+
+#### Quick Build (Recommended)
+
+Use the provided build scripts to create a release package:
+
+**Linux/macOS:**
+```bash
+./build-release.sh
+```
+
+**Windows:**
+```powershell
+.\build-release.ps1
+```
+
+These scripts will:
+- Build the plugin in Release mode
+- Run all tests
+- Create a release package with proper versioning
+- Generate a zip file ready for distribution
+
+#### Manual Build
 
 ```bash
 cd Jellyfin.Plugin.Hue

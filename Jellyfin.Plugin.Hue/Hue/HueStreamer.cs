@@ -141,7 +141,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         {
             try
             {
-                lock(_lock)
+                lock (_lock)
                 {
                     _stdin?.Close();
                     if (_opensslProcess != null && !_opensslProcess.HasExited)
@@ -197,7 +197,7 @@ namespace Jellyfin.Plugin.Hue.Hue
 
             try
             {
-                lock(_lock)
+                lock (_lock)
                 {
                     if (_stdin == null) return;
                 }

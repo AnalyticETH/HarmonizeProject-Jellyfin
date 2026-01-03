@@ -228,7 +228,7 @@ namespace Jellyfin.Plugin.Hue.Service
             // Following HarmonizeProject logic: use x (horizontal) and z (vertical) for 2D screen plane
             int avgSize = (FrameWidth + FrameHeight) / 2;
             int dist = (int)(SamplingBreadth * avgSize);
-            
+
             try
             {
                 while (!token.IsCancellationRequested)
@@ -381,7 +381,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     }
                 }
             }
-            catch (TaskCanceledException) {}
+            catch (TaskCanceledException) { }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in Sync Loop");

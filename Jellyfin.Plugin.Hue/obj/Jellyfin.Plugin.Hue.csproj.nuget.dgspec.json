@@ -54,6 +54,10 @@
               "suppressParent": "All",
               "target": "Package",
               "version": "[10.9.11, )"
+            },
+            "System.Text.Json": {
+              "target": "Package",
+              "version": "[9.0.1, )"
             }
           },
           "imports": [

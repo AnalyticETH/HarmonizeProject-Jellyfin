@@ -65,7 +65,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         public async Task<string> DiscoverBridgeIp()
         {
             // Simple discovery via meethue.com or mDNS (simplified for now)
-            try 
+            try
             {
                 var response = await _httpClient.GetStringAsync("https://discovery.meethue.com/");
                 using var doc = JsonDocument.Parse(response);

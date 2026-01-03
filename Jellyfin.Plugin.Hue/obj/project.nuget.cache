@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "Axg+Q9wvtlo=",
+  "dgSpecHash": "sjI6s5jVI14=",
   "success": true,
   "projectFilePath": "/Users/m/Development/jellyfin-hue/Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj",
   "expectedPackageFiles": [
@@ -34,9 +34,10 @@
     "/Users/m/.nuget/packages/microsoft.netcore.targets/1.1.0/microsoft.netcore.targets.1.1.0.nupkg.sha512",
     "/Users/m/.nuget/packages/system.buffers/4.5.0/system.buffers.4.5.0.nupkg.sha512",
     "/Users/m/.nuget/packages/system.globalization/4.3.0/system.globalization.4.3.0.nupkg.sha512",
+    "/Users/m/.nuget/packages/system.io.pipelines/9.0.1/system.io.pipelines.9.0.1.nupkg.sha512",
     "/Users/m/.nuget/packages/system.runtime/4.3.0/system.runtime.4.3.0.nupkg.sha512",
-    "/Users/m/.nuget/packages/system.text.encodings.web/8.0.0/system.text.encodings.web.8.0.0.nupkg.sha512",
-    "/Users/m/.nuget/packages/system.text.json/8.0.4/system.text.json.8.0.4.nupkg.sha512",
+    "/Users/m/.nuget/packages/system.text.encodings.web/9.0.1/system.text.encodings.web.9.0.1.nupkg.sha512",
+    "/Users/m/.nuget/packages/system.text.json/9.0.1/system.text.json.9.0.1.nupkg.sha512",
     "/Users/m/.nuget/packages/system.threading.tasks.dataflow/8.0.1/system.threading.tasks.dataflow.8.0.1.nupkg.sha512"
   ],
   "logs": []
