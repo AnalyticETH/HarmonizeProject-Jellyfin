@@ -1,18 +1,39 @@
+using System;
 using System.Collections.Generic;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.Hue.Configuration
 {
     /// <summary>
+    /// Per-user bridge and entertainment area mapping
+    /// </summary>
+    public class UserBridgeMapping
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string UserName { get; set; } = string.Empty; // For display purposes
+        public string HueBridgeIp { get; set; } = string.Empty;
+        public string HueAppKey { get; set; } = string.Empty;
+        public string HueClientKey { get; set; } = string.Empty;
+        public string EntertainmentAreaId { get; set; } = string.Empty;
+        public string EntertainmentAreaName { get; set; } = string.Empty; // For display purposes
+    }
+
+    /// <summary>
     /// Configuration for the Philips Hue Sync plugin
     /// </summary>
     public class PluginConfiguration : BasePluginConfiguration
     {
         public bool SyncEnabled { get; set; } = false;
+
+        // Default/fallback bridge settings (used when no user mapping exists)
         public string HueBridgeIp { get; set; } = string.Empty;
         public string HueAppKey { get; set; } = string.Empty;
         public string HueClientKey { get; set; } = string.Empty; // For DTLS
         public string EntertainmentAreaId { get; set; } = string.Empty;
+
+        // Per-user bridge mappings
+        public List<UserBridgeMapping> UserMappings { get; set; } = new List<UserBridgeMapping>();
+
         public bool UseCinemaMode { get; set; } = true; // Dimming behavior
         public int BrightnessDimLevel { get; set; } = 30;
         public int TargetFps { get; set; } = 20;
@@ -26,6 +47,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int BlackoutThreshold { get; set; } = 15; // Average brightness below which sync is skipped (0-255)
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
         public int NetworkRetryAttempts { get; set; } = 3; // Number of retry attempts for network operations
+
+        /// <summary>
+        /// Gets the bridge configuration for a specific user, or falls back to default
+        /// </summary>
+        public (string BridgeIp, string AppKey, string ClientKey, string AreaId) GetBridgeConfigForUser(Guid userId)
+        {
+            var mapping = UserMappings.Find(m => m.UserId == userId.ToString());
+            if (mapping != null && !string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
+            {
+                return (mapping.HueBridgeIp, mapping.HueAppKey, mapping.HueClientKey, mapping.EntertainmentAreaId);
+            }
+            // Fall back to default
+            return (HueBridgeIp, HueAppKey, HueClientKey, EntertainmentAreaId);
+        }
 
         public PluginConfiguration()
         {

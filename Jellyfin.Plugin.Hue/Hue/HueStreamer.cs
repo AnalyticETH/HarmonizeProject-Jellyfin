@@ -20,6 +20,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         private Stream? _stdin;
         private readonly object _lock = new object();
         private PluginConfiguration? _lastConfig;
+        private (string bridgeIp, string appKey, string clientKey)? _lastBridgeConfig;
         private int _reconnectAttempts = 0;
         private const int MaxReconnectAttempts = 3;
         private Dictionary<int, byte[]>? _lastSentColors;
@@ -71,26 +72,38 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="config">Plugin configuration containing bridge IP and credentials</param>
         public void StartStream(PluginConfiguration config)
         {
-            if (string.IsNullOrEmpty(config.HueBridgeIp) || string.IsNullOrEmpty(config.HueClientKey))
+            StartStream(config.HueBridgeIp, config.HueAppKey, config.HueClientKey);
+            _lastConfig = config;
+        }
+
+        /// <summary>
+        /// Starts a DTLS streaming connection to the Hue Bridge using OpenSSL with explicit parameters
+        /// </summary>
+        /// <param name="bridgeIp">IP address of the Hue Bridge</param>
+        /// <param name="appKey">Application key (username) for authentication</param>
+        /// <param name="clientKey">Client key for DTLS encryption</param>
+        public void StartStream(string bridgeIp, string appKey, string clientKey)
+        {
+            if (string.IsNullOrEmpty(bridgeIp) || string.IsNullOrEmpty(clientKey))
             {
                 _logger.LogError("Bridge IP or Client Key missing.");
                 return;
             }
 
-            if (string.IsNullOrEmpty(config.HueAppKey))
+            if (string.IsNullOrEmpty(appKey))
             {
                 _logger.LogError("Hue App Key missing.");
                 return;
             }
 
-            _lastConfig = config;
+            _lastBridgeConfig = (bridgeIp, appKey, clientKey);
 
             try
             {
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "openssl",
-                    Arguments = $"s_client -dtls1_2 -cipher PSK-AES128-GCM-SHA256 -psk_identity {config.HueAppKey} -psk {config.HueClientKey} -connect {config.HueBridgeIp}:2100",
+                    Arguments = $"s_client -dtls1_2 -cipher PSK-AES128-GCM-SHA256 -psk_identity {appKey} -psk {clientKey} -connect {bridgeIp}:2100",
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -103,7 +116,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 _stdin = _opensslProcess.StandardInput.BaseStream;
 
                 _reconnectAttempts = 0; // Reset on successful start
-                _logger.LogInformation("OpenSSL DTLS Tunnel started to {0}:2100", config.HueBridgeIp);
+                _logger.LogInformation("OpenSSL DTLS Tunnel started to {0}:2100", bridgeIp);
             }
             catch (Exception ex)
             {
@@ -117,7 +130,10 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         private bool TryReconnect()
         {
-            if (_lastConfig == null || _reconnectAttempts >= MaxReconnectAttempts)
+            if (_lastConfig == null && _lastBridgeConfig == null)
+                return false;
+
+            if (_reconnectAttempts >= MaxReconnectAttempts)
                 return false;
 
             _reconnectAttempts++;
@@ -127,7 +143,17 @@ namespace Jellyfin.Plugin.Hue.Hue
             {
                 StopStream();
                 Thread.Sleep(1000 * _reconnectAttempts); // Exponential backoff
-                StartStream(_lastConfig);
+
+                if (_lastBridgeConfig != null)
+                {
+                    var (bridgeIp, appKey, clientKey) = _lastBridgeConfig.Value;
+                    StartStream(bridgeIp, appKey, clientKey);
+                }
+                else if (_lastConfig != null)
+                {
+                    StartStream(_lastConfig);
+                }
+
                 return IsHealthy();
             }
             catch (Exception ex)

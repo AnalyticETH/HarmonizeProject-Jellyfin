@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Mime;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -84,6 +86,72 @@ namespace Jellyfin.Plugin.Hue.Api
 
             return Ok(status);
         }
+
+        /// <summary>
+        /// Gets all user-to-bridge mappings
+        /// </summary>
+        [HttpGet("UserMappings")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<IEnumerable<UserBridgeMapping>> GetUserMappings()
+        {
+            var config = Plugin.Instance?.Configuration;
+            return Ok(config?.UserMappings ?? new List<UserBridgeMapping>());
+        }
+
+        /// <summary>
+        /// Saves or updates a user-to-bridge mapping
+        /// </summary>
+        [HttpPost("UserMappings")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public ActionResult SaveUserMapping([FromBody] UserBridgeMapping mapping)
+        {
+            if (string.IsNullOrWhiteSpace(mapping.UserId))
+            {
+                return BadRequest("User ID is required.");
+            }
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+            {
+                return BadRequest("Plugin configuration not available.");
+            }
+
+            // Remove existing mapping for this user if exists
+            config.UserMappings.RemoveAll(m => m.UserId == mapping.UserId);
+
+            // Add the new/updated mapping
+            config.UserMappings.Add(mapping);
+
+            Plugin.Instance?.SaveConfiguration();
+
+            return Ok(new { message = "Mapping saved successfully." });
+        }
+
+        /// <summary>
+        /// Deletes a user-to-bridge mapping
+        /// </summary>
+        [HttpDelete("UserMappings/{userId}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult DeleteUserMapping(string userId)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+            {
+                return NotFound("Plugin configuration not available.");
+            }
+
+            var removed = config.UserMappings.RemoveAll(m => m.UserId == userId);
+            if (removed == 0)
+            {
+                return NotFound("Mapping not found for the specified user.");
+            }
+
+            Plugin.Instance?.SaveConfiguration();
+
+            return Ok(new { message = "Mapping deleted successfully." });
+        }
     }
 
     public class HueRegistrationRequest
@@ -93,7 +161,10 @@ namespace Jellyfin.Plugin.Hue.Api
 
     public class HueRegistrationResult
     {
+        [JsonPropertyName("username")]
         public string Username { get; set; } = string.Empty;
+
+        [JsonPropertyName("clientKey")]
         public string ClientKey { get; set; } = string.Empty;
     }
 
@@ -105,4 +176,5 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? BridgeIp { get; set; }
         public string? EntertainmentAreaId { get; set; }
     }
+
 }

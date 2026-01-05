@@ -139,7 +139,9 @@ namespace Jellyfin.Plugin.Hue.Hue
             }) ?? null;
         }
 
-        public record EntertainmentArea(string Id, string Name);
+        public record EntertainmentArea(
+            [property: System.Text.Json.Serialization.JsonPropertyName("id")] string Id,
+            [property: System.Text.Json.Serialization.JsonPropertyName("name")] string Name);
 
         /// <summary>
         /// Retrieves all entertainment areas configured on the bridge

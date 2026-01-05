@@ -56,6 +56,23 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
 | **Enable Real-time Sync** | Master toggle for the sync feature. |
 
+### Per-User Bridge Mappings
+
+For multi-user Jellyfin setups, you can map individual users to different Hue bridges and entertainment areas. This is useful when:
+- Different rooms have their own Hue bridges
+- Different users watch in different locations (e.g., living room vs. bedroom)
+- You want to disable sync for certain users
+
+To configure per-user mappings:
+1. Go to the **Per-User Bridge Mappings** section in the plugin settings
+2. Select a Jellyfin user from the dropdown
+3. Enter the Bridge IP for that user's location
+4. Click **Link Bridge** and press the physical button on that bridge
+5. Select the entertainment area for that bridge
+6. Click **Add User Mapping**
+
+Users without a mapping will use the default bridge settings configured above.
+
 ### Generating Hue Credentials (Manual Fallback)
 If the **Link Bridge** button doesn't work for you, you can generate keys manually:
 1.  Go to `https://<BRIDGE_IP>/debug/clip.html`
@@ -165,7 +182,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.3.0 (Current)
+### Version 1.4.0 (Current)
+- **Per-User Bridge Mappings**: Map different Jellyfin users to different Hue bridges and entertainment areas
+- **Multi-Room Support**: Perfect for households with multiple viewing locations
+- **Fallback Behavior**: Users without mappings automatically use default bridge settings
+
+### Version 1.3.0
 - **Scene Restoration**: Automatically saves and restores original light states
 - **Advanced Color Processing**: Brightness boost, saturation control, and blackout detection
 - **Network Resilience**: Retry logic with exponential backoff for HTTP operations

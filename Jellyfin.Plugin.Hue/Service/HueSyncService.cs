@@ -47,6 +47,11 @@ namespace Jellyfin.Plugin.Hue.Service
         private readonly ILoggerFactory _loggerFactory;
         private string? _currentPlaySessionId;
         private List<HueClient.LightState>? _savedLightStates;
+        private DateTime _syncStartTime;
+        private const int MinSyncDurationBeforePauseMs = 5000; // Ignore pause events for first 5 seconds
+        private volatile bool _isSyncStarting; // Prevent concurrent sync starts
+        private readonly object _syncLock = new object();
+        private (string BridgeIp, string AppKey, string ClientKey, string AreaId)? _currentBridgeConfig;
 
         // Public property to track sync state
         public bool IsSyncing => _syncCts != null && !_syncCts.IsCancellationRequested;
@@ -87,6 +92,14 @@ namespace Jellyfin.Plugin.Hue.Service
         private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
         {
             _logger.LogInformation("Playback started for item {0}", e.Item.Name);
+
+            // Skip if already syncing or starting for this session
+            if (_isSyncStarting || (IsSyncing && _currentPlaySessionId == e.PlaySessionId))
+            {
+                _logger.LogDebug("Sync already in progress for this session, skipping duplicate start");
+                return;
+            }
+
             _currentPlaySessionId = e.PlaySessionId;
             _ = StartSyncForItem(e);
         }
@@ -101,22 +114,24 @@ namespace Jellyfin.Plugin.Hue.Service
             _logger.LogInformation("Playback stopped for item {0}", e.Item?.Name ?? "Unknown");
 
             var config = Plugin.Instance?.Configuration;
+            var bridgeConfig = _currentBridgeConfig;
 
             // Restore saved light states if configured
-            if (config != null && config.SyncEnabled && config.RestoreLightState && _savedLightStates != null)
+            if (config != null && config.SyncEnabled && config.RestoreLightState && _savedLightStates != null && bridgeConfig != null)
             {
                 _logger.LogInformation("Restoring saved light states");
-                await _hueClient.RestoreLightStates(config.HueBridgeIp, config.HueAppKey, _savedLightStates);
+                await _hueClient.RestoreLightStates(bridgeConfig.Value.BridgeIp, bridgeConfig.Value.AppKey, _savedLightStates);
                 _savedLightStates = null;
             }
             // Otherwise restore lights if cinema mode was used
-            else if (config != null && config.UseCinemaMode && config.SyncEnabled)
+            else if (config != null && config.UseCinemaMode && config.SyncEnabled && bridgeConfig != null)
             {
                 _logger.LogInformation("Restoring lights after playback");
-                await RestoreLightsAfterPlayback(config);
+                await RestoreLightsAfterPlayback(bridgeConfig.Value.BridgeIp, bridgeConfig.Value.AppKey, bridgeConfig.Value.AreaId);
             }
 
             CurrentItemName = null;
+            _currentBridgeConfig = null;
             StopSync();
         }
 
@@ -130,10 +145,18 @@ namespace Jellyfin.Plugin.Hue.Service
             // Handle pause/unpause events
             if (e.IsPaused && _syncCts != null && !_syncCts.IsCancellationRequested)
             {
+                // Ignore pause events during initial buffering/startup grace period
+                var elapsed = (DateTime.UtcNow - _syncStartTime).TotalMilliseconds;
+                if (elapsed < MinSyncDurationBeforePauseMs)
+                {
+                    _logger.LogDebug("Ignoring pause event during startup grace period ({0}ms elapsed)", (int)elapsed);
+                    return;
+                }
+
                 _logger.LogInformation("Playback paused, stopping light sync");
                 StopSync();
             }
-            else if (!e.IsPaused && _syncCts == null)
+            else if (!e.IsPaused && _syncCts == null && !_isSyncStarting)
             {
                 _logger.LogInformation("Playback resumed, restarting light sync");
                 _currentPlaySessionId = e.PlaySessionId;
@@ -151,13 +174,13 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
-        /// Sends colors to lights using a temporary streamer instance
+        /// Sends colors to lights using a temporary streamer instance with explicit bridge config
         /// </summary>
-        private async Task SendTemporaryColors(PluginConfiguration config, Dictionary<int, byte[]> channelColors, int delayMs)
+        private async Task SendTemporaryColorsWithConfig(string bridgeIp, string appKey, string clientKey, string areaId, Dictionary<int, byte[]> channelColors, int delayMs)
         {
             var tempStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
-            tempStreamer.StartStream(config);
-            await tempStreamer.SendColors(config.EntertainmentAreaId, channelColors);
+            tempStreamer.StartStream(bridgeIp, appKey, clientKey);
+            await tempStreamer.SendColors(areaId, channelColors);
             await Task.Delay(delayMs);
             tempStreamer.StopStream();
         }
@@ -165,7 +188,7 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Applies cinema mode by dimming lights to configured level
         /// </summary>
-        private async Task ApplyCinemaMode(PluginConfiguration config, System.Text.Json.JsonElement areaConfig)
+        private async Task ApplyCinemaMode(PluginConfiguration config, string bridgeIp, string appKey, string clientKey, string areaId, System.Text.Json.JsonElement areaConfig)
         {
             try
             {
@@ -184,7 +207,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 // Send dim command before starting stream
-                await SendTemporaryColors(config, channelColors, CinemaModeDimmingDelayMs);
+                await SendTemporaryColorsWithConfig(bridgeIp, appKey, clientKey, areaId, channelColors, CinemaModeDimmingDelayMs);
             }
             catch (Exception ex)
             {
@@ -195,11 +218,11 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Restores lights to normal brightness after playback
         /// </summary>
-        private async Task RestoreLightsAfterPlayback(PluginConfiguration config)
+        private async Task RestoreLightsAfterPlayback(string bridgeIp, string appKey, string areaId)
         {
             try
             {
-                var areaConfig = await _hueClient.GetEntertainmentConfiguration(config.HueBridgeIp, config.HueAppKey, config.EntertainmentAreaId);
+                var areaConfig = await _hueClient.GetEntertainmentConfiguration(bridgeIp, appKey, areaId);
                 if (areaConfig == null || !areaConfig.Value.TryGetProperty("channels", out var channels))
                     return;
 
@@ -211,7 +234,11 @@ namespace Jellyfin.Plugin.Hue.Service
                     channelColors[channelId] = new byte[] { FullBrightnessValue, FullBrightnessValue, FullBrightnessValue, FullBrightnessValue, FullBrightnessValue, FullBrightnessValue };
                 }
 
-                await SendTemporaryColors(config, channelColors, RestoreLightsDelayMs);
+                // Use current bridge config for temporary streamer
+                if (_currentBridgeConfig != null)
+                {
+                    await SendTemporaryColorsWithConfig(_currentBridgeConfig.Value.BridgeIp, _currentBridgeConfig.Value.AppKey, _currentBridgeConfig.Value.ClientKey, areaId, channelColors, RestoreLightsDelayMs);
+                }
             }
             catch (Exception ex)
             {
@@ -390,6 +417,29 @@ namespace Jellyfin.Plugin.Hue.Service
 
         private async Task StartSyncForItem(PlaybackProgressEventArgs e)
         {
+            // Prevent concurrent sync starts
+            lock (_syncLock)
+            {
+                if (_isSyncStarting)
+                {
+                    _logger.LogDebug("Sync start already in progress, skipping");
+                    return;
+                }
+                _isSyncStarting = true;
+            }
+
+            try
+            {
+                await StartSyncForItemInternal(e);
+            }
+            finally
+            {
+                _isSyncStarting = false;
+            }
+        }
+
+        private async Task StartSyncForItemInternal(PlaybackProgressEventArgs e)
+        {
             var config = Plugin.Instance?.Configuration;
             if (config == null || !config.SyncEnabled)
             {
@@ -417,13 +467,27 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
+            // Get user-specific bridge configuration
+            var userId = e.Session?.UserId ?? Guid.Empty;
+            var (bridgeIp, appKey, clientKey, areaId) = config.GetBridgeConfigForUser(userId);
+
+            if (string.IsNullOrWhiteSpace(bridgeIp) || string.IsNullOrWhiteSpace(appKey) || string.IsNullOrWhiteSpace(areaId))
+            {
+                _logger.LogWarning("No valid bridge configuration found for user {0}", userId);
+                return;
+            }
+
+            _logger.LogInformation("Starting sync for user {0} with bridge {1} and area {2}", userId, bridgeIp, areaId);
+
             StopSync();
             _currentPlaySessionId = e.PlaySessionId;
+            _currentBridgeConfig = (bridgeIp, appKey, clientKey, areaId);
             _syncCts = new CancellationTokenSource();
+            _syncStartTime = DateTime.UtcNow;
 
             try
             {
-                var areaConfig = await _hueClient.GetEntertainmentConfiguration(config.HueBridgeIp, config.HueAppKey, config.EntertainmentAreaId);
+                var areaConfig = await _hueClient.GetEntertainmentConfiguration(bridgeIp, appKey, areaId);
                 if (areaConfig == null)
                 {
                     _logger.LogWarning("Failed to load entertainment configuration from bridge");
@@ -434,13 +498,13 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (config.RestoreLightState)
                 {
                     _logger.LogInformation("Saving current light states for restoration");
-                    _savedLightStates = await _hueClient.GetLightStates(config.HueBridgeIp, config.HueAppKey, areaConfig.Value);
+                    _savedLightStates = await _hueClient.GetLightStates(bridgeIp, appKey, areaConfig.Value);
                 }
 
                 if (config.UseCinemaMode)
                 {
                     _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", config.BrightnessDimLevel);
-                    await ApplyCinemaMode(config, areaConfig.Value);
+                    await ApplyCinemaMode(config, bridgeIp, appKey, clientKey, areaId, areaConfig.Value);
                 }
 
                 CurrentItemName = e.Item?.Name;
@@ -460,11 +524,11 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 if (lights.Count == 0)
                 {
-                    _logger.LogWarning("Entertainment area {0} returned no channels to control", config.EntertainmentAreaId);
+                    _logger.LogWarning("Entertainment area {0} returned no channels to control", areaId);
                     return;
                 }
 
-                _hueStreamer!.StartStream(config);
+                _hueStreamer!.StartStream(bridgeIp, appKey, clientKey);
 
                 var targetFrameDurationMs = config.TargetFps > 0
                     ? 1000 / Math.Clamp(config.TargetFps, MinFps, MaxFps)
@@ -479,7 +543,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 var token = _syncCts.Token;
-                _ = Task.Run(() => RunSyncLoop(videoStream, lights, config.EntertainmentAreaId, targetFrameDurationMs, token), token);
+                _ = Task.Run(() => RunSyncLoop(videoStream, lights, areaId, targetFrameDurationMs, token), token);
             }
             catch (Exception ex)
             {
