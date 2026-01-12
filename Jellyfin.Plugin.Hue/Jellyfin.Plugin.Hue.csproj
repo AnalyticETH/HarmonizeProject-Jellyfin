@@ -30,7 +30,7 @@
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
     <!-- Security: Override vulnerable transitive dependencies -->
-    <PackageReference Include="System.Text.Json" Version="9.0.1" />
+    <PackageReference Include="System.Text.Json" Version="9.0.11" />
   </ItemGroup>
 
   <ItemGroup>
