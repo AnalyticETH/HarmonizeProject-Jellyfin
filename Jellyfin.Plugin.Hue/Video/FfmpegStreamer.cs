@@ -57,8 +57,9 @@ namespace Jellyfin.Plugin.Hue.Video
         /// <param name="useGpu">Enable GPU acceleration if available (default: true)</param>
         /// <param name="customFlags">Additional FFmpeg flags to append</param>
         /// <param name="ffmpegPath">Path to ffmpeg executable (default: "ffmpeg")</param>
+        /// <param name="seekPositionSeconds">Seek to this position before extracting (default: 0 = start)</param>
         /// <returns>Stream of raw RGB24 frames, or null if failed</returns>
-        public Stream? StartFfmpeg(string videoPath, int fps = 20, bool useGpu = true, string customFlags = "", string ffmpegPath = "ffmpeg")
+        public Stream? StartFfmpeg(string videoPath, int fps = 20, bool useGpu = true, string customFlags = "", string ffmpegPath = "ffmpeg", double seekPositionSeconds = 0)
         {
             if (string.IsNullOrWhiteSpace(videoPath))
             {
@@ -86,12 +87,20 @@ namespace Jellyfin.Plugin.Hue.Video
             }
 
             var flags = flagParts.Count > 0 ? string.Join(" ", flagParts) + " " : string.Empty;
+
+            // Seek prefix: if seekPositionSeconds > 0 seek before the input for fast seeking
+            var seekPrefix = seekPositionSeconds > 1.0 ? $"-ss {seekPositionSeconds:F3} " : string.Empty;
+
+            // NOTE: We deliberately omit -re here.
+            // -re reads input at native frame rate which would throttle a 24fps source to only
+            // 24 frames/sec even if targetFps is 20 — this causes the sync loop to block on reads.
+            // Instead we let FFmpeg decode as fast as possible; the RunSyncLoop delay enforces timing.
             var startInfo = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"{flags}-re -i \"{videoPath}\" -vf scale=160:90 -r {fps} -f rawvideo -pix_fmt rgb24 pipe:1",
+                Arguments = $"{flags}{seekPrefix}-i \"{videoPath}\" -vf scale=160:90 -r {fps} -f rawvideo -pix_fmt rgb24 pipe:1",
                 RedirectStandardOutput = true,
-                RedirectStandardError = true, // Capture errors without cluttering stdout
+                RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };

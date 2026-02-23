@@ -1,30 +1,46 @@
 using Jellyfin.Plugin.Hue.Hue;
 using Microsoft.Extensions.Logging;
 using Moq;
+using System.Text;
 using Xunit;
 
 namespace Jellyfin.Plugin.Hue.Tests;
 
 /// <summary>
 /// Tests for HueStreamer binary protocol and color encoding.
+/// Tests verify the Hue Entertainment API v2 packet format:
+///   [0-8]   "HueStream" (9 bytes ASCII)
+///   [9]     0x02  major version
+///   [10]    0x00  minor version
+///   [11]    seqNo (wrapping 0-255)
+///   [12-13] 0x00 0x00 reserved
+///   [14]    0x00  color space (RGB)
+///   [15]    0x00  reserved
+///   Per channel (9 bytes):
+///     [0]   0x00 device type
+///     [1]   channelId >> 8
+///     [2]   channelId & 0xFF
+///     [3-8] R_hi R_lo G_hi G_lo B_hi B_lo
 /// </summary>
 public class HueStreamerTests
 {
     private readonly Mock<ILogger<HueStreamer>> _loggerMock;
+    private readonly HueStreamer _streamer;
 
     public HueStreamerTests()
     {
         _loggerMock = new Mock<ILogger<HueStreamer>>();
+        _streamer = new HueStreamer(_loggerMock.Object);
     }
 
     #region Color Encoding Tests
 
     [Theory]
-    [InlineData(0, 0, 0, 0, 0, 0)] // Black
+    [InlineData(0, 0, 0, 0, 0, 0)]         // Black
     [InlineData(255, 255, 255, 127, 127, 127)] // White (halved)
-    [InlineData(255, 0, 0, 127, 0, 0)] // Red
-    [InlineData(0, 255, 0, 0, 127, 0)] // Green
-    [InlineData(0, 0, 255, 0, 0, 127)] // Blue
+    [InlineData(255, 0, 0, 127, 0, 0)]      // Red
+    [InlineData(0, 255, 0, 0, 127, 0)]      // Green
+    [InlineData(0, 0, 255, 0, 0, 127)]      // Blue
     [InlineData(128, 128, 128, 64, 64, 64)] // Gray
     public void EncodeColorFor16Bit_CorrectlyHalvesValues(
         byte inputR, byte inputG, byte inputB,
@@ -60,21 +76,10 @@ public class HueStreamerTests
     }
 
     [Fact]
-    public void HueStreamPacket_VersionBytes_AreCorrect()
-    {
-        // HueStream v2.0 version bytes
-        byte[] versionBytes = [0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-
-        Assert.Equal(7, versionBytes.Length);
-        Assert.Equal(0x02, versionBytes[0]); // Version 2
-        Assert.All(versionBytes.Skip(1), b => Assert.Equal(0x00, b)); // Padding
-    }
-
-    [Fact]
     public void ChannelColorData_Has6BytesPerChannel()
     {
         // Each channel has: R(2 bytes) + G(2 bytes) + B(2 bytes) = 6 bytes
-        // Format: [R, R, G, G, B, B] where each value is duplicated for 16-bit
+        // Format: [R_hi, R_lo, G_hi, G_lo, B_hi, B_lo]
         byte r = 127, g = 64, b = 32;
         byte[] channelData = [r, r, g, g, b, b];
 
@@ -91,7 +96,6 @@ public class HueStreamerTests
     [Fact]
     public void HasSignificantColorChange_IdenticalColors_ReturnsFalse()
     {
-        // Arrange
         var current = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 100, 100, 100 } },
@@ -103,17 +107,14 @@ public class HueStreamerTests
             { 1, new byte[] { 200, 200, 200 } }
         };
 
-        // Act
         var hasChange = HasSignificantColorChange(current, previous, threshold: 10);
 
-        // Assert
         Assert.False(hasChange);
     }
 
     [Fact]
     public void HasSignificantColorChange_LargeChange_ReturnsTrue()
     {
-        // Arrange
         var current = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 100, 100, 100 } }
@@ -123,17 +124,14 @@ public class HueStreamerTests
             { 0, new byte[] { 200, 200, 200 } }
         };
 
-        // Act
         var hasChange = HasSignificantColorChange(current, previous, threshold: 10);
 
-        // Assert
         Assert.True(hasChange);
     }
 
     [Fact]
     public void HasSignificantColorChange_SmallChange_BelowThreshold_ReturnsFalse()
     {
-        // Arrange
         var current = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 100, 100, 100 } }
@@ -143,17 +141,14 @@ public class HueStreamerTests
             { 0, new byte[] { 105, 103, 102 } }
         };
 
-        // Act
         var hasChange = HasSignificantColorChange(current, previous, threshold: 10);
 
-        // Assert
         Assert.False(hasChange);
     }
 
     [Fact]
     public void HasSignificantColorChange_SmallChange_AboveThreshold_ReturnsTrue()
     {
-        // Arrange
         var current = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 100, 100, 100 } }
@@ -163,17 +158,14 @@ public class HueStreamerTests
             { 0, new byte[] { 115, 100, 100 } } // R differs by 15
         };
 
-        // Act
         var hasChange = HasSignificantColorChange(current, previous, threshold: 10);
 
-        // Assert
         Assert.True(hasChange);
     }
 
     [Fact]
     public void HasSignificantColorChange_NewChannel_ReturnsTrue()
     {
-        // Arrange
         var current = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 100, 100, 100 } },
@@ -184,34 +176,28 @@ public class HueStreamerTests
             { 0, new byte[] { 100, 100, 100 } }
         };
 
-        // Act
         var hasChange = HasSignificantColorChange(current, previous, threshold: 10);
 
-        // Assert
         Assert.True(hasChange);
     }
 
     [Fact]
     public void HasSignificantColorChange_EmptyPrevious_ReturnsTrue()
     {
-        // Arrange
         var current = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 100, 100, 100 } }
         };
         var previous = new Dictionary<int, byte[]>();
 
-        // Act
         var hasChange = HasSignificantColorChange(current, previous, threshold: 10);
 
-        // Assert
         Assert.True(hasChange);
     }
 
     [Fact]
     public void HasSignificantColorChange_ZeroThreshold_AnyChange_ReturnsTrue()
     {
-        // Arrange
         var current = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 100, 100, 100 } }
@@ -221,69 +207,26 @@ public class HueStreamerTests
             { 0, new byte[] { 101, 100, 100 } } // Differs by 1
         };
 
-        // Act
         var hasChange = HasSignificantColorChange(current, previous, threshold: 0);
 
-        // Assert
         Assert.True(hasChange);
     }
 
     #endregion
 
-    #region Packet Construction Tests
-
-    [Fact]
-    public void BuildHueStreamPacket_SingleChannel_CorrectSize()
-    {
-        // Arrange
-        var areaId = "test-area-id";
-        var channelColors = new Dictionary<int, byte[]>
-        {
-            { 0, new byte[] { 255, 128, 64 } }
-        };
-
-        // Act
-        var packet = BuildHueStreamPacket(areaId, channelColors);
-
-        // Assert
-        // Header (9) + Version (7) + AreaId (variable) + null terminator (1) + channel data (1 + 6)
-        var expectedMinSize = 9 + 7 + areaId.Length + 1 + 7;
-        Assert.True(packet.Length >= expectedMinSize);
-    }
-
-    [Fact]
-    public void BuildHueStreamPacket_MultipleChannels_IncludesAllChannels()
-    {
-        // Arrange
-        var areaId = "area";
-        var channelColors = new Dictionary<int, byte[]>
-        {
-            { 0, new byte[] { 255, 0, 0 } },
-            { 1, new byte[] { 0, 255, 0 } },
-            { 2, new byte[] { 0, 0, 255 } }
-        };
-
-        // Act
-        var packet = BuildHueStreamPacket(areaId, channelColors);
-
-        // Assert
-        // Should have 3 channels worth of data (3 * 7 bytes each = 21 bytes for channel data)
-        Assert.True(packet.Length >= 9 + 7 + 4 + 1 + 21);
-    }
+    #region Packet Construction Tests — Hue Entertainment API v2 format
 
     [Fact]
     public void BuildHueStreamPacket_StartsWithCorrectHeader()
     {
-        // Arrange
+        // The packet must begin with the 9-byte ASCII magic "HueStream"
         var channelColors = new Dictionary<int, byte[]>
         {
-            { 0, new byte[] { 100, 100, 100 } }
+            { 0, new byte[] { 127, 127, 64, 64, 32, 32 } }
         };
 
-        // Act
-        var packet = BuildHueStreamPacket("area", channelColors);
+        var packet = _streamer.BuildHueStreamPacket(channelColors);
 
-        // Assert
         Assert.Equal((byte)'H', packet[0]);
         Assert.Equal((byte)'u', packet[1]);
         Assert.Equal((byte)'e', packet[2]);
@@ -295,41 +238,162 @@ public class HueStreamerTests
         Assert.Equal((byte)'m', packet[8]);
     }
 
+    [Fact]
+    public void BuildHueStreamPacket_VersionBytesAreCorrect()
+    {
+        // Bytes [9] = 0x02 (major), [10] = 0x00 (minor)
+        var channelColors = new Dictionary<int, byte[]>
+        {
+            { 0, new byte[] { 127, 127, 64, 64, 32, 32 } }
+        };
+
+        var packet = _streamer.BuildHueStreamPacket(channelColors);
+
+        Assert.Equal(0x02, packet[9]);  // major version
+        Assert.Equal(0x00, packet[10]); // minor version
+    }
+
+    [Fact]
+    public void BuildHueStreamPacket_ColorSpaceIsRgb()
+    {
+        // Byte [14] = 0x00 means RGB color space
+        var channelColors = new Dictionary<int, byte[]>
+        {
+            { 0, new byte[] { 127, 127, 64, 64, 32, 32 } }
+        };
+
+        var packet = _streamer.BuildHueStreamPacket(channelColors);
+
+        Assert.Equal(0x00, packet[14]); // RGB color space
+    }
+
+    [Fact]
+    public void BuildHueStreamPacket_SingleChannel_CorrectSize()
+    {
+        // Fixed header: 16 bytes, per channel: 9 bytes
+        // Total = 16 + 1 * 9 = 25
+        var channelColors = new Dictionary<int, byte[]>
+        {
+            { 0, new byte[] { 127, 127, 64, 64, 32, 32 } }
+        };
+
+        var packet = _streamer.BuildHueStreamPacket(channelColors);
+
+        Assert.Equal(16 + 9, packet.Length);
+    }
+
+    [Fact]
+    public void BuildHueStreamPacket_MultipleChannels_IncludesAllChannels()
+    {
+        // Fixed header: 16 bytes, per channel: 9 bytes
+        // 3 channels → 16 + 3*9 = 43 bytes
+        var channelColors = new Dictionary<int, byte[]>
+        {
+            { 0, new byte[] { 127, 127, 0, 0, 0, 0 } },
+            { 1, new byte[] { 0, 0, 127, 127, 0, 0 } },
+            { 2, new byte[] { 0, 0, 0, 0, 127, 127 } }
+        };
+
+        var packet = _streamer.BuildHueStreamPacket(channelColors);
+
+        Assert.Equal(16 + 3 * 9, packet.Length);
+    }
+
+    [Fact]
+    public void BuildHueStreamPacket_ChannelData_DeviceTypeIsLight()
+    {
+        // First byte of each channel block (offset 16) = 0x00 (light device type)
+        var channelColors = new Dictionary<int, byte[]>
+        {
+            { 5, new byte[] { 100, 100, 50, 50, 25, 25 } }
+        };
+
+        var packet = _streamer.BuildHueStreamPacket(channelColors);
+
+        // Channel block starts at offset 16
+        Assert.Equal(0x00, packet[16]); // device type = light
+    }
+
+    [Fact]
+    public void BuildHueStreamPacket_ChannelData_IdEncodedBigEndian()
+    {
+        // Channel ID 0x0005 → high byte = 0x00, low byte = 0x05
+        var channelColors = new Dictionary<int, byte[]>
+        {
+            { 5, new byte[] { 100, 100, 50, 50, 25, 25 } }
+        };
+
+        var packet = _streamer.BuildHueStreamPacket(channelColors);
+
+        Assert.Equal(0x00, packet[17]); // channel ID high byte
+        Assert.Equal(0x05, packet[18]); // channel ID low byte
+    }
+
+    [Fact]
+    public void BuildHueStreamPacket_ChannelData_RgbBytesCorrect()
+    {
+        // Channel colors [R_hi, R_lo, G_hi, G_lo, B_hi, B_lo] should appear at offsets 19-24
+        var channelColors = new Dictionary<int, byte[]>
+        {
+            { 0, new byte[] { 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF } }
+        };
+
+        var packet = _streamer.BuildHueStreamPacket(channelColors);
+
+        Assert.Equal(0xAA, packet[19]); // R hi
+        Assert.Equal(0xBB, packet[20]); // R lo
+        Assert.Equal(0xCC, packet[21]); // G hi
+        Assert.Equal(0xDD, packet[22]); // G lo
+        Assert.Equal(0xEE, packet[23]); // B hi
+        Assert.Equal(0xFF, packet[24]); // B lo
+    }
+
+    [Fact]
+    public void BuildHueStreamPacket_DoesNotContainAreaId()
+    {
+        // The area UUID must NOT appear in the packet body — it's established via the DTLS session
+        var channelColors = new Dictionary<int, byte[]>
+        {
+            { 0, new byte[] { 100, 100, 100, 100, 100, 100 } }
+        };
+
+        var packet = _streamer.BuildHueStreamPacket(channelColors);
+        var packetStr = Encoding.ASCII.GetString(packet);
+
+        // Verify no UUID-like text appears in the packet
+        Assert.True(packetStr.Length < 30); // header(9) + fixed(7) + channel(9) = 25 bytes
+    }
+
+
     #endregion
 
     #region Coordinate Mapping Tests
 
     [Theory]
-    [InlineData(-1.0, 160, 0)] // Far left -> X = 0
-    [InlineData(1.0, 160, 159)] // Far right -> X = 159
-    [InlineData(0.0, 160, 79)] // Center -> X = 79 (0.5 * 159 = 79.5, truncated to 79)
+    [InlineData(-1.0, 160, 0)]   // Far left -> X = 0
+    [InlineData(1.0, 160, 159)]  // Far right -> X = 159
+    [InlineData(0.0, 160, 79)]   // Center -> X = 79
     public void MapHueCoordinateToPixelX_CorrectMapping(
         double hueX, int width, int expectedPixelX)
     {
-        // Hue X coordinate ranges from -1 (left) to +1 (right)
-        // Map to pixel coordinate: ((hueX + 1) / 2) * (width - 1)
         var pixelX = (int)(((hueX + 1.0) / 2.0) * (width - 1));
-
         Assert.Equal(expectedPixelX, pixelX);
     }
 
     [Theory]
-    [InlineData(1.0, 90, 0)] // Top -> Y = 0
-    [InlineData(-1.0, 90, 89)] // Bottom -> Y = 89
-    [InlineData(0.0, 90, 44)] // Center -> Y = 44
+    [InlineData(1.0, 90, 0)]    // Top -> Y = 0
+    [InlineData(-1.0, 90, 89)]  // Bottom -> Y = 89
+    [InlineData(0.0, 90, 44)]   // Center -> Y = 44
     public void MapHueCoordinateToPixelY_CorrectMapping(
         double hueZ, int height, int expectedPixelY)
     {
-        // Hue Z coordinate ranges from -1 (bottom) to +1 (top)
-        // Map to pixel coordinate: ((1 - hueZ) / 2) * (height - 1)
         var pixelY = (int)(((1.0 - hueZ) / 2.0) * (height - 1));
-
         Assert.Equal(expectedPixelY, pixelY);
     }
 
     #endregion
 
-    #region Helper Methods (Simulating HueStreamer logic)
+    #region Helper Methods (Simulating HueStreamer logic for change detection)
 
     private static bool HasSignificantColorChange(
         Dictionary<int, byte[]> current,
@@ -352,37 +416,6 @@ public class HueStreamerTests
         }
 
         return false;
-    }
-
-    private static byte[] BuildHueStreamPacket(string areaId, Dictionary<int, byte[]> channelColors)
-    {
-        using var ms = new MemoryStream();
-
-        // Header: "HueStream"
-        ms.Write("HueStream"u8);
-
-        // Version: 0x02 0x00 0x00 0x00 0x00 0x00 0x00
-        ms.Write(new byte[] { 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });
-
-        // Area ID (ASCII) + null terminator
-        var areaIdBytes = System.Text.Encoding.ASCII.GetBytes(areaId);
-        ms.Write(areaIdBytes);
-        ms.WriteByte(0x00);
-
-        // Channel data
-        foreach (var (channelId, rgb) in channelColors.OrderBy(c => c.Key))
-        {
-            ms.WriteByte((byte)channelId);
-
-            // Each color component is halved and duplicated for 16-bit format
-            byte r = (byte)(rgb[0] / 2);
-            byte g = (byte)(rgb[1] / 2);
-            byte b = (byte)(rgb[2] / 2);
-
-            ms.Write(new byte[] { r, r, g, g, b, b });
-        }
-
-        return ms.ToArray();
     }
 
     #endregion

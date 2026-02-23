@@ -92,7 +92,8 @@ namespace Jellyfin.Plugin.Hue.Hue
             return await ExecuteWithRetry(async () =>
             {
                 var content = new StringContent("{\"devicetype\":\"jellyfin_hue#server\", \"generateclientkey\":true}", System.Text.Encoding.UTF8, "application/json");
-                var response = await _httpClient.PostAsync($"https://{ip}/api", content);
+                // The Hue v1 /api registration endpoint only supports HTTP, not HTTPS
+                var response = await _httpClient.PostAsync($"http://{ip}/api", content);
                 var json = await response.Content.ReadAsStringAsync();
 
                 // Response: [{"success":{"username":"...","clientkey":"..."}}] OR [{"error":...}]
@@ -137,6 +138,76 @@ namespace Jellyfin.Plugin.Hue.Hue
                 // Expected: { "data": [ { "channels": [ ... ] } ] }
                 return (JsonElement?)doc.RootElement.GetProperty("data")[0];
             }) ?? null;
+        }
+
+        /// <summary>
+        /// Activates a Hue Entertainment Area for streaming.
+        /// This MUST be called before opening the DTLS tunnel — the bridge will silently
+        /// reject all packets from a DTLS session if the area is not in "active" streaming mode.
+        /// The bridge automatically deactivates the area after ~10 seconds of inactivity or
+        /// when StopEntertainmentArea is called.
+        /// </summary>
+        /// <param name="bridgeIp">IP address of the Hue Bridge</param>
+        /// <param name="appKey">Application key for authentication</param>
+        /// <param name="areaId">Entertainment area UUID</param>
+        /// <returns>True if activation succeeded</returns>
+        public async Task<bool> StartEntertainmentArea(string bridgeIp, string appKey, string areaId)
+        {
+            try
+            {
+                var url = $"https://{bridgeIp}/clip/v2/resource/entertainment_configuration/{areaId}";
+                var request = new HttpRequestMessage(HttpMethod.Put, url);
+                request.Headers.Add("hue-application-key", appKey);
+                var payload = "{\"action\":\"start\"}";
+                request.Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync();
+                    _logger.LogError("Failed to start entertainment area {0}: HTTP {1} — {2}", areaId, (int)response.StatusCode, body);
+                    return false;
+                }
+
+                _logger.LogInformation("Entertainment area {0} activated for streaming", areaId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception activating entertainment area {0}", areaId);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Deactivates a Hue Entertainment Area after streaming ends.
+        /// This returns lights to normal Hue control.
+        /// </summary>
+        public async Task StopEntertainmentArea(string bridgeIp, string appKey, string areaId)
+        {
+            try
+            {
+                var url = $"https://{bridgeIp}/clip/v2/resource/entertainment_configuration/{areaId}";
+                var request = new HttpRequestMessage(HttpMethod.Put, url);
+                request.Headers.Add("hue-application-key", appKey);
+                var payload = "{\"action\":\"stop\"}";
+                request.Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("Failed to stop entertainment area {0}: HTTP {1} — {2}", areaId, (int)response.StatusCode, body);
+                }
+                else
+                {
+                    _logger.LogInformation("Entertainment area {0} deactivated", areaId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Exception deactivating entertainment area {0}", areaId);
+            }
         }
 
         public record EntertainmentArea(

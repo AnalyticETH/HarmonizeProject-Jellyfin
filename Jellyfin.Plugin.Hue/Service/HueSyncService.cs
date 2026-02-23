@@ -171,6 +171,13 @@ namespace Jellyfin.Plugin.Hue.Service
             _hueStreamer?.StopStream();
             _syncCts = null;
             _currentPlaySessionId = null;
+
+            // Deactivate entertainment area so lights return to normal Hue control
+            if (_currentBridgeConfig != null)
+            {
+                var cfg = _currentBridgeConfig.Value;
+                _ = _hueClient.StopEntertainmentArea(cfg.BridgeIp, cfg.AppKey, cfg.AreaId);
+            }
         }
 
         /// <summary>
@@ -528,13 +535,32 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 }
 
+                // CRITICAL: Activate the entertainment area on the bridge BEFORE opening the DTLS tunnel.
+                // The bridge silently drops all DTLS packets if the area is not in streaming mode.
+                _logger.LogInformation("Activating entertainment area {0} for streaming", areaId);
+                var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
+                if (!activated)
+                {
+                    _logger.LogError("Could not activate entertainment area {0} — aborting sync", areaId);
+                    StopSync();
+                    return;
+                }
+
+                // Small delay to let the bridge switch to streaming mode before the DTLS tunnel
+                await Task.Delay(200);
+
                 _hueStreamer!.StartStream(bridgeIp, appKey, clientKey);
 
                 var targetFrameDurationMs = config.TargetFps > 0
                     ? 1000 / Math.Clamp(config.TargetFps, MinFps, MaxFps)
                     : DefaultFrameDurationMs;
 
-                var videoStream = _ffmpegStreamer!.StartFfmpeg(videoPath, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags);
+                // Seek to current playback position so lights sync to what's actually on screen
+                double seekSeconds = 0;
+                if (e.PlaybackPositionTicks.HasValue && e.PlaybackPositionTicks.Value > 0)
+                    seekSeconds = TimeSpan.FromTicks(e.PlaybackPositionTicks.Value).TotalSeconds;
+
+                var videoStream = _ffmpegStreamer!.StartFfmpeg(videoPath, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags, seekPositionSeconds: seekSeconds);
                 if (videoStream == null)
                 {
                     _logger.LogWarning("FFmpeg stream could not be started for path {0}", videoPath);
