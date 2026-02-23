@@ -113,26 +113,37 @@ namespace Jellyfin.Plugin.Hue.Service
 
             _logger.LogInformation("Playback stopped for item {0}", e.Item?.Name ?? "Unknown");
 
-            var config = Plugin.Instance?.Configuration;
-            var bridgeConfig = _currentBridgeConfig;
-
-            // Restore saved light states if configured
-            if (config != null && config.SyncEnabled && config.RestoreLightState && _savedLightStates != null && bridgeConfig != null)
+            // Wrap in try/catch: this is async void (required by event signature).
+            // An unhandled exception here would crash the entire Jellyfin process.
+            try
             {
-                _logger.LogInformation("Restoring saved light states");
-                await _hueClient.RestoreLightStates(bridgeConfig.Value.BridgeIp, bridgeConfig.Value.AppKey, _savedLightStates);
-                _savedLightStates = null;
-            }
-            // Otherwise restore lights if cinema mode was used
-            else if (config != null && config.UseCinemaMode && config.SyncEnabled && bridgeConfig != null)
-            {
-                _logger.LogInformation("Restoring lights after playback");
-                await RestoreLightsAfterPlayback(bridgeConfig.Value.BridgeIp, bridgeConfig.Value.AppKey, bridgeConfig.Value.AreaId);
-            }
+                var config = Plugin.Instance?.Configuration;
+                var bridgeConfig = _currentBridgeConfig;
 
-            CurrentItemName = null;
-            _currentBridgeConfig = null;
-            StopSync();
+                // Restore saved light states if configured
+                if (config != null && config.SyncEnabled && config.RestoreLightState && _savedLightStates != null && bridgeConfig != null)
+                {
+                    _logger.LogInformation("Restoring saved light states");
+                    await _hueClient.RestoreLightStates(bridgeConfig.Value.BridgeIp, bridgeConfig.Value.AppKey, _savedLightStates);
+                    _savedLightStates = null;
+                }
+                // Otherwise restore lights if cinema mode was used
+                else if (config != null && config.UseCinemaMode && config.SyncEnabled && bridgeConfig != null)
+                {
+                    _logger.LogInformation("Restoring lights after playback");
+                    await RestoreLightsAfterPlayback(bridgeConfig.Value.BridgeIp, bridgeConfig.Value.AppKey, bridgeConfig.Value.AreaId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during playback stopped cleanup");
+            }
+            finally
+            {
+                CurrentItemName = null;
+                StopSync();
+                _currentBridgeConfig = null; // Clear only after StopSync has used it
+            }
         }
 
         private void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
@@ -172,7 +183,8 @@ namespace Jellyfin.Plugin.Hue.Service
             _syncCts = null;
             _currentPlaySessionId = null;
 
-            // Deactivate entertainment area so lights return to normal Hue control
+            // Deactivate entertainment area so lights return to normal Hue control.
+            // _currentBridgeConfig is cleared by the caller (OnPlaybackStopped / StopAsync) after this returns.
             if (_currentBridgeConfig != null)
             {
                 var cfg = _currentBridgeConfig.Value;
@@ -185,11 +197,22 @@ namespace Jellyfin.Plugin.Hue.Service
         /// </summary>
         private async Task SendTemporaryColorsWithConfig(string bridgeIp, string appKey, string clientKey, string areaId, Dictionary<int, byte[]> channelColors, int delayMs)
         {
+            // Must activate the area before opening a DTLS session
+            var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
+            if (!activated)
+            {
+                _logger.LogWarning("SendTemporaryColorsWithConfig: could not activate area {0}, skipping", areaId);
+                return;
+            }
+            await Task.Delay(200); // Let bridge enter streaming mode
+
             var tempStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
-            tempStreamer.StartStream(bridgeIp, appKey, clientKey);
+            await tempStreamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
             await tempStreamer.SendColors(areaId, channelColors);
             await Task.Delay(delayMs);
             tempStreamer.StopStream();
+
+            await _hueClient.StopEntertainmentArea(bridgeIp, appKey, areaId);
         }
 
         /// <summary>
@@ -294,9 +317,9 @@ namespace Jellyfin.Plugin.Hue.Service
                         // Calculate average color for this light's position
                         // Convert from Hue coordinate space to pixel coordinates
                         // Hue: x: -1 (left) to 1 (right), z: -1 (bottom) to 1 (top)
-                        // Pixels: 0,0 is top-left
-                        int cx = (int)((kvp.Value.x + 1) * FrameWidth / 2);
-                        int cy = (int)((-1 * kvp.Value.z + 1) * FrameHeight / 2); // Invert z for screen coordinates
+                        // Pixels: 0,0 is top-left; clamp to valid range [0, dimension-1]
+                        int cx = (int)((kvp.Value.x + 1.0) * (FrameWidth - 1) / 2.0);
+                        int cy = (int)((1.0 - kvp.Value.z) * (FrameHeight - 1) / 2.0); // Invert z for screen coordinates
 
                         int minX = Math.Max(0, cx - dist);
                         int maxX = Math.Min(FrameWidth, cx + dist);
@@ -549,7 +572,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 // Small delay to let the bridge switch to streaming mode before the DTLS tunnel
                 await Task.Delay(200);
 
-                _hueStreamer!.StartStream(bridgeIp, appKey, clientKey);
+                await _hueStreamer!.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
 
                 var targetFrameDurationMs = config.TargetFps > 0
                     ? 1000 / Math.Clamp(config.TargetFps, MinFps, MaxFps)

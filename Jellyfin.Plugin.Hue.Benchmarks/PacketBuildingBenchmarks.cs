@@ -1,12 +1,16 @@
-using System.Text;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Jobs;
+using Jellyfin.Plugin.Hue.Hue;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Jellyfin.Plugin.Hue.Benchmarks;
 
 /// <summary>
 /// Benchmarks for HueStream packet building operations.
 /// Packet building happens every frame (20-60 Hz), so allocation and speed matter.
+///
+/// Hue Entertainment API v2 packet format:
+///   16-byte fixed header + 9 bytes per channel
 /// </summary>
 [SimpleJob(RuntimeMoniker.Net80)]
 [MemoryDiagnoser]
@@ -16,18 +20,20 @@ public class PacketBuildingBenchmarks
     private Dictionary<int, byte[]> _channelColors8 = null!;
     private Dictionary<int, byte[]> _channelColors16 = null!;
     private byte[] _reuseableBuffer = null!;
-    private const string AreaId = "entertainment-area-12345678";
+    private HueStreamer _streamer = null!;
 
     [GlobalSetup]
     public void Setup()
     {
         var random = new Random(42);
 
-        // 8 channels (typical setup)
+        _streamer = new HueStreamer(NullLogger<HueStreamer>.Instance);
+
+        // 8 channels (typical setup) — each channel needs 6 bytes [R_hi, R_lo, G_hi, G_lo, B_hi, B_lo]
         _channelColors8 = new Dictionary<int, byte[]>();
         for (int i = 0; i < 8; i++)
         {
-            var rgb = new byte[3];
+            var rgb = new byte[6];
             random.NextBytes(rgb);
             _channelColors8[i] = rgb;
         }
@@ -36,83 +42,65 @@ public class PacketBuildingBenchmarks
         _channelColors16 = new Dictionary<int, byte[]>();
         for (int i = 0; i < 16; i++)
         {
-            var rgb = new byte[3];
+            var rgb = new byte[6];
             random.NextBytes(rgb);
             _channelColors16[i] = rgb;
         }
 
-        // Pre-allocated buffer for reuse
+        // Pre-allocated buffer (16 header + 16*9 channels = 160 bytes max)
         _reuseableBuffer = new byte[256];
     }
 
     #region Packet Building Benchmarks
 
-    [Benchmark(Baseline = true, Description = "Build Packet - 8 Channels (MemoryStream)")]
-    public byte[] BuildPacket_MemoryStream_8Channels()
+    [Benchmark(Baseline = true, Description = "Build Packet - 8 Channels (HueStreamer)")]
+    public byte[] BuildPacket_HueStreamer_8Channels()
     {
-        return BuildPacketWithMemoryStream(AreaId, _channelColors8);
+        return _streamer.BuildHueStreamPacket(_channelColors8);
     }
 
-    [Benchmark(Description = "Build Packet - 8 Channels (Span/ArrayPool)")]
+    [Benchmark(Description = "Build Packet - 8 Channels (Span/pre-alloc)")]
     public int BuildPacket_Span_8Channels()
     {
-        return BuildPacketWithSpan(AreaId, _channelColors8, _reuseableBuffer);
+        return BuildPacketWithSpan(_channelColors8, _reuseableBuffer);
     }
 
-    [Benchmark(Description = "Build Packet - 16 Channels (MemoryStream)")]
-    public byte[] BuildPacket_MemoryStream_16Channels()
+    [Benchmark(Description = "Build Packet - 16 Channels (HueStreamer)")]
+    public byte[] BuildPacket_HueStreamer_16Channels()
     {
-        return BuildPacketWithMemoryStream(AreaId, _channelColors16);
+        return _streamer.BuildHueStreamPacket(_channelColors16);
     }
 
-    [Benchmark(Description = "Build Packet - 16 Channels (Span/ArrayPool)")]
+    [Benchmark(Description = "Build Packet - 16 Channels (Span/pre-alloc)")]
     public int BuildPacket_Span_16Channels()
     {
-        return BuildPacketWithSpan(AreaId, _channelColors16, _reuseableBuffer);
+        return BuildPacketWithSpan(_channelColors16, _reuseableBuffer);
     }
 
     #endregion
 
     #region Color Encoding Benchmarks
 
-    [Benchmark(Description = "Encode RGB to 16-bit - Simple")]
+    [Benchmark(Description = "Encode RGB to 16-bit - Simple (divide by 2)")]
     public void EncodeRgb16Bit_Simple()
     {
         foreach (var (_, rgb) in _channelColors8)
         {
             byte r = (byte)(rgb[0] / 2);
-            byte g = (byte)(rgb[1] / 2);
-            byte b = (byte)(rgb[2] / 2);
-            // Simulate writing duplicated bytes
+            byte g = (byte)(rgb[2] / 2);
+            byte b = (byte)(rgb[4] / 2);
             _ = new byte[] { r, r, g, g, b, b };
         }
     }
 
-    [Benchmark(Description = "Encode RGB to 16-bit - Optimized")]
-    public void EncodeRgb16Bit_Optimized()
+    [Benchmark(Description = "Encode RGB to 16-bit - Bit shift")]
+    public void EncodeRgb16Bit_BitShift()
     {
         Span<byte> buffer = stackalloc byte[6];
         foreach (var (_, rgb) in _channelColors8)
         {
             EncodeRgbTo16Bit(rgb, buffer);
         }
-    }
-
-    #endregion
-
-    #region String Encoding Benchmarks
-
-    [Benchmark(Description = "Encode AreaId - GetBytes")]
-    public byte[] EncodeAreaId_GetBytes()
-    {
-        return Encoding.ASCII.GetBytes(AreaId);
-    }
-
-    [Benchmark(Description = "Encode AreaId - Span")]
-    public int EncodeAreaId_Span()
-    {
-        Span<byte> buffer = stackalloc byte[64];
-        return Encoding.ASCII.GetBytes(AreaId, buffer);
     }
 
     #endregion
@@ -125,76 +113,53 @@ public class PacketBuildingBenchmarks
         // Simulate 60 frames
         for (int frame = 0; frame < 60; frame++)
         {
-            _ = BuildPacketWithSpan(AreaId, _channelColors8, _reuseableBuffer);
+            _ = BuildPacketWithSpan(_channelColors8, _reuseableBuffer);
         }
     }
 
     #endregion
 
-    #region Helper Methods
+    #region Helper Methods — v2 Hue Entertainment API packet format
 
-    private static byte[] BuildPacketWithMemoryStream(string areaId, Dictionary<int, byte[]> channelColors)
-    {
-        using var ms = new MemoryStream();
-
-        // Header
-        ms.Write("HueStream"u8);
-
-        // Version
-        ms.Write(new byte[] { 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });
-
-        // Area ID
-        ms.Write(Encoding.ASCII.GetBytes(areaId));
-        ms.WriteByte(0x00);
-
-        // Channel data
-        foreach (var (channelId, rgb) in channelColors.OrderBy(c => c.Key))
-        {
-            ms.WriteByte((byte)channelId);
-            byte r = (byte)(rgb[0] / 2);
-            byte g = (byte)(rgb[1] / 2);
-            byte b = (byte)(rgb[2] / 2);
-            ms.Write(new byte[] { r, r, g, g, b, b });
-        }
-
-        return ms.ToArray();
-    }
-
-    private static int BuildPacketWithSpan(string areaId, Dictionary<int, byte[]> channelColors, byte[] buffer)
+    /// <summary>
+    /// Zero-allocation Span-based packet builder using the correct v2 format.
+    /// Header: "HueStream"(9) + version(2) + seqNo(1) + reserved(2) + colorSpace(1) + reserved(1) = 16 bytes
+    /// Per channel: deviceType(1) + id_hi(1) + id_lo(1) + R_hi(1) + R_lo(1) + G_hi(1) + G_lo(1) + B_hi(1) + B_lo(1) = 9 bytes
+    /// </summary>
+    private static int BuildPacketWithSpan(Dictionary<int, byte[]> channelColors, byte[] buffer)
     {
         var span = buffer.AsSpan();
         int offset = 0;
 
-        // Header: "HueStream"
+        // Header: "HueStream" (9 bytes)
         "HueStream"u8.CopyTo(span[offset..]);
         offset += 9;
 
-        // Version
-        span[offset++] = 0x02;
+        // Version 2.0
+        span[offset++] = 0x02; // major
+        span[offset++] = 0x00; // minor
+
+        // Sequence number (static 0 here — in production this wraps)
         span[offset++] = 0x00;
-        span[offset++] = 0x00;
-        span[offset++] = 0x00;
-        span[offset++] = 0x00;
+
+        // Reserved (2 bytes)
         span[offset++] = 0x00;
         span[offset++] = 0x00;
 
-        // Area ID
-        offset += Encoding.ASCII.GetBytes(areaId, span[offset..]);
+        // Color space: RGB = 0x00
+        span[offset++] = 0x00;
+
+        // Reserved (1 byte)
         span[offset++] = 0x00;
 
         // Channel data
-        foreach (var (channelId, rgb) in channelColors.OrderBy(c => c.Key))
+        foreach (var (channelId, rgb16) in channelColors)
         {
-            span[offset++] = (byte)channelId;
-            byte r = (byte)(rgb[0] / 2);
-            byte g = (byte)(rgb[1] / 2);
-            byte b = (byte)(rgb[2] / 2);
-            span[offset++] = r;
-            span[offset++] = r;
-            span[offset++] = g;
-            span[offset++] = g;
-            span[offset++] = b;
-            span[offset++] = b;
+            span[offset++] = 0x00;                       // device type: light
+            span[offset++] = (byte)(channelId >> 8);    // channel ID high byte
+            span[offset++] = (byte)(channelId & 0xFF);  // channel ID low byte
+            rgb16.AsSpan(0, 6).CopyTo(span[offset..]);  // R_hi R_lo G_hi G_lo B_hi B_lo
+            offset += 6;
         }
 
         return offset;
@@ -203,8 +168,8 @@ public class PacketBuildingBenchmarks
     private static void EncodeRgbTo16Bit(byte[] rgb, Span<byte> output)
     {
         byte r = (byte)(rgb[0] >> 1); // Divide by 2 using bit shift
-        byte g = (byte)(rgb[1] >> 1);
-        byte b = (byte)(rgb[2] >> 1);
+        byte g = (byte)(rgb[2] >> 1);
+        byte b = (byte)(rgb[4] >> 1);
 
         output[0] = r;
         output[1] = r;

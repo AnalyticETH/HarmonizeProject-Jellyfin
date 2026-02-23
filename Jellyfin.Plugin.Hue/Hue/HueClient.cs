@@ -155,31 +155,37 @@ namespace Jellyfin.Plugin.Hue.Hue
         {
             try
             {
-                var url = $"https://{bridgeIp}/clip/v2/resource/entertainment_configuration/{areaId}";
-                var request = new HttpRequestMessage(HttpMethod.Put, url);
-                request.Headers.Add("hue-application-key", appKey);
-                var payload = "{\"action\":\"start\"}";
-                request.Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
-
-                var response = await _httpClient.SendAsync(request);
-                if (!response.IsSuccessStatusCode)
+                // Use retry for transient errors — a failure here aborts the entire sync session
+                var result = await ExecuteWithRetry(async () =>
                 {
-                    var body = await response.Content.ReadAsStringAsync();
-                    _logger.LogError("Failed to start entertainment area {0}: HTTP {1} — {2}", areaId, (int)response.StatusCode, body);
-                    return false;
-                }
+                    var url = $"https://{bridgeIp}/clip/v2/resource/entertainment_configuration/{areaId}";
+                    var request = new HttpRequestMessage(HttpMethod.Put, url);
+                    request.Headers.Add("hue-application-key", appKey);
+                    request.Content = new StringContent("{\"action\":\"start\"}", System.Text.Encoding.UTF8, "application/json");
 
-                _logger.LogInformation("Entertainment area {0} activated for streaming", areaId);
-                return true;
+                    var response = await _httpClient.SendAsync(request);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var body = await response.Content.ReadAsStringAsync();
+                        _logger.LogError("Failed to start entertainment area {0}: HTTP {1}", areaId, (int)response.StatusCode);
+                        return false;
+                    }
+
+                    _logger.LogInformation("Entertainment area {0} activated for streaming", areaId);
+                    return true;
+                }).ConfigureAwait(false);
+
+                return result == true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Exception activating entertainment area {0}", areaId);
+                _logger.LogError(ex, "Exception activating entertainment area {0} after retries", areaId);
                 return false;
             }
         }
 
         /// <summary>
+
         /// Deactivates a Hue Entertainment Area after streaming ends.
         /// This returns lights to normal Hue control.
         /// </summary>
@@ -336,36 +342,36 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="lightStates">The saved light states to restore</param>
         public async Task RestoreLightStates(string bridgeIp, string appKey, List<LightState> lightStates)
         {
-            await ExecuteWithRetry(async () =>
+            // Restore each light independently — failures on one light don't block others.
+            // ExecuteWithRetry is intentionally not used here: the per-light try/catch means
+            // no exception would ever escape to trigger a retry anyway.
+            foreach (var state in lightStates)
             {
-                foreach (var state in lightStates)
+                try
                 {
-                    try
+                    var url = $"https://{bridgeIp}/clip/v2/resource/light/{state.Id}";
+                    var request = new HttpRequestMessage(HttpMethod.Put, url);
+                    request.Headers.Add("hue-application-key", appKey);
+
+                    var payload = new
                     {
-                        var url = $"https://{bridgeIp}/clip/v2/resource/light/{state.Id}";
-                        var request = new HttpRequestMessage(HttpMethod.Put, url);
-                        request.Headers.Add("hue-application-key", appKey);
+                        on = new { on = state.IsOn },
+                        dimming = new { brightness = state.Brightness },
+                        color = new { xy = new { x = state.X, y = state.Y } }
+                    };
 
-                        var payload = new
-                        {
-                            on = new { on = state.IsOn },
-                            dimming = new { brightness = state.Brightness },
-                            color = new { xy = new { x = state.X, y = state.Y } }
-                        };
+                    var json = JsonSerializer.Serialize(payload);
+                    request.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
-                        var json = JsonSerializer.Serialize(payload);
-                        request.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
-
-                        var response = await _httpClient.SendAsync(request);
-                        response.EnsureSuccessStatusCode();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to restore state for light {0}", state.Id);
-                    }
+                    var response = await _httpClient.SendAsync(request);
+                    response.EnsureSuccessStatusCode();
                 }
-                return Task.CompletedTask;
-            });
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to restore state for light {0}", state.Id);
+                }
+            }
         }
     }
 }
+

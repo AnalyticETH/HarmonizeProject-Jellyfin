@@ -15,7 +15,13 @@ namespace Jellyfin.Plugin.Hue.Video
         private readonly ILogger<FfmpegStreamer> _logger;
         private Process? _ffmpegProcess;
         private DateTime _lastFrameTime;
+        private DateTime _startTime;          // When StartFfmpeg was called
         private long _framesProcessed = 0;
+        private CancellationTokenSource? _monitorCts;
+
+        // FFmpeg typically takes 1-3 seconds to start producing frames (codec init, seek, etc.).
+        // During this startup window IsHealthy() must not falsely report unhealthy.
+        private const int StartupGracePeriodSeconds = 8;
 
         public FfmpegStreamer(ILogger<FfmpegStreamer> logger)
         {
@@ -30,7 +36,11 @@ namespace Jellyfin.Plugin.Hue.Video
             if (_ffmpegProcess == null || _ffmpegProcess.HasExited)
                 return false;
 
-            // Check if we received frames recently (within 5 seconds)
+            // During the startup grace period, trust that FFmpeg is starting up normally
+            if ((DateTime.UtcNow - _startTime).TotalSeconds < StartupGracePeriodSeconds)
+                return true;
+
+            // After the grace period, require frames to have been received within 5 seconds
             var timeSinceLastFrame = DateTime.UtcNow - _lastFrameTime;
             return timeSinceLastFrame.TotalSeconds < 5;
         }
@@ -112,14 +122,20 @@ namespace Jellyfin.Plugin.Hue.Video
                 _ffmpegProcess = new Process { StartInfo = startInfo };
                 _ffmpegProcess.Start();
                 _lastFrameTime = DateTime.UtcNow;
+                _startTime = DateTime.UtcNow;
                 _framesProcessed = 0;
+                _monitorCts = new CancellationTokenSource();
+                var monitorToken = _monitorCts.Token;
+
+                // Capture a local reference so the background tasks don't race with Stop() nulling the field
+                var capturedProcess = _ffmpegProcess;
 
                 // Log stderr asynchronously to help with debugging
                 _ = Task.Run(() =>
                 {
                     try
                     {
-                        using var reader = _ffmpegProcess.StandardError;
+                        using var reader = capturedProcess.StandardError;
                         while (!reader.EndOfStream)
                         {
                             var line = reader.ReadLine();
@@ -133,22 +149,23 @@ namespace Jellyfin.Plugin.Hue.Video
                     {
                         _logger.LogWarning(ex, "Error reading FFmpeg stderr");
                     }
-                });
+                }, monitorToken);
 
-                // Monitor process health
+                // Monitor process health — uses capturedProcess to avoid the race where
+                // Stop() sets _ffmpegProcess = null while this task is still running
                 _ = Task.Run(async () =>
                 {
-                    while (_ffmpegProcess != null && !_ffmpegProcess.HasExited)
+                    while (!capturedProcess.HasExited && !monitorToken.IsCancellationRequested)
                     {
-                        await Task.Delay(10000); // Check every 10 seconds
-                        if (!IsHealthy())
+                        await Task.Delay(10000, monitorToken).ConfigureAwait(false);
+                        if (!monitorToken.IsCancellationRequested && !IsHealthy())
                         {
-                            _logger.LogWarning("FFmpeg appears stalled - no frames received in 5+ seconds. Processed {0} frames total.", _framesProcessed);
+                            _logger.LogWarning("FFmpeg appears stalled — no frames in 5+ seconds. Processed {0} frames total.", _framesProcessed);
                         }
                     }
-                });
+                }, monitorToken);
 
-                return _ffmpegProcess.StandardOutput.BaseStream;
+                return capturedProcess.StandardOutput.BaseStream;
             }
             catch (Exception ex)
             {
@@ -161,6 +178,11 @@ namespace Jellyfin.Plugin.Hue.Video
         {
             try
             {
+                // Cancel the health monitor and stderr reader tasks first
+                _monitorCts?.Cancel();
+                _monitorCts?.Dispose();
+                _monitorCts = null;
+
                 if (_ffmpegProcess != null && !_ffmpegProcess.HasExited)
                 {
                     _ffmpegProcess.Kill();

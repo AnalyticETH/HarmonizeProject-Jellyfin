@@ -14,7 +14,7 @@ namespace Jellyfin.Plugin.Hue.Api
 {
     [ApiController]
     [Route("HueSync")]
-    [Authorize] // Require admin auth usually
+    [Authorize(Policy = "RequiresElevation")]
     [Produces(MediaTypeNames.Application.Json)]
     public class HueApiController : ControllerBase
     {

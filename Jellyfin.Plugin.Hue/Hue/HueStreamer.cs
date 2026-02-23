@@ -88,9 +88,9 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// Starts a DTLS streaming connection to the Hue Bridge using OpenSSL
         /// </summary>
         /// <param name="config">Plugin configuration containing bridge IP and credentials</param>
-        public void StartStream(PluginConfiguration config)
+        public async Task StartStreamAsync(PluginConfiguration config)
         {
-            StartStream(config.HueBridgeIp, config.HueAppKey, config.HueClientKey);
+            await StartStreamAsync(config.HueBridgeIp, config.HueAppKey, config.HueClientKey).ConfigureAwait(false);
             _lastConfig = config;
         }
 
@@ -100,10 +100,10 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// Uses DTLS 1.2 with PSK. The ClientKey from Hue must be provided as hex.
         /// OpenSSL 3.x requires -pskcipher instead of -cipher for PSK suites.
         ///
-        /// IMPORTANT: This method blocks for DtlsHandshakeWaitMs to allow the DTLS handshake to complete
+        /// IMPORTANT: This method awaits DtlsHandshakeWaitMs to allow the DTLS handshake to complete
         /// before the caller starts writing packets.
         /// </summary>
-        public void StartStream(string bridgeIp, string appKey, string clientKey)
+        public async Task StartStreamAsync(string bridgeIp, string appKey, string clientKey)
         {
             if (string.IsNullOrEmpty(bridgeIp) || string.IsNullOrEmpty(clientKey))
             {
@@ -121,13 +121,14 @@ namespace Jellyfin.Plugin.Hue.Hue
 
             try
             {
-                // OpenSSL 3.x dropped legacy -cipher flag for PSK suites.
-                // Use -pskcipher to specify the cipher for DTLS PSK connections.
-                // The psk value must be hex-encoded (Hue ClientKey is already hex).
+                // The standard -cipher flag selects the TLS 1.2 cipher suite.
+                // When -psk is provided, OpenSSL 3.x accepts PSK cipher suites via -cipher.
+                // Note: -pskcipher and -security_level are NOT valid s_client flags —
+                // they cause immediate exit with "unknown option".
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "openssl",
-                    Arguments = $"s_client -dtls1_2 -pskcipher PSK-AES128-GCM-SHA256 -psk_identity {appKey} -psk {clientKey} -connect {bridgeIp}:2100",
+                    Arguments = $"s_client -dtls1_2 -cipher PSK-AES128-GCM-SHA256 -psk_identity {appKey} -psk {clientKey} -connect {bridgeIp}:2100",
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -160,7 +161,9 @@ namespace Jellyfin.Plugin.Hue.Hue
                 // Wait for DTLS handshake to complete before returning.
                 // Without this wait, the first SendColors call will fail because
                 // the UDP channel isn't established yet.
-                Thread.Sleep(DtlsHandshakeWaitMs);
+                // Using await Task.Delay (not Thread.Sleep) so we yield the thread pool thread
+                // during the wait rather than blocking it.
+                await Task.Delay(DtlsHandshakeWaitMs).ConfigureAwait(false);
 
                 if (_opensslProcess.HasExited)
                 {
@@ -182,7 +185,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <summary>
         /// Attempts to reconnect the DTLS stream if it has failed
         /// </summary>
-        private bool TryReconnect()
+        private async Task<bool> TryReconnectAsync()
         {
             if (_lastConfig == null && _lastBridgeConfig == null)
                 return false;
@@ -196,16 +199,17 @@ namespace Jellyfin.Plugin.Hue.Hue
             try
             {
                 StopStream();
-                Thread.Sleep(1000 * _reconnectAttempts); // Exponential backoff
+                // Exponential backoff — await so we don't block a thread pool thread
+                await Task.Delay(1000 * _reconnectAttempts).ConfigureAwait(false);
 
                 if (_lastBridgeConfig != null)
                 {
                     var (bridgeIp, appKey, clientKey) = _lastBridgeConfig.Value;
-                    StartStream(bridgeIp, appKey, clientKey);
+                    await StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
                 }
                 else if (_lastConfig != null)
                 {
-                    StartStream(_lastConfig);
+                    await StartStreamAsync(_lastConfig.HueBridgeIp, _lastConfig.HueAppKey, _lastConfig.HueClientKey).ConfigureAwait(false);
                 }
 
                 return IsHealthy();
@@ -325,7 +329,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             if (!IsHealthy())
             {
                 _logger.LogWarning("DTLS stream unhealthy, attempting reconnect");
-                if (!TryReconnect())
+                if (!await TryReconnectAsync().ConfigureAwait(false))
                 {
                     _logger.LogError("Failed to reconnect DTLS stream after {0} attempts", MaxReconnectAttempts);
                     return;
@@ -363,7 +367,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             catch (IOException ex)
             {
                 _logger.LogWarning(ex, "IO error sending colors to bridge, attempting reconnect");
-                TryReconnect();
+                _ = TryReconnectAsync();
             }
             catch (Exception ex)
             {
