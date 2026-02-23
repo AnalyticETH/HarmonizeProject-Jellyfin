@@ -1559,7 +1559,7 @@
     "/Users/m/.nuget/packages/": {}
   },
   "project": {
-    "version": "1.0.0",
+    "version": "1.4.0",
     "restore": {
       "projectUniqueName": "/Users/m/Development/jellyfin-hue/Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj",
       "projectName": "Jellyfin.Plugin.Hue",
