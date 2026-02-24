@@ -383,4 +383,163 @@ public class PluginConfigurationTests
         Assert.Equal(10, config.ColorChangeThreshold);
         Assert.Equal(3, config.NetworkRetryAttempts);
     }
+
+    [Fact]
+    public void Validate_WhenUserMappingsExist_SkipsDefaultBridgeValidation()
+    {
+        // Arrange — sync enabled, empty default fields, but a valid user mapping
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "",
+            HueAppKey = "",
+            HueClientKey = "",
+            EntertainmentAreaId = "",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    HueBridgeIp = "192.168.1.100",
+                    HueAppKey = "app-key",
+                    HueClientKey = "client-key",
+                    EntertainmentAreaId = "area-1"
+                }
+            }
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert — no bridge-related errors since user mappings cover it
+        Assert.DoesNotContain("Hue Bridge IP is required", errors);
+        Assert.DoesNotContain("Hue App Key is required", errors);
+        Assert.DoesNotContain("Hue Client Key is required", errors);
+        Assert.DoesNotContain("Entertainment Area ID is required", errors);
+        Assert.True(config.IsValid());
+    }
+
+    [Fact]
+    public void Validate_WhenUserMappingsEmptyIp_StillRequiresDefaultBridge()
+    {
+        // Arrange — user mapping exists but has empty bridge IP
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "",
+            HueAppKey = "",
+            HueClientKey = "",
+            EntertainmentAreaId = "",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    HueBridgeIp = "", // empty — doesn't count
+                }
+            }
+        };
+
+        // Act
+        var errors = config.Validate();
+
+        // Assert — should still require default bridge fields
+        Assert.Contains("Hue Bridge IP is required when sync is enabled", errors);
+    }
+
+    [Fact]
+    public void GetBridgeConfigForUser_WithMatchingMapping_ReturnsUserConfig()
+    {
+        // Arrange
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "10.0.0.1",
+            HueAppKey = "default-key",
+            HueClientKey = "default-client",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString(),
+                    HueBridgeIp = "192.168.1.200",
+                    HueAppKey = "user-key",
+                    HueClientKey = "user-client",
+                    EntertainmentAreaId = "user-area"
+                }
+            }
+        };
+
+        // Act
+        var (bridgeIp, appKey, clientKey, areaId) = config.GetBridgeConfigForUser(userId);
+
+        // Assert
+        Assert.Equal("192.168.1.200", bridgeIp);
+        Assert.Equal("user-key", appKey);
+        Assert.Equal("user-client", clientKey);
+        Assert.Equal("user-area", areaId);
+    }
+
+    [Fact]
+    public void GetBridgeConfigForUser_WithNoMatchingMapping_ReturnsDefaultConfig()
+    {
+        // Arrange
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "10.0.0.1",
+            HueAppKey = "default-key",
+            HueClientKey = "default-client",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "some-other-user",
+                    HueBridgeIp = "192.168.1.200",
+                    HueAppKey = "user-key",
+                    HueClientKey = "user-client",
+                    EntertainmentAreaId = "user-area"
+                }
+            }
+        };
+
+        // Act
+        var (bridgeIp, appKey, clientKey, areaId) = config.GetBridgeConfigForUser(System.Guid.NewGuid());
+
+        // Assert — falls back to default
+        Assert.Equal("10.0.0.1", bridgeIp);
+        Assert.Equal("default-key", appKey);
+        Assert.Equal("default-client", clientKey);
+        Assert.Equal("default-area", areaId);
+    }
+
+    [Fact]
+    public void GetBridgeConfigForUser_WithEmptyBridgeIpMapping_ReturnsDefaultConfig()
+    {
+        // Arrange — mapping exists for user but has empty bridge IP
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "10.0.0.1",
+            HueAppKey = "default-key",
+            HueClientKey = "default-client",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString(),
+                    HueBridgeIp = "",
+                }
+            }
+        };
+
+        // Act
+        var (bridgeIp, appKey, clientKey, areaId) = config.GetBridgeConfigForUser(userId);
+
+        // Assert — falls back to default because mapping has empty bridge IP
+        Assert.Equal("10.0.0.1", bridgeIp);
+        Assert.Equal("default-key", appKey);
+    }
 }

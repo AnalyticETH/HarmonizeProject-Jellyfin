@@ -130,13 +130,14 @@ namespace Jellyfin.Plugin.Hue.Hue
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("hue-application-key", appKey);
 
-                var response = await _httpClient.SendAsync(request);
+                using var response = await _httpClient.SendAsync(request);
                 response.EnsureSuccessStatusCode();
 
                 var json = await response.Content.ReadAsStringAsync();
-                var doc = JsonDocument.Parse(json);
+                using var doc = JsonDocument.Parse(json);
                 // Expected: { "data": [ { "channels": [ ... ] } ] }
-                return (JsonElement?)doc.RootElement.GetProperty("data")[0];
+                // Clone the element so the JsonDocument can be safely disposed
+                return (JsonElement?)doc.RootElement.GetProperty("data")[0].Clone();
             }) ?? null;
         }
 
@@ -163,7 +164,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     request.Headers.Add("hue-application-key", appKey);
                     request.Content = new StringContent("{\"action\":\"start\"}", System.Text.Encoding.UTF8, "application/json");
 
-                    var response = await _httpClient.SendAsync(request);
+                    using var response = await _httpClient.SendAsync(request);
                     if (!response.IsSuccessStatusCode)
                     {
                         var body = await response.Content.ReadAsStringAsync();
@@ -185,7 +186,6 @@ namespace Jellyfin.Plugin.Hue.Hue
         }
 
         /// <summary>
-
         /// Deactivates a Hue Entertainment Area after streaming ends.
         /// This returns lights to normal Hue control.
         /// </summary>
@@ -199,7 +199,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 var payload = "{\"action\":\"stop\"}";
                 request.Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.SendAsync(request);
+                using var response = await _httpClient.SendAsync(request);
                 if (!response.IsSuccessStatusCode)
                 {
                     var body = await response.Content.ReadAsStringAsync();
@@ -234,11 +234,11 @@ namespace Jellyfin.Plugin.Hue.Hue
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("hue-application-key", appKey);
 
-                var response = await _httpClient.SendAsync(request);
+                using var response = await _httpClient.SendAsync(request);
                 response.EnsureSuccessStatusCode();
 
                 var json = await response.Content.ReadAsStringAsync();
-                var doc = JsonDocument.Parse(json);
+                using var doc = JsonDocument.Parse(json);
 
                 var results = new List<EntertainmentArea>();
                 if (doc.RootElement.TryGetProperty("data", out var dataElement))
@@ -300,11 +300,11 @@ namespace Jellyfin.Plugin.Hue.Hue
                             var request = new HttpRequestMessage(HttpMethod.Get, url);
                             request.Headers.Add("hue-application-key", appKey);
 
-                            var response = await _httpClient.SendAsync(request);
+                            using var response = await _httpClient.SendAsync(request);
                             response.EnsureSuccessStatusCode();
 
                             var json = await response.Content.ReadAsStringAsync();
-                            var doc = JsonDocument.Parse(json);
+                            using var doc = JsonDocument.Parse(json);
 
                             if (doc.RootElement.TryGetProperty("data", out var data) && data.GetArrayLength() > 0)
                             {
@@ -363,7 +363,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     var json = JsonSerializer.Serialize(payload);
                     request.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
-                    var response = await _httpClient.SendAsync(request);
+                    using var response = await _httpClient.SendAsync(request);
                     response.EnsureSuccessStatusCode();
                 }
                 catch (Exception ex)

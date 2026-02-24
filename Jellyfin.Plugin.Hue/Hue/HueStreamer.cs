@@ -43,6 +43,14 @@ namespace Jellyfin.Plugin.Hue.Hue
         // The DTLS handshake typically takes 100-400ms on a local network
         private const int DtlsHandshakeWaitMs = 600;
 
+        /// <summary>
+        /// Optional callback invoked before each reconnection attempt.
+        /// Used by HueSyncService to re-activate the entertainment area on the bridge,
+        /// which is required before the DTLS tunnel will accept packets.
+        /// Returns true if preparation succeeded and reconnection should proceed.
+        /// </summary>
+        public Func<Task<bool>>? OnBeforeReconnect { get; set; }
+
         public HueStreamer(ILogger<HueStreamer> logger)
         {
             _logger = logger;
@@ -202,6 +210,18 @@ namespace Jellyfin.Plugin.Hue.Hue
                 // Exponential backoff — await so we don't block a thread pool thread
                 await Task.Delay(1000 * _reconnectAttempts).ConfigureAwait(false);
 
+                // Re-activate the entertainment area before reopening the DTLS tunnel.
+                // The bridge requires action=start or it silently drops all packets.
+                if (OnBeforeReconnect != null)
+                {
+                    if (!await OnBeforeReconnect().ConfigureAwait(false))
+                    {
+                        _logger.LogWarning("Pre-reconnect preparation failed, aborting reconnect");
+                        return false;
+                    }
+                    await Task.Delay(200).ConfigureAwait(false); // Let bridge enter streaming mode
+                }
+
                 if (_lastBridgeConfig != null)
                 {
                     var (bridgeIp, appKey, clientKey) = _lastBridgeConfig.Value;
@@ -231,7 +251,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                     if (_opensslProcess != null && !_opensslProcess.HasExited)
                     {
                         _opensslProcess.Kill();
-                        _opensslProcess.WaitForExit(1000);
+                        if (!_opensslProcess.WaitForExit(1000))
+                        {
+                            _logger.LogWarning("OpenSSL process did not exit within 1 second after Kill()");
+                        }
                     }
                     _opensslProcess?.Dispose();
                     _opensslProcess = null;
@@ -367,7 +390,9 @@ namespace Jellyfin.Plugin.Hue.Hue
             catch (IOException ex)
             {
                 _logger.LogWarning(ex, "IO error sending colors to bridge, attempting reconnect");
-                _ = TryReconnectAsync();
+                _ = TryReconnectAsync().ContinueWith(
+                    t => _logger.LogError(t.Exception!.GetBaseException(), "Unobserved exception during DTLS reconnect"),
+                    TaskContinuationOptions.OnlyOnFaulted);
             }
             catch (Exception ex)
             {

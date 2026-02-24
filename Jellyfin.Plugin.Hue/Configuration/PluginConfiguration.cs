@@ -76,19 +76,24 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (SyncEnabled)
             {
-                if (string.IsNullOrWhiteSpace(HueBridgeIp))
-                    errors.Add("Hue Bridge IP is required when sync is enabled");
-                else if (!System.Net.IPAddress.TryParse(HueBridgeIp, out _))
-                    errors.Add("Hue Bridge IP must be a valid IP address");
+                // Default bridge fields are only required if no per-user mappings exist
+                bool hasUserMappings = UserMappings.Exists(m => !string.IsNullOrWhiteSpace(m.HueBridgeIp));
+                if (!hasUserMappings)
+                {
+                    if (string.IsNullOrWhiteSpace(HueBridgeIp))
+                        errors.Add("Hue Bridge IP is required when sync is enabled");
+                    else if (!System.Net.IPAddress.TryParse(HueBridgeIp, out _))
+                        errors.Add("Hue Bridge IP must be a valid IP address");
 
-                if (string.IsNullOrWhiteSpace(HueAppKey))
-                    errors.Add("Hue App Key is required. Use the 'Link Bridge' button to generate credentials");
+                    if (string.IsNullOrWhiteSpace(HueAppKey))
+                        errors.Add("Hue App Key is required. Use the 'Link Bridge' button to generate credentials");
 
-                if (string.IsNullOrWhiteSpace(HueClientKey))
-                    errors.Add("Hue Client Key is required for streaming. Use the 'Link Bridge' button to generate credentials");
+                    if (string.IsNullOrWhiteSpace(HueClientKey))
+                        errors.Add("Hue Client Key is required for streaming. Use the 'Link Bridge' button to generate credentials");
 
-                if (string.IsNullOrWhiteSpace(EntertainmentAreaId))
-                    errors.Add("Entertainment Area ID is required. Select an area from the dropdown or enter manually");
+                    if (string.IsNullOrWhiteSpace(EntertainmentAreaId))
+                        errors.Add("Entertainment Area ID is required. Select an area from the dropdown or enter manually");
+                }
 
                 if (TargetFps < 1 || TargetFps > 60)
                     errors.Add("Target FPS must be between 1 and 60");

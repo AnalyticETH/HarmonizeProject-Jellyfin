@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.Hue.Service;
 using Jellyfin.Plugin.Hue.Hue;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -18,6 +19,7 @@ public class ColorProcessingTests : IDisposable
         var mockLogger = new Mock<ILogger<HueSyncService>>();
         var mockLoggerFactory = new Mock<ILoggerFactory>();
         var mockHueClientLogger = new Mock<ILogger<HueClient>>();
+        var mockMediaEncoder = new Mock<IMediaEncoder>();
 
         _httpClient = new HttpClient();
         var hueClient = new HueClient(_httpClient, mockHueClientLogger.Object);
@@ -28,7 +30,8 @@ public class ColorProcessingTests : IDisposable
             mockSessionManager.Object,
             mockLogger.Object,
             mockLoggerFactory.Object,
-            hueClient
+            hueClient,
+            mockMediaEncoder.Object
         );
     }
 

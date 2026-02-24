@@ -119,6 +119,9 @@ namespace Jellyfin.Plugin.Hue.Video
 
             try
             {
+                // Dispose any leftover CTS from a previous run (Stop() intentionally defers disposal)
+                _monitorCts?.Dispose();
+
                 _ffmpegProcess = new Process { StartInfo = startInfo };
                 _ffmpegProcess.Start();
                 _lastFrameTime = DateTime.UtcNow;
@@ -170,6 +173,10 @@ namespace Jellyfin.Plugin.Hue.Video
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start FFmpeg process. Ensure ffmpeg is installed and in PATH.");
+                // Clean up partially-started process to prevent leaks
+                try { if (_ffmpegProcess != null && !_ffmpegProcess.HasExited) _ffmpegProcess.Kill(); } catch { }
+                _ffmpegProcess?.Dispose();
+                _ffmpegProcess = null;
                 return null;
             }
         }
@@ -178,15 +185,20 @@ namespace Jellyfin.Plugin.Hue.Video
         {
             try
             {
-                // Cancel the health monitor and stderr reader tasks first
-                _monitorCts?.Cancel();
-                _monitorCts?.Dispose();
+                // Cancel the health monitor and stderr reader tasks.
+                // Don't dispose immediately — background tasks may still be checking the token.
+                // The CTS will be disposed on the next StartFfmpeg call or by GC.
+                var oldCts = _monitorCts;
                 _monitorCts = null;
+                oldCts?.Cancel();
 
                 if (_ffmpegProcess != null && !_ffmpegProcess.HasExited)
                 {
                     _ffmpegProcess.Kill();
-                    _ffmpegProcess.WaitForExit(1000); // Wait up to 1 second
+                    if (!_ffmpegProcess.WaitForExit(1000))
+                    {
+                        _logger.LogWarning("FFmpeg process did not exit within 1 second after Kill()");
+                    }
                     _logger.LogInformation("FFmpeg process stopped");
                 }
                 _ffmpegProcess?.Dispose();

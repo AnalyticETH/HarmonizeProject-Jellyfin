@@ -8,6 +8,7 @@ using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Video;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -39,6 +40,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
         private readonly ISessionManager _sessionManager;
         private readonly ILogger<HueSyncService> _logger;
+        private readonly IMediaEncoder _mediaEncoder;
 
         private FfmpegStreamer? _ffmpegStreamer;
         private HueStreamer? _hueStreamer;
@@ -57,12 +59,13 @@ namespace Jellyfin.Plugin.Hue.Service
         public bool IsSyncing => _syncCts != null && !_syncCts.IsCancellationRequested;
         public string? CurrentItemName { get; private set; }
 
-        public HueSyncService(ISessionManager sessionManager, ILogger<HueSyncService> logger, ILoggerFactory loggerFactory, HueClient hueClient)
+        public HueSyncService(ISessionManager sessionManager, ILogger<HueSyncService> logger, ILoggerFactory loggerFactory, HueClient hueClient, IMediaEncoder mediaEncoder)
         {
             _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
             _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
+            _mediaEncoder = mediaEncoder ?? throw new ArgumentNullException(nameof(mediaEncoder));
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -101,7 +104,7 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             _currentPlaySessionId = e.PlaySessionId;
-            _ = StartSyncForItem(e);
+            ObserveTask(StartSyncForItem(e));
         }
 
         private async void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
@@ -171,7 +174,7 @@ namespace Jellyfin.Plugin.Hue.Service
             {
                 _logger.LogInformation("Playback resumed, restarting light sync");
                 _currentPlaySessionId = e.PlaySessionId;
-                _ = StartSyncForItem(e);
+                ObserveTask(StartSyncForItem(e));
             }
         }
 
@@ -180,6 +183,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _syncCts?.Cancel();
             _ffmpegStreamer?.Stop();
             _hueStreamer?.StopStream();
+            _syncCts?.Dispose();
             _syncCts = null;
             _currentPlaySessionId = null;
 
@@ -188,7 +192,7 @@ namespace Jellyfin.Plugin.Hue.Service
             if (_currentBridgeConfig != null)
             {
                 var cfg = _currentBridgeConfig.Value;
-                _ = _hueClient.StopEntertainmentArea(cfg.BridgeIp, cfg.AppKey, cfg.AreaId);
+                ObserveTask(_hueClient.StopEntertainmentArea(cfg.BridgeIp, cfg.AppKey, cfg.AreaId));
             }
         }
 
@@ -355,13 +359,20 @@ namespace Jellyfin.Plugin.Hue.Service
                     var config = Plugin.Instance?.Configuration;
                     if (config != null)
                     {
-                        // Check blackout threshold - skip sync if frame is mostly black
+                        // Check blackout threshold - send dark colors if frame is mostly black
                         if (config.BlackoutThreshold > 0)
                         {
                             var avgBrightness = channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0);
                             if (avgBrightness < config.BlackoutThreshold)
                             {
-                                // Skip this frame - screen is too dark
+                                // Send black to all channels so lights actually dim during dark scenes
+                                var blackColors = new Dictionary<int, byte[]>();
+                                foreach (var kvp in channelColors)
+                                {
+                                    blackColors[kvp.Key] = new byte[] { 0, 0, 0, 0, 0, 0 };
+                                }
+                                await _hueStreamer!.SendColors(areaId, blackColors, config.ColorChangeThreshold);
+
                                 var elapsedBlackout = loopTimer.ElapsedMilliseconds;
                                 if (targetFrameDurationMs > 0)
                                 {
@@ -442,6 +453,10 @@ namespace Jellyfin.Plugin.Hue.Service
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in Sync Loop");
+            }
+            finally
+            {
+                try { videoStream.Dispose(); } catch { }
             }
         }
 
@@ -572,7 +587,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 // Small delay to let the bridge switch to streaming mode before the DTLS tunnel
                 await Task.Delay(200);
 
-                await _hueStreamer!.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
+                // Set reconnect callback so DTLS reconnections re-activate the area first
+                _hueStreamer!.OnBeforeReconnect = () => _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
+                await _hueStreamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
 
                 var targetFrameDurationMs = config.TargetFps > 0
                     ? 1000 / Math.Clamp(config.TargetFps, MinFps, MaxFps)
@@ -583,7 +600,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (e.PlaybackPositionTicks.HasValue && e.PlaybackPositionTicks.Value > 0)
                     seekSeconds = TimeSpan.FromTicks(e.PlaybackPositionTicks.Value).TotalSeconds;
 
-                var videoStream = _ffmpegStreamer!.StartFfmpeg(videoPath, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags, seekPositionSeconds: seekSeconds);
+                var videoStream = _ffmpegStreamer!.StartFfmpeg(videoPath, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags, _mediaEncoder.EncoderPath, seekPositionSeconds: seekSeconds);
                 if (videoStream == null)
                 {
                     _logger.LogWarning("FFmpeg stream could not be started for path {0}", videoPath);
@@ -599,6 +616,17 @@ namespace Jellyfin.Plugin.Hue.Service
                 _logger.LogError(ex, "Error starting Hue sync session");
                 StopSync();
             }
+        }
+
+        /// <summary>
+        /// Observes a fire-and-forget task so that exceptions are logged instead of
+        /// becoming unobserved task exceptions (which can crash the process).
+        /// </summary>
+        private void ObserveTask(Task task)
+        {
+            task.ContinueWith(
+                t => _logger.LogError(t.Exception!.GetBaseException(), "Unobserved exception in background task"),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         /// <summary>

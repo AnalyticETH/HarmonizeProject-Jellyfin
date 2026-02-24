@@ -236,14 +236,15 @@ public class HueClientTests : IDisposable
     public async Task GetLightStates_ValidConfiguration_ReturnsLightStates()
     {
         // Arrange
-        var configJson = JsonDocument.Parse(@"{
+        using var doc = JsonDocument.Parse(@"{
             ""channels"": [
                 {
                     ""channel_id"": 0,
                     ""members"": [{""service"": {""rid"": ""light-1""}}]
                 }
             ]
-        }").RootElement;
+        }");
+        var configJson = doc.RootElement;
 
         var lightStateJson = @"{
             ""data"": [{
@@ -273,7 +274,8 @@ public class HueClientTests : IDisposable
     public async Task GetLightStates_NoChannels_ReturnsEmptyList()
     {
         // Arrange
-        var configJson = JsonDocument.Parse(@"{""channels"": []}").RootElement;
+        using var doc = JsonDocument.Parse(@"{""channels"": []}");
+        var configJson = doc.RootElement;
 
         var client = new HueClient(_httpClient, _loggerMock.Object);
 

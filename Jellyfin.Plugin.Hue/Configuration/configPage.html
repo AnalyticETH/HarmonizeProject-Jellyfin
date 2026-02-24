@@ -236,6 +236,12 @@
             </div>
         </div>
         <script type="text/javascript">
+            function escapeHtml(str) {
+                var div = document.createElement('div');
+                div.appendChild(document.createTextNode(str || ''));
+                return div.innerHTML;
+            }
+
             var HueConfigurationPage = {
                 pluginId: "4e078f02-ec43-473e-85f1-98e86eb9a761",
                 loadConfiguration: function (page) {
@@ -245,18 +251,18 @@
                         page.querySelector('#hueAppKey').value = config.HueAppKey || "";
                         page.querySelector('#hueClientKey').value = config.HueClientKey || "";
                         HueConfigurationPage.selectedAreaId = config.EntertainmentAreaId || "";
-                        page.querySelector('#targetFps').value = config.TargetFps || 20;
+                        page.querySelector('#targetFps').value = config.TargetFps != null ? config.TargetFps : 20;
                         page.querySelector('#customFfmpegFlags').value = config.CustomFfmpegFlags || "";
                         page.querySelector('#useGpu').checked = config.UseGpu !== false;
                         page.querySelector('#syncEnabled').checked = config.SyncEnabled;
                         page.querySelector('#useCinemaMode').checked = config.UseCinemaMode !== false;
-                        page.querySelector('#brightnessDimLevel').value = config.BrightnessDimLevel || 30;
+                        page.querySelector('#brightnessDimLevel').value = config.BrightnessDimLevel != null ? config.BrightnessDimLevel : 30;
                         page.querySelector('#restoreLightState').checked = config.RestoreLightState !== false;
-                        page.querySelector('#brightnessBoost').value = config.BrightnessBoost || 100;
-                        page.querySelector('#colorSaturation').value = config.ColorSaturation || 100;
-                        page.querySelector('#blackoutThreshold').value = config.BlackoutThreshold || 15;
-                        page.querySelector('#colorChangeThreshold').value = config.ColorChangeThreshold || 10;
-                        page.querySelector('#networkRetryAttempts').value = config.NetworkRetryAttempts || 3;
+                        page.querySelector('#brightnessBoost').value = config.BrightnessBoost != null ? config.BrightnessBoost : 100;
+                        page.querySelector('#colorSaturation').value = config.ColorSaturation != null ? config.ColorSaturation : 100;
+                        page.querySelector('#blackoutThreshold').value = config.BlackoutThreshold != null ? config.BlackoutThreshold : 15;
+                        page.querySelector('#colorChangeThreshold').value = config.ColorChangeThreshold != null ? config.ColorChangeThreshold : 10;
+                        page.querySelector('#networkRetryAttempts').value = config.NetworkRetryAttempts != null ? config.NetworkRetryAttempts : 3;
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                         Dashboard.hideLoadingMsg();
                     });
@@ -530,12 +536,13 @@
                         html += '</tr></thead><tbody>';
 
                         mappings.forEach(function (mapping) {
+                            var userId = mapping.UserId || mapping.userId || '';
                             html += '<tr style="border-bottom: 1px solid #333;">';
-                            html += '<td style="padding: 8px;">' + (mapping.UserName || mapping.userName || mapping.UserId || mapping.userId || 'Unknown') + '</td>';
-                            html += '<td style="padding: 8px;">' + (mapping.HueBridgeIp || mapping.hueBridgeIp || '') + '</td>';
-                            html += '<td style="padding: 8px;">' + (mapping.EntertainmentAreaName || mapping.entertainmentAreaName || mapping.EntertainmentAreaId || mapping.entertainmentAreaId || '') + '</td>';
+                            html += '<td style="padding: 8px;">' + escapeHtml(mapping.UserName || mapping.userName || userId || 'Unknown') + '</td>';
+                            html += '<td style="padding: 8px;">' + escapeHtml(mapping.HueBridgeIp || mapping.hueBridgeIp || '') + '</td>';
+                            html += '<td style="padding: 8px;">' + escapeHtml(mapping.EntertainmentAreaName || mapping.entertainmentAreaName || mapping.EntertainmentAreaId || mapping.entertainmentAreaId || '') + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + (mapping.UserId || mapping.userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), \'' + (mapping.UserId || mapping.userId) + '\')">Delete</button>';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), \'' + escapeHtml(userId) + '\')">Delete</button>';
                             html += '</td></tr>';
                         });
 
