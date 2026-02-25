@@ -17,6 +17,11 @@ namespace Jellyfin.Plugin.Hue.Hue
         private const int DefaultRetryAttempts = 3;
         private const int RetryDelayMs = 1000;
 
+        /// <summary>
+        /// Number of retry attempts for network operations. Defaults to 3; set from plugin configuration.
+        /// </summary>
+        public int RetryAttempts { get; set; } = DefaultRetryAttempts;
+
         public HueClient(HttpClient httpClient, ILogger<HueClient> logger)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -27,18 +32,19 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <summary>
         /// Executes an HTTP operation with retry logic and exponential backoff
         /// </summary>
-        private async Task<T?> ExecuteWithRetry<T>(Func<Task<T>> operation, int maxRetries = DefaultRetryAttempts)
+        private async Task<T?> ExecuteWithRetry<T>(Func<Task<T>> operation, int? maxRetries = null)
         {
-            for (int attempt = 0; attempt <= maxRetries; attempt++)
+            var retries = maxRetries ?? RetryAttempts;
+            for (int attempt = 0; attempt <= retries; attempt++)
             {
                 try
                 {
                     return await operation();
                 }
-                catch (Exception ex) when (attempt < maxRetries && IsRetriableException(ex))
+                catch (Exception ex) when (attempt < retries && IsRetriableException(ex))
                 {
                     var delay = RetryDelayMs * (int)Math.Pow(2, attempt);
-                    _logger.LogWarning(ex, "Network operation failed (attempt {0}/{1}), retrying in {2}ms", attempt + 1, maxRetries + 1, delay);
+                    _logger.LogWarning(ex, "Network operation failed (attempt {0}/{1}), retrying in {2}ms", attempt + 1, retries + 1, delay);
                     await Task.Delay(delay);
                 }
                 catch (Exception ex)
@@ -168,7 +174,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     if (!response.IsSuccessStatusCode)
                     {
                         var body = await response.Content.ReadAsStringAsync();
-                        _logger.LogError("Failed to start entertainment area {0}: HTTP {1}", areaId, (int)response.StatusCode);
+                        _logger.LogError("Failed to start entertainment area {0}: HTTP {1} — {2}", areaId, (int)response.StatusCode, body);
                         return false;
                     }
 

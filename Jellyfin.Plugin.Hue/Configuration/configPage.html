@@ -542,7 +542,7 @@
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.HueBridgeIp || mapping.hueBridgeIp || '') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.EntertainmentAreaName || mapping.entertainmentAreaName || mapping.EntertainmentAreaId || mapping.entertainmentAreaId || '') + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), \'' + escapeHtml(userId) + '\')">Delete</button>';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid)">Delete</button>';
                             html += '</td></tr>';
                         });
 

@@ -28,6 +28,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
         // Timing constants
         private const int CinemaModeDimmingDelayMs = 500;
+        private const int EntertainmentAreaActivationDelayMs = 200;
         private const int RestoreLightsDelayMs = 300;
         private const int DefaultTargetFps = 20;
         private const int MinFps = 1;
@@ -208,7 +209,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _logger.LogWarning("SendTemporaryColorsWithConfig: could not activate area {0}, skipping", areaId);
                 return;
             }
-            await Task.Delay(200); // Let bridge enter streaming mode
+            await Task.Delay(EntertainmentAreaActivationDelayMs); // Let bridge enter streaming mode
 
             var tempStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
             await tempStreamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
@@ -524,6 +525,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             _logger.LogInformation("Starting sync for user {0} with bridge {1} and area {2}", userId, bridgeIp, areaId);
 
+            _hueClient.RetryAttempts = config.NetworkRetryAttempts;
             StopSync();
             _currentPlaySessionId = e.PlaySessionId;
             _currentBridgeConfig = (bridgeIp, appKey, clientKey, areaId);
@@ -585,7 +587,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 // Small delay to let the bridge switch to streaming mode before the DTLS tunnel
-                await Task.Delay(200);
+                await Task.Delay(EntertainmentAreaActivationDelayMs);
 
                 // Set reconnect callback so DTLS reconnections re-activate the area first
                 _hueStreamer!.OnBeforeReconnect = () => _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);

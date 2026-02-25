@@ -42,6 +42,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         // How long to wait after spawning OpenSSL before attempting to write
         // The DTLS handshake typically takes 100-400ms on a local network
         private const int DtlsHandshakeWaitMs = 600;
+        private const int EntertainmentAreaActivationDelayMs = 200;
 
         /// <summary>
         /// Optional callback invoked before each reconnection attempt.
@@ -219,7 +220,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                         _logger.LogWarning("Pre-reconnect preparation failed, aborting reconnect");
                         return false;
                     }
-                    await Task.Delay(200).ConfigureAwait(false); // Let bridge enter streaming mode
+                    await Task.Delay(EntertainmentAreaActivationDelayMs).ConfigureAwait(false); // Let bridge enter streaming mode
                 }
 
                 if (_lastBridgeConfig != null)
@@ -390,9 +391,13 @@ namespace Jellyfin.Plugin.Hue.Hue
             catch (IOException ex)
             {
                 _logger.LogWarning(ex, "IO error sending colors to bridge, attempting reconnect");
-                _ = TryReconnectAsync().ContinueWith(
-                    t => _logger.LogError(t.Exception!.GetBaseException(), "Unobserved exception during DTLS reconnect"),
-                    TaskContinuationOptions.OnlyOnFaulted);
+                _ = TryReconnectAsync().ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                        _logger.LogError(t.Exception!.GetBaseException(), "Unobserved exception during DTLS reconnect");
+                    else if (t.Result == false)
+                        _logger.LogWarning("DTLS reconnection failed — lights may stop syncing until next playback");
+                }, TaskContinuationOptions.ExecuteSynchronously);
             }
             catch (Exception ex)
             {
