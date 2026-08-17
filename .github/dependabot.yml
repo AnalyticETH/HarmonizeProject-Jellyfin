@@ -20,16 +20,10 @@ updates:
     labels:
       - "dependencies"
       - "nuget"
-    reviewers:
-      - "AnalyticETH"
     groups:
       minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-    ignore:
-      # Ignore major version bumps for Jellyfin (may break compatibility)
-      - dependency-name: "Jellyfin.*"
-        update-types: ["version-update:semver-major"]
 
   # GitHub Actions workflows
   - package-ecosystem: "github-actions"
