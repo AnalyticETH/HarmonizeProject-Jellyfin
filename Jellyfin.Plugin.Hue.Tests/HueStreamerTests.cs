@@ -76,6 +76,27 @@ public class HueStreamerTests
         Assert.False(sent);
     }
 
+    [Fact]
+    public async Task SendColors_ReportsPacketTelemetryAndThresholdSkips()
+    {
+        // Use the current test process only as a healthy-process sentinel; no process
+        // lifecycle is changed by this test because the stream input is an in-memory pipe.
+        SetPrivateField(_streamer, "_opensslProcess", System.Diagnostics.Process.GetCurrentProcess());
+        SetPrivateField(_streamer, "_stdin", new MemoryStream());
+        var colors = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 10, 10, 20, 20, 30, 30 }
+        };
+
+        Assert.True(await _streamer.SendColors("area-id", colors));
+        Assert.True(await _streamer.SendColors("area-id", colors, colorChangeThreshold: 1));
+
+        Assert.Equal(1, _streamer.PacketsSent);
+        Assert.Equal(1, _streamer.PacketsSkippedByThreshold);
+        Assert.Equal(0, _streamer.PacketSendFailures);
+        Assert.Equal(0, _streamer.ReconnectAttempts);
+    }
+
     #region Color Encoding Tests
 
     [Theory]
@@ -141,6 +162,11 @@ public class HueStreamerTests
     }
 
     #endregion
+
+    private static void SetPrivateField(object target, string fieldName, object? value)
+    {
+        target.GetType().GetField(fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(target, value);
+    }
 
     #region Color Change Detection Tests
 

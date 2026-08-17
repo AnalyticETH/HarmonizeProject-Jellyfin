@@ -68,6 +68,13 @@ public sealed class HueSyncServiceLifecycleTests
         SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-3));
         SetPrivateField(service, "_runtimeState", "Syncing");
         SetPrivateField(service, "_runtimeMessage", "Streaming video colors to Hue.");
+        var hueStreamer = Assert.IsType<HueStreamer>(GetPrivateField(service, "_hueStreamer"));
+        SetPrivateField(hueStreamer, "_packetsSent", 42L);
+        SetPrivateField(hueStreamer, "_packetsSkippedByThreshold", 7L);
+        SetPrivateField(hueStreamer, "_packetSendFailures", 2L);
+        SetPrivateField(hueStreamer, "_totalReconnectAttempts", 1);
+        var ffmpegStreamer = Assert.IsType<Jellyfin.Plugin.Hue.Video.FfmpegStreamer>(GetPrivateField(service, "_ffmpegStreamer"));
+        SetPrivateField(ffmpegStreamer, "_framesProcessed", 60L);
 
         var status = service.GetRuntimeStatus();
 
@@ -100,6 +107,12 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal((bool?)true, status.ActiveRestoreLightState);
         Assert.Equal("192.168.1.100", status.ActiveBridgeIp);
         Assert.Equal("area-id", status.ActiveEntertainmentAreaId);
+        Assert.Equal(60, status.FramesProcessed);
+        Assert.True(status.EffectiveFps >= 19 && status.EffectiveFps <= 21);
+        Assert.Equal(42, status.PacketsSent);
+        Assert.Equal(7, status.PacketsSkippedByThreshold);
+        Assert.Equal(2, status.PacketSendFailures);
+        Assert.Equal(1, status.ReconnectAttempts);
         Assert.True(status.SyncDurationSeconds >= 2);
         Assert.DoesNotContain("secret-app-key", status.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-client-key", status.Message, StringComparison.Ordinal);

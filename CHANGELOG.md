@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.60] - 2026-08-17
+
+### Added
+- **Playback quality telemetry**: Live Sync Status and `GET /HueSync/Status` now report effective FPS, successfully sent updates, color-threshold skips, failed sends, and DTLS reconnect attempts for the active session
+- **Session-scoped counters**: stream metrics reset for each new DTLS playback session and remain credential-free
+
 ## [1.5.59] - 2026-08-17
 
 ### Added

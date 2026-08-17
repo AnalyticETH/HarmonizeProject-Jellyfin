@@ -407,6 +407,10 @@ namespace Jellyfin.Plugin.Hue.Service
             var syncDuration = isSyncing && syncStartTime != default
                 ? Math.Max(0, (DateTime.UtcNow - syncStartTime).TotalSeconds)
                 : (double?)null;
+            var framesProcessed = ffmpeg?.FramesProcessed ?? 0;
+            var effectiveFps = isSyncing && syncDuration > 0 && framesProcessed > 0
+                ? framesProcessed / syncDuration.Value
+                : (double?)null;
 
             return new HueRuntimeStatus
             {
@@ -445,7 +449,12 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
                 IsSyncing = isSyncing,
                 CanStopSync = canStopSync,
-                FramesProcessed = ffmpeg?.FramesProcessed ?? 0,
+                FramesProcessed = framesProcessed,
+                EffectiveFps = effectiveFps,
+                PacketsSent = isSyncing ? hueStreamer?.PacketsSent ?? 0 : 0,
+                PacketsSkippedByThreshold = isSyncing ? hueStreamer?.PacketsSkippedByThreshold ?? 0 : 0,
+                PacketSendFailures = isSyncing ? hueStreamer?.PacketSendFailures ?? 0 : 0,
+                ReconnectAttempts = isSyncing ? hueStreamer?.ReconnectAttempts ?? 0 : 0,
                 IsFfmpegHealthy = isSyncing && ffmpeg?.IsHealthy(
                     activeExecutionSettings?.FfmpegStallTimeoutSeconds
                         ?? Plugin.Instance?.Configuration?.FfmpegStallTimeoutSeconds
@@ -2612,6 +2621,11 @@ namespace Jellyfin.Plugin.Hue.Service
         public bool IsSyncing { get; init; }
         public bool CanStopSync { get; init; }
         public long FramesProcessed { get; init; }
+        public double? EffectiveFps { get; init; }
+        public long PacketsSent { get; init; }
+        public long PacketsSkippedByThreshold { get; init; }
+        public long PacketSendFailures { get; init; }
+        public int ReconnectAttempts { get; init; }
         public bool IsFfmpegHealthy { get; init; }
         public bool IsDtlsHealthy { get; init; }
         public double? SyncDurationSeconds { get; init; }

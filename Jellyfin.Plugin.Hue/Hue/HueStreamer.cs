@@ -42,6 +42,10 @@ namespace Jellyfin.Plugin.Hue.Hue
         private int _maxReconnectAttempts = DefaultMaxReconnectAttempts;
         private Dictionary<int, byte[]>? _lastSentColors;
         private byte _sequenceNumber = 0;
+        private long _packetsSent;
+        private long _packetsSkippedByThreshold;
+        private long _packetSendFailures;
+        private int _totalReconnectAttempts;
         private readonly SemaphoreSlim _reconnectLock = new SemaphoreSlim(1, 1);
         // A stream stop cancels any delayed reconnect or in-flight DTLS startup. The
         // source is replaced for the next stream so a later playback can reconnect normally.
@@ -91,6 +95,37 @@ namespace Jellyfin.Plugin.Hue.Hue
                 value,
                 MinMaxReconnectAttempts,
                 MaxMaxReconnectAttempts);
+        }
+
+        /// <summary>
+        /// Number of color packets written successfully during the current DTLS stream.
+        /// </summary>
+        public long PacketsSent => Interlocked.Read(ref _packetsSent);
+
+        /// <summary>
+        /// Number of frames whose colors were intentionally suppressed by the configured
+        /// color-change threshold during the current DTLS stream.
+        /// </summary>
+        public long PacketsSkippedByThreshold => Interlocked.Read(ref _packetsSkippedByThreshold);
+
+        /// <summary>
+        /// Number of non-canceled packet sends that failed during the current DTLS stream.
+        /// </summary>
+        public long PacketSendFailures => Interlocked.Read(ref _packetSendFailures);
+
+        /// <summary>
+        /// Total DTLS reconnect attempts made during the current stream, including attempts
+        /// that eventually failed. This is separate from the bounded retry counter.
+        /// </summary>
+        public int ReconnectAttempts
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _totalReconnectAttempts;
+                }
+            }
         }
 
         public HueStreamer(ILogger<HueStreamer> logger)
@@ -192,6 +227,17 @@ namespace Jellyfin.Plugin.Hue.Hue
             {
                 _logger.LogError("Hue App Key missing.");
                 return;
+            }
+
+            if (cancelPendingReconnect)
+            {
+                Interlocked.Exchange(ref _packetsSent, 0);
+                Interlocked.Exchange(ref _packetsSkippedByThreshold, 0);
+                Interlocked.Exchange(ref _packetSendFailures, 0);
+                lock (_lock)
+                {
+                    _totalReconnectAttempts = 0;
+                }
             }
 
             // A reconnect already owns the current lifecycle token. Do not cancel that
@@ -352,6 +398,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     return false;
 
                 _reconnectAttempts++;
+                _totalReconnectAttempts++;
                 var attempt = _reconnectAttempts;
                 _logger.LogWarning("Attempting to reconnect DTLS stream (attempt {0}/{1})", attempt, MaxReconnectAttempts);
 
@@ -559,6 +606,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             // Skip if colors haven't changed significantly
             if (colorChangeThreshold > 0 && !HasSignificantColorChange(channelColors, colorChangeThreshold))
             {
+                Interlocked.Increment(ref _packetsSkippedByThreshold);
                 return true;
             }
 
@@ -569,7 +617,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 if (!await TryReconnectAsync(cancellationToken).ConfigureAwait(false))
                 {
                     _logger.LogError("Failed to reconnect DTLS stream after {0} attempts", MaxReconnectAttempts);
-                    return false;
+                    return RecordPacketSendFailure(cancellationToken);
                 }
             }
 
@@ -579,7 +627,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 if (_stdin == null)
                 {
                     _logger.LogWarning("Cannot send colors: DTLS stream not initialized");
-                    return false;
+                    return RecordPacketSendFailure(cancellationToken);
                 }
                 stdinCopy = _stdin;
             }
@@ -596,12 +644,13 @@ namespace Jellyfin.Plugin.Hue.Hue
                 {
                     _lastSentColors[kvp.Key] = (byte[])kvp.Value.Clone();
                 }
+                Interlocked.Increment(ref _packetsSent);
                 return true;
             }
             catch (ObjectDisposedException)
             {
                 _logger.LogDebug("Stream disposed while sending colors");
-                return false;
+                return RecordPacketSendFailure(cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -620,13 +669,21 @@ namespace Jellyfin.Plugin.Hue.Hue
                     else if (t.Result == false && !cancellationToken.IsCancellationRequested)
                         _logger.LogWarning("DTLS reconnection failed — lights may stop syncing until next playback");
                 }, TaskContinuationOptions.ExecuteSynchronously);
-                return false;
+                return RecordPacketSendFailure(cancellationToken);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error sending colors");
-                return false;
+                return RecordPacketSendFailure(cancellationToken);
             }
+        }
+
+        private bool RecordPacketSendFailure(CancellationToken cancellationToken)
+        {
+            if (!cancellationToken.IsCancellationRequested)
+                Interlocked.Increment(ref _packetSendFailures);
+
+            return false;
         }
     }
 }

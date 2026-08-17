@@ -32,6 +32,7 @@
                         <div style="flex: 1 1 280px;">
                             <div><strong>Health:</strong> <span id="runtimeHealth">—</span></div>
                             <div><strong>Frames processed:</strong> <span id="runtimeFrames">0</span></div>
+                            <div><strong>Stream quality:</strong> <span id="runtimeQuality">—</span></div>
                             <div><strong>Duration:</strong> <span id="runtimeDuration">—</span></div>
                         </div>
                         <button is="emby-button" type="button" class="raised" id="refreshRuntimeStatusBtn">
@@ -1427,6 +1428,11 @@
                         var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
                         var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
                         var frames = HueConfigurationPage.readStatusField(status, "FramesProcessed", 0);
+                        var effectiveFps = HueConfigurationPage.readStatusField(status, "EffectiveFps", null);
+                        var packetsSent = HueConfigurationPage.readStatusField(status, "PacketsSent", 0);
+                        var packetsSkipped = HueConfigurationPage.readStatusField(status, "PacketsSkippedByThreshold", 0);
+                        var packetFailures = HueConfigurationPage.readStatusField(status, "PacketSendFailures", 0);
+                        var reconnectAttempts = HueConfigurationPage.readStatusField(status, "ReconnectAttempts", 0);
                         var ffmpegHealthy = HueConfigurationPage.readStatusField(status, "IsFfmpegHealthy", false);
                         var dtlsHealthy = HueConfigurationPage.readStatusField(status, "IsDtlsHealthy", false);
                         var duration = HueConfigurationPage.readStatusField(status, "SyncDurationSeconds", null);
@@ -1472,6 +1478,11 @@
                         page.querySelector('#runtimeHealth').textContent = "FFmpeg: " + (ffmpegHealthy ? "healthy" : "not ready") +
                             " · DTLS: " + (dtlsHealthy ? "healthy" : "not ready");
                         page.querySelector('#runtimeFrames').textContent = String(frames || 0);
+                        page.querySelector('#runtimeQuality').textContent = isSyncing
+                            ? (effectiveFps == null ? "warming up" : Number(effectiveFps).toFixed(1) + " FPS effective") +
+                                " · " + String(packetsSent || 0) + " sent · " + String(packetsSkipped || 0) + " threshold-skipped · " +
+                                String(packetFailures || 0) + " failed · " + String(reconnectAttempts || 0) + " reconnects"
+                            : "—";
                         page.querySelector('#runtimeDuration').textContent = HueConfigurationPage.formatRuntimeDuration(duration);
                         page.querySelector('#runtimeStatusMessage').textContent = message || "No runtime message.";
                         if (stopButton) stopButton.disabled = !serviceAvailable || !canStop;

@@ -865,6 +865,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveChannelIds = runtime?.ActiveChannelIds,
                 ActiveRestoreLightState = runtime?.ActiveRestoreLightState,
                 FramesProcessed = runtime?.FramesProcessed ?? 0,
+                EffectiveFps = runtime?.EffectiveFps,
+                PacketsSent = runtime?.PacketsSent ?? 0,
+                PacketsSkippedByThreshold = runtime?.PacketsSkippedByThreshold ?? 0,
+                PacketSendFailures = runtime?.PacketSendFailures ?? 0,
+                ReconnectAttempts = runtime?.ReconnectAttempts ?? 0,
                 CanStopSync = runtime?.CanStopSync ?? false,
                 IsFfmpegHealthy = runtime?.IsFfmpegHealthy ?? false,
                 IsDtlsHealthy = runtime?.IsDtlsHealthy ?? false,
@@ -1946,6 +1951,11 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? ActiveChannelIds { get; set; }
         public bool? ActiveRestoreLightState { get; set; }
         public long FramesProcessed { get; set; }
+        public double? EffectiveFps { get; set; }
+        public long PacketsSent { get; set; }
+        public long PacketsSkippedByThreshold { get; set; }
+        public long PacketSendFailures { get; set; }
+        public int ReconnectAttempts { get; set; }
         public bool CanStopSync { get; set; }
         public bool IsFfmpegHealthy { get; set; }
         public bool IsDtlsHealthy { get; set; }
