@@ -80,6 +80,10 @@ public sealed class HueSyncServiceLifecycleTests
         await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
         handler.ReleaseStopRequest();
         await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForRuntimeStatusAsync(
+            service,
+            "Idle",
+            "Video stream ended; lights were restored.");
 
         Assert.False(service.IsSyncing);
         Assert.Equal("Idle", service.GetRuntimeStatus().State);
@@ -130,6 +134,29 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
 
         await service.StopAsync(CancellationToken.None);
+    }
+
+    private static async Task WaitForRuntimeStatusAsync(
+        HueSyncService service,
+        string expectedState,
+        string expectedMessage)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            var status = service.GetRuntimeStatus();
+            if (string.Equals(status.State, expectedState, StringComparison.Ordinal) &&
+                string.Equals(status.Message, expectedMessage, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+
+        var finalStatus = service.GetRuntimeStatus();
+        Assert.Equal(expectedState, finalStatus.State);
+        Assert.Equal(expectedMessage, finalStatus.Message);
     }
 
     [Fact]
