@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.71] - 2026-08-17
+
+### Added
+- **Scheduled cue observability**: expose each cue's next server-local occurrence, active-run state, run count, last outcome, result message, and cleanup warning through `GET /HueSync/SceneSchedules/Status`
+- **Configuration-page scheduler monitor**: add a refreshable status table showing target, selected days/time, next run, last run, and execution results; status refreshes alongside Live Sync Status while the page is open
+- **Resilient background execution**: unexpected bridge or scheduler exceptions are converted into sanitized cue failures so one network error does not terminate the hosted automation loop
+
+### Security
+- Automation status remains credential-free: it reports only saved scene names, mapping labels, schedule timing, and sanitized execution telemetry; bridge App Keys, Client Keys, and playback tokens never enter runtime status
+
 ## [1.5.70] - 2026-08-17
 
 ### Added

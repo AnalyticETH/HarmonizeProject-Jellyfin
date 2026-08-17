@@ -902,6 +902,28 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Returns next-run and last-run telemetry for recurring scene cues without
+        /// exposing bridge credentials or target connection details.
+        /// </summary>
+        [HttpGet("SceneSchedules/Status")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<HueSceneAutomationStatus> GetSceneScheduleStatus()
+        {
+            if (_sceneAutomationService == null)
+            {
+                return Ok(new HueSceneAutomationStatus
+                {
+                    ServiceAvailable = false,
+                    GeneratedAtUtc = DateTime.UtcNow,
+                    ServerLocalNow = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified),
+                    Schedules = Array.Empty<HueSceneScheduleRuntimeStatus>()
+                });
+            }
+
+            return Ok(_sceneAutomationService.GetStatus());
+        }
+
+        /// <summary>
         /// Saves or updates a recurring scene cue. The cue references an existing saved
         /// scene and a global or per-user target; it never accepts bridge credentials.
         /// </summary>

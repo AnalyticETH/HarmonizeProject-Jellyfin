@@ -34,6 +34,30 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void GetNextRunLocal_UsesServerLocalScheduleAndSkipsElapsedOccurrence()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            DaysOfWeekMask = (1 << (int)DayOfWeek.Monday) | (1 << (int)DayOfWeek.Wednesday)
+        };
+
+        var beforeCue = HueSceneAutomationService.GetNextRunLocal(
+            schedule,
+            new DateTime(2026, 8, 17, 6, 59, 0));
+        var afterCue = HueSceneAutomationService.GetNextRunLocal(
+            schedule,
+            new DateTime(2026, 8, 17, 7, 5, 30));
+
+        Assert.Equal(new DateTime(2026, 8, 17, 7, 5, 0), beforeCue);
+        Assert.Equal(new DateTime(2026, 8, 19, 7, 5, 0), afterCue);
+        Assert.Null(HueSceneAutomationService.GetNextRunLocal(
+            new HueSceneSchedule { Enabled = false, TimeOfDay = "07:05", DaysOfWeekMask = 127 },
+            new DateTime(2026, 8, 17, 6, 59, 0)));
+    }
+
+    [Fact]
     public void TryResolveTarget_UsesCustomMappingWithoutChangingCredentialFreeSchedule()
     {
         var config = new PluginConfiguration
@@ -124,9 +148,19 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("Evening", result.PresetName);
         Assert.Equal("Default bridge target", result.TargetLabel);
         streamTester.VerifyAll();
+        var status = service.GetStatus();
+        var runtime = Assert.Single(status.Schedules);
+        Assert.True(status.ServiceAvailable);
+        Assert.Equal("cue-1", runtime.ScheduleId);
+        Assert.Equal(1, runtime.RunCount);
+        Assert.True(runtime.LastSucceeded == true);
+        Assert.False(runtime.IsRunning);
+        Assert.Equal("Displayed scheduled scene.", runtime.LastMessage);
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("app-secret", JsonSerializer.Serialize(status), StringComparison.Ordinal);
+        Assert.DoesNotContain("client-secret", JsonSerializer.Serialize(status), StringComparison.Ordinal);
     }
 
     private static void InstallConfiguration(PluginConfiguration configuration)

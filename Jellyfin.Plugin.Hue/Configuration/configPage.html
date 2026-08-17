@@ -316,6 +316,11 @@
                         </div>
                         <button is="emby-button" type="button" class="raised button-submit" id="saveSceneScheduleBtn" style="margin-top: 0.5em;"><span>Save Scheduled Cue</span></button>
                         <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule times, and target mapping IDs; bridge credentials remain server-side.</div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
+                            <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleStatusBtn"><span>Refresh Cue Status</span></button>
+                            <div id="sceneScheduleRuntimeStatusSummary" class="fieldDescription">Loading scheduler status...</div>
+                        </div>
+                        <div id="sceneScheduleRuntimeStatus" style="margin-top: 0.5em; overflow-x: auto;"></div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -1609,6 +1614,126 @@
                     }).finally(function () {
                         scheduleSelect.disabled = false;
                         HueConfigurationPage.updateSceneScheduleButtons(page);
+                        HueConfigurationPage.loadSceneScheduleRuntimeStatus(page);
+                    });
+                },
+                loadSceneScheduleRuntimeStatus: function (page) {
+                    if (!page || page._hueSceneScheduleRuntimeStatusLoading) {
+                        return Promise.resolve();
+                    }
+
+                    page._hueSceneScheduleRuntimeStatusLoading = true;
+                    var button = page.querySelector('#refreshSceneScheduleStatusBtn');
+                    var summary = page.querySelector('#sceneScheduleRuntimeStatusSummary');
+                    var container = page.querySelector('#sceneScheduleRuntimeStatus');
+                    if (button) button.disabled = true;
+                    if (summary) summary.textContent = "Loading scheduler status...";
+
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/Status")).then(function (response) {
+                        var serviceAvailable = HueConfigurationPage.readStatusField(response, "ServiceAvailable", false);
+                        var schedules = HueConfigurationPage.readStatusField(response, "Schedules", []);
+                        schedules = Array.isArray(schedules) ? schedules : [];
+                        if (!serviceAvailable) {
+                            if (summary) {
+                                summary.textContent = "The scheduled-cue service is unavailable; configuration is still editable.";
+                                summary.style.color = "#f0ad4e";
+                            }
+                            if (container) container.textContent = "";
+                            return;
+                        }
+
+                        var generatedAt = HueConfigurationPage.readStatusField(response, "GeneratedAtUtc", null);
+                        var generatedText = generatedAt ? new Date(generatedAt).toLocaleTimeString() : "";
+                        if (summary) {
+                            summary.textContent = schedules.length === 0
+                                ? "No scheduled cues configured."
+                                : schedules.length + " cue" + (schedules.length === 1 ? "" : "s") + " · updated " + generatedText;
+                            summary.style.color = "";
+                        }
+                        if (!container) return;
+                        container.textContent = "";
+                        if (schedules.length === 0) {
+                            container.textContent = "Save a scheduled cue to see its next run and execution history here.";
+                            return;
+                        }
+
+                        var daysForMask = function (mask) {
+                            var labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                            var values = [1, 2, 4, 8, 16, 32, 64];
+                            return labels.filter(function (_, index) {
+                                return (Number(mask) & values[index]) !== 0;
+                            }).join(", ") || "No days";
+                        };
+                        var formatLocal = function (value) {
+                            return value ? new Date(value).toLocaleString() : "—";
+                        };
+                        var table = document.createElement('table');
+                        table.style.width = '100%';
+                        table.style.borderCollapse = 'collapse';
+                        table.style.minWidth = '860px';
+                        var headerRow = document.createElement('tr');
+                        ["Cue", "Target", "Schedule", "Next run (server local)", "Last run", "Result", "Runs"].forEach(function (heading) {
+                            var header = document.createElement('th');
+                            header.textContent = heading;
+                            header.style.textAlign = 'left';
+                            header.style.padding = '6px 8px';
+                            header.style.borderBottom = '1px solid rgba(255,255,255,.2)';
+                            headerRow.appendChild(header);
+                        });
+                        var head = document.createElement('thead');
+                        head.appendChild(headerRow);
+                        table.appendChild(head);
+                        var body = document.createElement('tbody');
+                        schedules.forEach(function (schedule) {
+                            var name = HueConfigurationPage.readStatusField(schedule, "ScheduleName", "Unnamed cue");
+                            var preset = HueConfigurationPage.readStatusField(schedule, "PresetName", "—");
+                            var target = HueConfigurationPage.readStatusField(schedule, "TargetLabel", "Default bridge target");
+                            var time = HueConfigurationPage.readStatusField(schedule, "TimeOfDay", "—");
+                            var mask = HueConfigurationPage.readStatusField(schedule, "DaysOfWeekMask", 0);
+                            var enabled = HueConfigurationPage.readStatusField(schedule, "Enabled", false);
+                            var nextRun = HueConfigurationPage.readStatusField(schedule, "NextRunLocal", null);
+                            var lastRun = HueConfigurationPage.readStatusField(schedule, "LastRunAtUtc", null);
+                            var succeeded = HueConfigurationPage.readStatusField(schedule, "LastSucceeded", null);
+                            var message = HueConfigurationPage.readStatusField(schedule, "LastMessage", "");
+                            var cleanupWarning = HueConfigurationPage.readStatusField(schedule, "LastCleanupWarning", "");
+                            var runCount = HueConfigurationPage.readStatusField(schedule, "RunCount", 0);
+                            var running = HueConfigurationPage.readStatusField(schedule, "IsRunning", false);
+                            var row = document.createElement('tr');
+                            row.style.borderBottom = '1px solid rgba(255,255,255,.08)';
+                            var addCell = function (text, color) {
+                                var cell = document.createElement('td');
+                                cell.textContent = text;
+                                cell.style.padding = '6px 8px';
+                                if (color) cell.style.color = color;
+                                row.appendChild(cell);
+                            };
+                            addCell(String(name) + (enabled ? "" : " (disabled)"));
+                            addCell(String(target));
+                            addCell(String(preset) + " · " + String(time) + " · " + daysForMask(mask));
+                            addCell(enabled ? formatLocal(nextRun) : "Disabled");
+                            addCell(formatLocal(lastRun));
+                            var resultText = succeeded === null || typeof succeeded === 'undefined'
+                                ? "Not run yet"
+                                : (succeeded ? "Succeeded" : "Failed");
+                            if (running) resultText += " · Running";
+                            if (message) resultText += " — " + String(message);
+                            if (cleanupWarning) resultText += " · Cleanup warning: " + String(cleanupWarning);
+                            addCell(resultText, succeeded === false ? "#f0ad4e" : (succeeded === true ? "#8bc34a" : ""));
+                            addCell(String(runCount || 0));
+                            body.appendChild(row);
+                        });
+                        table.appendChild(body);
+                        container.appendChild(table);
+                    }).catch(function (err) {
+                        console.error("Failed to load scheduled cue status:", err);
+                        if (summary) {
+                            summary.textContent = "Unable to read scheduler status. Check the server log.";
+                            summary.style.color = "#d9534f";
+                        }
+                        if (container) container.textContent = "";
+                    }).finally(function () {
+                        page._hueSceneScheduleRuntimeStatusLoading = false;
+                        if (button) button.disabled = false;
                     });
                 },
                 getSceneScheduleDaysMask: function (page) {
@@ -2130,6 +2255,7 @@
                     }).finally(function () {
                         page._hueRuntimeStatusLoading = false;
                         if (refreshButton) refreshButton.disabled = false;
+                        HueConfigurationPage.loadSceneScheduleRuntimeStatus(page);
                     });
                 },
                 getSessionHistoryUrl: function (page, route, limit) {
@@ -3760,6 +3886,10 @@
 
             document.querySelector('#runSceneScheduleBtn').addEventListener('click', function () {
                 HueConfigurationPage.runSceneSchedule(this.closest('.page'));
+            });
+
+            document.querySelector('#refreshSceneScheduleStatusBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadSceneScheduleRuntimeStatus(this.closest('.page'));
             });
 
             document.querySelector('#refreshRuntimeStatusBtn').addEventListener('click', function () {

@@ -25,6 +25,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     private readonly ILogger<HueSceneAutomationService> _logger;
     private readonly object _runSlotLock = new();
     private readonly Dictionary<string, DateTime> _lastRunSlots = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _runtimeStateLock = new();
+    private readonly Dictionary<string, HueSceneScheduleRuntimeState> _runtimeStates = new(StringComparer.OrdinalIgnoreCase);
 
     public HueSceneAutomationService(
         IHueStreamTester streamTester,
@@ -54,6 +56,98 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Returns sanitized runtime telemetry for the configured cues. Credentials and
+    /// bridge connection details never enter this snapshot; target labels are derived
+    /// from the current mapping names only.
+    /// </summary>
+    public HueSceneAutomationStatus GetStatus()
+    {
+        var localNow = DateTime.Now;
+        var config = Plugin.Instance?.Configuration;
+        var schedules = config?.SceneSchedules?
+            .Where(schedule => schedule != null)
+            .Select(CloneSchedule)
+            .OrderBy(schedule => schedule.TimeOfDay, StringComparer.Ordinal)
+            .ThenBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? Array.Empty<HueSceneSchedule>();
+
+        var configuredIds = schedules
+            .Select(schedule => schedule.Id?.Trim() ?? string.Empty)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        lock (_runtimeStateLock)
+        {
+            foreach (var staleId in _runtimeStates
+                         .Where(entry => entry.Value.ActiveRuns == 0 && !configuredIds.Contains(entry.Key))
+                         .Select(entry => entry.Key)
+                         .ToArray())
+            {
+                _runtimeStates.Remove(staleId);
+            }
+        }
+
+        var statuses = schedules.Select(schedule =>
+        {
+            var runtime = GetRuntimeState(schedule.Id);
+            return new HueSceneScheduleRuntimeStatus
+            {
+                ScheduleId = schedule.Id?.Trim() ?? string.Empty,
+                ScheduleName = schedule.Name?.Trim() ?? string.Empty,
+                PresetName = schedule.PresetName?.Trim() ?? string.Empty,
+                TargetLabel = ResolveTargetLabel(config, schedule),
+                TimeOfDay = schedule.TimeOfDay?.Trim() ?? string.Empty,
+                DaysOfWeekMask = schedule.DaysOfWeekMask,
+                Enabled = schedule.Enabled,
+                NextRunLocal = GetNextRunLocal(schedule, localNow),
+                LastRunAtUtc = runtime.LastRunAtUtc,
+                LastSucceeded = runtime.LastSucceeded,
+                LastMessage = runtime.LastMessage,
+                LastCleanupWarning = runtime.LastCleanupWarning,
+                RunCount = runtime.RunCount,
+                IsRunning = runtime.ActiveRuns > 0
+            };
+        }).ToArray();
+
+        return new HueSceneAutomationStatus
+        {
+            ServiceAvailable = true,
+            GeneratedAtUtc = DateTime.UtcNow,
+            ServerLocalNow = DateTime.SpecifyKind(localNow, DateTimeKind.Unspecified),
+            Schedules = statuses
+        };
+    }
+
+    /// <summary>
+    /// Calculates the next server-local occurrence after the supplied local time.
+    /// The return value intentionally has an unspecified kind so clients do not mistake
+    /// it for a UTC timestamp; the companion status field names the server-local basis.
+    /// </summary>
+    internal static DateTime? GetNextRunLocal(HueSceneSchedule schedule, DateTime localNow)
+    {
+        if (schedule == null || !schedule.Enabled ||
+            (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0 ||
+            !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized))
+        {
+            return null;
+        }
+
+        var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
+        var unspecifiedNow = DateTime.SpecifyKind(localNow, DateTimeKind.Unspecified);
+        for (var dayOffset = 0; dayOffset <= 7; dayOffset++)
+        {
+            var candidateDate = unspecifiedNow.Date.AddDays(dayOffset);
+            var dayBit = 1 << (int)candidateDate.DayOfWeek;
+            if ((schedule.DaysOfWeekMask & dayBit) == 0)
+                continue;
+
+            var candidate = candidateDate.Add(expectedTime);
+            if (candidate > unspecifiedNow)
+                return DateTime.SpecifyKind(candidate, DateTimeKind.Unspecified);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Runs one configured scene cue immediately. This is also the operation used by
     /// the recurring loop after it has matched the local day and minute.
     /// </summary>
@@ -72,7 +166,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 "The requested scene schedule was not found.");
         }
 
-        return await RunScheduleCoreAsync(config!, schedule, cancellationToken).ConfigureAwait(false);
+        return await RunScheduleTrackedAsync(config!, schedule, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -234,7 +328,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             if (!IsDue(schedule, localNow) || !TryClaimRunSlot(schedule.Id, slot))
                 continue;
 
-            var result = await RunScheduleCoreAsync(config, schedule, cancellationToken).ConfigureAwait(false);
+            var result = await RunScheduleTrackedAsync(config, schedule, cancellationToken).ConfigureAwait(false);
             if (result.Succeeded)
             {
                 _logger.LogInformation(
@@ -334,6 +428,98 @@ public sealed class HueSceneAutomationService : BackgroundService
         };
     }
 
+    private async Task<HueSceneAutomationRunResult> RunScheduleTrackedAsync(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        CancellationToken cancellationToken)
+    {
+        BeginRun(schedule.Id);
+        HueSceneAutomationRunResult? result = null;
+        try
+        {
+            result = await RunScheduleCoreAsync(config, schedule, cancellationToken).ConfigureAwait(false);
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            result = Failure(schedule.Id, "The scene cue run was canceled.", schedule);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Hue scene schedule {0} failed unexpectedly", schedule.Name);
+            result = Failure(schedule.Id, "The scheduled scene could not be completed.", schedule);
+            return result;
+        }
+        finally
+        {
+            CompleteRun(schedule.Id, result);
+        }
+    }
+
+    private HueSceneScheduleRuntimeState GetRuntimeState(string? scheduleId)
+    {
+        var key = scheduleId?.Trim() ?? string.Empty;
+        lock (_runtimeStateLock)
+        {
+            return _runtimeStates.TryGetValue(key, out var state)
+                ? state.Clone()
+                : new HueSceneScheduleRuntimeState();
+        }
+    }
+
+    private void BeginRun(string? scheduleId)
+    {
+        var key = scheduleId?.Trim() ?? string.Empty;
+        lock (_runtimeStateLock)
+        {
+            if (!_runtimeStates.TryGetValue(key, out var state))
+            {
+                state = new HueSceneScheduleRuntimeState();
+                _runtimeStates[key] = state;
+            }
+
+            state.ActiveRuns++;
+        }
+    }
+
+    private void CompleteRun(string? scheduleId, HueSceneAutomationRunResult? result)
+    {
+        var key = scheduleId?.Trim() ?? string.Empty;
+        lock (_runtimeStateLock)
+        {
+            if (!_runtimeStates.TryGetValue(key, out var state))
+            {
+                state = new HueSceneScheduleRuntimeState();
+                _runtimeStates[key] = state;
+            }
+
+            state.ActiveRuns = Math.Max(0, state.ActiveRuns - 1);
+            state.RunCount++;
+            state.LastRunAtUtc = result?.RunAtUtc ?? DateTime.UtcNow;
+            state.LastSucceeded = result?.Succeeded ?? false;
+            state.LastMessage = result?.Message ?? "The scheduled scene ended without a result.";
+            state.LastCleanupWarning = result?.CleanupWarning;
+        }
+    }
+
+    internal static string ResolveTargetLabel(PluginConfiguration? config, HueSceneSchedule schedule)
+    {
+        var targetUserId = schedule.TargetUserId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(targetUserId))
+            return "Default bridge target";
+
+        var mapping = config?.UserMappings?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
+        if (mapping == null)
+            return "Missing user mapping";
+
+        return string.IsNullOrWhiteSpace(mapping.UserName)
+            ? $"User mapping {mapping.UserId?.Trim() ?? targetUserId}"
+            : mapping.UserName.Trim();
+    }
+
     private bool TryClaimRunSlot(string scheduleId, DateTime slot)
     {
         lock (_runSlotLock)
@@ -388,6 +574,29 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 }
 
+internal sealed class HueSceneScheduleRuntimeState
+{
+    public int ActiveRuns { get; set; }
+    public int RunCount { get; set; }
+    public DateTime? LastRunAtUtc { get; set; }
+    public bool? LastSucceeded { get; set; }
+    public string? LastMessage { get; set; }
+    public string? LastCleanupWarning { get; set; }
+
+    public HueSceneScheduleRuntimeState Clone()
+    {
+        return new HueSceneScheduleRuntimeState
+        {
+            ActiveRuns = ActiveRuns,
+            RunCount = RunCount,
+            LastRunAtUtc = LastRunAtUtc,
+            LastSucceeded = LastSucceeded,
+            LastMessage = LastMessage,
+            LastCleanupWarning = LastCleanupWarning
+        };
+    }
+}
+
 /// <summary>
 /// Internal resolved target. The credential fields never leave the service and are not
 /// part of any API result.
@@ -431,4 +640,70 @@ public sealed class HueSceneAutomationRunResult
 
     [JsonPropertyName("runAtUtc")]
     public DateTime RunAtUtc { get; init; }
+}
+
+/// <summary>
+/// Sanitized status for one configured recurring scene cue.
+/// </summary>
+public sealed class HueSceneScheduleRuntimeStatus
+{
+    [JsonPropertyName("scheduleId")]
+    public string ScheduleId { get; init; } = string.Empty;
+
+    [JsonPropertyName("scheduleName")]
+    public string ScheduleName { get; init; } = string.Empty;
+
+    [JsonPropertyName("presetName")]
+    public string PresetName { get; init; } = string.Empty;
+
+    [JsonPropertyName("targetLabel")]
+    public string TargetLabel { get; init; } = string.Empty;
+
+    [JsonPropertyName("timeOfDay")]
+    public string TimeOfDay { get; init; } = string.Empty;
+
+    [JsonPropertyName("daysOfWeekMask")]
+    public int DaysOfWeekMask { get; init; }
+
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; init; }
+
+    [JsonPropertyName("nextRunLocal")]
+    public DateTime? NextRunLocal { get; init; }
+
+    [JsonPropertyName("lastRunAtUtc")]
+    public DateTime? LastRunAtUtc { get; init; }
+
+    [JsonPropertyName("lastSucceeded")]
+    public bool? LastSucceeded { get; init; }
+
+    [JsonPropertyName("lastMessage")]
+    public string? LastMessage { get; init; }
+
+    [JsonPropertyName("lastCleanupWarning")]
+    public string? LastCleanupWarning { get; init; }
+
+    [JsonPropertyName("runCount")]
+    public int RunCount { get; init; }
+
+    [JsonPropertyName("isRunning")]
+    public bool IsRunning { get; init; }
+}
+
+/// <summary>
+/// Sanitized administrator-facing status for the recurring scene automation service.
+/// </summary>
+public sealed class HueSceneAutomationStatus
+{
+    [JsonPropertyName("serviceAvailable")]
+    public bool ServiceAvailable { get; init; }
+
+    [JsonPropertyName("generatedAtUtc")]
+    public DateTime GeneratedAtUtc { get; init; }
+
+    [JsonPropertyName("serverLocalNow")]
+    public DateTime ServerLocalNow { get; init; }
+
+    [JsonPropertyName("schedules")]
+    public IReadOnlyList<HueSceneScheduleRuntimeStatus> Schedules { get; init; } = Array.Empty<HueSceneScheduleRuntimeStatus>();
 }

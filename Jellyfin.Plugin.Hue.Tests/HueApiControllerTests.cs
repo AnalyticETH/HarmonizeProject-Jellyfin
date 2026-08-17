@@ -1286,6 +1286,72 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetSceneScheduleStatus_WithoutHostedAutomationServiceReturnsUnavailableWithoutSecrets()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-secret",
+            HueClientKey = "client-secret",
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "cue-1", Name = "Evening cue", PresetName = "Evening" }
+            }
+        });
+
+        var action = CreateController().GetSceneScheduleStatus();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var status = Assert.IsType<HueSceneAutomationStatus>(response.Value);
+        Assert.False(status.ServiceAvailable);
+        Assert.Empty(status.Schedules);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(status);
+        Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetSceneScheduleStatus_WithHostedAutomationServiceReturnsNextRunWithoutSecrets()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-secret",
+            HueClientKey = "client-secret",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-1",
+                    Name = "Evening cue",
+                    PresetName = "Evening",
+                    TimeOfDay = "23:59",
+                    DaysOfWeekMask = 127,
+                    Enabled = true
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var action = CreateController(hostedServices: new[] { service }).GetSceneScheduleStatus();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var status = Assert.IsType<HueSceneAutomationStatus>(response.Value);
+        var schedule = Assert.Single(status.Schedules);
+        Assert.True(status.ServiceAvailable);
+        Assert.Equal("cue-1", schedule.ScheduleId);
+        Assert.Equal("Default bridge target", schedule.TargetLabel);
+        Assert.NotNull(schedule.NextRunLocal);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(status);
+        Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetSessionHistory_WithoutHostedSyncServiceReturnsBoundedEmptyHistory()
     {
         var controller = CreateController();
@@ -2329,12 +2395,13 @@ public sealed class HueApiControllerTests : IDisposable
     private HueApiController CreateController(
         IHueStreamTester? streamTester = null,
         HueBridgeLifecycleGate? bridgeLifecycleGate = null,
-        IHueEnvironmentProbe? environmentProbe = null)
+        IHueEnvironmentProbe? environmentProbe = null,
+        IEnumerable<IHostedService>? hostedServices = null)
     {
         var client = new HueClient(_httpClient, _loggerMock.Object);
         return new HueApiController(
             client,
-            Array.Empty<IHostedService>(),
+            hostedServices ?? Array.Empty<IHostedService>(),
             streamTester,
             bridgeLifecycleGate,
             environmentProbe);
