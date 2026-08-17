@@ -38,6 +38,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private const int MaxByteSetting = 255;
         private const int MinNetworkRetryAttempts = 0;
         private const int MaxNetworkRetryAttempts = 10;
+        private const int MinFfmpegStallTimeoutSeconds = 1;
+        private const int MaxFfmpegStallTimeoutSeconds = 60;
 
         public bool SyncEnabled { get; set; } = false;
 
@@ -55,6 +57,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int TargetFps { get; set; } = 20;
         public bool UseGpu { get; set; } = true;
         public string CustomFfmpegFlags { get; set; } = string.Empty; // e.g. -hwaccel auto
+        public int FfmpegStallTimeoutSeconds { get; set; } = 5;
 
         // New advanced settings
         public bool RestoreLightState { get; set; } = true; // Save and restore light state before sync
@@ -143,6 +146,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (NetworkRetryAttempts < MinNetworkRetryAttempts || NetworkRetryAttempts > MaxNetworkRetryAttempts)
                     errors.Add("Network retry attempts must be between 0 and 10");
+
+                if (FfmpegStallTimeoutSeconds < MinFfmpegStallTimeoutSeconds ||
+                    FfmpegStallTimeoutSeconds > MaxFfmpegStallTimeoutSeconds)
+                    errors.Add("FFmpeg stall timeout must be between 1 and 60 seconds");
 
                 ValidateUserMappings(errors);
             }

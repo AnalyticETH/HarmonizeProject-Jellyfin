@@ -23,6 +23,9 @@ namespace Jellyfin.Plugin.Hue.Video
         // FFmpeg typically takes 1-3 seconds to start producing frames (codec init, seek, etc.).
         // During this startup window IsHealthy() must not falsely report unhealthy.
         private const int StartupGracePeriodSeconds = 8;
+        private const int DefaultStallTimeoutSeconds = 5;
+        private const int MinStallTimeoutSeconds = 1;
+        private const int MaxStallTimeoutSeconds = 60;
 
         public FfmpegStreamer(ILogger<FfmpegStreamer> logger)
         {
@@ -30,9 +33,23 @@ namespace Jellyfin.Plugin.Hue.Video
         }
 
         /// <summary>
+        /// Maximum time without a frame before health monitoring reports a stall.
+        /// The sync service sets this from plugin configuration for each playback.
+        /// </summary>
+        public int StallTimeoutSeconds { get; set; } = DefaultStallTimeoutSeconds;
+
+        /// <summary>
         /// Checks if FFmpeg process is healthy and running
         /// </summary>
         public bool IsHealthy()
+        {
+            return IsHealthy(StallTimeoutSeconds);
+        }
+
+        /// <summary>
+        /// Checks whether FFmpeg is healthy using the configured no-frame timeout.
+        /// </summary>
+        public bool IsHealthy(int stallTimeoutSeconds)
         {
             Process? process;
             DateTime startTime;
@@ -44,10 +61,34 @@ namespace Jellyfin.Plugin.Hue.Video
                 lastFrameTime = _lastFrameTime;
             }
 
-            return IsHealthy(process, startTime, lastFrameTime);
+            return IsHealthy(process, startTime, lastFrameTime, NormalizeStallTimeout(stallTimeoutSeconds));
         }
 
-        private static bool IsHealthy(Process? process, DateTime startTime, DateTime lastFrameTime)
+        /// <summary>
+        /// Gets the maximum time the sync loop should wait for the current frame.
+        /// FFmpeg gets a longer initial grace period for codec initialization; once a
+        /// frame has been observed, the administrator's stall timeout is used.
+        /// </summary>
+        public TimeSpan GetFrameReadTimeout(int stallTimeoutSeconds)
+        {
+            var normalizedTimeout = NormalizeStallTimeout(stallTimeoutSeconds);
+            lock (_stateLock)
+            {
+                if (_framesProcessed == 0 &&
+                    _ffmpegProcess != null &&
+                    DateTime.UtcNow - _startTime < TimeSpan.FromSeconds(StartupGracePeriodSeconds))
+                {
+                    return TimeSpan.FromSeconds(StartupGracePeriodSeconds);
+                }
+            }
+
+            return TimeSpan.FromSeconds(normalizedTimeout);
+        }
+
+        private static int NormalizeStallTimeout(int stallTimeoutSeconds) =>
+            Math.Clamp(stallTimeoutSeconds, MinStallTimeoutSeconds, MaxStallTimeoutSeconds);
+
+        private static bool IsHealthy(Process? process, DateTime startTime, DateTime lastFrameTime, int stallTimeoutSeconds)
         {
             if (process == null)
                 return false;
@@ -61,9 +102,10 @@ namespace Jellyfin.Plugin.Hue.Video
                 if ((DateTime.UtcNow - startTime).TotalSeconds < StartupGracePeriodSeconds)
                     return true;
 
-                // After the grace period, require frames to have been received within 5 seconds
+                // After the grace period, require frames to have been received within the
+                // administrator-configured timeout.
                 var timeSinceLastFrame = DateTime.UtcNow - lastFrameTime;
-                return timeSinceLastFrame.TotalSeconds < 5;
+                return timeSinceLastFrame.TotalSeconds < stallTimeoutSeconds;
             }
             catch (InvalidOperationException)
             {
@@ -214,9 +256,13 @@ namespace Jellyfin.Plugin.Hue.Video
                                 lastFrameTime = _lastFrameTime;
                             }
 
-                            if (!monitorToken.IsCancellationRequested && !IsHealthy(capturedProcess, startTime, lastFrameTime))
+                            if (!monitorToken.IsCancellationRequested &&
+                                !IsHealthy(capturedProcess, startTime, lastFrameTime, NormalizeStallTimeout(StallTimeoutSeconds)))
                             {
-                                _logger.LogWarning("FFmpeg appears stalled — no frames in 5+ seconds. Processed {0} frames total.", FramesProcessed);
+                                _logger.LogWarning(
+                                    "FFmpeg appears stalled — no frames in {0}+ seconds. Processed {1} frames total.",
+                                    NormalizeStallTimeout(StallTimeoutSeconds),
+                                    FramesProcessed);
                             }
                         }
                     }

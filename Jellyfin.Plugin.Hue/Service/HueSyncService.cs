@@ -34,6 +34,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private const int MinFps = 1;
         private const int MaxFps = 60;
         private const int DefaultFrameDurationMs = 50;
+        private const int DefaultFfmpegStallTimeoutSeconds = 5;
         private const int MaxConsecutiveDtlsSendFailures = 5;
 
         // Color processing constants
@@ -296,7 +297,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 IsSyncing = isSyncing,
                 CanStopSync = canStopSync,
                 FramesProcessed = ffmpeg?.FramesProcessed ?? 0,
-                IsFfmpegHealthy = isSyncing && ffmpeg?.IsHealthy() == true,
+                IsFfmpegHealthy = isSyncing && ffmpeg?.IsHealthy(
+                    Plugin.Instance?.Configuration?.FfmpegStallTimeoutSeconds ?? DefaultFfmpegStallTimeoutSeconds) == true,
                 IsDtlsHealthy = isSyncing && hueStreamer?.IsHealthy() == true,
                 SyncDurationSeconds = syncDuration,
                 SyncStartedAtUtc = isSyncing && syncStartTime != default ? syncStartTime : null
@@ -352,6 +354,14 @@ namespace Jellyfin.Plugin.Hue.Service
                     _lastError = null;
                 }
             }
+        }
+
+        private TimeSpan GetFrameReadTimeout()
+        {
+            var configuredTimeout = Plugin.Instance?.Configuration?.FfmpegStallTimeoutSeconds
+                ?? DefaultFfmpegStallTimeoutSeconds;
+            return _ffmpegStreamer?.GetFrameReadTimeout(configuredTimeout)
+                ?? TimeSpan.FromSeconds(Math.Clamp(configuredTimeout, 1, 60));
         }
 
         private bool HandleDtlsSendResult(
@@ -766,6 +776,40 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
+        private static async Task<(int BytesRead, bool TimedOut)> ReadFrameAsync(
+            Stream videoStream,
+            byte[] buffer,
+            int frameSize,
+            CancellationToken token,
+            TimeSpan timeout)
+        {
+            using var frameReadCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            frameReadCts.CancelAfter(timeout);
+
+            var bytesRead = 0;
+            try
+            {
+                while (bytesRead < frameSize)
+                {
+                    var bytes = await videoStream.ReadAsync(
+                        buffer,
+                        bytesRead,
+                        frameSize - bytesRead,
+                        frameReadCts.Token).ConfigureAwait(false);
+                    if (bytes == 0)
+                        break;
+
+                    bytesRead += bytes;
+                }
+
+                return (bytesRead, false);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested && frameReadCts.IsCancellationRequested)
+            {
+                return (bytesRead, true);
+            }
+        }
+
         private async Task RunSyncLoop(
             Stream videoStream,
             Dictionary<int, (double x, double z)> lights,
@@ -793,14 +837,24 @@ namespace Jellyfin.Plugin.Hue.Service
                     var loopTimer = Stopwatch.StartNew();
 
                     // Read full frame
-                    int bytesRead = 0;
-                    while (bytesRead < frameSize)
+                    var frameRead = await ReadFrameAsync(
+                        videoStream,
+                        buffer,
+                        frameSize,
+                        token,
+                        GetFrameReadTimeout()).ConfigureAwait(false);
+                    if (frameRead.TimedOut)
                     {
-                        int n = await videoStream.ReadAsync(buffer, bytesRead, frameSize - bytesRead, token);
-                        if (n == 0)
-                            break; // End of stream
-                        bytesRead += n;
+                        streamFailed = true;
+                        SetRuntimeError("FFmpeg stopped producing video frames within the configured stall timeout.");
+                        _logger.LogError(
+                            "FFmpeg frame stream stalled after {0} bytes; stopping Hue sync for session {1}",
+                            frameRead.BytesRead,
+                            playSessionId);
+                        break;
                     }
+
+                    var bytesRead = frameRead.BytesRead;
                     if (bytesRead < frameSize)
                     {
                         _logger.LogInformation("End of video stream reached. Total frames processed: {0}", _ffmpegStreamer?.FramesProcessed ?? 0);
@@ -1321,6 +1375,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 if (token.IsCancellationRequested)
                     return;
+                _ffmpegStreamer!.StallTimeoutSeconds = config.FfmpegStallTimeoutSeconds;
                 videoStream = _ffmpegStreamer!.StartFfmpeg(videoPath, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags, _mediaEncoder.EncoderPath, seekPositionSeconds: seekSeconds);
                 if (videoStream == null)
                 {

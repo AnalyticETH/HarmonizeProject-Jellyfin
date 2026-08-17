@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.14] - 2026-08-17
+
+### Added
+- Configurable 1-60 second FFmpeg stall timeout with a longer startup grace period
+- Automatic terminal cleanup when FFmpeg stops producing complete video frames
+- Regression coverage for configured stall cleanup and administrator-facing diagnostics
+
+### Changed
+- Live Sync Status now reports the FFmpeg stall as an actionable error while restoring lights and deactivating the entertainment area
+
 ## [1.5.13] - 2026-08-17
 
 ### Added

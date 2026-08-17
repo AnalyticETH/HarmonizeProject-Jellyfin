@@ -56,6 +56,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Entertainment Area ID** | UUID of the specific area to sync. |
 | **Target FPS** | Frames per second to process (Default: 20). Lower = less CPU. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
+| **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
 | **Enable Real-time Sync** | Master toggle for the sync feature. |
 
 ### Per-User Bridge Mappings
@@ -220,6 +221,9 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
   restores saved lights, and deactivates the area automatically. If repeated DTLS writes and
   reconnect attempts fail, synchronization also stops instead of leaving the lights frozen,
   restores/deactivates safely, and retains the failure diagnostic in the Live Sync Status panel.
+  If FFmpeg remains running but stops producing complete frames, the configured FFmpeg Stall
+  Timeout ends synchronization through the same cleanup path; increase it for slow storage or
+  hardware decoding, or lower it to recover faster from a stuck pipeline.
 * **A mapping is ignored:** enabled mappings must include a valid bridge address, App Key,
   Client Key, and Entertainment Area ID. A mapping with **Enable Hue Sync for this user**
   unchecked intentionally leaves that user's playback unchanged; users without a mapping use
@@ -248,7 +252,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.13 (Current)
+### Version 1.5.14 (Current)
+- **FFmpeg stall recovery**: Configurable 1-60 second frame timeout with startup grace now ends stalled pipelines, restores lights, deactivates the area, and preserves an actionable Live Sync Status error
+
+### Version 1.5.13
 - **Startup rollback**: Partial startup failures and cancellations now dispose unowned FFmpeg streams, restore lights, deactivate the area, and preserve the diagnostic before playback moves on
 
 ### Version 1.5.12

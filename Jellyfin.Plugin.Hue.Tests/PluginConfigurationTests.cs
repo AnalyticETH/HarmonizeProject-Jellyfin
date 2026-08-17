@@ -40,7 +40,8 @@ public class PluginConfigurationTests
             ColorSaturation = 100,
             BlackoutThreshold = 15,
             ColorChangeThreshold = 10,
-            NetworkRetryAttempts = 3
+            NetworkRetryAttempts = 3,
+            FfmpegStallTimeoutSeconds = 5
         };
 
         // Act
@@ -339,6 +340,47 @@ public class PluginConfigurationTests
         Assert.Contains("Network retry attempts must be between 0 and 10", errors);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(61)]
+    public void Validate_WhenFfmpegStallTimeoutOutOfRange_ReturnsError(int timeout)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            FfmpegStallTimeoutSeconds = timeout
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("FFmpeg stall timeout must be between 1 and 60 seconds", errors);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(30)]
+    [InlineData(60)]
+    public void Validate_WhenFfmpegStallTimeoutIsValid_ReturnsNoStallError(int timeout)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            FfmpegStallTimeoutSeconds = timeout
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("FFmpeg stall timeout must be between 1 and 60 seconds", errors);
+    }
+
     [Fact]
     public void Validate_WithMultipleErrors_ReturnsAllErrors()
     {
@@ -382,6 +424,7 @@ public class PluginConfigurationTests
         Assert.Equal(15, config.BlackoutThreshold);
         Assert.Equal(10, config.ColorChangeThreshold);
         Assert.Equal(3, config.NetworkRetryAttempts);
+        Assert.Equal(5, config.FfmpegStallTimeoutSeconds);
         Assert.True(new UserBridgeMapping().SyncEnabled);
     }
 

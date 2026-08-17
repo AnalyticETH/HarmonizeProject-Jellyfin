@@ -123,6 +123,12 @@
                             <input id="customFfmpegFlags" name="customFfmpegFlags" type="text" is="emby-input" />
                             <div class="fieldDescription">Optional advanced flags appended to the ffmpeg command.</div>
                         </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="ffmpegStallTimeoutSeconds">FFmpeg Stall Timeout (seconds)</label>
+                            <input id="ffmpegStallTimeoutSeconds" name="ffmpegStallTimeoutSeconds" type="number" min="1" max="60" is="emby-input" />
+                            <div class="fieldDescription">Stop sync and restore the lights when FFmpeg produces no complete frame for this long (1-60 seconds, default: 5). Initial codec startup receives a longer grace period.</div>
+                        </div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -302,6 +308,7 @@
                         HueConfigurationPage.selectedAreaId = config.EntertainmentAreaId || "";
                         page.querySelector('#targetFps').value = config.TargetFps != null ? config.TargetFps : 20;
                         page.querySelector('#customFfmpegFlags').value = config.CustomFfmpegFlags || "";
+                        page.querySelector('#ffmpegStallTimeoutSeconds').value = config.FfmpegStallTimeoutSeconds != null ? config.FfmpegStallTimeoutSeconds : 5;
                         page.querySelector('#useGpu').checked = config.UseGpu !== false;
                         page.querySelector('#syncEnabled').checked = config.SyncEnabled;
                         page.querySelector('#useCinemaMode').checked = config.UseCinemaMode !== false;
@@ -337,6 +344,7 @@
                             EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
                             TargetFps: parseNumberOrDefault('#targetFps', 20),
                             CustomFfmpegFlags: page.querySelector('#customFfmpegFlags').value,
+                            FfmpegStallTimeoutSeconds: parseNumberOrDefault('#ffmpegStallTimeoutSeconds', 5),
                             UseGpu: page.querySelector('#useGpu').checked,
                             SyncEnabled: page.querySelector('#syncEnabled').checked,
                             UseCinemaMode: page.querySelector('#useCinemaMode').checked,
