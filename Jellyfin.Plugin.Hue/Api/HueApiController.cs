@@ -345,7 +345,8 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Gets all user-to-bridge mappings without returning stored credentials.
+        /// Gets all user-to-bridge mappings without returning stored credentials. Optional
+        /// per-user color profile values are included because they are not secret.
         /// </summary>
         [HttpGet("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -360,7 +361,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
-        /// synchronization without storing bridge credentials.
+        /// synchronization without storing bridge credentials and can override color processing.
         /// </summary>
         [HttpPost("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -375,6 +376,20 @@ namespace Jellyfin.Plugin.Hue.Api
             if (string.IsNullOrWhiteSpace(mapping.UserId))
             {
                 return BadRequest("User ID is required.");
+            }
+
+            var colorOverrideErrors = PluginConfiguration.ValidateColorOverrides(
+                mapping,
+                string.IsNullOrWhiteSpace(mapping.UserName)
+                    ? "User mapping"
+                    : $"User mapping for '{mapping.UserName.Trim()}'");
+            if (colorOverrideErrors.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = "User color profile is invalid.",
+                    errors = colorOverrideErrors
+                });
             }
 
             var plugin = Plugin.Instance;
@@ -569,7 +584,7 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Non-secret representation of a per-user bridge mapping.
+    /// Non-secret representation of a per-user bridge mapping and color profile.
     /// </summary>
     public sealed class UserBridgeMappingSummary
     {
@@ -581,6 +596,10 @@ namespace Jellyfin.Plugin.Hue.Api
         public string EntertainmentAreaName { get; set; } = string.Empty;
         public bool HasAppKey { get; set; }
         public bool HasClientKey { get; set; }
+        public int? BrightnessBoostOverride { get; set; }
+        public int? ColorSaturationOverride { get; set; }
+        public int? HueShiftDegreesOverride { get; set; }
+        public int? OutputBrightnessPercentOverride { get; set; }
 
         public static UserBridgeMappingSummary From(UserBridgeMapping mapping)
         {
@@ -593,7 +612,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 EntertainmentAreaId = mapping.EntertainmentAreaId,
                 EntertainmentAreaName = mapping.EntertainmentAreaName,
                 HasAppKey = !string.IsNullOrWhiteSpace(mapping.HueAppKey),
-                HasClientKey = !string.IsNullOrWhiteSpace(mapping.HueClientKey)
+                HasClientKey = !string.IsNullOrWhiteSpace(mapping.HueClientKey),
+                BrightnessBoostOverride = mapping.BrightnessBoostOverride,
+                ColorSaturationOverride = mapping.ColorSaturationOverride,
+                HueShiftDegreesOverride = mapping.HueShiftDegreesOverride,
+                OutputBrightnessPercentOverride = mapping.OutputBrightnessPercentOverride
             };
         }
     }

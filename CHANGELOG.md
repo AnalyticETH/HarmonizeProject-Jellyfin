@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.28] - 2026-08-17
+
+### Added
+- Optional per-user color profiles for brightness boost, saturation, hue shift, and output brightness
+- Blank per-user profile fields inherit the global settings while existing mappings remain compatible
+- Regression coverage for per-user profile resolution, validation, persistence, redacted mapping summaries, and UI/API wiring
+
+### Changed
+- Per-user overrides are resolved live for the mapped playback session without affecting other users
+
 ## [1.5.27] - 2026-08-17
 
 ### Added

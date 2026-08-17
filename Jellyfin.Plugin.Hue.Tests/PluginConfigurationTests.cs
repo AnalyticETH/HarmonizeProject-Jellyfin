@@ -1062,4 +1062,67 @@ public class PluginConfigurationTests
         Assert.False(config.IsSyncEnabledForUser(disabledUser));
         Assert.True(config.IsSyncEnabledForUser(System.Guid.NewGuid()));
     }
+
+    [Fact]
+    public void GetColorProcessingOverridesForUser_UsesMatchingMappingAndLeavesBlankValuesForGlobalSettings()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    BrightnessBoostOverride = 150,
+                    ColorSaturationOverride = 0,
+                    HueShiftDegreesOverride = -45,
+                    OutputBrightnessPercentOverride = 75
+                }
+            }
+        };
+
+        var overrides = config.GetColorProcessingOverridesForUser(userId);
+        var unmappedOverrides = config.GetColorProcessingOverridesForUser(System.Guid.NewGuid());
+
+        Assert.Equal((int?)150, overrides.BrightnessBoost);
+        Assert.Equal((int?)0, overrides.ColorSaturation);
+        Assert.Equal((int?)-45, overrides.HueShiftDegrees);
+        Assert.Equal((int?)75, overrides.OutputBrightnessPercent);
+        Assert.Null(unmappedOverrides.BrightnessBoost);
+        Assert.Null(unmappedOverrides.ColorSaturation);
+        Assert.Null(unmappedOverrides.HueShiftDegrees);
+        Assert.Null(unmappedOverrides.OutputBrightnessPercent);
+    }
+
+    [Fact]
+    public void Validate_WhenUserColorProfileOverridesAreOutOfRange_ReturnsProfileErrors()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-key",
+            HueClientKey = "default-client-key",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    BrightnessBoostOverride = 49,
+                    ColorSaturationOverride = 201,
+                    HueShiftDegreesOverride = 181,
+                    OutputBrightnessPercentOverride = -1
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("User mapping 1 brightness boost override must be between 50 and 200", errors);
+        Assert.Contains("User mapping 1 color saturation override must be between 0 and 200", errors);
+        Assert.Contains("User mapping 1 hue shift override must be between -180 and 180 degrees", errors);
+        Assert.Contains("User mapping 1 output brightness override must be between 0 and 100 percent", errors);
+    }
 }

@@ -281,7 +281,11 @@ public sealed class HueApiControllerTests : IDisposable
                     HueAppKey = "mapping-app-secret",
                     HueClientKey = "mapping-client-secret",
                     EntertainmentAreaId = "area-1",
-                    EntertainmentAreaName = "Living Room"
+                    EntertainmentAreaName = "Living Room",
+                    BrightnessBoostOverride = 150,
+                    ColorSaturationOverride = 0,
+                    HueShiftDegreesOverride = -45,
+                    OutputBrightnessPercentOverride = 75
                 }
             }
         });
@@ -293,6 +297,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("user-1", mapping.UserId);
         Assert.True(mapping.HasAppKey);
         Assert.True(mapping.HasClientKey);
+        Assert.Equal((int?)150, mapping.BrightnessBoostOverride);
+        Assert.Equal((int?)0, mapping.ColorSaturationOverride);
+        Assert.Equal((int?)-45, mapping.HueShiftDegreesOverride);
+        Assert.Equal((int?)75, mapping.OutputBrightnessPercentOverride);
         var serialized = System.Text.Json.JsonSerializer.Serialize(mapping);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("mapping-client-secret", serialized, StringComparison.Ordinal);
@@ -426,7 +434,11 @@ public sealed class HueApiControllerTests : IDisposable
             SyncEnabled = true,
             HueBridgeIp = "192.168.1.101",
             EntertainmentAreaId = "new-area",
-            EntertainmentAreaName = "New Room"
+            EntertainmentAreaName = "New Room",
+            BrightnessBoostOverride = 125,
+            ColorSaturationOverride = 80,
+            HueShiftDegreesOverride = 30,
+            OutputBrightnessPercentOverride = 65
         });
 
         Assert.IsType<OkObjectResult>(action);
@@ -435,6 +447,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("old-client-secret", mapping.HueClientKey);
         Assert.Equal("192.168.1.101", mapping.HueBridgeIp);
         Assert.Equal("new-area", mapping.EntertainmentAreaId);
+        Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
+        Assert.Equal((int?)80, mapping.ColorSaturationOverride);
+        Assert.Equal((int?)30, mapping.HueShiftDegreesOverride);
+        Assert.Equal((int?)65, mapping.OutputBrightnessPercentOverride);
     }
 
     [Fact]
@@ -452,6 +468,23 @@ public sealed class HueApiControllerTests : IDisposable
 
         var response = Assert.IsType<BadRequestObjectResult>(action);
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public void SaveUserMapping_InvalidColorProfileReturnsBadRequestWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "new-user",
+            SyncEnabled = false,
+            HueShiftDegreesOverride = 181
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Empty(configuration.UserMappings);
     }
 
     [Fact]

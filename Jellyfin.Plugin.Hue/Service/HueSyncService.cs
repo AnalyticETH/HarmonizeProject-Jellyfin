@@ -1064,7 +1064,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 playSessionId,
                 DefaultSamplingBreadthPercent,
                 PluginConfiguration.SamplingModeAverage,
-                PluginConfiguration.FrameResolutionStandard);
+                PluginConfiguration.FrameResolutionStandard,
+                Guid.Empty);
         }
 
         private async Task RunSyncLoopWithSampling(
@@ -1076,7 +1077,8 @@ namespace Jellyfin.Plugin.Hue.Service
             string playSessionId,
             int samplingBreadthPercent,
             string samplingMode,
-            string frameResolution)
+            string frameResolution,
+            Guid userId)
         {
             var (frameWidth, frameHeight) = PluginConfiguration.GetFrameDimensions(frameResolution);
             int frameSize = frameWidth * frameHeight * BytesPerPixel;
@@ -1156,6 +1158,11 @@ namespace Jellyfin.Plugin.Hue.Service
                     var config = Plugin.Instance?.Configuration;
                     if (config != null)
                     {
+                        var colorOverrides = config.GetColorProcessingOverridesForUser(userId);
+                        var brightnessBoost = colorOverrides.BrightnessBoost ?? config.BrightnessBoost;
+                        var colorSaturation = colorOverrides.ColorSaturation ?? config.ColorSaturation;
+                        var hueShiftDegrees = colorOverrides.HueShiftDegrees ?? config.HueShiftDegrees;
+                        var outputBrightnessPercent = colorOverrides.OutputBrightnessPercent ?? config.OutputBrightnessPercent;
                         var isBlackout = config.BlackoutThreshold > 0 &&
                             channelColors.Count > 0 &&
                             channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0) < config.BlackoutThreshold;
@@ -1212,21 +1219,21 @@ namespace Jellyfin.Plugin.Hue.Service
                             double r = rgb[0], g = rgb[1], b = rgb[2];
 
                             // Apply brightness boost
-                            if (config.BrightnessBoost != 100)
+                            if (brightnessBoost != 100)
                             {
-                                double multiplier = config.BrightnessBoost / 100.0;
+                                double multiplier = brightnessBoost / 100.0;
                                 r = Math.Min(255, r * multiplier);
                                 g = Math.Min(255, g * multiplier);
                                 b = Math.Min(255, b * multiplier);
                             }
 
                             // Apply color saturation and hue shift adjustments together in HSL
-                            if (config.ColorSaturation != 100 || config.HueShiftDegrees != 0)
+                            if (colorSaturation != 100 || hueShiftDegrees != 0)
                             {
                                 // Convert to HSL, adjust saturation/hue, convert back to RGB
                                 var (hue, sat, lightness) = RgbToHsl(r / 255.0, g / 255.0, b / 255.0);
-                                sat = Math.Clamp(sat * (config.ColorSaturation / 100.0), 0, 1);
-                                hue = ApplyHueShift(hue, config.HueShiftDegrees);
+                                sat = Math.Clamp(sat * (colorSaturation / 100.0), 0, 1);
+                                hue = ApplyHueShift(hue, hueShiftDegrees);
                                 var (r2, g2, b2) = HslToRgb(hue, sat, lightness);
                                 r = r2 * 255;
                                 g = g2 * 255;
@@ -1234,11 +1241,11 @@ namespace Jellyfin.Plugin.Hue.Service
                             }
 
                             // Apply the final output-brightness scale after color adjustments
-                            if (config.OutputBrightnessPercent != 100)
+                            if (outputBrightnessPercent != 100)
                             {
-                                r = ApplyOutputBrightness(r, config.OutputBrightnessPercent);
-                                g = ApplyOutputBrightness(g, config.OutputBrightnessPercent);
-                                b = ApplyOutputBrightness(b, config.OutputBrightnessPercent);
+                                r = ApplyOutputBrightness(r, outputBrightnessPercent);
+                                g = ApplyOutputBrightness(g, outputBrightnessPercent);
+                                b = ApplyOutputBrightness(b, outputBrightnessPercent);
                             }
 
                             // Format following HarmonizeProject: divide by 2 for 16-bit color compatibility
@@ -1694,7 +1701,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     e.PlaySessionId,
                     samplingBreadthPercent,
                     samplingMode,
-                    frameResolution));
+                    frameResolution,
+                    userId));
                 syncLoopStarted = true;
             }
             catch (Exception ex)

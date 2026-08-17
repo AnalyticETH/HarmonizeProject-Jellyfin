@@ -5,7 +5,7 @@ using MediaBrowser.Model.Plugins;
 namespace Jellyfin.Plugin.Hue.Configuration
 {
     /// <summary>
-    /// Per-user bridge and entertainment area mapping
+    /// Per-user bridge, entertainment area, and optional color profile mapping
     /// </summary>
     public class UserBridgeMapping
     {
@@ -19,6 +19,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string HueClientKey { get; set; } = string.Empty;
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string EntertainmentAreaName { get; set; } = string.Empty; // For display purposes
+
+        // Optional per-user color profile overrides. Null values inherit the global setting.
+        public int? BrightnessBoostOverride { get; set; }
+        public int? ColorSaturationOverride { get; set; }
+        public int? HueShiftDegreesOverride { get; set; }
+        public int? OutputBrightnessPercentOverride { get; set; }
     }
 
     /// <summary>
@@ -123,6 +129,62 @@ namespace Jellyfin.Plugin.Hue.Configuration
             var userIdText = userId.ToString();
             var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
             return mapping?.SyncEnabled ?? true;
+        }
+
+        /// <summary>
+        /// Gets optional per-user color-processing overrides. Null values mean the global
+        /// plugin setting should be used for that component.
+        /// </summary>
+        public (int? BrightnessBoost, int? ColorSaturation, int? HueShiftDegrees, int? OutputBrightnessPercent)
+            GetColorProcessingOverridesForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return mapping == null
+                ? (null, null, null, null)
+                : (
+                    mapping.BrightnessBoostOverride,
+                    mapping.ColorSaturationOverride,
+                    mapping.HueShiftDegreesOverride,
+                    mapping.OutputBrightnessPercentOverride);
+        }
+
+        /// <summary>
+        /// Validates optional per-user color profile overrides without exposing bridge credentials.
+        /// </summary>
+        public static List<string> ValidateColorOverrides(UserBridgeMapping mapping, string label = "User mapping")
+        {
+            var errors = new List<string>();
+
+            if (mapping.BrightnessBoostOverride.HasValue &&
+                (mapping.BrightnessBoostOverride.Value < MinBrightnessBoost ||
+                 mapping.BrightnessBoostOverride.Value > MaxBrightnessBoost))
+            {
+                errors.Add($"{label} brightness boost override must be between 50 and 200");
+            }
+
+            if (mapping.ColorSaturationOverride.HasValue &&
+                (mapping.ColorSaturationOverride.Value < MinColorSaturation ||
+                 mapping.ColorSaturationOverride.Value > MaxColorSaturation))
+            {
+                errors.Add($"{label} color saturation override must be between 0 and 200");
+            }
+
+            if (mapping.HueShiftDegreesOverride.HasValue &&
+                (mapping.HueShiftDegreesOverride.Value < MinHueShiftDegrees ||
+                 mapping.HueShiftDegreesOverride.Value > MaxHueShiftDegrees))
+            {
+                errors.Add($"{label} hue shift override must be between -180 and 180 degrees");
+            }
+
+            if (mapping.OutputBrightnessPercentOverride.HasValue &&
+                (mapping.OutputBrightnessPercentOverride.Value < MinOutputBrightnessPercent ||
+                 mapping.OutputBrightnessPercentOverride.Value > MaxOutputBrightnessPercent))
+            {
+                errors.Add($"{label} output brightness override must be between 0 and 100 percent");
+            }
+
+            return errors;
         }
 
         public PluginConfiguration()
@@ -261,6 +323,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 var label = string.IsNullOrWhiteSpace(mapping.UserName)
                     ? $"User mapping {index + 1}"
                     : $"User mapping for '{mapping.UserName.Trim()}'";
+
+                errors.AddRange(ValidateColorOverrides(mapping, label));
 
                 if (string.IsNullOrWhiteSpace(mapping.UserId))
                 {

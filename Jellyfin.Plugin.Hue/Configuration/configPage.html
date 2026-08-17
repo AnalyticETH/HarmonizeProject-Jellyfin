@@ -243,6 +243,35 @@
                                 <div class="fieldDescription">Uncheck this to leave this user's playback unchanged while keeping other users enabled.</div>
                             </div>
 
+                            <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
+                                <legend>Per-user Color Profile (optional)</legend>
+                                <div class="fieldDescription" style="margin-bottom: 1em;">Leave any field blank to inherit the global color setting. These overrides follow this user to the mapped bridge or the default bridge.</div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingBrightnessBoostOverride">Brightness Boost Override (%)</label>
+                                    <input id="mappingBrightnessBoostOverride" type="number" min="50" max="200" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user brightness multiplier (50-200%).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingColorSaturationOverride">Color Saturation Override (%)</label>
+                                    <input id="mappingColorSaturationOverride" type="number" min="0" max="200" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user saturation adjustment (0-200%).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingHueShiftDegreesOverride">Hue Shift Override (degrees)</label>
+                                    <input id="mappingHueShiftDegreesOverride" type="number" min="-180" max="180" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user hue rotation (-180 to 180 degrees).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingOutputBrightnessPercentOverride">Output Brightness Override (%)</label>
+                                    <input id="mappingOutputBrightnessPercentOverride" type="number" min="0" max="100" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user final brightness scale (0-100%).</div>
+                                </div>
+                            </fieldset>
+
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="mappingBridgeIp">Bridge Address</label>
                                 <input id="mappingBridgeIp" type="text" class="emby-input" placeholder="192.168.1.50 or bridge.local" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
@@ -957,6 +986,7 @@
                         html += '<th style="text-align: left; padding: 8px;">Sync</th>';
                         html += '<th style="text-align: left; padding: 8px;">Bridge Address</th>';
                         html += '<th style="text-align: left; padding: 8px;">Entertainment Area</th>';
+                        html += '<th style="text-align: left; padding: 8px;">Color Profile</th>';
                         html += '<th style="text-align: left; padding: 8px;">Credentials</th>';
                         html += '<th style="text-align: right; padding: 8px;">Actions</th>';
                         html += '</tr></thead><tbody>';
@@ -968,12 +998,24 @@
                                 : mapping.syncEnabled !== false;
                             var hasAppKey = typeof mapping.HasAppKey !== 'undefined' ? mapping.HasAppKey === true : mapping.hasAppKey === true;
                             var hasClientKey = typeof mapping.HasClientKey !== 'undefined' ? mapping.HasClientKey === true : mapping.hasClientKey === true;
+                            var getMappingValue = function (pascalName, camelName) {
+                                return typeof mapping[pascalName] !== 'undefined' ? mapping[pascalName] : mapping[camelName];
+                            };
+                            var hasColorProfile = [
+                                getMappingValue('BrightnessBoostOverride', 'brightnessBoostOverride'),
+                                getMappingValue('ColorSaturationOverride', 'colorSaturationOverride'),
+                                getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride'),
+                                getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride')
+                            ].some(function (value) {
+                                return value !== null && typeof value !== 'undefined' && value !== '';
+                            });
                             var credentialState = !syncEnabled ? 'Not required' : (hasAppKey && hasClientKey ? 'Stored' : 'Incomplete');
                             html += '<tr style="border-bottom: 1px solid #333;">';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.UserName || mapping.userName || userId || 'Unknown') + '</td>';
                             html += '<td style="padding: 8px;">' + (syncEnabled ? 'Enabled' : 'Disabled') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.HueBridgeIp || mapping.hueBridgeIp || '') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.EntertainmentAreaName || mapping.entertainmentAreaName || mapping.EntertainmentAreaId || mapping.entertainmentAreaId || '') + '</td>';
+                            html += '<td style="padding: 8px;">' + (hasColorProfile ? 'Custom' : 'Global') + '</td>';
                             html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid)">Edit</button> ';
@@ -1003,7 +1045,11 @@
                         '#mappingClientKey',
                         '#mappingAreaSelect',
                         '#mappingRefreshAreasBtn',
-                        '#mappingAreaManual'
+                        '#mappingAreaManual',
+                        '#mappingBrightnessBoostOverride',
+                        '#mappingColorSaturationOverride',
+                        '#mappingHueShiftDegreesOverride',
+                        '#mappingOutputBrightnessPercentOverride'
                     ];
 
                     selectors.forEach(function (selector) {
@@ -1293,6 +1339,12 @@
                     var appKeyEl = document.getElementById('mappingAppKey');
                     var clientKeyEl = document.getElementById('mappingClientKey');
                     var syncEnabledEl = document.getElementById('mappingSyncEnabled');
+                    var readOptionalNumber = function (selector) {
+                        var element = document.getElementById(selector);
+                        if (!element || element.value.trim() === '') return null;
+                        var value = parseInt(element.value, 10);
+                        return isNaN(value) ? null : value;
+                    };
 
                     var userId = userSelect ? userSelect.value : '';
                     var userName = userSelect && userSelect.selectedOptions[0] ? userSelect.selectedOptions[0].dataset.userName || '' : '';
@@ -1341,7 +1393,11 @@
                         HueAppKey: appKey,
                         HueClientKey: clientKey,
                         EntertainmentAreaId: areaId,
-                        EntertainmentAreaName: areaName
+                        EntertainmentAreaName: areaName,
+                        BrightnessBoostOverride: readOptionalNumber('mappingBrightnessBoostOverride'),
+                        ColorSaturationOverride: readOptionalNumber('mappingColorSaturationOverride'),
+                        HueShiftDegreesOverride: readOptionalNumber('mappingHueShiftDegreesOverride'),
+                        OutputBrightnessPercentOverride: readOptionalNumber('mappingOutputBrightnessPercentOverride')
                     };
 
                     ApiClient.ajax({
@@ -1392,6 +1448,16 @@
                         clientKeyEl.placeholder = "Enter Hue Client Key";
                     }
                     if (syncEnabledEl) syncEnabledEl.checked = true;
+                    var profileSelectors = [
+                        '#mappingBrightnessBoostOverride',
+                        '#mappingColorSaturationOverride',
+                        '#mappingHueShiftDegreesOverride',
+                        '#mappingOutputBrightnessPercentOverride'
+                    ];
+                    profileSelectors.forEach(function (selector) {
+                        var element = page.querySelector(selector);
+                        if (element) element.value = "";
+                    });
                     if (areaSelect) areaSelect.innerHTML = '<option value="">Enter credentials first</option><option value="manual">Enter ID manually</option>';
                     if (manualAreaEl) manualAreaEl.value = "";
                     if (legend) legend.textContent = "Add New User Mapping";
@@ -1432,6 +1498,13 @@
                         var areaName = mapping.EntertainmentAreaName || mapping.entertainmentAreaName || areaId;
                         var hasAppKey = typeof mapping.HasAppKey !== 'undefined' ? mapping.HasAppKey === true : mapping.hasAppKey === true;
                         var hasClientKey = typeof mapping.HasClientKey !== 'undefined' ? mapping.HasClientKey === true : mapping.hasClientKey === true;
+                        var getMappingValue = function (pascalName, camelName) {
+                            return typeof mapping[pascalName] !== 'undefined' ? mapping[pascalName] : mapping[camelName];
+                        };
+                        var brightnessBoostOverride = getMappingValue('BrightnessBoostOverride', 'brightnessBoostOverride');
+                        var colorSaturationOverride = getMappingValue('ColorSaturationOverride', 'colorSaturationOverride');
+                        var hueShiftDegreesOverride = getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride');
+                        var outputBrightnessPercentOverride = getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride');
 
                         var userSelect = page.querySelector('#mappingUserSelect');
                         if (userSelect) {
@@ -1461,6 +1534,10 @@
                         page.querySelector('#mappingClientKey').value = "";
                         page.querySelector('#mappingClientKey').placeholder = hasClientKey ? "Stored securely; leave blank to keep" : "Enter Hue Client Key";
                         page.querySelector('#mappingSyncEnabled').checked = syncEnabled;
+                        page.querySelector('#mappingBrightnessBoostOverride').value = brightnessBoostOverride == null ? "" : brightnessBoostOverride;
+                        page.querySelector('#mappingColorSaturationOverride').value = colorSaturationOverride == null ? "" : colorSaturationOverride;
+                        page.querySelector('#mappingHueShiftDegreesOverride').value = hueShiftDegreesOverride == null ? "" : hueShiftDegreesOverride;
+                        page.querySelector('#mappingOutputBrightnessPercentOverride').value = outputBrightnessPercentOverride == null ? "" : outputBrightnessPercentOverride;
                         page.querySelector('#mappingAreaManual').value = "";
                         page.querySelector('#mappingFormLegend').textContent = "Edit User Mapping";
                         page.querySelector('#addMappingBtn').querySelector('span').textContent = "Update User Mapping";
