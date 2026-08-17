@@ -57,7 +57,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool RestoreLightState { get; set; } = true; // Save and restore light state before sync
         public int BrightnessBoost { get; set; } = 100; // Brightness multiplier (50-200%)
         public int ColorSaturation { get; set; } = 100; // Color saturation adjustment (0-200%)
-        public int BlackoutThreshold { get; set; } = 15; // Average brightness below which sync is skipped (0-255)
+        public int BlackoutThreshold { get; set; } = 15; // Average brightness below which lights are set to black (0-255)
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
         public int NetworkRetryAttempts { get; set; } = 3; // Number of retry attempts for network operations
 

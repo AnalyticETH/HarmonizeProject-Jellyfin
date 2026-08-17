@@ -126,7 +126,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                         }
 
                         var addressText = addressProperty.GetString();
-                        if (IPAddress.TryParse(addressText, out var address))
+                        if (IPAddress.TryParse(addressText, out var address) &&
+                            Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(address.ToString()))
                         {
                             return address.ToString();
                         }

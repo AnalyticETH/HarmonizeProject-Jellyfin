@@ -47,7 +47,8 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 
 | Setting | Description |
 | :--- | :--- |
-| **Hue Bridge IP** | The private/local IP address of your bridge (or a .local mDNS host name). |
+| **Hue Bridge Address** | The private/local IP address of your bridge (or a .local mDNS host name). |
+| **Discover Bridge** | Ask the Hue discovery service for a bridge address and fill it into the form automatically. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Hue App Key** | "Username" for the REST API (auto-filled). |
 | **Hue Client Key** | "ClientKey" for the streaming API (auto-filled). |
@@ -66,7 +67,7 @@ For multi-user Jellyfin setups, you can map individual users to different Hue br
 To configure per-user mappings:
 1. Go to the **Per-User Bridge Mappings** section in the plugin settings
 2. Select a Jellyfin user from the dropdown
-3. Enter the Bridge IP for that user's location
+3. Click **Discover Bridge** (or enter a private/local bridge address manually)
 4. Click **Link Bridge** and press the physical button on that bridge
 5. Select the entertainment area for that bridge
 6. Click **Add User Mapping**
@@ -148,6 +149,7 @@ The test suite covers:
 - **Color Processing**: RGB/HSL conversion, sampling, and round-trip conversions
 - **Configuration Validation**: All plugin settings and edge cases
 - **HueClient Integration**: REST API parsing, error handling, and retry logic
+- **Bridge discovery API**: Authenticated bridge discovery with local-address filtering
 - **HueStreamer Protocol**: Binary packet construction, color encoding, and coordinate mapping
 
 #### Running Tests
@@ -187,6 +189,8 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
   **Link Bridge**. Hue registration and all v2 REST requests use the bridge's HTTPS API;
   current bridge firmware no longer supports the old HTTP endpoint. The configured target
   must be a private/local bridge address or a .local mDNS name.
+* **Discovery finds no bridge:** the Jellyfin server must be able to reach the local network;
+  use a private IP or .local host name manually when the discovery service cannot see your bridge.
 * **No areas are listed:** verify the bridge IP and App Key, then click **Refresh
   Entertainment Areas**. The selected area must contain color-capable lights.
 * **Lights stop updating:** check that `ffmpeg` and `openssl` are available to the Jellyfin
@@ -217,7 +221,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.3 (Current)
+### Version 1.5.4 (Current)
+- **Bridge discovery**: Authenticated `/HueSync/DiscoverBridge` endpoint and one-click discovery for default and per-user mappings
+
+### Version 1.5.3
 - **Hue HTTPS compatibility**: Link-button registration uses the TLS-protected bridge API required by current firmware
 - **Scoped certificate handling**: Self-signed bridge certificates are accepted only for private/local bridge addresses; public discovery uses normal TLS validation
 - **Local bridge target validation**: Configuration and API mapping inputs reject public hosts and malformed URLs

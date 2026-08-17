@@ -47,6 +47,23 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(result);
         }
 
+        /// <summary>
+        /// Discovers the first Hue Bridge reported on the local network.
+        /// </summary>
+        [HttpGet("DiscoverBridge")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        public async Task<ActionResult<HueBridgeDiscoveryResult>> DiscoverBridge()
+        {
+            var ipAddress = await _hueClient.DiscoverBridgeIp();
+            if (string.IsNullOrWhiteSpace(ipAddress))
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, "No Hue Bridge was found on the local network.");
+            }
+
+            return Ok(new HueBridgeDiscoveryResult { IpAddress = ipAddress });
+        }
+
         [HttpGet("EntertainmentAreas")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -192,6 +209,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("clientKey")]
         public string ClientKey { get; set; } = string.Empty;
+    }
+
+    public class HueBridgeDiscoveryResult
+    {
+        [JsonPropertyName("ipAddress")]
+        public string IpAddress { get; set; } = string.Empty;
     }
 
     public class HueSyncStatus

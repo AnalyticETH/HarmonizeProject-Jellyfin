@@ -15,13 +15,17 @@
                     <fieldset class="verticalSection">
                         <legend>Bridge connection</legend>
                         <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="hueBridgeIp">Hue Bridge IP Address</label>
+                            <label class="inputLabel inputLabelUnfocused" for="hueBridgeIp">Hue Bridge Address</label>
                             <input id="hueBridgeIp" name="hueBridgeIp" type="text" is="emby-input" />
-                            <div class="fieldDescription">The local IP address of your Hue Bridge (e.g., 192.168.1.50).
+                            <div class="fieldDescription">A private/local IP address or <code>.local</code> host name. Use discovery below if you do not know the bridge address.
                             </div>
                         </div>
 
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
+                            <button is="emby-button" type="button" class="raised" id="discoverBtn"
+                                style="margin-bottom: 20px;">
+                                <span>Discover Bridge</span>
+                            </button>
                             <button is="emby-button" type="button" class="raised" id="registerBtn"
                                 style="margin-bottom: 20px;">
                                 <span>Link Bridge</span>
@@ -131,11 +135,14 @@
                             </div>
 
                             <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="mappingBridgeIp">Bridge IP</label>
-                                <input id="mappingBridgeIp" type="text" class="emby-input" placeholder="192.168.1.50" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
+                                <label class="inputLabel inputLabelUnfocused" for="mappingBridgeIp">Bridge Address</label>
+                                <input id="mappingBridgeIp" type="text" class="emby-input" placeholder="192.168.1.50 or bridge.local" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
                             </div>
 
                             <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
+                                <button is="emby-button" type="button" class="raised" id="mappingDiscoverBtn" style="margin-bottom: 20px;">
+                                    <span>Discover Bridge</span>
+                                </button>
                                 <button is="emby-button" type="button" class="raised" id="mappingLinkBridgeBtn" style="margin-bottom: 20px;">
                                     <span>Link Bridge</span>
                                 </button>
@@ -205,7 +212,7 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="blackoutThreshold">Blackout Threshold</label>
                             <input id="blackoutThreshold" name="blackoutThreshold" type="number" min="0" max="255" is="emby-input" />
-                            <div class="fieldDescription">Skip sync when average brightness is below this value (0-255, default: 15).</div>
+                            <div class="fieldDescription">Set lights to black when average brightness is below this value (0-255, default: 15).</div>
                         </div>
 
                         <div class="inputContainer">
@@ -447,6 +454,39 @@
 
                     return selectEl.value || "";
                 },
+                discoverBridge: function (page) {
+                    var ipInput = page.querySelector('#hueBridgeIp');
+                    var discoverBtn = page.querySelector('#discoverBtn');
+
+                    discoverBtn.disabled = true;
+                    HueConfigurationPage.refreshStatus(page, "Searching for a Hue Bridge...", "info");
+                    Dashboard.showLoadingMsg();
+
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/DiscoverBridge"))
+                        .then(function (response) {
+                            var ipAddress = response && (response.ipAddress || response.IpAddress || response.ip || response.Ip);
+                            if (!ipAddress) {
+                                throw new Error("No bridge address was returned.");
+                            }
+
+                            ipInput.value = ipAddress;
+                            HueConfigurationPage.refreshStatus(page, "Bridge discovered at " + ipAddress + ".", "success");
+
+                            // If credentials are already present, immediately refresh the area list
+                            // so discovery completes the whole setup flow in one click.
+                            if (page.querySelector('#hueAppKey').value.trim()) {
+                                HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
+                            }
+                        })
+                        .catch(function (err) {
+                            console.error("Bridge discovery error:", err);
+                            HueConfigurationPage.refreshStatus(page, "No bridge found. Verify the server can reach the local network.", "error");
+                        })
+                        .finally(function () {
+                            discoverBtn.disabled = false;
+                            Dashboard.hideLoadingMsg();
+                        });
+                },
                 registerBridge: function (page) {
                     var ip = page.querySelector('#hueBridgeIp').value;
                     if (!ip) {
@@ -580,6 +620,48 @@
                         console.error("Failed to load user mappings:", err);
                         container.innerHTML = '<div style="color: #d9534f; padding: 1em;">Failed to load user mappings.</div>';
                     });
+                },
+
+                discoverMappingBridge: function () {
+                    var ipInput = document.getElementById('mappingBridgeIp');
+                    var discoverBtn = document.getElementById('mappingDiscoverBtn');
+                    var statusEl = document.getElementById('mappingBridgeStatus');
+
+                    if (!ipInput || !discoverBtn) {
+                        return;
+                    }
+
+                    discoverBtn.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Searching for a Hue Bridge...";
+                        statusEl.style.background = "#3f51b5";
+                    }
+                    Dashboard.showLoadingMsg();
+
+                    ApiClient.getJSON(ApiClient.getUrl("HueSync/DiscoverBridge"))
+                        .then(function (response) {
+                            var ipAddress = response && (response.ipAddress || response.IpAddress || response.ip || response.Ip);
+                            if (!ipAddress) {
+                                throw new Error("No bridge address was returned.");
+                            }
+
+                            ipInput.value = ipAddress;
+                            if (statusEl) {
+                                statusEl.textContent = "Bridge discovered at " + ipAddress + ". Link it or enter credentials manually.";
+                                statusEl.style.background = "#4caf50";
+                            }
+                        })
+                        .catch(function (err) {
+                            console.error("Mapping bridge discovery error:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "No bridge found. Verify the server can reach the local network.";
+                                statusEl.style.background = "#d9534f";
+                            }
+                        })
+                        .finally(function () {
+                            discoverBtn.disabled = false;
+                            Dashboard.hideLoadingMsg();
+                        });
                 },
 
                 registerMappingBridge: function () {
@@ -803,6 +885,10 @@
                 return false;
             });
 
+            document.querySelector('#discoverBtn').addEventListener('click', function () {
+                HueConfigurationPage.discoverBridge(this.closest('.page'));
+            });
+
             document.querySelector('#registerBtn').addEventListener('click', function () {
                 HueConfigurationPage.registerBridge(this.closest('.page'));
             });
@@ -818,6 +904,10 @@
             });
 
             // User mapping button event listeners
+            document.querySelector('#mappingDiscoverBtn').addEventListener('click', function () {
+                HueConfigurationPage.discoverMappingBridge();
+            });
+
             document.querySelector('#mappingLinkBridgeBtn').addEventListener('click', function () {
                 HueConfigurationPage.registerMappingBridge();
             });

@@ -137,6 +137,22 @@ public class HueClientTests : IDisposable
         Assert.Equal("192.168.1.101", result);
     }
 
+    [Fact]
+    public async Task DiscoverBridgeIp_SkipsPublicAddresses()
+    {
+        var responseJson = @"[
+            {""internalipaddress"":""8.8.8.8""},
+            {""internalipaddress"":""192.168.1.102""}
+        ]";
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.DiscoverBridgeIp();
+
+        Assert.Equal("192.168.1.102", result);
+    }
+
     #endregion
 
     #region GetEntertainmentAreas Tests
