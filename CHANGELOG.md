@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.11] - 2026-08-17
+
+### Added
+- Automatic terminal cleanup when the FFmpeg frame stream ends or fails unexpectedly
+- Light-state restoration and entertainment-area deactivation on terminal sync-loop exits
+- Regression coverage for EOF cleanup, failure cleanup, runtime ownership, and error preservation
+
+### Changed
+- Terminal stream failures now release FFmpeg/DTLS resources and publish a stable administrator-facing runtime state
+
 ## [1.5.10] - 2026-08-17
 
 ### Added

@@ -739,10 +739,19 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private async Task RunSyncLoop(Stream videoStream, Dictionary<int, (double x, double z)> lights, string areaId, int targetFrameDurationMs, CancellationToken token)
+        private async Task RunSyncLoop(
+            Stream videoStream,
+            Dictionary<int, (double x, double z)> lights,
+            string areaId,
+            int targetFrameDurationMs,
+            CancellationTokenSource expectedSyncCts,
+            string playSessionId)
         {
             int frameSize = FrameWidth * FrameHeight * BytesPerPixel;
             byte[] buffer = new byte[frameSize];
+            var token = expectedSyncCts.Token;
+            var streamEnded = false;
+            var streamFailed = false;
 
             // Pre-calculate bounds for each light based on position
             // Following HarmonizeProject logic: use x (horizontal) and z (vertical) for 2D screen plane
@@ -768,7 +777,10 @@ namespace Jellyfin.Plugin.Hue.Service
                     {
                         _logger.LogInformation("End of video stream reached. Total frames processed: {0}", _ffmpegStreamer?.FramesProcessed ?? 0);
                         if (!token.IsCancellationRequested)
+                        {
+                            streamEnded = true;
                             SetRuntimeStatus("Ended", "The video stream ended.");
+                        }
                         break;
                     }
 
@@ -927,6 +939,7 @@ namespace Jellyfin.Plugin.Hue.Service
             catch (TaskCanceledException) { }
             catch (Exception ex)
             {
+                streamFailed = true;
                 _logger.LogError(ex, "Error in Sync Loop");
                 if (!token.IsCancellationRequested)
                     SetRuntimeError("The video sync loop stopped unexpectedly.");
@@ -936,6 +949,61 @@ namespace Jellyfin.Plugin.Hue.Service
                 try
                 { videoStream.Dispose(); }
                 catch { }
+
+                if (!token.IsCancellationRequested && (streamEnded || streamFailed))
+                {
+                    ObserveTask(FinalizeSyncLoopAsync(token, expectedSyncCts, playSessionId, streamEnded));
+                }
+            }
+        }
+
+        private async Task FinalizeSyncLoopAsync(
+            CancellationToken token,
+            CancellationTokenSource expectedSyncCts,
+            string playSessionId,
+            bool streamEnded)
+        {
+            if (token.IsCancellationRequested)
+                return;
+
+            await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                lock (_syncLock)
+                {
+                    if (_isStopping ||
+                        token.IsCancellationRequested ||
+                        !ReferenceEquals(_syncCts, expectedSyncCts) ||
+                        !string.Equals(_currentPlaySessionId, playSessionId, StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+                }
+
+                var config = Plugin.Instance?.Configuration;
+                var bridgeConfig = _currentBridgeConfig;
+                var savedLightStates = _savedLightStates;
+                StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId, clearSession: false);
+                _currentBridgeConfig = null;
+
+                try
+                {
+                    await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
+                    if (streamEnded)
+                        SetRuntimeStatus("Idle", "Video stream ended; lights were restored.");
+                }
+                finally
+                {
+                    lock (_syncLock)
+                    {
+                        if (string.Equals(_currentPlaySessionId, playSessionId, StringComparison.Ordinal))
+                            _currentPlaySessionId = null;
+                    }
+                }
+            }
+            finally
+            {
+                _syncLifecycleLock.Release();
             }
         }
 
@@ -1235,7 +1303,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 // Let RunSyncLoop own disposal even when cancellation wins before scheduling.
                 SetRuntimeStatus("Syncing", "Streaming video colors to Hue.");
-                _ = Task.Run(() => RunSyncLoop(videoStream, lights, areaId, targetFrameDurationMs, token));
+                _ = Task.Run(() => RunSyncLoop(videoStream, lights, areaId, targetFrameDurationMs, syncCts, e.PlaySessionId));
             }
             catch (Exception ex)
             {

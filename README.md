@@ -215,7 +215,9 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
 * **No areas are listed:** verify the bridge IP and App Key, then click **Refresh
   Entertainment Areas**. The selected area must contain color-capable lights.
 * **Lights stop updating:** check that `ffmpeg` and `openssl` are available to the Jellyfin
-  service account and inspect the Jellyfin server log for `Hue Sync` and `FFmpeg` entries.
+  service account and inspect the Jellyfin server log for `Hue Sync` and `FFmpeg` entries. If a
+  frame stream ends or fails, the plugin now restores saved lights and deactivates the area
+  automatically; the Live Sync Status panel will retain the failure diagnostic.
 * **A mapping is ignored:** enabled mappings must include a valid bridge address, App Key,
   Client Key, and Entertainment Area ID. A mapping with **Enable Hue Sync for this user**
   unchecked intentionally leaves that user's playback unchanged; users without a mapping use
@@ -244,7 +246,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.10 (Current)
+### Version 1.5.11 (Current)
+- **Terminal cleanup**: Ended or failed FFmpeg frame streams now restore lights, stop the DTLS process, and deactivate the entertainment area without waiting for a later playback-stop event
+
+### Version 1.5.10
 - **Per-user opt-out**: Disable Hue sync for selected Jellyfin users without requiring or storing bridge credentials for that mapping; unmapped users continue using the default bridge
 
 ### Version 1.5.9

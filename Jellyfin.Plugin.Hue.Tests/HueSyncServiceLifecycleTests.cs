@@ -52,6 +52,87 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task SyncLoopEnd_RestoresLightsAndClearsRuntimeState()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var syncCts = new CancellationTokenSource();
+        SetPrivateField(service, "_syncCts", syncCts);
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        var loopMethod = typeof(HueSyncService).GetMethod("RunSyncLoop", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var loopTask = Assert.IsAssignableFrom<Task>(loopMethod.Invoke(service, new object?[]
+        {
+            new MemoryStream(),
+            new Dictionary<int, (double x, double z)>(),
+            "area-id",
+            50,
+            syncCts,
+            "session-a"
+        }));
+        await loopTask;
+
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(service.IsSyncing);
+        Assert.Equal("Idle", service.GetRuntimeStatus().State);
+        Assert.Equal("Video stream ended; lights were restored.", service.GetRuntimeStatus().Message);
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SyncLoopFailure_RestoresLightsAndPreservesErrorStatus()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var syncCts = new CancellationTokenSource();
+        SetPrivateField(service, "_syncCts", syncCts);
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        var loopMethod = typeof(HueSyncService).GetMethod("RunSyncLoop", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var loopTask = Assert.IsAssignableFrom<Task>(loopMethod.Invoke(service, new object?[]
+        {
+            new ThrowingReadStream(),
+            new Dictionary<int, (double x, double z)>(),
+            "area-id",
+            50,
+            syncCts,
+            "session-a"
+        }));
+        await loopTask;
+
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var status = service.GetRuntimeStatus();
+        Assert.False(service.IsSyncing);
+        Assert.Equal("Error", status.State);
+        Assert.Equal("The video sync loop stopped unexpectedly.", status.LastError);
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task StopCurrentSync_SuppressesProgressUntilPlaybackStops()
     {
         var handler = new BlockingHueHandler();
@@ -381,6 +462,34 @@ public sealed class HueSyncServiceLifecycleTests
             Path = path
         };
     }
+
+    private sealed class ThrowingReadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => 0;
+        public override long Position
+        {
+            get => 0;
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new IOException("Synthetic frame-read failure.");
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            Task.FromException<int>(new IOException("Synthetic frame-read failure."));
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     private sealed class BlockingHueHandler : HttpMessageHandler
     {
         public TaskCompletionSource<bool> FirstConfigurationRequest { get; } = NewSignal();
