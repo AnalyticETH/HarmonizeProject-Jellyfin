@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.48] - 2026-08-17
+
+### Added
+- Request-aware cancellation for Test Connection probes and solid-color previews
+
+### Changed
+- Diagnostic light-state capture, activation delays, DTLS handshakes, and preview holds now stop promptly when the request is canceled
+- Cancellation after bridge activation still runs the normal stream stop, entertainment-area deactivation, and light-state restoration cleanup
+
 ## [1.5.47] - 2026-08-17
 
 ### Added

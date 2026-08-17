@@ -231,7 +231,8 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<System.Text.Json.JsonElement>(),
-                It.IsAny<IReadOnlySet<int>?>()))
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HueStreamProbeResult
             {
                 Succeeded = true,
@@ -260,7 +261,8 @@ public sealed class HueApiControllerTests : IDisposable
             "client-key",
             "area-1",
             It.IsAny<System.Text.Json.JsonElement>(),
-            It.Is<IReadOnlySet<int>?>(ids => ids != null && ids.Count == 1 && ids.Contains(2))), Times.Once);
+            It.Is<IReadOnlySet<int>?>(ids => ids != null && ids.Count == 1 && ids.Contains(2)),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -310,7 +312,8 @@ public sealed class HueApiControllerTests : IDisposable
             It.IsAny<string>(),
             It.IsAny<string>(),
             It.IsAny<System.Text.Json.JsonElement>(),
-            It.IsAny<IReadOnlySet<int>?>()), Times.Never);
+            It.IsAny<IReadOnlySet<int>?>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -349,7 +352,8 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<int>(),
                 It.IsAny<int>(),
                 It.IsAny<int>(),
-                It.IsAny<int>()))
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HueStreamProbeResult
             {
                 Succeeded = true,
@@ -387,7 +391,8 @@ public sealed class HueApiControllerTests : IDisposable
             128,
             32,
             75,
-            4), Times.Once);
+            4,
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -540,13 +545,16 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<System.Text.Json.JsonElement>(),
-                It.IsAny<IReadOnlySet<int>?>()))
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HueStreamProbeResult
             {
                 Succeeded = true,
                 Message = "DTLS probe succeeded."
             });
         var controller = CreateController(streamTester.Object);
+        using var cancellationSource = new CancellationTokenSource();
+        var cancellationToken = cancellationSource.Token;
 
         var action = await controller.TestConnection(new HueConnectionTestRequest
         {
@@ -554,7 +562,7 @@ public sealed class HueApiControllerTests : IDisposable
             AppKey = "app-key",
             ClientKey = "client-key",
             EntertainmentAreaId = "area-1"
-        });
+        }, cancellationToken);
 
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var result = Assert.IsType<HueConnectionTestResult>(response.Value);
@@ -567,7 +575,8 @@ public sealed class HueApiControllerTests : IDisposable
             "client-key",
             "area-1",
             It.IsAny<System.Text.Json.JsonElement>(),
-            It.IsAny<IReadOnlySet<int>?>()), Times.Once);
+            It.IsAny<IReadOnlySet<int>?>(),
+            It.Is<CancellationToken>(token => token == cancellationToken)), Times.Once);
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -33,22 +34,30 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <summary>
         /// Executes an HTTP operation with retry logic and exponential backoff
         /// </summary>
-        private async Task<T?> ExecuteWithRetry<T>(Func<Task<T>> operation, int? maxRetries = null)
+        private async Task<T?> ExecuteWithRetry<T>(
+            Func<Task<T>> operation,
+            int? maxRetries = null,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(operation);
 
             var retries = Math.Max(0, maxRetries ?? RetryAttempts);
             for (int attempt = 0; attempt <= retries; attempt++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
                     return await operation().ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex) when (attempt < retries && IsRetriableException(ex))
                 {
                     var delay = RetryDelayMs * (int)Math.Pow(2, attempt);
                     _logger.LogWarning(ex, "Network operation failed (attempt {0}/{1}), retrying in {2}ms", attempt + 1, retries + 1, delay);
-                    await Task.Delay(delay).ConfigureAwait(false);
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -473,12 +482,14 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="appKey">The application key for authentication</param>
         /// <param name="areaConfig">The entertainment area configuration</param>
         /// <param name="channelIds">Optional entertainment channel IDs to capture.</param>
+        /// <param name="cancellationToken">Cancels the capture request without changing cleanup behavior.</param>
         /// <returns>A capture summary. States can be partial when one or more light requests fail.</returns>
         public async Task<LightStateCaptureResult> GetLightStatesWithResult(
             string bridgeIp,
             string appKey,
             JsonElement areaConfig,
-            IReadOnlySet<int>? channelIds = null)
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
         {
             var lightIds = new List<string>();
             var seenLightIds = new HashSet<string>(StringComparer.Ordinal);
@@ -518,6 +529,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             var failedCount = 0;
             foreach (var lightId in lightIds)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
                     var state = await ExecuteWithRetry(async () =>
@@ -526,10 +538,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                         using var request = new HttpRequestMessage(HttpMethod.Get, url);
                         request.Headers.Add("hue-application-key", appKey);
 
-                        using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                         response.EnsureSuccessStatusCode();
 
-                        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                         using var doc = JsonDocument.Parse(json);
                         if (!doc.RootElement.TryGetProperty("data", out var data) ||
                             data.ValueKind != JsonValueKind.Array ||
@@ -579,12 +591,16 @@ namespace Jellyfin.Plugin.Hue.Hue
                         }
 
                         return new LightState(lightId, isOn, brightness, x, y, mirek, hasColor);
-                    }).ConfigureAwait(false);
+                    }, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                     if (state != null)
                         states.Add(state);
                     else
                         failedCount++;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Mime;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
@@ -232,7 +233,8 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         public async Task<ActionResult<HueConnectionTestResult>> TestConnection(
-            [FromBody] HueConnectionTestRequest? request)
+            [FromBody] HueConnectionTestRequest? request,
+            CancellationToken cancellationToken = default)
         {
             if (request == null ||
                 !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
@@ -344,7 +346,8 @@ namespace Jellyfin.Plugin.Hue.Api
                             request.ClientKey.Trim(),
                             areaId,
                             areaConfiguration.Value,
-                            selectedChannelIds);
+                            selectedChannelIds,
+                            cancellationToken);
                     }
                     catch
                     {
@@ -381,7 +384,8 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<HuePreviewResult>> Preview(
-            [FromBody] HuePreviewRequest? request)
+            [FromBody] HuePreviewRequest? request,
+            CancellationToken cancellationToken = default)
         {
             if (request == null ||
                 !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
@@ -478,7 +482,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     request.Green,
                     request.Blue,
                     request.BrightnessPercent,
-                    request.DurationSeconds);
+                    request.DurationSeconds,
+                    cancellationToken);
             }
             catch
             {

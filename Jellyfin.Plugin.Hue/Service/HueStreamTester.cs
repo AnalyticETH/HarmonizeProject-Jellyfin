@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
@@ -20,7 +21,8 @@ public interface IHueStreamTester
         string clientKey,
         string areaId,
         JsonElement areaConfiguration,
-        IReadOnlySet<int>? channelIds = null);
+        IReadOnlySet<int>? channelIds = null,
+        CancellationToken cancellationToken = default);
 
     Task<HueStreamProbeResult> PreviewAsync(
         string bridgeIp,
@@ -33,7 +35,8 @@ public interface IHueStreamTester
         int green,
         int blue,
         int brightnessPercent,
-        int durationSeconds);
+        int durationSeconds,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -81,14 +84,16 @@ public sealed class HueStreamTester : IHueStreamTester
         string clientKey,
         string areaId,
         JsonElement areaConfiguration,
-        IReadOnlySet<int>? channelIds = null)
+        IReadOnlySet<int>? channelIds = null,
+        CancellationToken cancellationToken = default)
         => RunSerializedAsync(() => TestCoreAsync(
             bridgeIp,
             appKey,
             clientKey,
             areaId,
             areaConfiguration,
-            channelIds));
+            channelIds,
+            cancellationToken));
 
     private async Task<HueStreamProbeResult> TestCoreAsync(
         string bridgeIp,
@@ -96,8 +101,12 @@ public sealed class HueStreamTester : IHueStreamTester
         string clientKey,
         string areaId,
         JsonElement areaConfiguration,
-        IReadOnlySet<int>? channelIds = null)
+        IReadOnlySet<int>? channelIds,
+        CancellationToken cancellationToken)
     {
+        if (cancellationToken.IsCancellationRequested)
+            return Failure("The DTLS stream probe request was canceled.");
+
         if (string.IsNullOrWhiteSpace(bridgeIp) ||
             string.IsNullOrWhiteSpace(appKey) ||
             string.IsNullOrWhiteSpace(clientKey) ||
@@ -120,7 +129,8 @@ public sealed class HueStreamTester : IHueStreamTester
                 bridgeIp,
                 appKey,
                 areaConfiguration,
-                channelIds).ConfigureAwait(false);
+                channelIds,
+                cancellationToken).ConfigureAwait(false);
             if (!captureResult.Succeeded || captureResult.AttemptedCount == 0)
             {
                 return Failure(
@@ -131,11 +141,18 @@ public sealed class HueStreamTester : IHueStreamTester
 
             savedLightStates = captureResult.States;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Failure("The DTLS stream probe request was canceled before activation.");
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not save light state before Hue DTLS stream probe for area {0}", areaId);
             return Failure("The probe could not save the current light state safely.");
         }
+
+        if (cancellationToken.IsCancellationRequested)
+            return Failure("The DTLS stream probe request was canceled before activation.");
 
         var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId).ConfigureAwait(false);
         if (!activated)
@@ -146,13 +163,13 @@ public sealed class HueStreamTester : IHueStreamTester
         var probeResult = Failure("The DTLS stream probe did not complete.");
         try
         {
-            await Task.Delay(EntertainmentAreaActivationDelayMs).ConfigureAwait(false);
+            await Task.Delay(EntertainmentAreaActivationDelayMs, cancellationToken).ConfigureAwait(false);
 
             var streamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
             streamer.OnBeforeReconnect = () => _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
             try
             {
-                await streamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
+                await streamer.StartStreamAsync(bridgeIp, appKey, clientKey, cancellationToken).ConfigureAwait(false);
                 if (!streamer.IsHealthy())
                 {
                     probeResult = Failure("The DTLS stream did not become healthy. Check the client key and OpenSSL installation.");
@@ -169,6 +186,10 @@ public sealed class HueStreamTester : IHueStreamTester
                         : Failure("The DTLS stream opened, but the probe packet could not be sent.");
                 }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                probeResult = Failure("The DTLS stream probe request was canceled; the bridge is being restored.");
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Hue DTLS stream probe failed for entertainment area {0}", areaId);
@@ -178,6 +199,10 @@ public sealed class HueStreamTester : IHueStreamTester
             {
                 streamer.StopStream();
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            probeResult = Failure("The DTLS stream probe request was canceled; the bridge is being restored.");
         }
         finally
         {
@@ -208,7 +233,8 @@ public sealed class HueStreamTester : IHueStreamTester
         int green,
         int blue,
         int brightnessPercent,
-        int durationSeconds)
+        int durationSeconds,
+        CancellationToken cancellationToken = default)
         => RunSerializedAsync(() => PreviewCoreAsync(
             bridgeIp,
             appKey,
@@ -220,7 +246,8 @@ public sealed class HueStreamTester : IHueStreamTester
             green,
             blue,
             brightnessPercent,
-            durationSeconds));
+            durationSeconds,
+            cancellationToken));
 
     private async Task<HueStreamProbeResult> PreviewCoreAsync(
         string bridgeIp,
@@ -233,8 +260,12 @@ public sealed class HueStreamTester : IHueStreamTester
         int green,
         int blue,
         int brightnessPercent,
-        int durationSeconds)
+        int durationSeconds,
+        CancellationToken cancellationToken)
     {
+        if (cancellationToken.IsCancellationRequested)
+            return Failure("The solid color preview request was canceled.");
+
         if (string.IsNullOrWhiteSpace(bridgeIp) ||
             string.IsNullOrWhiteSpace(appKey) ||
             string.IsNullOrWhiteSpace(clientKey) ||
@@ -269,7 +300,8 @@ public sealed class HueStreamTester : IHueStreamTester
                 bridgeIp,
                 appKey,
                 areaConfiguration,
-                channelIds).ConfigureAwait(false);
+                channelIds,
+                cancellationToken).ConfigureAwait(false);
             if (!captureResult.Succeeded || captureResult.AttemptedCount == 0)
             {
                 return Failure(
@@ -280,11 +312,18 @@ public sealed class HueStreamTester : IHueStreamTester
 
             savedLightStates = captureResult.States;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Failure("The solid color preview request was canceled before activation.");
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not save light state before Hue color preview for area {0}", areaId);
             return Failure("The preview could not save the current light state safely.");
         }
+
+        if (cancellationToken.IsCancellationRequested)
+            return Failure("The solid color preview request was canceled before activation.");
 
         var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId).ConfigureAwait(false);
         if (!activated)
@@ -296,13 +335,13 @@ public sealed class HueStreamTester : IHueStreamTester
         var previewCompleted = false;
         try
         {
-            await Task.Delay(EntertainmentAreaActivationDelayMs).ConfigureAwait(false);
+            await Task.Delay(EntertainmentAreaActivationDelayMs, cancellationToken).ConfigureAwait(false);
 
             var streamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
             streamer.OnBeforeReconnect = () => _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
             try
             {
-                await streamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
+                await streamer.StartStreamAsync(bridgeIp, appKey, clientKey, cancellationToken).ConfigureAwait(false);
                 if (!streamer.IsHealthy())
                 {
                     previewResult = Failure("The DTLS stream did not become healthy. Check the client key and OpenSSL installation.");
@@ -327,7 +366,8 @@ public sealed class HueStreamTester : IHueStreamTester
                                 break;
 
                             await Task.Delay(
-                                remaining > TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : remaining)
+                                remaining > TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : remaining,
+                                cancellationToken)
                                 .ConfigureAwait(false);
                             if (DateTime.UtcNow < previewEndsAt &&
                                 !await streamer.SendColors(areaId, channelColors).ConfigureAwait(false))
@@ -350,6 +390,10 @@ public sealed class HueStreamTester : IHueStreamTester
                     }
                 }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                previewResult = Failure("The solid color preview request was canceled; the bridge is being restored.");
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Hue solid color preview failed for entertainment area {0}", areaId);
@@ -359,6 +403,10 @@ public sealed class HueStreamTester : IHueStreamTester
             {
                 streamer.StopStream();
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            previewResult = Failure("The solid color preview request was canceled; the bridge is being restored.");
         }
         finally
         {

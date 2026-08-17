@@ -150,8 +150,13 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// IMPORTANT: This method awaits DtlsHandshakeWaitMs to allow the DTLS handshake to complete
         /// before the caller starts writing packets.
         /// </summary>
-        public async Task StartStreamAsync(string bridgeIp, string appKey, string clientKey)
+        public async Task StartStreamAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (string.IsNullOrEmpty(bridgeIp) || string.IsNullOrEmpty(clientKey))
             {
                 _logger.LogError("Bridge IP or Client Key missing.");
@@ -248,7 +253,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 // Without this wait, the first SendColors call will fail because
                 // the UDP channel isn't established yet.
                 // during the wait rather than blocking it.
-                await Task.Delay(DtlsHandshakeWaitMs).ConfigureAwait(false);
+                await Task.Delay(DtlsHandshakeWaitMs, cancellationToken).ConfigureAwait(false);
 
                 if (process.HasExited)
                 {
