@@ -52,10 +52,26 @@
                 </fieldset>
                 <fieldset class="verticalSection" id="sessionHistorySection">
                     <legend>Recent Hue Sessions</legend>
-                    <div class="fieldDescription" style="margin-bottom: 0.75em;">Review the most recent completed sync sessions, including outcomes, target labels, and aggregate quality telemetry. History is bounded in memory and contains no bridge credentials or playback tokens.</div>
+                    <div class="fieldDescription" style="margin-bottom: 0.75em;">Review the most recent completed sync sessions, including outcomes, target labels, and aggregate quality telemetry. History is bounded in memory and contains no bridge credentials or playback tokens. Export it for troubleshooting or clear it for privacy.</div>
                     <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
+                        <label class="inputLabel inputLabelUnfocused" for="sessionHistoryOutcome">Outcome</label>
+                        <select id="sessionHistoryOutcome" is="emby-select" style="min-width: 170px;">
+                            <option value="">All outcomes</option>
+                            <option value="Ended">Ended</option>
+                            <option value="Stopped">Stopped</option>
+                            <option value="StoppedByAdministrator">Stopped by administrator</option>
+                            <option value="Error">Error</option>
+                            <option value="StartupFailed">Startup failed</option>
+                            <option value="ServiceStopped">Service stopped</option>
+                        </select>
                         <button is="emby-button" type="button" class="raised" id="refreshSessionHistoryBtn">
                             <span>Refresh Session History</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="exportSessionHistoryBtn">
+                            <span>Export JSON</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="clearSessionHistoryBtn">
+                            <span>Clear History</span>
                         </button>
                     </div>
                     <div id="sessionHistoryStatus" class="fieldDescription" style="margin-top: 0.75em;">Loading recent sessions...</div>
@@ -1800,6 +1816,13 @@
                         if (refreshButton) refreshButton.disabled = false;
                     });
                 },
+                getSessionHistoryUrl: function (page, route, limit) {
+                    var outcomeElement = page && page.querySelector('#sessionHistoryOutcome');
+                    var outcome = outcomeElement ? String(outcomeElement.value || '').trim() : '';
+                    var url = "HueSync/" + route + "?limit=" + encodeURIComponent(String(limit));
+                    if (outcome) url += "&outcome=" + encodeURIComponent(outcome);
+                    return ApiClient.getUrl(url);
+                },
                 loadSessionHistory: function (page) {
                     if (!page || page._hueSessionHistoryLoading) {
                         return Promise.resolve();
@@ -1807,22 +1830,25 @@
 
                     page._hueSessionHistoryLoading = true;
                     var button = page.querySelector('#refreshSessionHistoryBtn');
+                    var outcomeElement = page.querySelector('#sessionHistoryOutcome');
+                    var selectedOutcome = outcomeElement ? String(outcomeElement.value || '').trim() : '';
                     var statusElement = page.querySelector('#sessionHistoryStatus');
                     var container = page.querySelector('#runtimeSessionHistory');
                     if (button) button.disabled = true;
 
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/History?limit=20")).then(function (response) {
+                    return ApiClient.getJSON(HueConfigurationPage.getSessionHistoryUrl(page, "History", 20)).then(function (response) {
                         var sessions = HueConfigurationPage.readStatusField(response, "Sessions", []);
                         if (!Array.isArray(sessions)) sessions = [];
                         if (container) container.textContent = "";
                         if (sessions.length === 0) {
-                            if (container) container.textContent = "No completed Hue sessions have been recorded since the service started.";
-                            if (statusElement) statusElement.textContent = "No session history";
+                            var emptyFilterText = selectedOutcome ? " matching '" + selectedOutcome + "'" : "";
+                            if (container) container.textContent = "No completed Hue sessions" + emptyFilterText + " have been recorded since the service started.";
+                            if (statusElement) statusElement.textContent = selectedOutcome ? "No matching session history" : "No session history";
                             return;
                         }
 
                         if (statusElement) {
-                            statusElement.textContent = sessions.length + " recent session" + (sessions.length === 1 ? "" : "s") + " · newest first";
+                            statusElement.textContent = sessions.length + " recent session" + (sessions.length === 1 ? "" : "s") + (selectedOutcome ? " · " + selectedOutcome : "") + " · newest first";
                         }
                         if (!container) return;
 
@@ -1878,6 +1904,70 @@
                     }).finally(function () {
                         page._hueSessionHistoryLoading = false;
                         if (button) button.disabled = false;
+                    });
+                },
+                exportSessionHistory: function (page) {
+                    if (!page || page._hueSessionHistoryExporting) return;
+                    page._hueSessionHistoryExporting = true;
+                    var button = page.querySelector('#exportSessionHistoryBtn');
+                    var statusElement = page.querySelector('#sessionHistoryStatus');
+                    if (button) button.disabled = true;
+
+                    return ApiClient.getJSON(HueConfigurationPage.getSessionHistoryUrl(page, "History/Export", 25)).then(function (historyDocument) {
+                        var blob = new Blob([JSON.stringify(historyDocument, null, 2)], { type: "application/json" });
+                        var url = URL.createObjectURL(blob);
+                        var link = window.document.createElement('a');
+                        link.href = url;
+                        link.download = "jellyfin-hue-session-history.json";
+                        window.document.body.appendChild(link);
+                        link.click();
+                        window.document.body.removeChild(link);
+                        window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+                        if (statusElement) {
+                            statusElement.textContent = "Session history exported. Credential values were omitted.";
+                            statusElement.style.color = "#4caf50";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to export Hue session history:", err);
+                        if (statusElement) {
+                            statusElement.textContent = "Unable to export session history. Check the server log.";
+                            statusElement.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        page._hueSessionHistoryExporting = false;
+                        if (button) button.disabled = false;
+                    });
+                },
+                clearSessionHistory: function (page) {
+                    if (!page || page._hueSessionHistoryClearing) return;
+                    Dashboard.confirm("Clear all retained completed Hue session summaries? Active playback will continue.", "Clear Session History", function (confirmed) {
+                        if (!confirmed) return;
+                        page._hueSessionHistoryClearing = true;
+                        var button = page.querySelector('#clearSessionHistoryBtn');
+                        var statusElement = page.querySelector('#sessionHistoryStatus');
+                        if (button) button.disabled = true;
+
+                        ApiClient.ajax({
+                            type: "DELETE",
+                            url: ApiClient.getUrl("HueSync/History"),
+                            dataType: "json"
+                        }).then(function (response) {
+                            var clearedCount = Number(HueConfigurationPage.readStatusField(response, "ClearedCount", 0)) || 0;
+                            if (statusElement) {
+                                statusElement.textContent = clearedCount + " session" + (clearedCount === 1 ? "" : "s") + " cleared.";
+                                statusElement.style.color = "#4caf50";
+                            }
+                            return HueConfigurationPage.loadSessionHistory(page);
+                        }).catch(function (err) {
+                            console.error("Failed to clear Hue session history:", err);
+                            if (statusElement) {
+                                statusElement.textContent = "Unable to clear session history. Check the server log.";
+                                statusElement.style.color = "#d9534f";
+                            }
+                        }).finally(function () {
+                            page._hueSessionHistoryClearing = false;
+                            if (button) button.disabled = false;
+                        });
                     });
                 },
                 formatToolDiagnostics: function (status) {
@@ -3342,6 +3432,18 @@
 
             document.querySelector('#refreshSessionHistoryBtn').addEventListener('click', function () {
                 HueConfigurationPage.loadSessionHistory(this.closest('.page'));
+            });
+
+            document.querySelector('#sessionHistoryOutcome').addEventListener('change', function () {
+                HueConfigurationPage.loadSessionHistory(this.closest('.page'));
+            });
+
+            document.querySelector('#exportSessionHistoryBtn').addEventListener('click', function () {
+                HueConfigurationPage.exportSessionHistory(this.closest('.page'));
+            });
+
+            document.querySelector('#clearSessionHistoryBtn').addEventListener('click', function () {
+                HueConfigurationPage.clearSessionHistory(this.closest('.page'));
             });
 
             document.querySelector('#refreshDiagnosticsBtn').addEventListener('click', function () {

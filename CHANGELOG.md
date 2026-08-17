@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.68] - 2026-08-17
+
+### Added
+- **Session history operations**: filter recent summaries by outcome, export a credential-free JSON troubleshooting document, and clear retained history without stopping active playback
+- **Administrator history controls**: add outcome filtering, Export JSON, and Clear History actions to the Recent Hue Sessions panel
+
+### Security
+- History exports contain only the same sanitized aggregate telemetry and target labels as the administrator endpoint; clearing removes the in-memory last-session pointer and retained summaries without touching bridge credentials
+
 ## [1.5.67] - 2026-08-17
 
 ### Added

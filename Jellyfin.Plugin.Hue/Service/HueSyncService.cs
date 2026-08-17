@@ -693,13 +693,36 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Returns the most recently completed sanitized playback summaries. The list is
         /// bounded, newest first, and contains no bridge credentials or playback tokens.
+        /// An outcome filter can be supplied for focused administrator diagnostics.
         /// </summary>
-        public IReadOnlyList<HueSessionSummary> GetSessionHistory(int limit = MaxSessionHistoryCount)
+        public IReadOnlyList<HueSessionSummary> GetSessionHistory(
+            int limit = MaxSessionHistoryCount,
+            string? outcome = null)
         {
             var boundedLimit = Math.Clamp(limit, 1, MaxSessionHistoryCount);
+            var normalizedOutcome = outcome?.Trim();
             lock (_syncLock)
             {
-                return _sessionHistory.Take(boundedLimit).ToArray();
+                return _sessionHistory
+                    .Where(summary => string.IsNullOrWhiteSpace(normalizedOutcome) ||
+                        string.Equals(summary.Outcome, normalizedOutcome, StringComparison.OrdinalIgnoreCase))
+                    .Take(boundedLimit)
+                    .ToArray();
+            }
+        }
+
+        /// <summary>
+        /// Clears all retained completed-session summaries and the status endpoint's last-session
+        /// pointer. Active playback is not stopped or changed.
+        /// </summary>
+        public int ClearSessionHistory()
+        {
+            lock (_syncLock)
+            {
+                var clearedCount = _sessionHistory.Count;
+                _sessionHistory.Clear();
+                _lastSessionSummary = null;
+                return clearedCount;
             }
         }
 

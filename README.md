@@ -54,7 +54,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, active bridge lifecycle contention, and playback/diagnostic readiness. **Validate Saved Targets** additionally checks every enabled default/inherited/custom bridge mapping for reachability, selected-area presence, and controllable channels without opening a DTLS stream. |
 | **Backup and Restore** | Export global settings, per-user profiles, and saved color scenes as a credential-safe JSON document. Import is atomic, preserves matching stored keys on the same server, and includes an in-page password-field wizard for explicit replacement keys during migrations. |
 | **Live Sync Status** | Show the active Jellyfin user, selected bridge/area, captured profiles, effective FPS, sent/skipped/failed stream updates, reconnect attempts, seek-recovery restarts, frame health, cleanup warnings, and safe per-session stop controls while playback is running. Distinct mapped bridges/areas can be streamed concurrently. |
-| **Recent Hue Sessions** | Review the 25 most recent completed sync sessions, including outcome, target, duration, quality counters, and cleanup/error warnings. History is bounded in memory and contains no bridge credentials or playback tokens. |
+| **Recent Hue Sessions** | Review and filter the 25 most recent completed sync sessions, including outcome, target, duration, quality counters, and cleanup/error warnings. Export a credential-free JSON troubleshooting document or clear the in-memory history without stopping playback. |
 | **Startup recovery** | If the plugin or Jellyfin service starts while an unpaused video is already playing, recover the active session at Jellyfin's current position so viewers do not need to stop and restart playback. |
 | **Completed-session summary** | Keep the most recent video session's outcome, duration, frame/packet telemetry, reconnects, seek recoveries, and cleanup warnings visible after playback ends; summaries never contain bridge credentials or playback tokens. Audio-only and other non-video playback is ignored safely. |
 | **Hue App Key** | "Username" for the REST API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it, or use Link Bridge to replace it. |
@@ -158,7 +158,9 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/ColorPresets` | Save or update a named color scene with `name`, RGB values, `brightnessPercent`, and `durationSeconds`; names are case-insensitive and values are validated. |
 | `DELETE /HueSync/ColorPresets/{name}` | Delete one saved color scene by name. |
 | `GET /HueSync/Status` | Read sanitized runtime state, active Jellyfin user and target, active performance/color/execution/channel/restoration profile, frame count, effective FPS, stream packet counters, reconnect attempts, seek-recovery restart count and last seek position, FFmpeg/DTLS health, cleanup warnings, the credential-free `lastSession` summary, whether the current sync can be stopped safely, and a `sessions` array for concurrent playback workers. |
-| `GET /HueSync/History?limit=20` | Read the newest completed Hue session summaries (up to 25), including target labels and aggregate playback quality/cleanup telemetry. Results are bounded in memory and never include bridge credentials or playback tokens. |
+| `GET /HueSync/History?limit=20&outcome=Error` | Read the newest completed Hue session summaries (up to 25), optionally filtered by outcome, including target labels and aggregate playback quality/cleanup telemetry. Results are bounded in memory and never include bridge credentials or playback tokens. |
+| `GET /HueSync/History/Export?limit=25&outcome=Error` | Download the same sanitized session-history document used by the administrator Export JSON action for troubleshooting; bridge credentials and playback tokens are omitted. |
+| `DELETE /HueSync/History` | Clear retained completed-session summaries and the status API's last-session pointer without stopping active playback. |
 | `GET /HueSync/Diagnostics` | Run a non-mutating, cancellation-aware local prerequisite check for configuration validity, FFmpeg/OpenSSL versions, bridge lifecycle contention, and playback/diagnostic readiness. No bridge credentials are returned. |
 | `GET /HueSync/TargetDiagnostics` | Validate every saved default, inherited, and enabled custom bridge target without mutating bridge state; reports reachability, selected-area presence, controllable channel counts, credential presence, and sanitized readiness messages. |
 | `GET /HueSync/Configuration/Export` | Download a credential-safe JSON backup containing global settings, per-user profile fields, target labels, credential-presence flags, and saved color scenes. Secret values are never included. |
@@ -338,7 +340,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.67 (Current)
+### Version 1.5.68 (Current)
+- **Session history operations**: filter recent summaries by outcome, export a credential-free JSON troubleshooting document, and clear retained history without stopping active playback
+- **Administrator history controls**: add outcome filtering, Export JSON, and Clear History actions to the Recent Hue Sessions panel
+
+### Version 1.5.67
 - **Completed-session history**: retain the 25 most recent sanitized playback summaries, including concurrent multi-room worker sessions, and expose them through `GET /HueSync/History` plus a refreshable Recent Hue Sessions administrator table
 - **Credential-safe diagnostics**: history remains in memory only and includes aggregate telemetry/target labels without bridge credentials or Jellyfin playback tokens
 

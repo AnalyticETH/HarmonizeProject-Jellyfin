@@ -892,21 +892,58 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Returns a bounded, newest-first history of completed Hue playback sessions.
         /// Summaries contain aggregate telemetry and target labels only; bridge keys and
-        /// Jellyfin playback tokens are never retained or serialized.
+        /// Jellyfin playback tokens are never retained or serialized. An optional outcome
+        /// filter narrows the result for administrator diagnostics.
         /// </summary>
         [HttpGet("History")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<HueSessionHistoryResult> GetSessionHistory(
-            [FromQuery(Name = "limit")] int limit = 20)
+            [FromQuery(Name = "limit")] int limit = 20,
+            [FromQuery(Name = "outcome")] string? outcome = null)
+        {
+            return Ok(BuildSessionHistoryResult(limit, outcome));
+        }
+
+        /// <summary>
+        /// Returns the same sanitized history document used by the administrator export
+        /// action. Exporting does not add retention or expose credentials.
+        /// </summary>
+        [HttpGet("History/Export")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<HueSessionHistoryResult> ExportSessionHistory(
+            [FromQuery(Name = "limit")] int limit = HueSyncService.MaxSessionHistoryCount,
+            [FromQuery(Name = "outcome")] string? outcome = null)
+        {
+            return Ok(BuildSessionHistoryResult(limit, outcome));
+        }
+
+        /// <summary>
+        /// Clears retained completed-session summaries without stopping active playback.
+        /// </summary>
+        [HttpDelete("History")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<HueSessionHistoryClearResult> ClearSessionHistory()
+        {
+            return Ok(new HueSessionHistoryClearResult
+            {
+                ServiceAvailable = _syncService != null,
+                ClearedCount = _syncService?.ClearSessionHistory() ?? 0,
+                ClearedAtUtc = DateTime.UtcNow
+            });
+        }
+
+        private HueSessionHistoryResult BuildSessionHistoryResult(int limit, string? outcome)
         {
             var boundedLimit = Math.Clamp(limit, 1, HueSyncService.MaxSessionHistoryCount);
-            return Ok(new HueSessionHistoryResult
+            var normalizedOutcome = string.IsNullOrWhiteSpace(outcome) ? null : outcome.Trim();
+            return new HueSessionHistoryResult
             {
                 ServiceAvailable = _syncService != null,
                 Limit = boundedLimit,
+                OutcomeFilter = normalizedOutcome,
                 GeneratedAtUtc = DateTime.UtcNow,
-                Sessions = _syncService?.GetSessionHistory(boundedLimit) ?? Array.Empty<HueSessionSummary>()
-            });
+                Sessions = _syncService?.GetSessionHistory(boundedLimit, normalizedOutcome) ?? Array.Empty<HueSessionSummary>()
+            };
         }
 
         /// <summary>
@@ -2398,8 +2435,19 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         public bool ServiceAvailable { get; init; }
         public int Limit { get; init; }
+        public string? OutcomeFilter { get; init; }
         public DateTime GeneratedAtUtc { get; init; }
         public IReadOnlyList<HueSessionSummary> Sessions { get; init; } = Array.Empty<HueSessionSummary>();
+    }
+
+    /// <summary>
+    /// Sanitized result from clearing completed-session history.
+    /// </summary>
+    public sealed class HueSessionHistoryClearResult
+    {
+        public bool ServiceAvailable { get; init; }
+        public int ClearedCount { get; init; }
+        public DateTime ClearedAtUtc { get; init; }
     }
 
     /// <summary>

@@ -1174,14 +1174,28 @@ public sealed class HueApiControllerTests : IDisposable
     {
         var controller = CreateController();
 
-        var action = controller.GetSessionHistory(999);
+        var action = controller.GetSessionHistory(999, "Error");
 
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var history = Assert.IsType<HueSessionHistoryResult>(response.Value);
         Assert.False(history.ServiceAvailable);
         Assert.Equal(HueSyncService.MaxSessionHistoryCount, history.Limit);
+        Assert.Equal("Error", history.OutcomeFilter);
         Assert.Empty(history.Sessions);
         Assert.True(history.GeneratedAtUtc > DateTime.UtcNow.AddMinutes(-1));
+
+        var exportAction = controller.ExportSessionHistory(999, "Error");
+        var exportResponse = Assert.IsType<OkObjectResult>(exportAction.Result);
+        var export = Assert.IsType<HueSessionHistoryResult>(exportResponse.Value);
+        Assert.Equal(history.Limit, export.Limit);
+        Assert.Equal(history.OutcomeFilter, export.OutcomeFilter);
+        Assert.Empty(export.Sessions);
+
+        var clearAction = controller.ClearSessionHistory();
+        var clearResponse = Assert.IsType<OkObjectResult>(clearAction.Result);
+        var clear = Assert.IsType<HueSessionHistoryClearResult>(clearResponse.Value);
+        Assert.False(clear.ServiceAvailable);
+        Assert.Equal(0, clear.ClearedCount);
     }
 
     [Fact]
