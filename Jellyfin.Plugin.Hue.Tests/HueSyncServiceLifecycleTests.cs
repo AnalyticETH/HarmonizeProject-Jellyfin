@@ -61,6 +61,9 @@ public sealed class HueSyncServiceLifecycleTests
                 NetworkRetryAttempts: 1));
         SetPrivateField(service, "_activeChannelIds", new HashSet<int> { 9, 2 });
         SetPrivateField(service, "_activeRestoreLightState", true);
+        var activeUserId = Guid.NewGuid();
+        SetPrivateField(service, "_currentUserId", activeUserId);
+        SetPrivateField(service, "_currentUserName", "Living Room Viewer");
         SetPrivateField(service, "_currentItemName", "Feature film");
         SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-3));
         SetPrivateField(service, "_runtimeState", "Syncing");
@@ -71,6 +74,8 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.True(status.IsSyncing);
         Assert.Equal("Syncing", status.State);
         Assert.Equal("Feature film", status.CurrentItem);
+        Assert.Equal(activeUserId.ToString(), status.ActiveUserId);
+        Assert.Equal("Living Room Viewer", status.ActiveUserName);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, status.ActiveFrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, status.ActiveVideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, status.ActiveVideoDeinterlaceMode);
@@ -102,6 +107,9 @@ public sealed class HueSyncServiceLifecycleTests
         // Keep shutdown focused on local resources for this snapshot test.
         SetPrivateField(service, "_bridgeAreaDeactivated", true);
         await service.StopAsync(CancellationToken.None);
+        var stoppedStatus = service.GetRuntimeStatus();
+        Assert.Null(stoppedStatus.ActiveUserId);
+        Assert.Null(stoppedStatus.ActiveUserName);
     }
 
     [Fact]

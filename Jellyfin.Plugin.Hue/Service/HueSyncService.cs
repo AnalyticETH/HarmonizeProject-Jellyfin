@@ -57,6 +57,8 @@ namespace Jellyfin.Plugin.Hue.Service
         private CancellationTokenSource? _syncCts;
         private readonly ILoggerFactory _loggerFactory;
         private string? _currentPlaySessionId;
+        private Guid? _currentUserId;
+        private string? _currentUserName;
         private List<HueClient.LightState>? _savedLightStates;
         private string? _savedLightStatePlaySessionId;
         private DateTime _syncStartTime;
@@ -239,6 +241,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     StopSync(deactivateArea: false);
                     _currentBridgeConfig = null;
                     _currentItemName = null;
+                    _currentUserId = null;
+                    _currentUserName = null;
                     _currentFrameResolution = null;
                     _currentVideoScalingMode = null;
                     _currentVideoDeinterlaceMode = null;
@@ -337,6 +341,8 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             (string BridgeIp, string AppKey, string ClientKey, string AreaId)? bridgeConfig;
             string? currentItem;
+            Guid? currentUserId;
+            string? currentUserName;
             string? currentFrameResolution;
             string? currentVideoScalingMode;
             string? currentVideoDeinterlaceMode;
@@ -373,6 +379,8 @@ namespace Jellyfin.Plugin.Hue.Service
             {
                 bridgeConfig = _currentBridgeConfig;
                 currentItem = _currentItemName;
+                currentUserId = _currentUserId;
+                currentUserName = _currentUserName;
                 currentFrameResolution = _currentFrameResolution;
                 currentVideoScalingMode = _currentVideoScalingMode;
                 currentVideoDeinterlaceMode = _currentVideoDeinterlaceMode;
@@ -407,6 +415,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 LastError = lastError,
                 CleanupWarning = cleanupWarning,
                 CurrentItem = currentItem,
+                ActiveUserId = isSyncing ? currentUserId?.ToString() : null,
+                ActiveUserName = isSyncing ? currentUserName : null,
                 ActiveFrameResolution = isSyncing ? currentFrameResolution : null,
                 ActiveVideoScalingMode = isSyncing ? currentVideoScalingMode : null,
                 ActiveVideoDeinterlaceMode = isSyncing ? currentVideoDeinterlaceMode : null,
@@ -1930,6 +1940,7 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             var userId = e.Session?.UserId ?? Guid.Empty;
+            var userName = e.Session?.UserName?.Trim();
             if (!config.IsSyncEnabledForUser(userId))
             {
                 _logger.LogInformation("Hue Sync is disabled for user {0}, skipping.", userId);
@@ -2015,6 +2026,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     playbackLifecycleLease = null;
                     _syncCts = syncCts;
                     _currentPlaySessionId = e.PlaySessionId;
+                    _currentUserId = userId == Guid.Empty ? null : userId;
+                    _currentUserName = string.IsNullOrWhiteSpace(userName) ? null : userName;
                     _currentBridgeConfig = (bridgeIp, appKey, clientKey, areaId);
                     _bridgeAreaDeactivated = false;
                     _syncStartTime = DateTime.UtcNow;
@@ -2370,6 +2383,11 @@ namespace Jellyfin.Plugin.Hue.Service
             {
                 if (clearCurrentItem)
                     CurrentItemName = null;
+                lock (_syncLock)
+                {
+                    _currentUserId = null;
+                    _currentUserName = null;
+                }
                 if (publishIdleStatus)
                 {
                     lock (_syncLock)
@@ -2561,6 +2579,12 @@ namespace Jellyfin.Plugin.Hue.Service
         public string? LastError { get; init; }
         public string? CleanupWarning { get; init; }
         public string? CurrentItem { get; init; }
+        /// <summary>
+        /// Sanitized identity of the Jellyfin user whose playback owns the active Hue
+        /// lifecycle. No bridge credentials or session tokens are included.
+        /// </summary>
+        public string? ActiveUserId { get; init; }
+        public string? ActiveUserName { get; init; }
         public string? ActiveFrameResolution { get; init; }
         public string? ActiveVideoScalingMode { get; init; }
         public string? ActiveVideoDeinterlaceMode { get; init; }

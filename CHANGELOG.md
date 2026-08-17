@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.58] - 2026-08-17
+
+### Added
+- Live Sync Status and `GET /HueSync/Status` now report the active Jellyfin user identity alongside the selected bridge and entertainment area, making per-user mapping selection observable during playback
+
+### Security
+- Runtime user diagnostics include only the sanitized Jellyfin user ID and display name; bridge credentials and session tokens remain excluded
+
 ## [1.5.57] - 2026-08-17
 
 ### Added

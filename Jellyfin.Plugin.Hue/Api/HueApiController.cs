@@ -838,6 +838,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 StatusMessage = runtime?.Message ?? "Sync service is not available.",
                 LastError = runtime?.LastError,
                 CleanupWarning = runtime?.CleanupWarning,
+                ActiveUserId = runtime?.ActiveUserId,
+                ActiveUserName = runtime?.ActiveUserName,
                 ActiveBridgeIp = runtime?.ActiveBridgeIp,
                 ActiveEntertainmentAreaId = runtime?.ActiveEntertainmentAreaId,
                 ActiveTargetFps = runtime?.ActiveTargetFps,
@@ -1692,6 +1694,8 @@ namespace Jellyfin.Plugin.Hue.Api
         public string StatusMessage { get; set; } = string.Empty;
         public string? LastError { get; set; }
         public string? CleanupWarning { get; set; }
+        public string? ActiveUserId { get; set; }
+        public string? ActiveUserName { get; set; }
         public string? ActiveBridgeIp { get; set; }
         public string? ActiveEntertainmentAreaId { get; set; }
         public int? ActiveTargetFps { get; set; }
