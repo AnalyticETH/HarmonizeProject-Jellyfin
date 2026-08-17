@@ -606,6 +606,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveChannelIds);
         Assert.Null(status.ActiveRestoreLightState);
         Assert.Null(status.LastError);
+        Assert.Null(status.CleanupWarning);
         Assert.False(status.CanStopSync);
     }
 

@@ -298,9 +298,14 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         public async Task StopEntertainmentArea(string bridgeIp, string appKey, string areaId)
         {
+            await StopEntertainmentAreaWithResult(bridgeIp, appKey, areaId).ConfigureAwait(false);
+        }
+
+        public async Task<bool> StopEntertainmentAreaWithResult(string bridgeIp, string appKey, string areaId)
+        {
             try
             {
-                await ExecuteWithRetry(async () =>
+                var result = await ExecuteWithRetry(async () =>
                 {
                     var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/entertainment_configuration/{Uri.EscapeDataString(areaId)}");
                     using var request = new HttpRequestMessage(HttpMethod.Put, url);
@@ -326,10 +331,12 @@ namespace Jellyfin.Plugin.Hue.Hue
                     _logger.LogInformation("Entertainment area {0} deactivated", areaId);
                     return true;
                 }).ConfigureAwait(false);
+                return result == true;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Exception deactivating entertainment area {0}", areaId);
+                return false;
             }
         }
 
@@ -408,6 +415,18 @@ namespace Jellyfin.Plugin.Hue.Hue
             double Y,
             int? Mirek = null,
             bool HasColor = true);
+
+        /// <summary>
+        /// Summarizes a light-state restoration attempt without exposing bridge credentials
+        /// or individual light identifiers.
+        /// </summary>
+        public sealed class LightStateRestoreResult
+        {
+            public int AttemptedCount { get; init; }
+            public int RestoredCount { get; init; }
+            public int FailedCount { get; init; }
+            public bool Succeeded => FailedCount == 0;
+        }
 
         /// <summary>
         /// Gets the current state of lights in an entertainment area for restoration later.
@@ -532,50 +551,84 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="lightStates">The saved light states to restore</param>
         public async Task RestoreLightStates(string bridgeIp, string appKey, List<LightState> lightStates)
         {
+            await RestoreLightStatesWithResult(bridgeIp, appKey, lightStates).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Restores each saved light state independently with the configured retry policy and
+        /// returns an aggregate result so callers can distinguish complete from partial cleanup.
+        /// </summary>
+        /// <param name="bridgeIp">The IP address of the Hue Bridge</param>
+        /// <param name="appKey">The application key for authentication</param>
+        /// <param name="lightStates">The saved light states to restore</param>
+        public async Task<LightStateRestoreResult> RestoreLightStatesWithResult(
+            string bridgeIp,
+            string appKey,
+            List<LightState> lightStates)
+        {
             ArgumentNullException.ThrowIfNull(lightStates);
 
-            // Restore each light independently — failures on one light don't block others.
-            // ExecuteWithRetry is intentionally not used here: the per-light try/catch means
-            // no exception would ever escape to trigger a retry anyway.
+            var restoredCount = 0;
+            var failedCount = 0;
+
+            // Restore each light independently — failures on one light don't block others —
+            // while still applying the configured retry policy to transient failures.
             foreach (var state in lightStates)
             {
                 try
                 {
-                    var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/light/{Uri.EscapeDataString(state.Id)}");
-                    using var request = new HttpRequestMessage(HttpMethod.Put, url);
-                    request.Headers.Add("hue-application-key", appKey);
+                    var restored = await ExecuteWithRetry(async () =>
+                    {
+                        var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/light/{Uri.EscapeDataString(state.Id)}");
+                        using var request = new HttpRequestMessage(HttpMethod.Put, url);
+                        request.Headers.Add("hue-application-key", appKey);
 
-                    object payload = state.Mirek.HasValue
-                        ? new
-                        {
-                            on = new { on = state.IsOn },
-                            dimming = new { brightness = state.Brightness },
-                            color_temperature = new { mirek = state.Mirek.Value }
-                        }
-                        : state.HasColor
+                        object payload = state.Mirek.HasValue
                             ? new
                             {
                                 on = new { on = state.IsOn },
                                 dimming = new { brightness = state.Brightness },
-                                color = new { xy = new { x = state.X, y = state.Y } }
+                                color_temperature = new { mirek = state.Mirek.Value }
                             }
-                            : new
-                            {
-                                on = new { on = state.IsOn },
-                                dimming = new { brightness = state.Brightness }
-                            };
+                            : state.HasColor
+                                ? new
+                                {
+                                    on = new { on = state.IsOn },
+                                    dimming = new { brightness = state.Brightness },
+                                    color = new { xy = new { x = state.X, y = state.Y } }
+                                }
+                                : new
+                                {
+                                    on = new { on = state.IsOn },
+                                    dimming = new { brightness = state.Brightness }
+                                };
 
-                    var json = JsonSerializer.Serialize(payload);
-                    request.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+                        var json = JsonSerializer.Serialize(payload);
+                        request.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
-                    using var response = await _httpClient.SendAsync(request);
-                    response.EnsureSuccessStatusCode();
+                        using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                        response.EnsureSuccessStatusCode();
+                        return true;
+                    }).ConfigureAwait(false);
+
+                    if (restored == true)
+                        restoredCount++;
+                    else
+                        failedCount++;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to restore state for light {0}", state.Id);
+                    failedCount++;
                 }
             }
+
+            return new LightStateRestoreResult
+            {
+                AttemptedCount = lightStates.Count,
+                RestoredCount = restoredCount,
+                FailedCount = failedCount
+            };
         }
     }
 }

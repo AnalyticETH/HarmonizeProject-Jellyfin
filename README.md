@@ -65,6 +65,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Execution Profile** | GPU acceleration, additional FFmpeg flags, FFmpeg stall timeout, and Hue REST/DTLS retry attempts can be overridden per user while blank fields inherit global settings; the effective policy is captured when playback starts. |
 | **Channel Profile** | Select a comma-separated subset of entertainment channel IDs globally; use **Load Channel IDs** after choosing an area to read available IDs, then edit the list. Blank global fields drive every channel. A populated per-user channel override takes precedence, while blank per-user fields inherit the global selection. The active selection is captured with the playback session. |
 | **Solid Color Preview** | Choose a color, brightness, and 1-30 second duration to preview the default target (or the current mapping target). The plugin captures and restores the selected lights automatically and refuses to overlap active playback. |
+| **Cleanup diagnostics** | Light restoration retries each light using the captured network policy. Partial restoration or failed entertainment-area deactivation remains visible as a sanitized warning in Live Sync Status and probe/preview results. |
 | **Saved Color Scenes** | Save up to 50 named color, brightness, and duration presets. Apply a saved scene to the default target or the current mapping; presets contain no bridge credentials. |
 | **Restore Light State After Sync** | Save and restore each light's original state after playback. Per-user mappings can override this policy while blank fields inherit the global setting. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
@@ -143,7 +144,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/ColorPresets` | List saved, credential-free color scenes sorted by name. |
 | `POST /HueSync/ColorPresets` | Save or update a named color scene with `name`, RGB values, `brightnessPercent`, and `durationSeconds`; names are case-insensitive and values are validated. |
 | `DELETE /HueSync/ColorPresets/{name}` | Delete one saved color scene by name. |
-| `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/color/execution/channel/restoration profile, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
+| `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/color/execution/channel/restoration profile, frame count, FFmpeg/DTLS health, cleanup warnings, and whether the current sync can be stopped safely. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, without serializing per-user mappings to the configuration page. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
@@ -276,6 +277,9 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
   restores saved lights—including color-temperature/mirek mode where applicable—and deactivates the area automatically. If repeated DTLS writes and
   reconnect attempts fail, synchronization also stops instead of leaving the lights frozen,
   restores/deactivates safely, and retains the failure diagnostic in the Live Sync Status panel.
+  Light restoration retries each light using the active Network Retry Attempts policy. If the
+  bridge remains unavailable or area deactivation fails, Live Sync Status shows a cleanup warning
+  with the restored/failed count so the remaining lights can be recovered manually.
   If FFmpeg remains running but stops producing complete frames, the configured FFmpeg Stall
   Timeout ends synchronization through the same cleanup path; increase it for slow storage or
   hardware decoding, or lower it to recover faster from a stuck pipeline.
@@ -307,7 +311,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.42 (Current)
+### Version 1.5.43 (Current)
+- **Restoration reliability**: Retry each saved light independently using the active network policy, report aggregate restore counts, and preserve a sanitized cleanup warning when any light or the entertainment-area deactivation fails
+- **Probe and preview safety**: Test Connection and solid-color previews now report cleanup failures instead of claiming success after an incomplete restore
+- **Runtime diagnostics**: Surface cleanup warnings in Live Sync Status and `GET /HueSync/Status` without exposing bridge credentials
+
+### Version 1.5.42
 - **Inherited-target visibility**: Per-user mapping lists now label global-bridge inheritance and show the global default target instead of presenting a valid inherited mapping as incomplete
 - **Inherited-target editing**: Editing a mapping that uses the global bridge loads the global entertainment areas and uses the global target for connection tests, previews, and channel discovery while keeping the saved mapping fields blank
 - **Mapping API diagnostics**: `GET /HueSync/UserMappings` reports `InheritsDefaultBridge` without exposing credentials

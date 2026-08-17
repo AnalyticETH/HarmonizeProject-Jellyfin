@@ -42,6 +42,7 @@
                     </div>
                     <div id="runtimeStatusMessage" class="fieldDescription" style="margin-top: 0.5em;">Loading runtime status...</div>
                     <div id="runtimeStatusError" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
+                    <div id="runtimeCleanupWarning" style="display: none; color: #ffd27f; margin-top: 0.5em;"></div>
                     <div class="fieldDescription" style="margin-top: 0.75em;">Updates automatically while this page is open. Stop Current Sync restores the lights and leaves playback running; bridge credentials are never included in status responses.</div>
                 </fieldset>
                 <form class="huePluginConfigurationForm">
@@ -1319,6 +1320,7 @@
                         var duration = HueConfigurationPage.readStatusField(status, "SyncDurationSeconds", null);
                         var message = HueConfigurationPage.readStatusField(status, "StatusMessage", "");
                         var lastError = HueConfigurationPage.readStatusField(status, "LastError", "");
+                        var cleanupWarning = HueConfigurationPage.readStatusField(status, "CleanupWarning", "");
 
                         if (!serviceAvailable) {
                             state = "Unavailable";
@@ -1365,6 +1367,11 @@
                         if (errorElement) {
                             errorElement.textContent = lastError || "";
                             errorElement.style.display = lastError ? "block" : "none";
+                        }
+                        var cleanupWarningElement = page.querySelector('#runtimeCleanupWarning');
+                        if (cleanupWarningElement) {
+                            cleanupWarningElement.textContent = cleanupWarning ? "Cleanup warning: " + cleanupWarning : "";
+                            cleanupWarningElement.style.display = cleanupWarning ? "block" : "none";
                         }
                     }).catch(function (err) {
                         console.error("Failed to load Hue runtime status:", err);

@@ -180,6 +180,27 @@ public class HueClientEntertainmentAreaTests : IDisposable
         await client.StopEntertainmentArea("192.168.1.100", "test-app-key", "area-uuid");
     }
 
+    [Fact]
+    public async Task StopEntertainmentAreaWithResult_ReportsFailure()
+    {
+        _httpHandlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.StopEntertainmentAreaWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            "area-uuid");
+
+        Assert.False(result);
+    }
+
     #endregion
 
     #region Helper Methods

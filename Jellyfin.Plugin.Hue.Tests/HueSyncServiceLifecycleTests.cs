@@ -105,6 +105,24 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task RuntimeStatus_ReportsCleanupWarningAndClearsItForNewPlayback()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        SetPrivateField(service, "_lastCleanupWarning", "Light restoration was incomplete.");
+        Assert.Equal("Light restoration was incomplete.", service.GetRuntimeStatus().CleanupWarning);
+
+        var setStatusMethod = typeof(HueSyncService).GetMethod("SetRuntimeStatus", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        setStatusMethod.Invoke(service, new object?[] { "Starting", "Preparing playback.", true });
+
+        Assert.Null(service.GetRuntimeStatus().CleanupWarning);
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task SyncLoopEnd_RestoresLightsAndClearsRuntimeState()
     {
         var handler = new BlockingHueHandler();
@@ -483,6 +501,36 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal("Starting", service.GetRuntimeStatus().State);
 
         await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StopAsync_ReportsPartialLightRestorationWarning()
+    {
+        var handler = new BlockingHueHandler { FailRestorationRequests = true };
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        Plugin.Instance!.Configuration.RestoreLightState = true;
+        ((HueClient)GetPrivateField(service, "_hueClient")!).RetryAttempts = 0;
+        SetPrivateField(service, "_savedLightStates", new List<HueClient.LightState>
+        {
+            new("light-id", true, 50, 0.1, 0.2)
+        });
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        var stopTask = service.StopAsync(CancellationToken.None);
+        await handler.RestorationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await stopTask;
+
+        var status = service.GetRuntimeStatus();
+        Assert.Contains("restored 0 of 1", status.CleanupWarning, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("1 failed", status.CleanupWarning, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -865,6 +913,7 @@ public sealed class HueSyncServiceLifecycleTests
         public TaskCompletionSource<bool> StopRequest { get; } = NewSignal();
         public TaskCompletionSource<bool> StopRequestCompleted { get; } = NewSignal();
         public TaskCompletionSource<bool> RestorationRequest { get; } = NewSignal();
+        public bool FailRestorationRequests { get; set; }
 
         private readonly TaskCompletionSource<bool> _firstConfigurationRelease = NewSignal();
         private readonly TaskCompletionSource<bool> _stopRelease = NewSignal();
@@ -895,7 +944,13 @@ public sealed class HueSyncServiceLifecycleTests
             {
                 var body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
                 if (request.RequestUri?.AbsolutePath.Contains("/light/", StringComparison.Ordinal) == true)
+                {
                     RestorationRequest.TrySetResult(true);
+                    if (FailRestorationRequests)
+                    {
+                        return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+                    }
+                }
                 if (body.Contains("\"stop\"", StringComparison.Ordinal))
                 {
                     StopRequest.TrySetResult(true);

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.43] - 2026-08-17
+
+### Added
+- Result-aware light-state restoration with per-light retry handling and aggregate attempted/restored/failed counts
+- Sanitized cleanup warnings in Live Sync Status, `GET /HueSync/Status`, connection probes, and solid-color previews
+
+### Changed
+- Playback cleanup now reports incomplete light restoration and failed entertainment-area deactivation instead of silently treating partial cleanup as successful
+- DTLS Test Connection and preview flows now fail visibly when their deactivation or light-state restoration cleanup is incomplete
+
 ## [1.5.42] - 2026-08-17
 
 ### Added

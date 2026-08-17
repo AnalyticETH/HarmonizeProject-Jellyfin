@@ -43,6 +43,7 @@ public sealed class HueStreamProbeResult
 {
     public bool Succeeded { get; init; }
     public string Message { get; init; } = string.Empty;
+    public string? CleanupWarning { get; init; }
 }
 
 /// <summary>
@@ -116,6 +117,7 @@ public sealed class HueStreamTester : IHueStreamTester
             return Failure("The Hue bridge could not activate the entertainment area.");
         }
 
+        var probeResult = Failure("The DTLS stream probe did not complete.");
         try
         {
             await Task.Delay(EntertainmentAreaActivationDelayMs).ConfigureAwait(false);
@@ -127,25 +129,24 @@ public sealed class HueStreamTester : IHueStreamTester
                 await streamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
                 if (!streamer.IsHealthy())
                 {
-                    return Failure("The DTLS stream did not become healthy. Check the client key and OpenSSL installation.");
+                    probeResult = Failure("The DTLS stream did not become healthy. Check the client key and OpenSSL installation.");
                 }
-
-                var sent = await streamer.SendColors(areaId, channelColors).ConfigureAwait(false);
-                if (!sent)
+                else
                 {
-                    return Failure("The DTLS stream opened, but the probe packet could not be sent.");
+                    var sent = await streamer.SendColors(areaId, channelColors).ConfigureAwait(false);
+                    probeResult = sent
+                        ? new HueStreamProbeResult
+                        {
+                            Succeeded = true,
+                            Message = "DTLS stream opened and a low-intensity probe packet was sent."
+                        }
+                        : Failure("The DTLS stream opened, but the probe packet could not be sent.");
                 }
-
-                return new HueStreamProbeResult
-                {
-                    Succeeded = true,
-                    Message = "DTLS stream opened and a low-intensity probe packet was sent."
-                };
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Hue DTLS stream probe failed for entertainment area {0}", areaId);
-                return Failure("The DTLS stream probe failed. Check the client key and OpenSSL diagnostics.");
+                probeResult = Failure("The DTLS stream probe failed. Check the client key and OpenSSL diagnostics.");
             }
             finally
             {
@@ -154,12 +155,15 @@ public sealed class HueStreamTester : IHueStreamTester
         }
         finally
         {
-            await _hueClient.StopEntertainmentArea(bridgeIp, appKey, areaId).ConfigureAwait(false);
-            if (savedLightStates.Count > 0)
-            {
-                await _hueClient.RestoreLightStates(bridgeIp, appKey, savedLightStates).ConfigureAwait(false);
-            }
+            probeResult = await AddCleanupResultAsync(
+                probeResult,
+                bridgeIp,
+                appKey,
+                areaId,
+                savedLightStates).ConfigureAwait(false);
         }
+
+        return probeResult;
     }
 
     /// <summary>
@@ -233,6 +237,8 @@ public sealed class HueStreamTester : IHueStreamTester
             return Failure("The Hue bridge could not activate the entertainment area for preview.");
         }
 
+        var previewResult = Failure("The solid color preview did not complete.");
+        var previewCompleted = false;
         try
         {
             await Task.Delay(EntertainmentAreaActivationDelayMs).ConfigureAwait(false);
@@ -244,45 +250,55 @@ public sealed class HueStreamTester : IHueStreamTester
                 await streamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
                 if (!streamer.IsHealthy())
                 {
-                    return Failure("The DTLS stream did not become healthy. Check the client key and OpenSSL installation.");
+                    previewResult = Failure("The DTLS stream did not become healthy. Check the client key and OpenSSL installation.");
                 }
-
-                var sent = await streamer.SendColors(areaId, channelColors).ConfigureAwait(false);
-                if (!sent)
+                else
                 {
-                    return Failure("The DTLS stream opened, but the preview color could not be sent.");
-                }
-
-                // Hue bridges deactivate an entertainment area after a period of
-                // inactivity. Refresh the static packet once per second so a longer
-                // preview remains visible for its full requested duration.
-                var previewEndsAt = DateTime.UtcNow.AddSeconds(durationSeconds);
-                while (true)
-                {
-                    var remaining = previewEndsAt - DateTime.UtcNow;
-                    if (remaining <= TimeSpan.Zero)
-                        break;
-
-                    await Task.Delay(
-                        remaining > TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : remaining)
-                        .ConfigureAwait(false);
-                    if (DateTime.UtcNow < previewEndsAt &&
-                        !await streamer.SendColors(areaId, channelColors).ConfigureAwait(false))
+                    var sent = await streamer.SendColors(areaId, channelColors).ConfigureAwait(false);
+                    if (!sent)
                     {
-                        return Failure("The DTLS stream stopped while holding the preview color.");
+                        previewResult = Failure("The DTLS stream opened, but the preview color could not be sent.");
+                    }
+                    else
+                    {
+                        // Hue bridges deactivate an entertainment area after a period of
+                        // inactivity. Refresh the static packet once per second so a longer
+                        // preview remains visible for its full requested duration.
+                        var previewEndsAt = DateTime.UtcNow.AddSeconds(durationSeconds);
+                        while (true)
+                        {
+                            var remaining = previewEndsAt - DateTime.UtcNow;
+                            if (remaining <= TimeSpan.Zero)
+                                break;
+
+                            await Task.Delay(
+                                remaining > TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : remaining)
+                                .ConfigureAwait(false);
+                            if (DateTime.UtcNow < previewEndsAt &&
+                                !await streamer.SendColors(areaId, channelColors).ConfigureAwait(false))
+                            {
+                                previewResult = Failure("The DTLS stream stopped while holding the preview color.");
+                                previewCompleted = true;
+                                break;
+                            }
+                        }
+
+                        if (previewResult.Succeeded == false && !previewCompleted)
+                        {
+                            previewCompleted = true;
+                            previewResult = new HueStreamProbeResult
+                            {
+                                Succeeded = true,
+                                Message = $"Displayed the solid color preview for {durationSeconds} seconds across {channelColors.Count} channel(s)."
+                            };
+                        }
                     }
                 }
-
-                return new HueStreamProbeResult
-                {
-                    Succeeded = true,
-                    Message = $"Displayed the solid color preview for {durationSeconds} seconds across {channelColors.Count} channel(s)."
-                };
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Hue solid color preview failed for entertainment area {0}", areaId);
-                return Failure("The solid color preview failed. Check the client key and OpenSSL diagnostics.");
+                previewResult = Failure("The solid color preview failed. Check the client key and OpenSSL diagnostics.");
             }
             finally
             {
@@ -291,12 +307,60 @@ public sealed class HueStreamTester : IHueStreamTester
         }
         finally
         {
-            await _hueClient.StopEntertainmentArea(bridgeIp, appKey, areaId).ConfigureAwait(false);
-            if (savedLightStates.Count > 0)
+            previewResult = await AddCleanupResultAsync(
+                previewResult,
+                bridgeIp,
+                appKey,
+                areaId,
+                savedLightStates).ConfigureAwait(false);
+        }
+
+        return previewResult;
+    }
+
+    private async Task<HueStreamProbeResult> AddCleanupResultAsync(
+        HueStreamProbeResult probeResult,
+        string bridgeIp,
+        string appKey,
+        string areaId,
+        List<HueClient.LightState> savedLightStates)
+    {
+        var warnings = new List<string>();
+        if (!await _hueClient.StopEntertainmentAreaWithResult(bridgeIp, appKey, areaId).ConfigureAwait(false))
+            warnings.Add("The entertainment area could not be deactivated.");
+
+        if (savedLightStates.Count > 0)
+        {
+            try
             {
-                await _hueClient.RestoreLightStates(bridgeIp, appKey, savedLightStates).ConfigureAwait(false);
+                var restoreResult = await _hueClient.RestoreLightStatesWithResult(
+                    bridgeIp,
+                    appKey,
+                    savedLightStates).ConfigureAwait(false);
+                if (!restoreResult.Succeeded)
+                {
+                    warnings.Add(
+                        $"Light restoration was incomplete: restored {restoreResult.RestoredCount} of {restoreResult.AttemptedCount} light(s); {restoreResult.FailedCount} failed.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not restore light state after Hue stream probe cleanup for area {0}", areaId);
+                warnings.Add("Saved light state could not be restored.");
             }
         }
+
+        if (warnings.Count == 0)
+            return probeResult;
+
+        var cleanupWarning = string.Join(" ", warnings);
+        _logger.LogWarning("Hue stream probe cleanup warning for area {0}: {1}", areaId, cleanupWarning);
+        return new HueStreamProbeResult
+        {
+            Succeeded = false,
+            Message = $"{probeResult.Message} Cleanup warning: {cleanupWarning}",
+            CleanupWarning = cleanupWarning
+        };
     }
 
     internal static bool TryBuildProbeColors(JsonElement areaConfiguration, out Dictionary<int, byte[]> channelColors)

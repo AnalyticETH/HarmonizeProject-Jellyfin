@@ -101,6 +101,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private string _runtimeState = "Idle";
         private string _runtimeMessage = "Waiting for playback.";
         private string? _lastError;
+        private string? _lastCleanupWarning;
 
         // Public property to track sync state
         public bool IsSyncing
@@ -348,6 +349,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string state;
             string message;
             string? lastError;
+            string? cleanupWarning;
             DateTime syncStartTime;
             CancellationTokenSource? syncCts;
             bool canStopSync;
@@ -370,6 +372,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 state = _runtimeState;
                 message = _runtimeMessage;
                 lastError = _lastError;
+                cleanupWarning = _lastCleanupWarning;
                 syncStartTime = _syncStartTime;
                 syncCts = _syncCts;
                 canStopSync = CanStopSync;
@@ -387,6 +390,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 State = state,
                 Message = message,
                 LastError = lastError,
+                CleanupWarning = cleanupWarning,
                 CurrentItem = currentItem,
                 ActiveFrameResolution = isSyncing ? currentFrameResolution : null,
                 ActiveVideoScalingMode = isSyncing ? currentVideoScalingMode : null,
@@ -434,7 +438,18 @@ namespace Jellyfin.Plugin.Hue.Service
                 _runtimeState = state;
                 _runtimeMessage = message;
                 if (clearError)
+                {
                     _lastError = null;
+                    _lastCleanupWarning = null;
+                }
+            }
+        }
+
+        private void SetCleanupWarning(string? message)
+        {
+            lock (_syncLock)
+            {
+                _lastCleanupWarning = message;
             }
         }
 
@@ -811,7 +826,11 @@ namespace Jellyfin.Plugin.Hue.Service
                         savedLightStates,
                         publishIdleStatus: false,
                         clearCurrentItem: false).ConfigureAwait(false);
-                    SetRuntimeStatus("Paused", "Playback paused; original light state restored.");
+                    SetRuntimeStatus(
+                        "Paused",
+                        GetRuntimeStatus().CleanupWarning == null
+                            ? "Playback paused; original light state restored."
+                            : "Playback paused; light restoration completed with warnings.");
                 }
                 else if (bridgeConfig != null)
                 {
@@ -869,18 +888,20 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Sends colors to lights using a temporary streamer instance with explicit bridge config
         /// </summary>
-        private async Task SendTemporaryColorsWithConfig(string bridgeIp, string appKey, string clientKey, string areaId, Dictionary<int, byte[]> channelColors, int delayMs)
+        private async Task<bool> SendTemporaryColorsWithConfig(string bridgeIp, string appKey, string clientKey, string areaId, Dictionary<int, byte[]> channelColors, int delayMs)
         {
-            // Must activate the area before opening a DTLS session
-            var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
-            if (!activated)
-            {
-                _logger.LogWarning("SendTemporaryColorsWithConfig: could not activate area {0}, skipping", areaId);
-                return;
-            }
-
+            var activated = false;
+            var succeeded = false;
             try
             {
+                // Must activate the area before opening a DTLS session
+                activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId).ConfigureAwait(false);
+                if (!activated)
+                {
+                    _logger.LogWarning("SendTemporaryColorsWithConfig: could not activate area {0}, skipping", areaId);
+                    return false;
+                }
+
                 await Task.Delay(EntertainmentAreaActivationDelayMs);
 
                 var tempStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
@@ -890,21 +911,38 @@ namespace Jellyfin.Plugin.Hue.Service
                     if (!tempStreamer.IsHealthy())
                     {
                         _logger.LogWarning("SendTemporaryColorsWithConfig: DTLS stream did not start for area {0}", areaId);
-                        return;
+                        return false;
                     }
 
-                    await tempStreamer.SendColors(areaId, channelColors);
+                    if (!await tempStreamer.SendColors(areaId, channelColors).ConfigureAwait(false))
+                    {
+                        _logger.LogWarning("SendTemporaryColorsWithConfig: DTLS stream could not send colors for area {0}", areaId);
+                        return false;
+                    }
+
                     await Task.Delay(delayMs);
+                    succeeded = true;
                 }
                 finally
                 {
                     tempStreamer.StopStream();
                 }
             }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SendTemporaryColorsWithConfig failed for area {0}", areaId);
+                return false;
+            }
             finally
             {
-                await _hueClient.StopEntertainmentArea(bridgeIp, appKey, areaId);
+                if (activated && !await _hueClient.StopEntertainmentAreaWithResult(bridgeIp, appKey, areaId).ConfigureAwait(false))
+                {
+                    _logger.LogWarning("SendTemporaryColorsWithConfig: could not deactivate area {0}", areaId);
+                    succeeded = false;
+                }
             }
+
+            return succeeded;
         }
 
         /// <summary>
@@ -953,7 +991,7 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Restores lights to normal brightness after playback
         /// </summary>
-        private async Task RestoreLightsAfterPlayback(
+        private async Task<bool> RestoreLightsAfterPlayback(
             string bridgeIp,
             string appKey,
             string clientKey,
@@ -964,7 +1002,7 @@ namespace Jellyfin.Plugin.Hue.Service
             {
                 var areaConfig = await _hueClient.GetEntertainmentConfiguration(bridgeIp, appKey, areaId);
                 if (areaConfig == null || !areaConfig.Value.TryGetProperty("channels", out var channels))
-                    return;
+                    return false;
 
                 var channelColors = new Dictionary<int, byte[]>();
                 foreach (var channel in channels.EnumerateArray())
@@ -978,13 +1016,20 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 if (channelColors.Count == 0)
-                    return;
+                    return true;
 
-                await SendTemporaryColorsWithConfig(bridgeIp, appKey, clientKey, areaId, channelColors, RestoreLightsDelayMs);
+                return await SendTemporaryColorsWithConfig(
+                    bridgeIp,
+                    appKey,
+                    clientKey,
+                    areaId,
+                    channelColors,
+                    RestoreLightsDelayMs).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to restore lights");
+                return false;
             }
         }
 
@@ -1703,7 +1748,13 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
                     if (streamEnded)
-                        SetRuntimeStatus("Idle", "Video stream ended; lights were restored.");
+                    {
+                        SetRuntimeStatus(
+                            "Idle",
+                            GetRuntimeStatus().CleanupWarning == null
+                                ? "Video stream ended; lights were restored."
+                                : "Video stream ended; cleanup completed with warnings.");
+                    }
                 }
                 finally
                 {
@@ -2173,12 +2224,21 @@ namespace Jellyfin.Plugin.Hue.Service
                 activeChannelIds = _activeChannelIds;
             }
 
+            string? cleanupWarning = null;
             try
             {
                 if (effectiveRestoreLightState && savedLightStates != null && bridgeConfig != null)
                 {
                     _logger.LogInformation("Restoring saved light states");
-                    await _hueClient.RestoreLightStates(bridgeConfig.Value.BridgeIp, bridgeConfig.Value.AppKey, savedLightStates);
+                    var restoreResult = await _hueClient.RestoreLightStatesWithResult(
+                        bridgeConfig.Value.BridgeIp,
+                        bridgeConfig.Value.AppKey,
+                        savedLightStates).ConfigureAwait(false);
+                    if (!restoreResult.Succeeded)
+                    {
+                        cleanupWarning = $"Light restoration was incomplete: restored {restoreResult.RestoredCount} of {restoreResult.AttemptedCount} light(s); {restoreResult.FailedCount} failed. Some lights may need manual recovery.";
+                    }
+
                     if (ReferenceEquals(_savedLightStates, savedLightStates))
                     {
                         _savedLightStates = null;
@@ -2188,17 +2248,21 @@ namespace Jellyfin.Plugin.Hue.Service
                 else if (effectiveUseCinemaMode && bridgeConfig != null)
                 {
                     _logger.LogInformation("Restoring lights after playback");
-                    await RestoreLightsAfterPlayback(
-                        bridgeConfig.Value.BridgeIp,
-                        bridgeConfig.Value.AppKey,
-                        bridgeConfig.Value.ClientKey,
-                        bridgeConfig.Value.AreaId,
-                        activeChannelIds);
+                    if (!await RestoreLightsAfterPlayback(
+                            bridgeConfig.Value.BridgeIp,
+                            bridgeConfig.Value.AppKey,
+                            bridgeConfig.Value.ClientKey,
+                            bridgeConfig.Value.AreaId,
+                            activeChannelIds).ConfigureAwait(false))
+                    {
+                        cleanupWarning = "Cinema-mode light restoration did not complete. Some lights may need manual recovery.";
+                    }
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during playback light restoration");
+                cleanupWarning = "Light restoration failed. Some lights may need manual recovery.";
             }
             finally
             {
@@ -2228,17 +2292,28 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     try
                     {
-                        await _hueClient.StopEntertainmentArea(
+                        var deactivated = await _hueClient.StopEntertainmentAreaWithResult(
                             bridgeConfig.Value.BridgeIp,
                             bridgeConfig.Value.AppKey,
-                            bridgeConfig.Value.AreaId);
-                        _bridgeAreaDeactivated = true;
+                            bridgeConfig.Value.AreaId).ConfigureAwait(false);
+                        _bridgeAreaDeactivated = deactivated;
+                        if (!deactivated)
+                        {
+                            cleanupWarning = cleanupWarning == null
+                                ? "The entertainment area could not be deactivated during cleanup."
+                                : $"{cleanupWarning} The entertainment area could not be deactivated during cleanup.";
+                        }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Error deactivating entertainment area during playback cleanup");
+                        cleanupWarning = cleanupWarning == null
+                            ? "The entertainment area could not be deactivated during cleanup."
+                            : $"{cleanupWarning} The entertainment area could not be deactivated during cleanup.";
                     }
                 }
+
+                SetCleanupWarning(cleanupWarning);
             }
         }
 
@@ -2368,6 +2443,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public string State { get; init; } = "Idle";
         public string Message { get; init; } = "Waiting for playback.";
         public string? LastError { get; init; }
+        public string? CleanupWarning { get; init; }
         public string? CurrentItem { get; init; }
         public string? ActiveFrameResolution { get; init; }
         public string? ActiveVideoScalingMode { get; init; }

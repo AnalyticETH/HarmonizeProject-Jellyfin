@@ -356,6 +356,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     }
                     result.StreamReady = streamProbe.Succeeded;
                     result.StreamMessage = streamProbe.Message;
+                    result.CleanupWarning = streamProbe.CleanupWarning;
                     result.Message = streamProbe.Succeeded
                         ? $"Bridge reachable. Entertainment area '{selectedArea.Name}' and DTLS stream are ready."
                         : $"Bridge reachable and area '{selectedArea.Name}' is configured, but the DTLS stream probe failed: {streamProbe.Message}";
@@ -492,6 +493,7 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 Succeeded = streamPreview.Succeeded,
                 Message = streamPreview.Message,
+                CleanupWarning = streamPreview.CleanupWarning,
                 Red = request.Red,
                 Green = request.Green,
                 Blue = request.Blue,
@@ -620,6 +622,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 State = runtime?.State ?? "Unavailable",
                 StatusMessage = runtime?.Message ?? "Sync service is not available.",
                 LastError = runtime?.LastError,
+                CleanupWarning = runtime?.CleanupWarning,
                 ActiveBridgeIp = runtime?.ActiveBridgeIp,
                 ActiveEntertainmentAreaId = runtime?.ActiveEntertainmentAreaId,
                 ActiveTargetFps = runtime?.ActiveTargetFps,
@@ -1219,6 +1222,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("streamMessage")]
         public string? StreamMessage { get; set; }
 
+        [JsonPropertyName("cleanupWarning")]
+        public string? CleanupWarning { get; set; }
+
         [JsonPropertyName("availableChannelCount")]
         public int? AvailableChannelCount { get; set; }
 
@@ -1242,6 +1248,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("cleanupWarning")]
+        public string? CleanupWarning { get; set; }
 
         [JsonPropertyName("red")]
         public int Red { get; set; }
@@ -1346,6 +1355,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string State { get; set; } = "Unavailable";
         public string StatusMessage { get; set; } = string.Empty;
         public string? LastError { get; set; }
+        public string? CleanupWarning { get; set; }
         public string? ActiveBridgeIp { get; set; }
         public string? ActiveEntertainmentAreaId { get; set; }
         public int? ActiveTargetFps { get; set; }

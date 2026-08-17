@@ -626,6 +626,71 @@ public class HueClientTests : IDisposable
         Assert.Equal(0, requestCount);
     }
 
+    [Fact]
+    public async Task RestoreLightStatesWithResult_RetriesTransientFailureAndReportsSuccess()
+    {
+        var requestCount = 0;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                requestCount++;
+                return requestCount == 1
+                    ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                    : new HttpResponseMessage(HttpStatusCode.OK);
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 1
+        };
+
+        var result = await client.RestoreLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            new List<HueClient.LightState> { new("light-1", true, 80, 0.3, 0.33) });
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.AttemptedCount);
+        Assert.Equal(1, result.RestoredCount);
+        Assert.Equal(0, result.FailedCount);
+        Assert.Equal(2, requestCount);
+    }
+
+    [Fact]
+    public async Task RestoreLightStatesWithResult_ReportsFailedLightAfterRetries()
+    {
+        var requestCount = 0;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((_, _) => requestCount++)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.RestoreLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            new List<HueClient.LightState> { new("light-1", true, 80, 0.3, 0.33) });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(1, result.AttemptedCount);
+        Assert.Equal(0, result.RestoredCount);
+        Assert.Equal(1, result.FailedCount);
+        Assert.Equal(1, requestCount);
+    }
+
     #endregion
 
     #region RegisterWithBridge Tests
