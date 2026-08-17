@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-16
+
+### Added
+- Validation for per-user bridge mappings, including credentials, addresses, duplicate users, and area IDs
+- Regression coverage for malformed bridge responses, transient HTTP failures, and invalid Hue stream packets
+
+### Changed
+- Hue bridge requests now retry transient network/server failures without retrying authentication or input errors
+- Playback cleanup is resilient across stop, pause, resume, and service shutdown races
+- FFmpeg process ownership and health monitoring are safe across repeated starts and stops
+- DTLS reconnect attempts are serialized and force the first frame after a reconnect to be sent
+- Release metadata and packaging documentation now track the current 1.5.0 release
+
 ## [1.4.0] - 2025-01-05
 
 ### Added

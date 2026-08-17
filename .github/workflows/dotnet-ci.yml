@@ -155,12 +155,18 @@ jobs:
         # Only include the DLL and meta.json (Jellyfin requirements)
         cp Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll release-package/
         cp meta.json release-package/
+        META_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' meta.json | head -n 1)
+        PROJECT_VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj | head -n 1)
+        test -n "$META_VERSION" && test "$META_VERSION" = "$PROJECT_VERSION"
+        test -f release-package/Jellyfin.Plugin.Hue.dll
+        test -f release-package/meta.json
 
     - name: Create zip archive
       run: |
         cd release-package
-        zip -r ../jellyfin-plugin-hue-release.zip .
+        zip -q -r ../jellyfin-plugin-hue-release.zip .
         cd ..
+        test "$(unzip -Z1 jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "Jellyfin.Plugin.Hue.dll meta.json "
 
     - name: Upload release package
       uses: actions/upload-artifact@v4
@@ -221,8 +227,12 @@ jobs:
       run: |
         VERSION="${{ steps.version.outputs.version }}"
         if [ -f CHANGELOG.md ]; then
-          # Extract changelog section for current version
-          CHANGES=$(sed -n "/## \[${VERSION}\]/,/## \[/p" CHANGELOG.md | sed '$d' | tail -n +2)
+          # Metadata uses four-part assembly versions while the changelog uses SemVer.
+          CHANGELOG_VERSION="$VERSION"
+          if ! grep -q "## \[${CHANGELOG_VERSION}\]" CHANGELOG.md; then
+            CHANGELOG_VERSION="${VERSION%.0}"
+          fi
+          CHANGES=$(sed -n "/## \[${CHANGELOG_VERSION}\]/,/## \[/p" CHANGELOG.md | sed '$d' | tail -n +2)
           if [ -z "$CHANGES" ]; then
             CHANGES="See CHANGELOG.md for details."
           fi

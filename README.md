@@ -118,6 +118,24 @@ The plugin DLL will be generated at:
 
 > **Note**: You only need this one file. The other DLLs in that folder are dependencies that Jellyfin already provides.
 
+#### Release Package Contents
+
+The release scripts produce `jellyfin-plugin-hue-v<version>.zip` containing exactly:
+
+* `Jellyfin.Plugin.Hue.dll` — the plugin assembly, including the embedded configuration page
+* `meta.json` — the Jellyfin plugin manifest and release version
+
+The version in `meta.json`, the project file, and the archive name must match. Install both
+files together in a `HueSync` directory under the Jellyfin plugins directory.
+
+If the .NET SDK is not installed on a Linux host, the same build can be run with Docker:
+
+```bash
+docker run --rm -v "$PWD:/src" -v /tmp/hue-nuget:/root/.nuget/packages \
+  -w /src mcr.microsoft.com/dotnet/sdk:8.0 sh -lc \
+  'apt-get update -qq && apt-get install -y -qq zip unzip && ./build-release.sh'
+```
+
 ### Project Structure
 *   `Configuration/`: Plugin settings UI and logic.
 *   `Service/`: Background service for monitoring playback.
@@ -150,6 +168,10 @@ dotnet test --filter FullyQualifiedName~HueClientTests
 dotnet test --filter FullyQualifiedName~HueStreamerTests
 ```
 
+The test suite does not require a physical Hue bridge or FFmpeg installation; bridge calls,
+packet construction, and playback lifecycle paths are exercised with deterministic test
+doubles. A real bridge is only needed for an end-to-end playback check after installation.
+
 #### Test Coverage
 
 Tests are automatically run in CI/CD on:
@@ -158,6 +180,18 @@ Tests are automatically run in CI/CD on:
 - Manual workflow dispatch
 
 See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
+
+### Troubleshooting
+
+* **Registration fails:** press the physical Link button immediately before clicking
+  **Link Bridge**. Hue registration uses the bridge's HTTP `/api` endpoint; the streaming
+  and v2 REST endpoints use HTTPS.
+* **No areas are listed:** verify the bridge IP and App Key, then click **Refresh
+  Entertainment Areas**. The selected area must contain color-capable lights.
+* **Lights stop updating:** check that `ffmpeg` and `openssl` are available to the Jellyfin
+  service account and inspect the Jellyfin server log for `Hue Sync` and `FFmpeg` entries.
+* **A mapping is ignored:** the mapping must include a valid bridge address, App Key, Client
+  Key, and Entertainment Area ID. Users without a complete mapping use the default bridge.
 
 ### Performance Benchmarks
 
@@ -182,7 +216,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.4.0 (Current)
+### Version 1.5.0 (Current)
+- **Playback lifecycle hardening**: Stop, pause, resume, and shutdown paths serialize cleanup and bridge deactivation safely
+- **Bridge resilience**: Transient HTTP/network failures are retried while authentication and input errors fail fast
+- **Process safety**: FFmpeg ownership/health checks and DTLS reconnects are safe across repeated starts and stops
+- **Configuration validation**: Per-user mappings validate addresses, credentials, area IDs, and duplicate users
+
+### Version 1.4.0
 - **Per-User Bridge Mappings**: Map different Jellyfin users to different Hue bridges and entertainment areas
 - **Multi-Room Support**: Perfect for households with multiple viewing locations
 - **Fallback Behavior**: Users without mappings automatically use default bridge settings

@@ -4,6 +4,13 @@ $ErrorActionPreference = "Stop"
 Write-Host "🔨 Building Jellyfin Hue Sync Plugin..." -ForegroundColor Cyan
 Write-Host ""
 
+if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+    throw ".NET 8 SDK is required (dotnet was not found in PATH)."
+}
+if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) {
+    throw "Compress-Archive is required to create the release archive."
+}
+
 # Clean previous builds
 Write-Host "📦 Cleaning previous builds..." -ForegroundColor Yellow
 if (Test-Path "./Jellyfin.Plugin.Hue/bin/Release") {
@@ -40,6 +47,16 @@ Copy-Item "meta.json" "release-package/"
 # Extract version from meta.json
 $metaContent = Get-Content "meta.json" -Raw
 $version = ($metaContent | Select-String '"version":\s*"([^"]+)"').Matches.Groups[1].Value
+$projectContent = Get-Content "Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj" -Raw
+$projectVersion = ($projectContent | Select-String '<Version>([^<]+)</Version>').Matches.Groups[1].Value
+if ([string]::IsNullOrWhiteSpace($version) -or $version -ne $projectVersion) {
+    throw "Version mismatch: meta.json=$version project=$projectVersion"
+}
+
+$dllPath = "Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll"
+if (-not (Test-Path $dllPath)) {
+    throw "Release DLL was not produced."
+}
 
 Write-Host ""
 Write-Host "📋 Package Information:" -ForegroundColor Cyan
@@ -67,6 +84,11 @@ if ([System.IO.Compression.ZipFile]) {
 }
 
 $zipSize = [math]::Round((Get-Item $zipFile).Length/1KB, 2)
+
+$archiveEntries = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipFile)).Entries.FullName | Sort-Object
+if (($archiveEntries -join ' ') -ne 'Jellyfin.Plugin.Hue.dll meta.json') {
+    throw "Unexpected release archive contents: $($archiveEntries -join ', ')"
+}
 
 Write-Host ""
 Write-Host "✅ Build complete!" -ForegroundColor Green
