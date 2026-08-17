@@ -12,6 +12,8 @@ updates:
       time: "09:00"
       timezone: "America/New_York"
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "deps"
       include: "scope"
@@ -21,29 +23,9 @@ updates:
     reviewers:
       - "AnalyticETH"
     groups:
-      # Group Jellyfin SDK packages together
-      jellyfin-sdk:
-        patterns:
-          - "Jellyfin.*"
-        update-types:
-          - "minor"
-          - "patch"
-      # Group test framework packages
-      testing:
-        patterns:
-          - "xunit*"
-          - "Moq"
-          - "coverlet.*"
-          - "Microsoft.NET.Test.Sdk"
-        update-types:
-          - "minor"
-          - "patch"
-      # Group System.* security updates
-      system-packages:
-        patterns:
-          - "System.*"
-        update-types:
-          - "patch"
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     ignore:
       # Ignore major version bumps for Jellyfin (may break compatibility)
       - dependency-name: "Jellyfin.*"
@@ -58,6 +40,8 @@ updates:
       time: "09:00"
       timezone: "America/New_York"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "ci"
       include: "scope"
@@ -65,10 +49,6 @@ updates:
       - "dependencies"
       - "github-actions"
     groups:
-      # Group all GitHub Actions together
-      github-actions:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
