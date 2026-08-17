@@ -395,7 +395,19 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
         }
 
-        public record LightState(string Id, bool IsOn, int Brightness, double X, double Y);
+        /// <summary>
+        /// A restorable Hue light state. Hue exposes both color and color-temperature
+        /// resources for many lights; only the mode that was valid when the state was
+        /// captured is sent back during restoration.
+        /// </summary>
+        public record LightState(
+            string Id,
+            bool IsOn,
+            int Brightness,
+            double X,
+            double Y,
+            int? Mirek = null,
+            bool HasColor = true);
 
         /// <summary>
         /// Gets the current state of all lights in an entertainment area for restoration later
@@ -456,14 +468,35 @@ namespace Jellyfin.Plugin.Hue.Hue
                                 var brightness = Math.Clamp((int)brightnessValue.GetDouble(), 0, 100);
 
                                 double x = 0, y = 0;
+                                var hasColor = false;
                                 if (light.TryGetProperty("color", out var color) &&
                                     color.TryGetProperty("xy", out var xy))
                                 {
-                                    x = xy.GetProperty("x").GetDouble();
-                                    y = xy.GetProperty("y").GetDouble();
+                                    if (xy.TryGetProperty("x", out var xValue) &&
+                                        xy.TryGetProperty("y", out var yValue) &&
+                                        xValue.ValueKind == JsonValueKind.Number &&
+                                        yValue.ValueKind == JsonValueKind.Number)
+                                    {
+                                        x = xValue.GetDouble();
+                                        y = yValue.GetDouble();
+                                        hasColor = true;
+                                    }
                                 }
 
-                                states.Add(new LightState(lightId, isOn, brightness, x, y));
+                                int? mirek = null;
+                                if (light.TryGetProperty("color_temperature", out var colorTemperature) &&
+                                    colorTemperature.ValueKind == JsonValueKind.Object &&
+                                    colorTemperature.TryGetProperty("mirek", out var mirekValue) &&
+                                    mirekValue.ValueKind == JsonValueKind.Number &&
+                                    mirekValue.TryGetInt32(out var mirekNumber))
+                                {
+                                    var mirekIsValid = !colorTemperature.TryGetProperty("mirek_valid", out var validValue) ||
+                                                        (validValue.ValueKind == JsonValueKind.True && validValue.GetBoolean());
+                                    if (mirekIsValid)
+                                        mirek = mirekNumber;
+                                }
+
+                                states.Add(new LightState(lightId, isOn, brightness, x, y, mirek, hasColor));
                             }
                         }
                         catch (Exception ex)
@@ -498,12 +531,25 @@ namespace Jellyfin.Plugin.Hue.Hue
                     using var request = new HttpRequestMessage(HttpMethod.Put, url);
                     request.Headers.Add("hue-application-key", appKey);
 
-                    var payload = new
-                    {
-                        on = new { on = state.IsOn },
-                        dimming = new { brightness = state.Brightness },
-                        color = new { xy = new { x = state.X, y = state.Y } }
-                    };
+                    object payload = state.Mirek.HasValue
+                        ? new
+                        {
+                            on = new { on = state.IsOn },
+                            dimming = new { brightness = state.Brightness },
+                            color_temperature = new { mirek = state.Mirek.Value }
+                        }
+                        : state.HasColor
+                            ? new
+                            {
+                                on = new { on = state.IsOn },
+                                dimming = new { brightness = state.Brightness },
+                                color = new { xy = new { x = state.X, y = state.Y } }
+                            }
+                            : new
+                            {
+                                on = new { on = state.IsOn },
+                                dimming = new { brightness = state.Brightness }
+                            };
 
                     var json = JsonSerializer.Serialize(payload);
                     request.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");

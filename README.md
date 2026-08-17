@@ -218,7 +218,7 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
 * **Lights stop updating:** check that `ffmpeg` and `openssl` are available to the Jellyfin
   service account and inspect the Jellyfin server log for `Hue Sync` and `FFmpeg` entries. If a
   frame stream ends or fails, or startup cannot complete, the plugin now rolls back immediately,
-  restores saved lights, and deactivates the area automatically. If repeated DTLS writes and
+  restores saved lights—including color-temperature/mirek mode where applicable—and deactivates the area automatically. If repeated DTLS writes and
   reconnect attempts fail, synchronization also stops instead of leaving the lights frozen,
   restores/deactivates safely, and retains the failure diagnostic in the Live Sync Status panel.
   If FFmpeg remains running but stops producing complete frames, the configured FFmpeg Stall
@@ -252,7 +252,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.14 (Current)
+### Version 1.5.15 (Current)
+- **Mode-aware scene restoration**: Color-temperature lights return to their saved mirek state, while lights without color resources are restored without an invalid XY payload
+
+### Version 1.5.14
 - **FFmpeg stall recovery**: Configurable 1-60 second frame timeout with startup grace now ends stalled pipelines, restores lights, deactivates the area, and preserves an actionable Live Sync Status error
 
 ### Version 1.5.13

@@ -368,6 +368,68 @@ public class HueClientTests : IDisposable
         Assert.Equal(75, result[0].Brightness); // Converted to int
         Assert.Equal(0.3127, result[0].X, 4);
         Assert.Equal(0.329, result[0].Y, 3);
+        Assert.Null(result[0].Mirek);
+        Assert.True(result[0].HasColor);
+    }
+
+    [Fact]
+    public async Task GetLightStates_ColorTemperature_PreservesMirekMode()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                {
+                    ""channel_id"": 0,
+                    ""members"": [{""service"": {""rid"": ""light-ct""}}]
+                }
+            ]
+        }");
+
+        SetupHttpResponse(HttpStatusCode.OK, @"{
+            ""data"": [{
+                ""on"": {""on"": true},
+                ""dimming"": {""brightness"": 62.5},
+                ""color_temperature"": {""mirek"": 325, ""mirek_valid"": true}
+            }]
+        }");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetLightStates("192.168.1.100", "test-app-key", doc.RootElement);
+
+        var state = Assert.Single(result!);
+        Assert.Equal(325, state.Mirek);
+        Assert.False(state.HasColor);
+    }
+
+    [Fact]
+    public async Task GetLightStates_InvalidMirekFallsBackToColorWhenAvailable()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                {
+                    ""channel_id"": 0,
+                    ""members"": [{""service"": {""rid"": ""light-color""}}]
+                }
+            ]
+        }");
+
+        SetupHttpResponse(HttpStatusCode.OK, @"{
+            ""data"": [{
+                ""on"": {""on"": true},
+                ""dimming"": {""brightness"": 50},
+                ""color"": {""xy"": {""x"": 0.25, ""y"": 0.35}},
+                ""color_temperature"": {""mirek"": 300, ""mirek_valid"": false}
+            }]
+        }");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetLightStates("192.168.1.100", "test-app-key", doc.RootElement);
+
+        var state = Assert.Single(result!);
+        Assert.Null(state.Mirek);
+        Assert.True(state.HasColor);
+        Assert.Equal(0.25, state.X, 3);
     }
 
     [Fact]
@@ -425,6 +487,69 @@ public class HueClientTests : IDisposable
         // Assert
         Assert.Equal(2, capturedRequests.Count);
         Assert.All(capturedRequests, req => Assert.Equal(HttpMethod.Put, req.Method));
+    }
+
+    [Fact]
+    public async Task RestoreLightStates_ColorTemperatureSendsMirekWithoutColorPayload()
+    {
+        var lightStates = new List<HueClient.LightState>
+        {
+            new("light-ct", true, 62, 0, 0, 325, false)
+        };
+        Task<string>? capturedBodyTask = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                capturedBodyTask = request.Content!.ReadAsStringAsync())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        await client.RestoreLightStates("192.168.1.100", "test-app-key", lightStates);
+
+        Assert.NotNull(capturedBodyTask);
+        using var payload = JsonDocument.Parse(await capturedBodyTask!);
+        var root = payload.RootElement;
+        Assert.Equal(325, root.GetProperty("color_temperature").GetProperty("mirek").GetInt32());
+        Assert.False(root.TryGetProperty("color", out _));
+    }
+
+    [Fact]
+    public async Task RestoreLightStates_WithoutColorOrMirekOmitsColorPayload()
+    {
+        var lightStates = new List<HueClient.LightState>
+        {
+            new("light-white", true, 80, 0, 0, null, false)
+        };
+        Task<string>? capturedBodyTask = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                capturedBodyTask = request.Content!.ReadAsStringAsync())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        await client.RestoreLightStates("192.168.1.100", "test-app-key", lightStates);
+
+        Assert.NotNull(capturedBodyTask);
+        using var payload = JsonDocument.Parse(await capturedBodyTask!);
+        Assert.False(payload.RootElement.TryGetProperty("color", out _));
+        Assert.False(payload.RootElement.TryGetProperty("color_temperature", out _));
     }
 
     [Fact]
