@@ -138,6 +138,49 @@ public sealed class HueSyncServiceLifecycleTests
         await service.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task SyncLoopSendFailures_StopAfterThresholdAndCleansUp()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var syncCts = new CancellationTokenSource();
+        SetPrivateField(service, "_syncCts", syncCts);
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        const int frameSize = 160 * 90 * 3;
+        var loopMethod = typeof(HueSyncService).GetMethod("RunSyncLoop", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var loopTask = Assert.IsAssignableFrom<Task>(loopMethod.Invoke(service, new object?[]
+        {
+            new MemoryStream(new byte[frameSize * 5]),
+            new Dictionary<int, (double x, double z)> { [1] = (0, 0) },
+            "area-id",
+            1,
+            syncCts,
+            "session-a"
+        }));
+        await loopTask;
+
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForSyncStateClearedAsync(service);
+
+        var status = service.GetRuntimeStatus();
+        Assert.False(service.IsSyncing);
+        Assert.Equal("Error", status.State);
+        Assert.Equal("The DTLS stream failed to send colors after repeated reconnect attempts.", status.LastError);
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
     private static async Task WaitForRuntimeStatusAsync(
         HueSyncService service,
         string expectedState,

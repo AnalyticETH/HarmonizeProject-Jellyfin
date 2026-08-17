@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.12] - 2026-08-17
+
+### Added
+- Bounded DTLS send-failure handling so a stream that cannot recover does not leave lights frozen
+- Regression coverage for repeated send failures, error reporting, and terminal cleanup
+
+### Changed
+- Repeated Hue stream write failures now stop synchronization, restore saved lights, deactivate the entertainment area, and clear runtime ownership
+
 ## [1.5.11] - 2026-08-17
 
 ### Added

@@ -217,7 +217,9 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
 * **Lights stop updating:** check that `ffmpeg` and `openssl` are available to the Jellyfin
   service account and inspect the Jellyfin server log for `Hue Sync` and `FFmpeg` entries. If a
   frame stream ends or fails, the plugin now restores saved lights and deactivates the area
-  automatically; the Live Sync Status panel will retain the failure diagnostic.
+  automatically. If repeated DTLS writes and reconnect attempts fail, synchronization also stops
+  instead of leaving the lights frozen, restores/deactivates safely, and retains the failure
+  diagnostic in the Live Sync Status panel.
 * **A mapping is ignored:** enabled mappings must include a valid bridge address, App Key,
   Client Key, and Entertainment Area ID. A mapping with **Enable Hue Sync for this user**
   unchecked intentionally leaves that user's playback unchanged; users without a mapping use
@@ -246,7 +248,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.11 (Current)
+### Version 1.5.12 (Current)
+- **Bounded stream recovery**: Repeated DTLS send failures now terminate sync safely, restore lights, deactivate the area, and publish an actionable error instead of leaving stale output active
+
+### Version 1.5.11
 - **Terminal cleanup**: Ended or failed FFmpeg frame streams now restore lights, stop the DTLS process, and deactivate the entertainment area without waiting for a later playback-stop event
 
 ### Version 1.5.10

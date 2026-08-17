@@ -34,6 +34,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private const int MinFps = 1;
         private const int MaxFps = 60;
         private const int DefaultFrameDurationMs = 50;
+        private const int MaxConsecutiveDtlsSendFailures = 5;
 
         // Color processing constants
         private const int ColorDivisor = 2; // Divide by 2 for 16-bit color compatibility
@@ -351,6 +352,32 @@ namespace Jellyfin.Plugin.Hue.Service
                     _lastError = null;
                 }
             }
+        }
+
+        private bool HandleDtlsSendResult(
+            bool sent,
+            CancellationToken token,
+            ref int consecutiveFailures)
+        {
+            if (token.IsCancellationRequested)
+                return true;
+
+            if (sent)
+            {
+                consecutiveFailures = 0;
+                ClearTransientRuntimeWarning();
+                return true;
+            }
+
+            consecutiveFailures++;
+            if (consecutiveFailures >= MaxConsecutiveDtlsSendFailures)
+            {
+                SetRuntimeError("The DTLS stream failed to send colors after repeated reconnect attempts.");
+                return false;
+            }
+
+            SetRuntimeWarning("The DTLS stream could not send colors; reconnect is being attempted.");
+            return true;
         }
 
         private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
@@ -752,6 +779,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var token = expectedSyncCts.Token;
             var streamEnded = false;
             var streamFailed = false;
+            var consecutiveSendFailures = 0;
 
             // Pre-calculate bounds for each light based on position
             // Following HarmonizeProject logic: use x (horizontal) and z (vertical) for 2D screen plane
@@ -847,10 +875,11 @@ namespace Jellyfin.Plugin.Hue.Service
                                     blackColors[kvp.Key] = new byte[] { 0, 0, 0, 0, 0, 0 };
                                 }
                                 var blackoutSent = await _hueStreamer!.SendColors(areaId, blackColors, config.ColorChangeThreshold);
-                                if (!blackoutSent && !token.IsCancellationRequested)
-                                    SetRuntimeWarning("The DTLS stream could not send blackout colors; reconnect is being attempted.");
-                                else if (blackoutSent)
-                                    ClearTransientRuntimeWarning();
+                                if (!HandleDtlsSendResult(blackoutSent, token, ref consecutiveSendFailures))
+                                {
+                                    streamFailed = true;
+                                    break;
+                                }
 
                                 var elapsedBlackout = loopTimer.ElapsedMilliseconds;
                                 if (targetFrameDurationMs > 0)
@@ -902,10 +931,11 @@ namespace Jellyfin.Plugin.Hue.Service
                         }
 
                         var processedSent = await _hueStreamer!.SendColors(areaId, processedColors, config.ColorChangeThreshold);
-                        if (!processedSent && !token.IsCancellationRequested)
-                            SetRuntimeWarning("The DTLS stream could not send colors; reconnect is being attempted.");
-                        else if (processedSent)
-                            ClearTransientRuntimeWarning();
+                        if (!HandleDtlsSendResult(processedSent, token, ref consecutiveSendFailures))
+                        {
+                            streamFailed = true;
+                            break;
+                        }
                     }
                     else
                     {
@@ -919,10 +949,11 @@ namespace Jellyfin.Plugin.Hue.Service
                             simpleColors[kvp.Key] = new byte[] { r2, r2, g2, g2, b2, b2 };
                         }
                         var simpleSent = await _hueStreamer!.SendColors(areaId, simpleColors);
-                        if (!simpleSent && !token.IsCancellationRequested)
-                            SetRuntimeWarning("The DTLS stream could not send colors; reconnect is being attempted.");
-                        else if (simpleSent)
-                            ClearTransientRuntimeWarning();
+                        if (!HandleDtlsSendResult(simpleSent, token, ref consecutiveSendFailures))
+                        {
+                            streamFailed = true;
+                            break;
+                        }
                     }
 
                     var elapsedMs = loopTimer.ElapsedMilliseconds;
