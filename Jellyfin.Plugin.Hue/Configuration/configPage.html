@@ -574,13 +574,13 @@
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="mappingAppKey">App Key</label>
                                 <input id="mappingAppKey" type="text" class="emby-input" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
-                                <div class="fieldDescription">Auto-filled via Link, or enter manually.</div>
+                                <div class="fieldDescription">Stored securely on the server. Leave blank to keep the stored key; use Link Bridge or enter a replacement manually.</div>
                             </div>
 
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="mappingClientKey">Client Key</label>
                                 <input id="mappingClientKey" type="text" class="emby-input" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
-                                <div class="fieldDescription">Auto-filled via Link, or enter manually. Test Connection verifies the DTLS stream when set.</div>
+                                <div class="fieldDescription">Stored securely on the server. Leave blank to keep the stored key; use Link Bridge or enter a replacement manually. Test Connection verifies the DTLS stream when available.</div>
                             </div>
 
                             <div class="inputContainer">
@@ -726,6 +726,19 @@
 
                     return !requireClientKey || HueConfigurationPage.globalHasClientKey;
                 },
+                canUseStoredMappingCredentials: function (target, requireClientKey) {
+                    if (!target || !target.userId || !target.bridgeIp ||
+                        String(HueConfigurationPage.mappingEditingUserId || '').toLowerCase() !== String(target.userId).toLowerCase() ||
+                        !HueConfigurationPage.mappingEditingHasAppKey) {
+                        return false;
+                    }
+
+                    return !requireClientKey || HueConfigurationPage.mappingEditingHasClientKey;
+                },
+                canUseStoredTargetCredentials: function (page, target, requireClientKey) {
+                    return HueConfigurationPage.canUseStoredGlobalCredentials(page, target && target.bridgeIp, requireClientKey) ||
+                        HueConfigurationPage.canUseStoredMappingCredentials(target, requireClientKey);
+                },
                 loadConfiguration: function (page) {
                     Dashboard.showLoadingMsg();
                     return ApiClient.getJSON(ApiClient.getUrl("HueSync/Configuration")).then(function (config) {
@@ -845,24 +858,26 @@
                         Dashboard.hideLoadingMsg();
                     });
                 },
-                fetchEntertainmentAreas: function (bridgeIp, appKey) {
+                fetchEntertainmentAreas: function (bridgeIp, appKey, userId) {
                     return ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/EntertainmentAreas"),
                         data: JSON.stringify({
                             ipAddress: bridgeIp,
-                            appKey: appKey
+                            appKey: appKey,
+                            userId: userId || ""
                         }),
                         contentType: "application/json",
                         dataType: "json"
                     });
                 },
-                fetchConnectionTest: function (bridgeIp, appKey, areaId, clientKey, channelIds) {
+                fetchConnectionTest: function (bridgeIp, appKey, areaId, clientKey, channelIds, userId) {
                     var payload = {
                         ipAddress: bridgeIp,
                         appKey: appKey,
                         clientKey: clientKey || "",
-                        entertainmentAreaId: areaId || ""
+                        entertainmentAreaId: areaId || "",
+                        userId: userId || ""
                     };
                     if (channelIds && channelIds.trim()) {
                         payload.channelIds = channelIds.trim();
@@ -876,12 +891,13 @@
                         dataType: "json"
                     });
                 },
-                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds) {
+                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId) {
                     var payload = {
                         ipAddress: bridgeIp,
                         appKey: appKey,
                         clientKey: clientKey,
                         entertainmentAreaId: areaId,
+                        userId: userId || "",
                         red: red,
                         green: green,
                         blue: blue,
@@ -1937,10 +1953,12 @@
                     var appKeyEl = document.getElementById('mappingAppKey');
                     var clientKeyEl = document.getElementById('mappingClientKey');
                     var areaSelect = document.getElementById('mappingAreaSelect');
+                    var userSelect = page ? page.querySelector('#mappingUserSelect') : document.getElementById('mappingUserSelect');
                     var bridgeIp = bridgeIpEl ? bridgeIpEl.value.trim() : '';
                     var appKey = appKeyEl ? appKeyEl.value.trim() : '';
                     var clientKey = clientKeyEl ? clientKeyEl.value.trim() : '';
                     var areaId = areaSelect ? areaSelect.value : '';
+                    var userId = userSelect ? userSelect.value : (HueConfigurationPage.mappingEditingUserId || '');
 
                     if (areaId === "manual") {
                         var manualAreaEl = document.getElementById('mappingAreaManual');
@@ -1964,7 +1982,8 @@
                         bridgeIp: bridgeIp,
                         appKey: appKey,
                         clientKey: clientKey,
-                        areaId: areaId
+                        areaId: areaId,
+                        userId: userId
                     };
                 },
 
@@ -1979,7 +1998,7 @@
                         var globalChannelIdsEl = document.getElementById('channelIds');
                         channelIds = globalChannelIdsEl ? globalChannelIdsEl.value.trim() : '';
                     }
-                    var canUseStoredCredentials = HueConfigurationPage.canUseStoredGlobalCredentials(page, target.bridgeIp, false);
+                    var canUseStoredCredentials = HueConfigurationPage.canUseStoredTargetCredentials(page, target, false);
                     if (!target.bridgeIp || (!target.appKey && !canUseStoredCredentials)) {
                         Dashboard.alert("Enter a mapping or global bridge address and app key first.");
                         return;
@@ -1991,7 +2010,7 @@
                         statusEl.style.background = "#3f51b5";
                     }
                     Dashboard.showLoadingMsg();
-                    HueConfigurationPage.fetchConnectionTest(target.bridgeIp, target.appKey, target.areaId, target.clientKey, channelIds)
+                    HueConfigurationPage.fetchConnectionTest(target.bridgeIp, target.appKey, target.areaId, target.clientKey, channelIds, target.userId)
                         .then(function (response) {
                             var result = HueConfigurationPage.connectionTestMessage(response, target.areaId);
                             if (statusEl) {
@@ -2029,7 +2048,7 @@
                         channelIds = globalChannelIdsEl.value.trim();
                     }
 
-                    var canUseStoredCredentials = HueConfigurationPage.canUseStoredGlobalCredentials(page, target.bridgeIp, true);
+                    var canUseStoredCredentials = HueConfigurationPage.canUseStoredTargetCredentials(page, target, true);
                     if (!target.bridgeIp || (!target.appKey && !canUseStoredCredentials) ||
                         (!target.clientKey && !canUseStoredCredentials) || !target.areaId) {
                         Dashboard.alert("Enter mapping or global bridge credentials, a client key, and an entertainment area first.");
@@ -2059,7 +2078,8 @@
                         values.green,
                         values.blue,
                         values.brightnessPercent,
-                        values.durationSeconds)
+                        values.durationSeconds,
+                        target.userId)
                         .then(function (response) {
                             var result = HueConfigurationPage.previewMessage(response);
                             if (statusEl) {
@@ -2155,7 +2175,7 @@
                     console.log("loadMappingAreas - bridgeIp:", bridgeIp || "[empty]");
                     console.log("loadMappingAreas - appKey:", appKey ? "[set]" : "[empty]");
 
-                    var canUseStoredCredentials = HueConfigurationPage.canUseStoredGlobalCredentials(null, bridgeIp, false);
+                    var canUseStoredCredentials = HueConfigurationPage.canUseStoredTargetCredentials(null, target, false);
                     if (!bridgeIp || (!appKey && !canUseStoredCredentials)) {
                         console.log("Missing credentials, showing placeholder");
                         var currentOption = selectEl && selectEl.selectedOptions && selectEl.selectedOptions[0];
@@ -2173,7 +2193,7 @@
                     selectEl.disabled = true;
 
                     console.log("Fetching entertainment areas from bridge:", bridgeIp);
-                    HueConfigurationPage.fetchEntertainmentAreas(bridgeIp, appKey).then(function (areas) {
+                    HueConfigurationPage.fetchEntertainmentAreas(bridgeIp, appKey, target.userId).then(function (areas) {
                         console.log("Entertainment areas response:", areas);
                         selectEl.innerHTML = '<option value="">Select an area...</option>';
                         areas = Array.isArray(areas) ? areas : [];
@@ -2233,7 +2253,7 @@
                     if (areaId) {
                         var storedOption = document.createElement('option');
                         storedOption.value = areaId;
-                        storedOption.textContent = (areaName || areaId) + " (stored; enter credentials to refresh)";
+                        storedOption.textContent = (areaName || areaId) + " (stored; credentials stay on the server)";
                         storedOption.dataset.areaName = areaName || areaId;
                         selectEl.appendChild(storedOption);
                     } else {
@@ -2250,9 +2270,10 @@
                     selectEl.disabled = false;
                 },
 
-                loadChannelIds: function (bridgeIp, appKey, areaId, button, channelInput, statusEl) {
+                loadChannelIds: function (bridgeIp, appKey, areaId, button, channelInput, statusEl, userId) {
                     var page = document.querySelector('.pluginConfigurationPage');
-                    var canUseStoredCredentials = HueConfigurationPage.canUseStoredGlobalCredentials(page, bridgeIp, false);
+                    var target = { bridgeIp: bridgeIp, appKey: appKey, userId: userId || "" };
+                    var canUseStoredCredentials = HueConfigurationPage.canUseStoredTargetCredentials(page, target, false);
                     if (!bridgeIp || (!appKey && !canUseStoredCredentials) || !areaId) {
                         Dashboard.alert("Enter a bridge address, app key, and entertainment area first.");
                         return Promise.resolve();
@@ -2270,7 +2291,8 @@
                         data: JSON.stringify({
                             ipAddress: bridgeIp,
                             appKey: appKey,
-                            entertainmentAreaId: areaId
+                            entertainmentAreaId: areaId,
+                            userId: userId || ""
                         }),
                         contentType: "application/json",
                         dataType: "json"
@@ -2325,7 +2347,8 @@
                         areaId,
                         page.querySelector('#loadChannelsBtn'),
                         page.querySelector('#channelIds'),
-                        page.querySelector('#channelIdsStatus'));
+                        page.querySelector('#channelIdsStatus'),
+                        "");
                 },
 
                 loadMappingChannels: function () {
@@ -2337,7 +2360,8 @@
                         target.areaId,
                         document.getElementById('mappingLoadChannelsBtn'),
                         document.getElementById('mappingChannelIdsOverride'),
-                        document.getElementById('mappingChannelIdsStatus'));
+                        document.getElementById('mappingChannelIdsStatus'),
+                        target.userId);
                 },
 
                 addUserMapping: function () {

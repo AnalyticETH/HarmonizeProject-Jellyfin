@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.56] - 2026-08-17
+
+### Added
+- Redacted custom per-user mapping credentials can now be used by administrator area loading, channel discovery, Test Connection, and Preview operations
+
+### Security
+- Custom mapping credential fallback requires both the matching persisted `UserId` and bridge target; arbitrary targets cannot borrow another mapping's stored keys
+- The browser continues to send blank mapping secrets, keeping App and Client Keys server-side while preserving existing mapping edits
+
 ## [1.5.55] - 2026-08-17
 
 ### Security

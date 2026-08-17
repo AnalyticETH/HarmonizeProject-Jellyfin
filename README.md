@@ -138,10 +138,10 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | Endpoint | Purpose |
 | :--- | :--- |
 | `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
-| `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
-| `POST /HueSync/EntertainmentChannels` | Load the selected area's channel IDs with `{ "ipAddress": "...", "appKey": "...", "entertainmentAreaId": "..." }`. |
-| `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration; supplying `channelIds` (comma-separated) validates and probes only that channel profile. |
-| `POST /HueSync/Preview` | Display a bounded solid color and restore the selected lights. Request fields include `ipAddress`, `appKey`, `clientKey`, `entertainmentAreaId`, optional `channelIds`, `red`, `green`, `blue` (0-255), `brightnessPercent` (0-100), and `durationSeconds` (1-30). Active playback must be stopped first. |
+| `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "", "userId": "..." }` in the request body. A blank key may use the stored global key or the stored custom mapping key only when both the bridge target and user ID match. |
+| `POST /HueSync/EntertainmentChannels` | Load the selected area's channel IDs with `{ "ipAddress": "...", "appKey": "", "userId": "...", "entertainmentAreaId": "..." }`; stored credentials remain server-side when the target matches. |
+| `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration; supplying `channelIds` (comma-separated) validates and probes only that channel profile. `userId` enables matching redacted custom mapping credentials. |
+| `POST /HueSync/Preview` | Display a bounded solid color and restore the selected lights. Request fields include `ipAddress`, `appKey`, `clientKey`, optional `userId`, `entertainmentAreaId`, optional `channelIds`, `red`, `green`, `blue` (0-255), `brightnessPercent` (0-100), and `durationSeconds` (1-30). Active playback must be stopped first; matching stored mapping credentials may be used without sending secrets to the browser. |
 | `GET /HueSync/ColorPresets` | List saved, credential-free color scenes sorted by name. |
 | `POST /HueSync/ColorPresets` | Save or update a named color scene with `name`, RGB values, `brightnessPercent`, and `durationSeconds`; names are case-insensitive and values are validated. |
 | `DELETE /HueSync/ColorPresets/{name}` | Delete one saved color scene by name. |
@@ -149,7 +149,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/Diagnostics` | Run a non-mutating, cancellation-aware local prerequisite check for configuration validity, FFmpeg/OpenSSL versions, bridge lifecycle contention, and playback/diagnostic readiness. No bridge credentials are returned. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. |
-| `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
+| `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients; `userId` can select a matching stored custom mapping, but POST is preferred so keys do not appear in URLs. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 
@@ -318,7 +318,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.55 (Current)
+### Version 1.5.56 (Current)
+- **Credential-safe custom mapping diagnostics**: Existing custom mappings can refresh areas and channels or run Test Connection/Preview without re-entering stored secrets; resolution requires the matching mapping user ID and bridge target
+
+### Version 1.5.55
 - **Credential-safe global configuration**: Configuration responses expose only global credential presence flags; blank secret edits preserve stored keys, explicit clearing is supported, and implicit fallback is restricted to the configured bridge target
 - **Credential-safe administrator UI**: The browser keeps global App/Client Keys blank while still loading areas, channels, connection tests, and previews through the protected server-side fallback
 
