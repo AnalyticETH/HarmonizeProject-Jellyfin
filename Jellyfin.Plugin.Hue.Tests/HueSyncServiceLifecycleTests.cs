@@ -10,6 +10,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Serialization;
+using MediaBrowser.Model.Session;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -147,6 +148,86 @@ public sealed class HueSyncServiceLifecycleTests
 
         Assert.Null(service.GetRuntimeStatus().CleanupWarning);
         await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StartAsync_RecoversAnAlreadyPlayingVideoSession()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var sessionManager = new Mock<ISessionManager>();
+        var activeSession = new SessionInfo(sessionManager.Object, Mock.Of<ILogger>())
+        {
+            Id = "client-session-1",
+            UserId = Guid.NewGuid(),
+            UserName = "Already Playing Viewer",
+            LastActivityDate = DateTime.UtcNow,
+            FullNowPlayingItem = new MediaBrowser.Controller.Entities.Video
+            {
+                Name = "Already playing film",
+                Path = "/tmp/already-playing-film.mkv"
+            },
+            PlayState = new PlayerStateInfo
+            {
+                IsPaused = false,
+                PositionTicks = TimeSpan.FromSeconds(37).Ticks
+            }
+        };
+        sessionManager
+            .SetupGet(manager => manager.Sessions)
+            .Returns(new[] { activeSession });
+        var service = CreateService(httpClient, sessionManager: sessionManager.Object);
+
+        await service.StartAsync(CancellationToken.None);
+        await handler.FirstConfigurationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var status = service.GetRuntimeStatus();
+        Assert.True(status.IsSyncing);
+        Assert.Equal("Already playing film", status.CurrentItem);
+        Assert.Equal("Already Playing Viewer", status.ActiveUserName);
+
+        handler.ReleaseFirstConfiguration();
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public void RecoveredPlaybackEventsUseTheStableLifecycleSessionId()
+    {
+        using var httpClient = new HttpClient(new BlockingHueHandler());
+        var service = CreateService(httpClient);
+        SetPrivateField(service, "_currentPlaySessionId", "hue-recovered:client-session-1");
+        SetPrivateField(service, "_recoveredSessionId", "client-session-1");
+        var session = new SessionInfo(Mock.Of<ISessionManager>(), Mock.Of<ILogger>())
+        {
+            Id = "client-session-1"
+        };
+
+        var progress = new PlaybackProgressEventArgs
+        {
+            Item = CreateItem("/tmp/recovered-video"),
+            Session = session,
+            PlaySessionId = "jellyfin-play-session",
+            PlaybackPositionTicks = 10L
+        };
+        var normalizeProgress = typeof(HueSyncService).GetMethod(
+            "NormalizeRecoveredPlaybackEvent",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var normalizedProgress = Assert.IsType<PlaybackProgressEventArgs>(normalizeProgress.Invoke(service, new object?[] { progress }));
+        Assert.Equal("hue-recovered:client-session-1", normalizedProgress.PlaySessionId);
+
+        var stop = new PlaybackStopEventArgs
+        {
+            Item = CreateItem("/tmp/recovered-video"),
+            Session = session,
+            PlaySessionId = "jellyfin-play-session"
+        };
+        var normalizeStop = typeof(HueSyncService).GetMethod(
+            "NormalizeRecoveredPlaybackStop",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var normalizedStop = Assert.IsType<PlaybackStopEventArgs>(normalizeStop.Invoke(service, new object?[] { stop }));
+        Assert.Equal("hue-recovered:client-session-1", normalizedStop.PlaySessionId);
     }
 
     [Fact]
@@ -942,7 +1023,10 @@ public sealed class HueSyncServiceLifecycleTests
         await service.StopAsync(CancellationToken.None);
     }
 
-    private static HueSyncService CreateService(HttpClient httpClient, HueBridgeLifecycleGate? bridgeLifecycleGate = null)
+    private static HueSyncService CreateService(
+        HttpClient httpClient,
+        HueBridgeLifecycleGate? bridgeLifecycleGate = null,
+        ISessionManager? sessionManager = null)
     {
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>());
         var loggerFactory = new Mock<ILoggerFactory>();
@@ -976,7 +1060,7 @@ public sealed class HueSyncServiceLifecycleTests
         configuration.UseCinemaMode = false;
 
         return new HueSyncService(
-            Mock.Of<ISessionManager>(),
+            sessionManager ?? Mock.Of<ISessionManager>(),
             Mock.Of<ILogger<HueSyncService>>(),
             loggerFactory.Object,
             hueClient,

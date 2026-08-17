@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.63] - 2026-08-17
+
+### Added
+- **Startup playback recovery**: when the plugin starts while Jellyfin already has an unpaused video session, Hue sync now resumes at the server-reported position instead of waiting for a new PlaybackStart event
+- **Recovered-session lifecycle matching**: startup recovery maps later Jellyfin progress/stop notifications back to the recovered lifecycle so seek recovery, pause behavior, cleanup, and last-session telemetry remain intact
+
 ## [1.5.62] - 2026-08-17
 
 ### Added

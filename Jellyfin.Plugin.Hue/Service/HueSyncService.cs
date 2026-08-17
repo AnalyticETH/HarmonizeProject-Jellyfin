@@ -49,6 +49,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private const double PlaybackSeekBackwardToleranceSeconds = 2;
         private const double PlaybackSeekMinimumForwardJumpSeconds = 5;
         private const double PlaybackSeekForwardToleranceSeconds = 8;
+        private const string RecoveredPlaySessionPrefix = "hue-recovered:";
 
         // Color processing constants
         private const int ColorDivisor = 2; // Divide by 2 for 16-bit color compatibility
@@ -65,6 +66,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private CancellationTokenSource? _syncCts;
         private readonly ILoggerFactory _loggerFactory;
         private string? _currentPlaySessionId;
+        private string? _recoveredSessionId;
         private Guid? _currentUserId;
         private string? _currentUserName;
         private List<HueClient.LightState>? _savedLightStates;
@@ -210,7 +212,72 @@ namespace Jellyfin.Plugin.Hue.Service
             _hueStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
             _ffmpegStreamer = new FfmpegStreamer(_loggerFactory.CreateLogger<FfmpegStreamer>());
 
+            RecoverActiveVideoSession();
+
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Reconnects Hue synchronization when the plugin is started while Jellyfin is
+        /// already playing a video. Jellyfin does not replay PlaybackStart for a service
+        /// that subscribes after the session began, so without this recovery the viewer
+        /// would need to stop and restart playback manually.
+        ///
+        /// The sync service owns one playback pipeline, so at most one eligible active
+        /// session is recovered. A later playback event still follows the normal lifecycle
+        /// arbitration and remains observable in the runtime status.
+        /// </summary>
+        private void RecoverActiveVideoSession()
+        {
+            try
+            {
+                var activeSession = _sessionManager.Sessions
+                    ?.FirstOrDefault(session =>
+                        session.IsActive &&
+                        session.PlayState != null &&
+                        !session.PlayState.IsPaused &&
+                        session.FullNowPlayingItem != null &&
+                        IsSupportedVideoPlaybackItem(session.FullNowPlayingItem) &&
+                        !string.IsNullOrWhiteSpace(session.Id));
+
+                if (activeSession == null)
+                    return;
+
+                lock (_syncLock)
+                {
+                    if (_isStopping || _currentPlaySessionId != null || _startingPlaySessionId != null)
+                        return;
+
+                    _recoveredSessionId = activeSession.Id;
+                }
+
+                var playState = activeSession.PlayState;
+                var progress = new PlaybackProgressEventArgs
+                {
+                    Item = activeSession.FullNowPlayingItem!,
+                    Session = activeSession,
+                    PlaySessionId = RecoveredPlaySessionPrefix + activeSession.Id,
+                    PlaybackPositionTicks = playState.PositionTicks,
+                    IsPaused = playState.IsPaused
+                };
+
+                _logger.LogInformation(
+                    "Recovering Hue sync for active playback session {0} after service startup",
+                    progress.PlaySessionId);
+                OnPlaybackStart(this, progress);
+
+                lock (_syncLock)
+                {
+                    if (!string.Equals(_currentPlaySessionId, progress.PlaySessionId, StringComparison.Ordinal))
+                        _recoveredSessionId = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Startup recovery must never prevent Jellyfin from finishing plugin
+                // initialization; a later PlaybackStart event remains the fallback.
+                _logger.LogWarning(ex, "Could not recover Hue sync for active playback after service startup");
+            }
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
@@ -655,10 +722,60 @@ namespace Jellyfin.Plugin.Hue.Service
             return true;
         }
 
+        private string? GetRecoveredLifecyclePlaySessionId(string? eventPlaySessionId, SessionInfo? session)
+        {
+            lock (_syncLock)
+            {
+                if (_recoveredSessionId == null ||
+                    _currentPlaySessionId == null ||
+                    !string.Equals(_recoveredSessionId, session?.Id, StringComparison.Ordinal))
+                {
+                    return null;
+                }
+
+                return string.Equals(eventPlaySessionId, _currentPlaySessionId, StringComparison.Ordinal)
+                    ? null
+                    : _currentPlaySessionId;
+            }
+        }
+
+        private PlaybackProgressEventArgs NormalizeRecoveredPlaybackEvent(PlaybackProgressEventArgs e)
+        {
+            var lifecyclePlaySessionId = GetRecoveredLifecyclePlaySessionId(e.PlaySessionId, e.Session);
+            if (lifecyclePlaySessionId == null)
+                return e;
+
+            return new PlaybackProgressEventArgs
+            {
+                Item = e.Item,
+                Session = e.Session,
+                PlaySessionId = lifecyclePlaySessionId,
+                PlaybackPositionTicks = e.PlaybackPositionTicks,
+                IsPaused = e.IsPaused
+            };
+        }
+
+        private PlaybackStopEventArgs NormalizeRecoveredPlaybackStop(PlaybackStopEventArgs e)
+        {
+            var lifecyclePlaySessionId = GetRecoveredLifecyclePlaySessionId(e.PlaySessionId, e.Session);
+            if (lifecyclePlaySessionId == null)
+                return e;
+
+            return new PlaybackStopEventArgs
+            {
+                Item = e.Item,
+                Session = e.Session,
+                PlaySessionId = lifecyclePlaySessionId,
+                PlayedToCompletion = e.PlayedToCompletion
+            };
+        }
+
         private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
         {
             if (_isStopping)
                 return;
+
+            e = NormalizeRecoveredPlaybackEvent(e);
             _logger.LogInformation("Playback started for item {0}", e.Item.Name);
 
             if (!IsPlaybackUserSyncEnabled(e))
@@ -707,6 +824,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (_currentPlaySessionId == null)
                 {
                     _currentPlaySessionId = e.PlaySessionId;
+                    if (!e.PlaySessionId.StartsWith(RecoveredPlaySessionPrefix, StringComparison.Ordinal))
+                        _recoveredSessionId = null;
                     ResetPlaybackProgressTrackingLocked();
                 }
 
@@ -722,6 +841,8 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             if (_isStopping)
                 return;
+
+            e = NormalizeRecoveredPlaybackStop(e);
 
             if (e.Item != null && !IsSupportedVideoPlaybackItem(e.Item))
             {
@@ -752,6 +873,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     if (manuallyStopped)
                     {
                         _currentPlaySessionId = null;
+                        _recoveredSessionId = null;
                         _currentItemName = null;
                     }
                 }
@@ -833,6 +955,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     if (string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
                     {
                         _currentPlaySessionId = null;
+                        _recoveredSessionId = null;
                         ResetPlaybackProgressTrackingLocked();
                     }
                 }
@@ -847,6 +970,8 @@ namespace Jellyfin.Plugin.Hue.Service
 
             if (!IsPlaybackUserSyncEnabled(e))
                 return;
+
+            e = NormalizeRecoveredPlaybackEvent(e);
 
             if (e.Item != null && !IsSupportedVideoPlaybackItem(e.Item))
                 return;
@@ -1101,7 +1226,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 syncCts = _syncCts;
                 _syncCts = null;
                 if (clearSession)
+                {
                     _currentPlaySessionId = null;
+                    _recoveredSessionId = null;
+                }
             }
 
             syncCts?.Cancel();
@@ -2026,7 +2154,10 @@ namespace Jellyfin.Plugin.Hue.Service
                     lock (_syncLock)
                     {
                         if (string.Equals(_currentPlaySessionId, playSessionId, StringComparison.Ordinal))
+                        {
                             _currentPlaySessionId = null;
+                            _recoveredSessionId = null;
+                        }
                     }
                 }
             }
@@ -2101,6 +2232,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         (_syncCts == null || _syncCts.IsCancellationRequested))
                     {
                         _currentPlaySessionId = null;
+                        _recoveredSessionId = null;
                     }
                 }
             }
