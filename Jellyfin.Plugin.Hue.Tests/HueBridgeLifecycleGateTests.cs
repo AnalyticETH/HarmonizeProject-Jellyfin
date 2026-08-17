@@ -54,4 +54,23 @@ public sealed class HueBridgeLifecycleGateTests
         Assert.NotNull(secondLease);
         Assert.Null(gate.TryEnterPlayback());
     }
+
+    [Fact]
+    public void DistinctPlaybackTargetsCanStreamConcurrentlyButSameTargetCannot()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var livingRoom = gate.TryEnterPlayback("192.168.1.10|living-room");
+        using var bedroom = gate.TryEnterPlayback("192.168.1.10|bedroom");
+
+        Assert.NotNull(livingRoom);
+        Assert.NotNull(bedroom);
+        Assert.True(gate.IsPlaybackActive);
+        Assert.Null(gate.TryEnterPlayback("192.168.1.10|living-room"));
+        Assert.Null(gate.TryEnterDiagnostic());
+
+        livingRoom!.Dispose();
+        Assert.True(gate.IsPlaybackActive);
+        using var replacement = gate.TryEnterPlayback("192.168.1.10|living-room");
+        Assert.NotNull(replacement);
+    }
 }

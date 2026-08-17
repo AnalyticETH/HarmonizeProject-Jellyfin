@@ -52,7 +52,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. Disconnecting or canceling the request stops the diagnostic lifecycle safely. |
 | **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, active bridge lifecycle contention, and playback/diagnostic readiness. **Validate Saved Targets** additionally checks every enabled default/inherited/custom bridge mapping for reachability, selected-area presence, and controllable channels without opening a DTLS stream. |
-| **Live Sync Status** | Show the active Jellyfin user, selected bridge/area, captured profiles, effective FPS, sent/skipped/failed stream updates, reconnect attempts, seek-recovery restarts, frame health, cleanup warnings, and a safe stop control while playback is running. |
+| **Live Sync Status** | Show the active Jellyfin user, selected bridge/area, captured profiles, effective FPS, sent/skipped/failed stream updates, reconnect attempts, seek-recovery restarts, frame health, cleanup warnings, and safe per-session stop controls while playback is running. Distinct mapped bridges/areas can be streamed concurrently. |
 | **Startup recovery** | If the plugin or Jellyfin service starts while an unpaused video is already playing, recover the active session at Jellyfin's current position so viewers do not need to stop and restart playback. |
 | **Completed-session summary** | Keep the most recent video session's outcome, duration, frame/packet telemetry, reconnects, seek recoveries, and cleanup warnings visible after playback ends; summaries never contain bridge credentials or playback tokens. Audio-only and other non-video playback is ignored safely. |
 | **Hue App Key** | "Username" for the REST API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it, or use Link Bridge to replace it. |
@@ -99,6 +99,12 @@ To configure per-user mappings:
 6. Click **Add User Mapping**
 
 Users without a mapping will use the default bridge settings configured above.
+
+When different viewers are watching at the same time, sessions mapped to different
+bridge/entertainment-area targets run independent FFmpeg and DTLS pipelines concurrently.
+Two sessions targeting the same area remain serialized because a Hue entertainment area
+accepts one active stream. The Live Sync Status panel lists each active session, target,
+and stop control; stopping one session leaves the other viewer and Jellyfin playback running.
 Existing mappings can be updated with **Edit** or removed with **Delete**. Editing keeps the
 selected Jellyfin user fixed while allowing the bridge address, credentials, and area to change.
 To keep a per-user profile while using the global bridge, create or edit an enabled mapping and
@@ -149,10 +155,10 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/ColorPresets` | List saved, credential-free color scenes sorted by name. |
 | `POST /HueSync/ColorPresets` | Save or update a named color scene with `name`, RGB values, `brightnessPercent`, and `durationSeconds`; names are case-insensitive and values are validated. |
 | `DELETE /HueSync/ColorPresets/{name}` | Delete one saved color scene by name. |
-| `GET /HueSync/Status` | Read sanitized runtime state, active Jellyfin user and target, active performance/color/execution/channel/restoration profile, frame count, effective FPS, stream packet counters, reconnect attempts, seek-recovery restart count and last seek position, FFmpeg/DTLS health, cleanup warnings, the credential-free `lastSession` summary, and whether the current sync can be stopped safely. |
+| `GET /HueSync/Status` | Read sanitized runtime state, active Jellyfin user and target, active performance/color/execution/channel/restoration profile, frame count, effective FPS, stream packet counters, reconnect attempts, seek-recovery restart count and last seek position, FFmpeg/DTLS health, cleanup warnings, the credential-free `lastSession` summary, whether the current sync can be stopped safely, and a `sessions` array for concurrent playback workers. |
 | `GET /HueSync/Diagnostics` | Run a non-mutating, cancellation-aware local prerequisite check for configuration validity, FFmpeg/OpenSSL versions, bridge lifecycle contention, and playback/diagnostic readiness. No bridge credentials are returned. |
 | `GET /HueSync/TargetDiagnostics` | Validate every saved default, inherited, and enabled custom bridge target without mutating bridge state; reports reachability, selected-area presence, controllable channel counts, credential presence, and sanitized readiness messages. |
-| `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
+| `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. Pass `playSessionId` to stop one listed concurrent session. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients; `userId` can select a matching stored custom mapping, but POST is preferred so keys do not appear in URLs. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |

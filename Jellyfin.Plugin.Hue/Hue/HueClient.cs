@@ -27,6 +27,18 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         public int RetryAttempts { get; set; } = DefaultRetryAttempts;
 
+        /// <summary>
+        /// Creates a lightweight playback client that reuses the safe HttpClient transport
+        /// but keeps retry policy state isolated from another concurrent playback worker.
+        /// </summary>
+        internal HueClient CreatePlaybackClient()
+        {
+            return new HueClient(_httpClient, _logger, _localDiscovery)
+            {
+                RetryAttempts = RetryAttempts
+            };
+        }
+
         public HueClient(
             HttpClient httpClient,
             ILogger<HueClient> logger,

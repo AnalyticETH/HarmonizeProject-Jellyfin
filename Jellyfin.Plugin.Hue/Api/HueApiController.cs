@@ -826,6 +826,7 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             var config = Plugin.Instance?.Configuration;
             var runtime = _syncService?.GetRuntimeStatus();
+            var sessions = _syncService?.GetPlaybackRuntimeStatuses() ?? Array.Empty<HueRuntimeStatus>();
             var status = new HueSyncStatus
             {
                 IsEnabled = config?.SyncEnabled ?? false,
@@ -877,7 +878,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 IsDtlsHealthy = runtime?.IsDtlsHealthy ?? false,
                 SyncDurationSeconds = runtime?.SyncDurationSeconds,
                 SyncStartedAtUtc = runtime?.SyncStartedAtUtc,
-                LastSession = runtime?.LastSession
+                LastSession = runtime?.LastSession,
+                Sessions = sessions
             };
 
             return Ok(status);
@@ -954,7 +956,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 CanStartPlayback = serviceAvailable && configurationValid && (config?.SyncEnabled ?? false) &&
                     (hasDefaultTarget || hasCustomUserTarget) &&
                     environment.Ffmpeg.Available && environment.OpenSsl.Available &&
-                    !playbackActive && !diagnosticActive,
+                    !diagnosticActive,
                 RuntimeState = runtime?.State ?? "Unavailable",
                 RuntimeMessage = runtime?.Message,
                 LastError = runtime?.LastError,
@@ -1195,15 +1197,20 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-        public async Task<ActionResult> StopSync()
+        public async Task<ActionResult> StopSync(
+            [FromQuery(Name = "playSessionId")] string? playSessionId = null)
         {
             if (_syncService == null)
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue sync service is not available.");
 
-            if (!await _syncService.StopCurrentSyncAsync())
+            if (!await _syncService.StopCurrentSyncAsync(playSessionId))
                 return Conflict("There is no active playback sync session to stop.");
 
-            return Ok(new { message = "Hue sync stopped; playback continues." });
+            return Ok(new
+            {
+                message = "Hue sync stopped; playback continues.",
+                playSessionId
+            });
         }
 
         /// <summary>
@@ -1967,6 +1974,11 @@ namespace Jellyfin.Plugin.Hue.Api
         public double? SyncDurationSeconds { get; set; }
         public DateTime? SyncStartedAtUtc { get; set; }
         public HueSessionSummary? LastSession { get; set; }
+        /// <summary>
+        /// Sanitized active playback sessions. Existing top-level fields continue to
+        /// describe the primary session for backward compatibility.
+        /// </summary>
+        public IReadOnlyList<HueRuntimeStatus> Sessions { get; set; } = Array.Empty<HueRuntimeStatus>();
     }
 
     /// <summary>

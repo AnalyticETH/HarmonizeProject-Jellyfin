@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.64] - 2026-08-17
+
+### Added
+- **Concurrent multi-room playback**: independent Jellyfin video sessions mapped to different Hue bridges or entertainment areas now stream simultaneously, each with its own FFmpeg capture, DTLS connection, cancellation, restoration, and telemetry lifecycle
+- **Target-scoped lifecycle arbitration**: same-target playback remains serialized while distinct Hue targets can run together; diagnostics remain process-wide and cannot overlap any playback stream
+- **Multi-session runtime controls**: `GET /HueSync/Status` exposes sanitized active-session snapshots, and `POST /HueSync/Stop?playSessionId=...` stops one selected session without stopping Jellyfin playback
+- **Startup recovery for multiple viewers**: active sessions found during plugin startup are recovered independently when their configured targets do not conflict
+
 ## [1.5.63] - 2026-08-17
 
 ### Added

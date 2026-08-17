@@ -36,6 +36,7 @@
                             <div><strong>Seek recovery:</strong> <span id="runtimeSeekRecovery">—</span></div>
                             <div><strong>Duration:</strong> <span id="runtimeDuration">—</span></div>
                             <div><strong>Last session:</strong> <span id="runtimeLastSession">—</span></div>
+                            <div><strong>Active sessions:</strong> <div id="runtimeSessions">—</div></div>
                         </div>
                         <button is="emby-button" type="button" class="raised" id="refreshRuntimeStatusBtn">
                             <span>Refresh Status</span>
@@ -1441,6 +1442,7 @@
                         var dtlsHealthy = HueConfigurationPage.readStatusField(status, "IsDtlsHealthy", false);
                         var duration = HueConfigurationPage.readStatusField(status, "SyncDurationSeconds", null);
                         var lastSession = HueConfigurationPage.readStatusField(status, "LastSession", null);
+                        var activeSessions = HueConfigurationPage.readStatusField(status, "Sessions", []);
                         var message = HueConfigurationPage.readStatusField(status, "StatusMessage", "");
                         var lastError = HueConfigurationPage.readStatusField(status, "LastError", "");
                         var cleanupWarning = HueConfigurationPage.readStatusField(status, "CleanupWarning", "");
@@ -1503,6 +1505,38 @@
                                 HueConfigurationPage.formatRuntimeDuration(lastSessionDuration) + " · " + String(lastSessionPackets || 0) + " packets";
                         }
                         page.querySelector('#runtimeLastSession').textContent = lastSessionText;
+                        var sessionsElement = page.querySelector('#runtimeSessions');
+                        if (sessionsElement) {
+                            sessionsElement.textContent = "";
+                            if (!Array.isArray(activeSessions) || activeSessions.length === 0) {
+                                sessionsElement.textContent = "—";
+                            } else {
+                                activeSessions.forEach(function (session) {
+                                    var item = HueConfigurationPage.readStatusField(session, "CurrentItem", "Playback");
+                                    var user = HueConfigurationPage.readStatusField(session, "ActiveUserName", "");
+                                    var target = HueConfigurationPage.readStatusField(session, "ActiveBridgeIp", "");
+                                    var area = HueConfigurationPage.readStatusField(session, "ActiveEntertainmentAreaId", "");
+                                    var stateText = HueConfigurationPage.readStatusField(session, "State", "Starting");
+                                    var sessionLine = document.createElement('div');
+                                    sessionLine.textContent = item + (user ? " · " + user : "") + " · " + stateText +
+                                        (target && area ? " · " + target + " / " + area : "");
+                                    var sessionId = HueConfigurationPage.readStatusField(session, "PlaySessionId", "");
+                                    var sessionCanStop = HueConfigurationPage.readStatusField(session, "CanStopSync", false);
+                                    if (sessionCanStop && sessionId) {
+                                        var stopSessionButton = document.createElement('button');
+                                        stopSessionButton.type = 'button';
+                                        stopSessionButton.className = 'raised';
+                                        stopSessionButton.style.marginLeft = '0.5em';
+                                        stopSessionButton.textContent = 'Stop';
+                                        stopSessionButton.addEventListener('click', function () {
+                                            HueConfigurationPage.stopRuntimeSession(page, sessionId);
+                                        });
+                                        sessionLine.appendChild(stopSessionButton);
+                                    }
+                                    sessionsElement.appendChild(sessionLine);
+                                });
+                            }
+                        }
                         page.querySelector('#runtimeStatusMessage').textContent = message || "No runtime message.";
                         if (stopButton) stopButton.disabled = !serviceAvailable || !canStop;
 
@@ -1707,6 +1741,26 @@
                         console.error("Failed to stop Hue sync:", err);
                         HueConfigurationPage.loadRuntimeStatus(page);
                         Dashboard.alert("Unable to stop Hue sync: " + (err && err.message ? err.message : "no active sync session"));
+                    }).finally(function () {
+                        page._hueRuntimeStopInFlight = false;
+                        Dashboard.hideLoadingMsg();
+                    });
+                },
+                stopRuntimeSession: function (page, playSessionId) {
+                    if (!page || !playSessionId || page._hueRuntimeStopInFlight) return;
+
+                    page._hueRuntimeStopInFlight = true;
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/Stop") + "?playSessionId=" + encodeURIComponent(playSessionId),
+                        dataType: "json"
+                    }).then(function () {
+                        HueConfigurationPage.loadRuntimeStatus(page);
+                    }).catch(function (err) {
+                        console.error("Failed to stop concurrent Hue sync:", err);
+                        HueConfigurationPage.loadRuntimeStatus(page);
+                        Dashboard.alert("Unable to stop the selected Hue sync session.");
                     }).finally(function () {
                         page._hueRuntimeStopInFlight = false;
                         Dashboard.hideLoadingMsg();

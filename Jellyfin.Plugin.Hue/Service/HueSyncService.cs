@@ -59,6 +59,9 @@ namespace Jellyfin.Plugin.Hue.Service
         private readonly ILogger<HueSyncService> _logger;
         private readonly IMediaEncoder _mediaEncoder;
         private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
+        private readonly bool _managesPlaybackEvents;
+        private readonly Dictionary<string, ConcurrentPlaybackWorker> _concurrentPlaybackWorkers =
+            new(StringComparer.Ordinal);
 
         private FfmpegStreamer? _ffmpegStreamer;
         private HueStreamer? _hueStreamer;
@@ -119,6 +122,8 @@ namespace Jellyfin.Plugin.Hue.Service
         private IDisposable? _playbackLifecycleLease;
         private string? _activePauseBehavior;
         private string? _manuallyStoppedPlaySessionId;
+        private bool _externalPlaybackStartPending;
+        private bool _externalPlaybackStopRequested;
         private string _runtimeState = "Idle";
         private string _runtimeMessage = "Waiting for playback.";
         private string? _lastError;
@@ -190,13 +195,45 @@ namespace Jellyfin.Plugin.Hue.Service
             HueClient hueClient,
             IMediaEncoder mediaEncoder,
             HueBridgeLifecycleGate? bridgeLifecycleGate = null)
+            : this(
+                sessionManager,
+                logger,
+                loggerFactory,
+                hueClient,
+                mediaEncoder,
+                bridgeLifecycleGate ?? new HueBridgeLifecycleGate(),
+                managesPlaybackEvents: true)
+        {
+        }
+
+        private HueSyncService(
+            ISessionManager sessionManager,
+            ILogger<HueSyncService> logger,
+            ILoggerFactory loggerFactory,
+            HueClient hueClient,
+            IMediaEncoder mediaEncoder,
+            HueBridgeLifecycleGate bridgeLifecycleGate,
+            bool managesPlaybackEvents)
         {
             _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
             _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
             _mediaEncoder = mediaEncoder ?? throw new ArgumentNullException(nameof(mediaEncoder));
-            _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
+            _bridgeLifecycleGate = bridgeLifecycleGate ?? throw new ArgumentNullException(nameof(bridgeLifecycleGate));
+            _managesPlaybackEvents = managesPlaybackEvents;
+        }
+
+        private HueSyncService CreateConcurrentPlaybackWorker()
+        {
+            return new HueSyncService(
+                _sessionManager,
+                _loggerFactory.CreateLogger<HueSyncService>(),
+                _loggerFactory,
+                _hueClient.CreatePlaybackClient(),
+                _mediaEncoder,
+                _bridgeLifecycleGate,
+                managesPlaybackEvents: false);
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -204,15 +241,19 @@ namespace Jellyfin.Plugin.Hue.Service
             _isStopping = false;
             SetRuntimeStatus("Idle", "Waiting for playback.", clearError: true);
             _logger.LogInformation("Hue Sync Service Started.");
-            _sessionManager.PlaybackStart += OnPlaybackStart;
-            _sessionManager.PlaybackStopped += OnPlaybackStopped;
-            _sessionManager.PlaybackProgress += OnPlaybackProgress;
+            if (_managesPlaybackEvents)
+            {
+                _sessionManager.PlaybackStart += OnPlaybackStart;
+                _sessionManager.PlaybackStopped += OnPlaybackStopped;
+                _sessionManager.PlaybackProgress += OnPlaybackProgress;
+            }
 
             // Helpers
             _hueStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
             _ffmpegStreamer = new FfmpegStreamer(_loggerFactory.CreateLogger<FfmpegStreamer>());
 
-            RecoverActiveVideoSession();
+            if (_managesPlaybackEvents)
+                RecoverActiveVideoSession();
 
             return Task.CompletedTask;
         }
@@ -223,53 +264,50 @@ namespace Jellyfin.Plugin.Hue.Service
         /// that subscribes after the session began, so without this recovery the viewer
         /// would need to stop and restart playback manually.
         ///
-        /// The sync service owns one playback pipeline, so at most one eligible active
-        /// session is recovered. A later playback event still follows the normal lifecycle
-        /// arbitration and remains observable in the runtime status.
+        /// The primary service recovers the first eligible session, and additional active
+        /// sessions are recovered through isolated workers when their configured Hue
+        /// targets are distinct. A later playback event still follows the normal lifecycle
+        /// arbitration and remains observable in runtime status.
         /// </summary>
         private void RecoverActiveVideoSession()
         {
             try
             {
-                var activeSession = _sessionManager.Sessions
-                    ?.FirstOrDefault(session =>
+                var activeSessions = _sessionManager.Sessions
+                    ?.Where(session =>
                         session.IsActive &&
                         session.PlayState != null &&
                         !session.PlayState.IsPaused &&
                         session.FullNowPlayingItem != null &&
                         IsSupportedVideoPlaybackItem(session.FullNowPlayingItem) &&
-                        !string.IsNullOrWhiteSpace(session.Id));
+                        !string.IsNullOrWhiteSpace(session.Id))
+                    .ToArray();
 
-                if (activeSession == null)
+                if (activeSessions == null || activeSessions.Length == 0)
                     return;
 
-                lock (_syncLock)
+                foreach (var activeSession in activeSessions)
                 {
-                    if (_isStopping || _currentPlaySessionId != null || _startingPlaySessionId != null)
-                        return;
+                    lock (_syncLock)
+                    {
+                        if (_isStopping)
+                            return;
+                    }
 
-                    _recoveredSessionId = activeSession.Id;
-                }
+                    var playState = activeSession.PlayState!;
+                    var progress = new PlaybackProgressEventArgs
+                    {
+                        Item = activeSession.FullNowPlayingItem!,
+                        Session = activeSession,
+                        PlaySessionId = RecoveredPlaySessionPrefix + activeSession.Id,
+                        PlaybackPositionTicks = playState.PositionTicks,
+                        IsPaused = playState.IsPaused
+                    };
 
-                var playState = activeSession.PlayState;
-                var progress = new PlaybackProgressEventArgs
-                {
-                    Item = activeSession.FullNowPlayingItem!,
-                    Session = activeSession,
-                    PlaySessionId = RecoveredPlaySessionPrefix + activeSession.Id,
-                    PlaybackPositionTicks = playState.PositionTicks,
-                    IsPaused = playState.IsPaused
-                };
-
-                _logger.LogInformation(
-                    "Recovering Hue sync for active playback session {0} after service startup",
-                    progress.PlaySessionId);
-                OnPlaybackStart(this, progress);
-
-                lock (_syncLock)
-                {
-                    if (!string.Equals(_currentPlaySessionId, progress.PlaySessionId, StringComparison.Ordinal))
-                        _recoveredSessionId = null;
+                    _logger.LogInformation(
+                        "Recovering Hue sync for active playback session {0} after service startup",
+                        progress.PlaySessionId);
+                    OnPlaybackStart(this, progress);
                 }
             }
             catch (Exception ex)
@@ -283,9 +321,25 @@ namespace Jellyfin.Plugin.Hue.Service
         public async Task StopAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("Hue Sync Service Stopping.");
-            _sessionManager.PlaybackStart -= OnPlaybackStart;
-            _sessionManager.PlaybackStopped -= OnPlaybackStopped;
-            _sessionManager.PlaybackProgress -= OnPlaybackProgress;
+            if (_managesPlaybackEvents)
+            {
+                _sessionManager.PlaybackStart -= OnPlaybackStart;
+                _sessionManager.PlaybackStopped -= OnPlaybackStopped;
+                _sessionManager.PlaybackProgress -= OnPlaybackProgress;
+            }
+
+            ConcurrentPlaybackWorker[] concurrentWorkers;
+            lock (_syncLock)
+            {
+                concurrentWorkers = _concurrentPlaybackWorkers.Values.ToArray();
+                _concurrentPlaybackWorkers.Clear();
+            }
+
+            if (concurrentWorkers.Length > 0)
+            {
+                await Task.WhenAll(concurrentWorkers.Select(worker =>
+                    worker.Service.StopAsync(CancellationToken.None))).ConfigureAwait(false);
+            }
 
             Task? pauseCleanup;
             lock (_syncLock)
@@ -294,6 +348,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 _startupCts?.Cancel();
                 _syncCts?.Cancel();
                 _manuallyStoppedPlaySessionId = null;
+                _externalPlaybackStartPending = false;
+                _externalPlaybackStopRequested = false;
                 ResetPlaybackProgressTrackingLocked();
                 pauseCleanup = _pauseCleanupTask;
             }
@@ -383,19 +439,27 @@ namespace Jellyfin.Plugin.Hue.Service
         /// The session is suppressed until its playback-stop event, so progress notifications cannot
         /// immediately restart synchronization.
         /// </summary>
-        public async Task<bool> StopCurrentSyncAsync()
+        public async Task<bool> StopCurrentSyncAsync(string? playSessionId = null)
         {
+            if (!string.IsNullOrWhiteSpace(playSessionId) &&
+                TryGetConcurrentPlaybackWorker(playSessionId, clientSessionId: null, out var concurrentWorker))
+            {
+                return await concurrentWorker.Service.StopCurrentSyncAsync().ConfigureAwait(false);
+            }
+
             await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
             try
             {
-                string? playSessionId;
+                string? activePlaySessionId;
                 lock (_syncLock)
                 {
                     if (!CanStopSync)
                         return false;
 
-                    playSessionId = _currentPlaySessionId ?? _startingPlaySessionId;
-                    _manuallyStoppedPlaySessionId = playSessionId;
+                    activePlaySessionId = _currentPlaySessionId ?? _startingPlaySessionId;
+                    _manuallyStoppedPlaySessionId = activePlaySessionId;
+                    if (_externalPlaybackStartPending)
+                        _externalPlaybackStopRequested = true;
                     _startupCts?.Cancel();
                     _syncCts?.Cancel();
                 }
@@ -403,7 +467,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 var config = Plugin.Instance?.Configuration;
                 var bridgeConfig = _currentBridgeConfig;
                 var savedLightStates = _savedLightStates;
-                StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId, clearSession: false);
+                StopSync(deactivateArea: false, expectedPlaySessionId: activePlaySessionId, clearSession: false);
                 _currentBridgeConfig = null;
                 _currentFrameResolution = null;
                 _currentVideoScalingMode = null;
@@ -472,6 +536,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int seekRestartCount;
             double? lastSeekPositionSeconds;
             HueSessionSummary? lastSessionSummary;
+            string? playSessionId;
 
             lock (_syncLock)
             {
@@ -500,6 +565,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 seekRestartCount = _seekRestartCount;
                 lastSeekPositionSeconds = _lastSeekPositionSeconds;
                 lastSessionSummary = _lastSessionSummary;
+                playSessionId = _currentPlaySessionId;
             }
 
             var isSyncing = syncCts != null && !syncCts.IsCancellationRequested;
@@ -515,6 +581,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             return new HueRuntimeStatus
             {
+                PlaySessionId = playSessionId,
                 State = state,
                 Message = message,
                 LastError = lastError,
@@ -569,6 +636,39 @@ namespace Jellyfin.Plugin.Hue.Service
             };
         }
 
+        /// <summary>
+        /// Returns sanitized status snapshots for playback workers that are streaming to
+        /// targets other than the primary service lifecycle. The primary status remains
+        /// available through <see cref="GetRuntimeStatus"/> for existing clients.
+        /// </summary>
+        public IReadOnlyList<HueRuntimeStatus> GetConcurrentRuntimeStatuses()
+        {
+            ConcurrentPlaybackWorker[] workers;
+            lock (_syncLock)
+            {
+                workers = _concurrentPlaybackWorkers.Values.ToArray();
+            }
+
+            return workers
+                .Select(worker => worker.Service.GetRuntimeStatus())
+                .ToArray();
+        }
+
+        /// <summary>
+        /// Returns all active playback status snapshots, including the primary lifecycle
+        /// and any isolated workers serving distinct Hue targets.
+        /// </summary>
+        public IReadOnlyList<HueRuntimeStatus> GetPlaybackRuntimeStatuses()
+        {
+            var statuses = new List<HueRuntimeStatus>();
+            var primary = GetRuntimeStatus();
+            if (primary.IsSyncing || primary.CurrentItem != null || primary.State is not "Idle")
+                statuses.Add(primary);
+
+            statuses.AddRange(GetConcurrentRuntimeStatuses());
+            return statuses;
+        }
+
         private void SetRuntimeStatus(string state, string message, bool clearError = false)
         {
             lock (_syncLock)
@@ -620,6 +720,16 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             return item is MediaBrowser.Controller.Entities.Video ||
                    item?.MediaType == Jellyfin.Data.Enums.MediaType.Video;
+        }
+
+        /// <summary>
+        /// Builds the non-secret resource identity used to arbitrate independent playback
+        /// lifecycles. A bridge entertainment area can only have one active stream, while
+        /// separate areas (including areas on separate bridges) can run concurrently.
+        /// </summary>
+        internal static string GetPlaybackResourceKey(string bridgeIp, string areaId)
+        {
+            return $"{bridgeIp.Trim().TrimEnd('.').ToLowerInvariant()}|{areaId.Trim().ToLowerInvariant()}";
         }
 
         private bool IsPlaybackUserSyncEnabled(PlaybackProgressEventArgs e)
@@ -770,10 +880,249 @@ namespace Jellyfin.Plugin.Hue.Service
             };
         }
 
+        private bool TryGetConcurrentPlaybackWorker(
+            PlaybackProgressEventArgs e,
+            out ConcurrentPlaybackWorker worker)
+        {
+            return TryGetConcurrentPlaybackWorker(e.PlaySessionId, e.Session?.Id, out worker);
+        }
+
+        private bool TryGetConcurrentPlaybackWorker(
+            PlaybackStopEventArgs e,
+            out ConcurrentPlaybackWorker worker)
+        {
+            return TryGetConcurrentPlaybackWorker(e.PlaySessionId, e.Session?.Id, out worker);
+        }
+
+        private bool TryGetConcurrentPlaybackWorker(
+            string? playSessionId,
+            string? clientSessionId,
+            out ConcurrentPlaybackWorker worker)
+        {
+            lock (_syncLock)
+            {
+                if (!string.IsNullOrWhiteSpace(playSessionId) &&
+                    _concurrentPlaybackWorkers.TryGetValue(playSessionId, out worker!))
+                {
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(clientSessionId))
+                {
+                    var matchingWorker = _concurrentPlaybackWorkers.Values.FirstOrDefault(candidate =>
+                        string.Equals(candidate.ClientSessionId, clientSessionId, StringComparison.Ordinal));
+                    if (matchingWorker != null)
+                    {
+                        worker = matchingWorker;
+                        return true;
+                    }
+                }
+            }
+
+            worker = null!;
+            return false;
+        }
+
+        private bool TryStartConcurrentPlayback(PlaybackProgressEventArgs e)
+        {
+            if (!_managesPlaybackEvents || string.IsNullOrWhiteSpace(e.PlaySessionId))
+                return false;
+
+            PluginConfiguration? config;
+            string? primaryResourceKey;
+            lock (_syncLock)
+            {
+                if (_isStopping ||
+                    _currentPlaySessionId == null ||
+                    string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                if (_concurrentPlaybackWorkers.ContainsKey(e.PlaySessionId) ||
+                    (!string.IsNullOrWhiteSpace(e.Session?.Id) &&
+                     _concurrentPlaybackWorkers.Values.Any(worker =>
+                         string.Equals(worker.ClientSessionId, e.Session?.Id, StringComparison.Ordinal))))
+                {
+                    return true;
+                }
+
+                primaryResourceKey = _currentBridgeConfig is { } bridgeConfig
+                    ? GetPlaybackResourceKey(bridgeConfig.BridgeIp, bridgeConfig.AreaId)
+                    : null;
+                config = Plugin.Instance?.Configuration;
+                if (primaryResourceKey == null && config != null && _currentUserId.HasValue)
+                {
+                    var primaryTarget = config.GetBridgeConfigForUser(_currentUserId.Value);
+                    if (!string.IsNullOrWhiteSpace(primaryTarget.BridgeIp) &&
+                        !string.IsNullOrWhiteSpace(primaryTarget.AreaId))
+                    {
+                        primaryResourceKey = GetPlaybackResourceKey(primaryTarget.BridgeIp, primaryTarget.AreaId);
+                    }
+                }
+            }
+
+            if (config == null || primaryResourceKey == null)
+                return false;
+
+            var userId = e.Session?.UserId ?? Guid.Empty;
+            var target = config.GetBridgeConfigForUser(userId);
+            if (string.IsNullOrWhiteSpace(target.BridgeIp) || string.IsNullOrWhiteSpace(target.AreaId))
+                return false;
+
+            var resourceKey = GetPlaybackResourceKey(target.BridgeIp, target.AreaId);
+            if (string.Equals(primaryResourceKey, resourceKey, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            lock (_syncLock)
+            {
+                if (_concurrentPlaybackWorkers.Values.Any(worker =>
+                        string.Equals(worker.ResourceKey, resourceKey, StringComparison.OrdinalIgnoreCase)))
+                {
+                    SetRuntimeStatus("Busy", "Another playback session already owns this Hue target.");
+                    return true;
+                }
+
+                var worker = new ConcurrentPlaybackWorker
+                {
+                    Service = CreateConcurrentPlaybackWorker(),
+                    PlaySessionId = e.PlaySessionId,
+                    ClientSessionId = e.Session?.Id,
+                    ResourceKey = resourceKey
+                };
+
+                // StartAsync only initializes the worker-owned helpers. Prepare the
+                // lifecycle identity before publishing the worker so a stop event that
+                // arrives during this tiny handoff can cancel the pending start safely.
+                worker.Service.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
+                if (!worker.Service.PrepareExternalPlaybackStart(e))
+                    return true;
+
+                _concurrentPlaybackWorkers[e.PlaySessionId] = worker;
+                _logger.LogInformation(
+                    "Starting concurrent Hue sync worker for session {0} on target {1}",
+                    e.PlaySessionId,
+                    resourceKey);
+                ObserveTask(StartConcurrentPlaybackAsync(worker, e));
+                return true;
+            }
+        }
+
+        private async Task StartConcurrentPlaybackAsync(
+            ConcurrentPlaybackWorker worker,
+            PlaybackProgressEventArgs e)
+        {
+            try
+            {
+                await worker.Service.HandlePreparedExternalPlaybackStartAsync(e).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Concurrent Hue sync worker failed for session {0}", worker.PlaySessionId);
+            }
+        }
+
+        private void RemoveConcurrentPlaybackWorker(ConcurrentPlaybackWorker worker)
+        {
+            lock (_syncLock)
+            {
+                if (_concurrentPlaybackWorkers.TryGetValue(worker.PlaySessionId, out var current) &&
+                    ReferenceEquals(current, worker))
+                {
+                    _concurrentPlaybackWorkers.Remove(worker.PlaySessionId);
+                }
+                else
+                {
+                    var matchingKey = _concurrentPlaybackWorkers.FirstOrDefault(pair =>
+                        ReferenceEquals(pair.Value, worker)).Key;
+                    if (matchingKey != null)
+                        _concurrentPlaybackWorkers.Remove(matchingKey);
+                }
+            }
+        }
+
+        internal async Task HandleExternalPlaybackStartAsync(PlaybackProgressEventArgs e)
+        {
+            if (_isStopping)
+                return;
+
+            e = NormalizeRecoveredPlaybackEvent(e);
+            if (!IsPlaybackUserSyncEnabled(e) || !IsSupportedVideoPlaybackItem(e.Item))
+                return;
+
+            if (!PrepareExternalPlaybackStart(e))
+                return;
+
+            await HandlePreparedExternalPlaybackStartAsync(e).ConfigureAwait(false);
+        }
+
+        private async Task HandlePreparedExternalPlaybackStartAsync(PlaybackProgressEventArgs e)
+        {
+            lock (_syncLock)
+            {
+                if (_isStopping || !_externalPlaybackStartPending)
+                    return;
+
+                _externalPlaybackStartPending = false;
+                if (_externalPlaybackStopRequested)
+                {
+                    _externalPlaybackStopRequested = false;
+                    return;
+                }
+            }
+
+            await StartSyncForItem(e).ConfigureAwait(false);
+        }
+
+        private bool PrepareExternalPlaybackStart(PlaybackProgressEventArgs e)
+        {
+            lock (_syncLock)
+            {
+                if (_isStopping ||
+                    (_currentPlaySessionId != null &&
+                     !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal)) ||
+                    _externalPlaybackStartPending ||
+                    string.Equals(_startingPlaySessionId, e.PlaySessionId, StringComparison.Ordinal) ||
+                    (IsSyncing && string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal)))
+                {
+                    return false;
+                }
+
+                _currentPlaySessionId ??= e.PlaySessionId;
+                if (e.PlaySessionId.StartsWith(RecoveredPlaySessionPrefix, StringComparison.Ordinal))
+                    _recoveredSessionId = e.Session?.Id;
+                else
+                    _recoveredSessionId = null;
+                _currentUserId = e.Session?.UserId is { } sessionUserId && sessionUserId != Guid.Empty
+                    ? sessionUserId
+                    : null;
+                _currentUserName = string.IsNullOrWhiteSpace(e.Session?.UserName)
+                    ? null
+                    : e.Session!.UserName.Trim();
+                _lastPlaybackPositionTicks = e.PlaybackPositionTicks;
+                _lastPlaybackPositionObservedUtc = DateTime.UtcNow;
+                _lastPlaybackProgressWasPaused = e.IsPaused;
+                _externalPlaybackStartPending = true;
+                _externalPlaybackStopRequested = false;
+                return true;
+            }
+        }
+
+        internal void HandleExternalPlaybackStart(PlaybackProgressEventArgs e)
+        {
+            ObserveTask(HandleExternalPlaybackStartAsync(e));
+        }
+
         private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
         {
             if (_isStopping)
                 return;
+
+            if (TryGetConcurrentPlaybackWorker(e, out var concurrentWorker))
+            {
+                concurrentWorker.Service.HandleExternalPlaybackStart(e);
+                return;
+            }
 
             e = NormalizeRecoveredPlaybackEvent(e);
             _logger.LogInformation("Playback started for item {0}", e.Item.Name);
@@ -801,6 +1150,12 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
+            // A distinct bridge/area target gets an isolated worker instead of replacing
+            // the primary session. Same-target playback retains the existing replacement
+            // behavior because Hue cannot stream two sessions through one area.
+            if (TryStartConcurrentPlayback(e))
+                return;
+
             // Skip duplicate notifications for the same session, but allow a new session
             // to queue while an earlier startup is being cancelled.
             lock (_syncLock)
@@ -824,8 +1179,16 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (_currentPlaySessionId == null)
                 {
                     _currentPlaySessionId = e.PlaySessionId;
-                    if (!e.PlaySessionId.StartsWith(RecoveredPlaySessionPrefix, StringComparison.Ordinal))
+                    if (e.PlaySessionId.StartsWith(RecoveredPlaySessionPrefix, StringComparison.Ordinal))
+                        _recoveredSessionId = e.Session?.Id;
+                    else
                         _recoveredSessionId = null;
+                    _currentUserId = e.Session?.UserId is { } sessionUserId && sessionUserId != Guid.Empty
+                        ? sessionUserId
+                        : null;
+                    _currentUserName = string.IsNullOrWhiteSpace(e.Session?.UserName)
+                        ? null
+                        : e.Session!.UserName.Trim();
                     ResetPlaybackProgressTrackingLocked();
                 }
 
@@ -839,10 +1202,44 @@ namespace Jellyfin.Plugin.Hue.Service
 
         private async void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
         {
+            if (TryGetConcurrentPlaybackWorker(e, out var concurrentWorker))
+            {
+                try
+                {
+                    await concurrentWorker.Service.HandleExternalPlaybackStoppedAsync(e).ConfigureAwait(false);
+                }
+                finally
+                {
+                    RemoveConcurrentPlaybackWorker(concurrentWorker);
+                }
+
+                return;
+            }
+
+            await HandlePlaybackStoppedAsync(e).ConfigureAwait(false);
+        }
+
+        internal async Task HandleExternalPlaybackStoppedAsync(PlaybackStopEventArgs e)
+        {
+            await HandlePlaybackStoppedAsync(e).ConfigureAwait(false);
+        }
+
+        private async Task HandlePlaybackStoppedAsync(PlaybackStopEventArgs e)
+        {
             if (_isStopping)
                 return;
 
             e = NormalizeRecoveredPlaybackStop(e);
+
+            lock (_syncLock)
+            {
+                if (_externalPlaybackStartPending &&
+                    string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                {
+                    _externalPlaybackStopRequested = true;
+                    _startupCts?.Cancel();
+                }
+            }
 
             if (e.Item != null && !IsSupportedVideoPlaybackItem(e.Item))
             {
@@ -956,6 +1353,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     {
                         _currentPlaySessionId = null;
                         _recoveredSessionId = null;
+                        _externalPlaybackStartPending = false;
+                        _externalPlaybackStopRequested = false;
                         ResetPlaybackProgressTrackingLocked();
                     }
                 }
@@ -967,6 +1366,12 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             if (_isStopping)
                 return;
+
+            if (TryGetConcurrentPlaybackWorker(e, out var concurrentWorker))
+            {
+                concurrentWorker.Service.HandleExternalPlaybackProgress(e);
+                return;
+            }
 
             if (!IsPlaybackUserSyncEnabled(e))
                 return;
@@ -1117,6 +1522,11 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
                 ObserveTask(StartSyncForItem(e));
             }
+        }
+
+        internal void HandleExternalPlaybackProgress(PlaybackProgressEventArgs e)
+        {
+            OnPlaybackProgress(null, e);
         }
 
         private async Task StopSyncForPauseAsync(string playSessionId)
@@ -2400,7 +2810,8 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             if (!reusingPlaybackLease)
-                playbackLifecycleLease = _bridgeLifecycleGate.TryEnterPlayback();
+                playbackLifecycleLease = _bridgeLifecycleGate.TryEnterPlayback(
+                    GetPlaybackResourceKey(bridgeIp, areaId));
 
             if (!reusingPlaybackLease && playbackLifecycleLease == null)
             {
@@ -3097,6 +3508,14 @@ namespace Jellyfin.Plugin.Hue.Service
             return p;
         }
 
+        private sealed class ConcurrentPlaybackWorker
+        {
+            public required HueSyncService Service { get; init; }
+            public required string PlaySessionId { get; init; }
+            public string? ClientSessionId { get; init; }
+            public required string ResourceKey { get; init; }
+        }
+
         private sealed class SessionSummarySeed
         {
             public string Outcome { get; init; } = "Stopped";
@@ -3126,6 +3545,11 @@ namespace Jellyfin.Plugin.Hue.Service
     /// </summary>
     public sealed class HueRuntimeStatus
     {
+        /// <summary>
+        /// Jellyfin playback lifecycle identifier. This is a routing label only and
+        /// never contains bridge credentials.
+        /// </summary>
+        public string? PlaySessionId { get; init; }
         public string State { get; init; } = "Idle";
         public string Message { get; init; } = "Waiting for playback.";
         public string? LastError { get; init; }
