@@ -316,11 +316,25 @@
                         </div>
                         <button is="emby-button" type="button" class="raised button-submit" id="saveSceneScheduleBtn" style="margin-top: 0.5em;"><span>Save Scheduled Cue</span></button>
                         <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule times, and target mapping IDs; bridge credentials remain server-side.</div>
+                        <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top: 0.75em;">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="persistSceneScheduleHistory" />
+                                <span>Retain cue history across Jellyfin restarts</span>
+                            </label>
+                            <div class="fieldDescription">Optional: store the bounded sanitized cue-run history in plugin configuration. Cue and target labels may be private metadata; disabling this setting removes stored history.</div>
+                        </div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleStatusBtn"><span>Refresh Cue Status</span></button>
                             <div id="sceneScheduleRuntimeStatusSummary" class="fieldDescription">Loading scheduler status...</div>
                         </div>
                         <div id="sceneScheduleRuntimeStatus" style="margin-top: 0.5em; overflow-x: auto;"></div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
+                            <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleHistoryBtn"><span>Refresh Cue History</span></button>
+                            <button is="emby-button" type="button" class="raised" id="exportSceneScheduleHistoryBtn"><span>Export JSON</span></button>
+                            <button is="emby-button" type="button" class="raised" id="clearSceneScheduleHistoryBtn"><span>Clear Cue History</span></button>
+                            <div id="sceneScheduleHistoryStatus" class="fieldDescription">Loading cue history...</div>
+                        </div>
+                        <div id="sceneScheduleHistory" style="margin-top: 0.5em; overflow-x: auto;"></div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -948,6 +962,7 @@
                         page.querySelector('#colorChangeThreshold').value = getConfigValue('ColorChangeThreshold', 10);
                         page.querySelector('#networkRetryAttempts').value = getConfigValue('NetworkRetryAttempts', 3);
                         page.querySelector('#persistSessionHistory').checked = !!getConfigValue('PersistSessionHistory', false);
+                        page.querySelector('#persistSceneScheduleHistory').checked = !!getConfigValue('PersistSceneScheduleHistory', false);
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                         HueConfigurationPage.loadColorPresets(page);
                         HueConfigurationPage.loadSceneSchedules(page);
@@ -996,7 +1011,8 @@
                         BlackoutThreshold: parseNumberOrDefault('#blackoutThreshold', 15),
                         ColorChangeThreshold: parseNumberOrDefault('#colorChangeThreshold', 10),
                         NetworkRetryAttempts: parseNumberOrDefault('#networkRetryAttempts', 3),
-                        PersistSessionHistory: page.querySelector('#persistSessionHistory').checked
+                        PersistSessionHistory: page.querySelector('#persistSessionHistory').checked,
+                        PersistSceneScheduleHistory: page.querySelector('#persistSceneScheduleHistory').checked
                     };
 
                     return ApiClient.ajax({
@@ -1744,6 +1760,162 @@
                     }).finally(function () {
                         page._hueSceneScheduleRuntimeStatusLoading = false;
                         if (button) button.disabled = false;
+                        HueConfigurationPage.loadSceneScheduleHistory(page);
+                    });
+                },
+                loadSceneScheduleHistory: function (page) {
+                    if (!page || page._hueSceneScheduleHistoryLoading) {
+                        return Promise.resolve();
+                    }
+
+                    page._hueSceneScheduleHistoryLoading = true;
+                    var refreshButton = page.querySelector('#refreshSceneScheduleHistoryBtn');
+                    var exportButton = page.querySelector('#exportSceneScheduleHistoryBtn');
+                    var clearButton = page.querySelector('#clearSceneScheduleHistoryBtn');
+                    var status = page.querySelector('#sceneScheduleHistoryStatus');
+                    var container = page.querySelector('#sceneScheduleHistory');
+                    if (refreshButton) refreshButton.disabled = true;
+                    if (status) status.textContent = "Loading cue history...";
+
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/History?limit=100")).then(function (response) {
+                        var runs = HueConfigurationPage.readStatusField(response, "Runs", []);
+                        runs = Array.isArray(runs) ? runs : [];
+                        var serviceAvailable = HueConfigurationPage.readStatusField(response, "ServiceAvailable", false);
+                        var persistenceEnabled = HueConfigurationPage.readStatusField(response, "PersistenceEnabled", false);
+                        if (status) {
+                            status.textContent = !serviceAvailable
+                                ? "The scheduled-cue service is unavailable."
+                                : runs.length + " retained cue run" + (runs.length === 1 ? "" : "s") +
+                                    (persistenceEnabled ? " · retained across restarts" : " · in memory only");
+                            status.style.color = serviceAvailable ? "" : "#f0ad4e";
+                        }
+                        if (!container) return;
+                        container.textContent = "";
+                        if (runs.length === 0) {
+                            container.textContent = "No completed scheduled-cue runs have been recorded yet.";
+                            return;
+                        }
+
+                        var table = document.createElement('table');
+                        table.style.width = '100%';
+                        table.style.borderCollapse = 'collapse';
+                        table.style.minWidth = '760px';
+                        var headerRow = document.createElement('tr');
+                        ["When", "Cue", "Scene", "Target", "Result", "Details"].forEach(function (heading) {
+                            var header = document.createElement('th');
+                            header.textContent = heading;
+                            header.style.textAlign = 'left';
+                            header.style.padding = '6px 8px';
+                            header.style.borderBottom = '1px solid rgba(255,255,255,.2)';
+                            headerRow.appendChild(header);
+                        });
+                        var head = document.createElement('thead');
+                        head.appendChild(headerRow);
+                        table.appendChild(head);
+                        var body = document.createElement('tbody');
+                        runs.forEach(function (run) {
+                            var runAt = HueConfigurationPage.readStatusField(run, "RunAtUtc", null);
+                            var cueName = HueConfigurationPage.readStatusField(run, "ScheduleName", "Unnamed cue");
+                            var presetName = HueConfigurationPage.readStatusField(run, "PresetName", "—");
+                            var targetLabel = HueConfigurationPage.readStatusField(run, "TargetLabel", "Default bridge target");
+                            var succeeded = HueConfigurationPage.readStatusField(run, "Succeeded", false);
+                            var message = HueConfigurationPage.readStatusField(run, "Message", "");
+                            var warning = HueConfigurationPage.readStatusField(run, "CleanupWarning", "");
+                            var runCount = HueConfigurationPage.readStatusField(run, "RunCount", 0);
+                            var row = document.createElement('tr');
+                            row.style.borderBottom = '1px solid rgba(255,255,255,.08)';
+                            var addCell = function (text, color) {
+                                var cell = document.createElement('td');
+                                cell.textContent = text == null || text === '' ? "—" : String(text);
+                                cell.style.padding = '6px 8px';
+                                if (color) cell.style.color = color;
+                                row.appendChild(cell);
+                            };
+                            addCell(runAt ? new Date(runAt).toLocaleString() : "—");
+                            addCell(cueName);
+                            addCell(presetName);
+                            addCell(targetLabel);
+                            addCell((succeeded ? "Succeeded" : "Failed") + " · run " + String(runCount || 0), succeeded ? "#8bc34a" : "#d9534f");
+                            addCell((message || "") + (warning ? " · Cleanup warning: " + warning : ""));
+                            body.appendChild(row);
+                        });
+                        table.appendChild(body);
+                        container.appendChild(table);
+                    }).catch(function (err) {
+                        console.error("Failed to load scheduled-cue history:", err);
+                        if (status) {
+                            status.textContent = "Unable to read cue history. Check the server log.";
+                            status.style.color = "#d9534f";
+                        }
+                        if (container) container.textContent = "—";
+                    }).finally(function () {
+                        page._hueSceneScheduleHistoryLoading = false;
+                        if (refreshButton) refreshButton.disabled = false;
+                        if (exportButton) exportButton.disabled = false;
+                        if (clearButton) clearButton.disabled = false;
+                    });
+                },
+                exportSceneScheduleHistory: function (page) {
+                    if (!page || page._hueSceneScheduleHistoryExporting) return;
+                    page._hueSceneScheduleHistoryExporting = true;
+                    var button = page.querySelector('#exportSceneScheduleHistoryBtn');
+                    var status = page.querySelector('#sceneScheduleHistoryStatus');
+                    if (button) button.disabled = true;
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/History/Export?limit=100")).then(function (historyDocument) {
+                        var blob = new Blob([JSON.stringify(historyDocument, null, 2)], { type: "application/json" });
+                        var url = URL.createObjectURL(blob);
+                        var link = window.document.createElement('a');
+                        link.href = url;
+                        link.download = "jellyfin-hue-scene-schedule-history.json";
+                        window.document.body.appendChild(link);
+                        link.click();
+                        window.document.body.removeChild(link);
+                        window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+                        if (status) {
+                            status.textContent = "Cue history exported. Credential values were omitted.";
+                            status.style.color = "#4caf50";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to export scheduled-cue history:", err);
+                        if (status) {
+                            status.textContent = "Unable to export cue history. Check the server log.";
+                            status.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        page._hueSceneScheduleHistoryExporting = false;
+                        if (button) button.disabled = false;
+                    });
+                },
+                clearSceneScheduleHistory: function (page) {
+                    if (!page || page._hueSceneScheduleHistoryClearing) return;
+                    Dashboard.confirm("Clear all retained scheduled-cue run summaries? An active cue will continue.", "Clear Cue History", function (confirmed) {
+                        if (!confirmed) return;
+                        page._hueSceneScheduleHistoryClearing = true;
+                        var button = page.querySelector('#clearSceneScheduleHistoryBtn');
+                        var status = page.querySelector('#sceneScheduleHistoryStatus');
+                        if (button) button.disabled = true;
+                        ApiClient.ajax({
+                            type: "DELETE",
+                            url: ApiClient.getUrl("HueSync/SceneSchedules/History"),
+                            dataType: "json"
+                        }).then(function (response) {
+                            var clearedCount = Number(HueConfigurationPage.readStatusField(response, "ClearedCount", 0)) || 0;
+                            if (status) {
+                                status.textContent = clearedCount + " cue run" + (clearedCount === 1 ? "" : "s") + " cleared.";
+                                status.style.color = "#4caf50";
+                            }
+                            HueConfigurationPage.loadSceneScheduleRuntimeStatus(page);
+                            return HueConfigurationPage.loadSceneScheduleHistory(page);
+                        }).catch(function (err) {
+                            console.error("Failed to clear scheduled-cue history:", err);
+                            if (status) {
+                                status.textContent = "Unable to clear cue history. Check the server log.";
+                                status.style.color = "#d9534f";
+                            }
+                        }).finally(function () {
+                            page._hueSceneScheduleHistoryClearing = false;
+                            if (button) button.disabled = false;
+                        });
                     });
                 },
                 getSceneScheduleDaysMask: function (page) {
@@ -3900,6 +4072,18 @@
 
             document.querySelector('#refreshSceneScheduleStatusBtn').addEventListener('click', function () {
                 HueConfigurationPage.loadSceneScheduleRuntimeStatus(this.closest('.page'));
+            });
+
+            document.querySelector('#refreshSceneScheduleHistoryBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadSceneScheduleHistory(this.closest('.page'));
+            });
+
+            document.querySelector('#exportSceneScheduleHistoryBtn').addEventListener('click', function () {
+                HueConfigurationPage.exportSceneScheduleHistory(this.closest('.page'));
+            });
+
+            document.querySelector('#clearSceneScheduleHistoryBtn').addEventListener('click', function () {
+                HueConfigurationPage.clearSceneScheduleHistory(this.closest('.page'));
             });
 
             document.querySelector('#refreshRuntimeStatusBtn').addEventListener('click', function () {

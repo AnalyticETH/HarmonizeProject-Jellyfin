@@ -116,6 +116,24 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
+    /// Credential-free scheduled-scene run telemetry stored only when an administrator
+    /// opts into retaining cue history across Jellyfin restarts. This shape deliberately
+    /// contains no bridge keys, client keys, or playback tokens.
+    /// </summary>
+    public sealed class HueSceneScheduleHistoryEntry
+    {
+        public string ScheduleId { get; set; } = string.Empty;
+        public string ScheduleName { get; set; } = string.Empty;
+        public string PresetName { get; set; } = string.Empty;
+        public string? TargetLabel { get; set; }
+        public bool Succeeded { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string? CleanupWarning { get; set; }
+        public DateTime RunAtUtc { get; set; }
+        public int RunCount { get; set; }
+    }
+
+    /// <summary>
     /// Configuration for the Philips Hue Sync plugin
     /// </summary>
     public class PluginConfiguration : BasePluginConfiguration
@@ -167,6 +185,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxSceneScheduleNameLength = 64;
         public const int AllSceneScheduleDaysMask = 127;
         public const int MaxSessionHistoryCount = 25;
+        public const int MaxSceneScheduleHistoryCount = 100;
 
         public bool SyncEnabled { get; set; } = false;
 
@@ -196,6 +215,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// a cue runs, so this collection never contains bridge secrets.
         /// </summary>
         public List<HueSceneSchedule> SceneSchedules { get; set; } = new List<HueSceneSchedule>();
+
+        /// <summary>
+        /// Retains the bounded, sanitized scheduled-scene run history in plugin
+        /// configuration. Disabled by default because cue and target labels may be
+        /// private metadata.
+        /// </summary>
+        public bool PersistSceneScheduleHistory { get; set; } = false;
+
+        /// <summary>
+        /// Newest-first sanitized scheduled-scene entries used only when
+        /// <see cref="PersistSceneScheduleHistory"/> is enabled. These entries are
+        /// intentionally excluded from configuration exports.
+        /// </summary>
+        public List<HueSceneScheduleHistoryEntry> PersistedSceneScheduleHistory { get; set; } = new List<HueSceneScheduleHistoryEntry>();
 
         /// <summary>
         /// Retains the bounded, sanitized completed-session history in plugin configuration.

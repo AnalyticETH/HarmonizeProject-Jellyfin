@@ -1135,6 +1135,52 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneScheduleHistory_ReturnsSanitizedRunsAndClearsHistory()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = true,
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new()
+                {
+                    ScheduleId = "cue-1",
+                    ScheduleName = "Evening cue",
+                    PresetName = "Evening",
+                    TargetLabel = "Living Room",
+                    Succeeded = true,
+                    Message = "Displayed scene.",
+                    RunAtUtc = DateTime.UtcNow,
+                    RunCount = 2
+                }
+            }
+        });
+        var sceneService = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new IHostedService[] { sceneService });
+
+        var action = controller.GetSceneScheduleHistory(5, " cue-1 ");
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var document = Assert.IsType<HueSceneScheduleHistoryResult>(response.Value);
+        var run = Assert.Single(document.Runs);
+        Assert.True(document.ServiceAvailable);
+        Assert.True(document.PersistenceEnabled);
+        Assert.Equal("cue-1", document.ScheduleIdFilter);
+        Assert.Equal(2, run.RunCount);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(document);
+        Assert.DoesNotContain("AppKey", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ClientKey", serialized, StringComparison.OrdinalIgnoreCase);
+
+        var cleared = controller.ClearSceneScheduleHistory();
+        var clearedResponse = Assert.IsType<OkObjectResult>(cleared.Result);
+        var clearResult = Assert.IsType<HueSceneScheduleHistoryClearResult>(clearedResponse.Value);
+        Assert.Equal(1, clearResult.ClearedCount);
+        Assert.Empty(configuration.PersistedSceneScheduleHistory);
+    }
+
+    [Fact]
     public void DeleteColorPreset_ProtectsScheduledCueReferences()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -2003,7 +2049,8 @@ public sealed class HueApiControllerTests : IDisposable
             BlueGain = 105,
             NetworkRetryAttempts = 4,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
-            PersistSessionHistory = true
+            PersistSessionHistory = true,
+            PersistSceneScheduleHistory = true
         });
 
         Assert.IsType<OkObjectResult>(action.Result);
@@ -2023,6 +2070,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(4, configuration.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, configuration.PauseBehavior);
         Assert.True(configuration.PersistSessionHistory);
+        Assert.True(configuration.PersistSceneScheduleHistory);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
@@ -2048,6 +2096,28 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(action.Result);
         Assert.False(configuration.PersistSessionHistory);
         Assert.Empty(configuration.PersistedSessionHistory);
+    }
+
+    [Fact]
+    public void SaveConfiguration_DisablingPersistentCueHistoryClearsStoredEntries()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = true,
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new() { ScheduleId = "cue-1", ScheduleName = "Private cue" }
+            }
+        });
+
+        var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            PersistSceneScheduleHistory = false
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.False(configuration.PersistSceneScheduleHistory);
+        Assert.Empty(configuration.PersistedSceneScheduleHistory);
     }
 
     [Fact]

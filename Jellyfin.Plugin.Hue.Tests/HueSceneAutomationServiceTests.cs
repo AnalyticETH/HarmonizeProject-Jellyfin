@@ -126,6 +126,7 @@ public sealed class HueSceneAutomationServiceTests
     {
         InstallConfiguration(new PluginConfiguration
         {
+            PersistSceneScheduleHistory = true,
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "app-secret",
             HueClientKey = "client-secret",
@@ -174,6 +175,12 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("Evening cue", result.ScheduleName);
         Assert.Equal("Evening", result.PresetName);
         Assert.Equal("Default bridge target", result.TargetLabel);
+        Assert.Equal(1, result.RunCount);
+        var persisted = Assert.Single(Plugin.Instance!.Configuration.PersistedSceneScheduleHistory);
+        Assert.Equal("cue-1", persisted.ScheduleId);
+        Assert.Equal(1, persisted.RunCount);
+        var history = Assert.Single(service.GetHistory());
+        Assert.Equal(result.Message, history.Message);
         streamTester.VerifyAll();
         var status = service.GetStatus();
         var runtime = Assert.Single(status.Schedules);
@@ -190,6 +197,59 @@ public sealed class HueSceneAutomationServiceTests
         Assert.DoesNotContain("client-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("app-secret", JsonSerializer.Serialize(status), StringComparison.Ordinal);
         Assert.DoesNotContain("client-secret", JsonSerializer.Serialize(status), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PersistedHistory_LoadsIntoStatusAndCanBeClearedWithoutCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = true,
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "cue-1", Name = "Evening cue", PresetName = "Evening" }
+            },
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new()
+                {
+                    ScheduleId = "cue-1",
+                    ScheduleName = "Evening cue",
+                    PresetName = "Evening",
+                    TargetLabel = "Living Room",
+                    Succeeded = false,
+                    Message = "The bridge was unavailable.",
+                    CleanupWarning = "Cleanup warning",
+                    RunAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                    RunCount = 7
+                }
+            }
+        });
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var status = service.GetStatus();
+        var runtime = Assert.Single(status.Schedules);
+        Assert.Equal(7, runtime.RunCount);
+        Assert.False(runtime.LastSucceeded);
+        Assert.Equal("The bridge was unavailable.", runtime.LastMessage);
+        var history = Assert.Single(service.GetHistory());
+        Assert.Equal("Living Room", history.TargetLabel);
+        Assert.Equal(7, history.RunCount);
+        var serialized = JsonSerializer.Serialize(history);
+        Assert.DoesNotContain("AppKey", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ClientKey", serialized, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal(1, service.ClearHistory());
+        Assert.Empty(service.GetHistory());
+        Assert.Empty(Plugin.Instance!.Configuration.PersistedSceneScheduleHistory);
+        runtime = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(0, runtime.RunCount);
+        Assert.Null(runtime.LastSucceeded);
     }
 
     private static void InstallConfiguration(PluginConfiguration configuration)

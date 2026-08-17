@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.73] - 2026-08-17
+
+### Added
+- **Persistent scheduled-cue history**: optionally retain the newest 100 sanitized cue runs across Jellyfin restarts and hydrate each cue's last outcome and run count on startup
+- **Cue history operations**: add credential-free `GET /HueSync/SceneSchedules/History`, JSON export, clear-history control, and a configuration-page history table with per-run results
+
+### Security
+- Cue retention is opt-in and stores only cue names, saved-scene names, target labels, outcomes, messages, cleanup warnings, and timestamps; bridge credentials, connection details, and playback tokens remain excluded
+
 ## [1.5.72] - 2026-08-17
 
 ### Added

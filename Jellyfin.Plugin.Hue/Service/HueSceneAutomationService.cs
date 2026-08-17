@@ -27,6 +27,11 @@ public sealed class HueSceneAutomationService : BackgroundService
     private readonly Dictionary<string, DateTime> _lastRunSlots = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _runtimeStateLock = new();
     private readonly Dictionary<string, HueSceneScheduleRuntimeState> _runtimeStates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _historyLock = new();
+    private readonly List<HueSceneAutomationRunResult> _runHistory = new();
+    private bool _historyLoaded;
+
+    public const int MaxSceneScheduleHistoryCount = PluginConfiguration.MaxSceneScheduleHistoryCount;
 
     public HueSceneAutomationService(
         IHueStreamTester streamTester,
@@ -56,12 +61,77 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Returns the newest sanitized scheduled-scene run summaries. The optional
+    /// schedule filter is matched against the stable cue ID and never against secrets.
+    /// </summary>
+    public IReadOnlyList<HueSceneAutomationRunResult> GetHistory(
+        int limit = MaxSceneScheduleHistoryCount,
+        string? scheduleId = null)
+    {
+        EnsureHistoryLoaded();
+        var boundedLimit = Math.Clamp(limit, 1, MaxSceneScheduleHistoryCount);
+        var normalizedScheduleId = scheduleId?.Trim();
+        lock (_historyLock)
+        {
+            return _runHistory
+                .Where(result => string.IsNullOrWhiteSpace(normalizedScheduleId) ||
+                                 string.Equals(result.ScheduleId, normalizedScheduleId, StringComparison.OrdinalIgnoreCase))
+                .Take(boundedLimit)
+                .Select(CloneRunResult)
+                .ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Clears retained scheduled-scene history without stopping an active cue. Runtime
+    /// counters and last-run pointers are reset while an in-flight run remains marked
+    /// as active until its normal completion.
+    /// </summary>
+    public int ClearHistory()
+    {
+        EnsureHistoryLoaded();
+        int clearedCount;
+        lock (_historyLock)
+        {
+            clearedCount = _runHistory.Count;
+            _runHistory.Clear();
+        }
+
+        lock (_runtimeStateLock)
+        {
+            foreach (var state in _runtimeStates.Values)
+            {
+                state.RunCount = 0;
+                state.LastRunAtUtc = null;
+                state.LastSucceeded = null;
+                state.LastMessage = null;
+                state.LastCleanupWarning = null;
+            }
+        }
+
+        PersistSceneScheduleHistory();
+        return clearedCount;
+    }
+
+    /// <summary>
+    /// Reconciles persisted cue history with the current administrator setting. This is
+    /// called after configuration changes so enabling retention captures the current
+    /// in-memory window immediately and disabling retention removes stored entries.
+    /// </summary>
+    public void RefreshSceneScheduleHistoryPersistence()
+    {
+        EnsureHistoryLoaded();
+        PersistSceneScheduleHistory();
+    }
+
+    /// <summary>
     /// Returns sanitized runtime telemetry for the configured cues. Credentials and
     /// bridge connection details never enter this snapshot; target labels are derived
     /// from the current mapping names only.
     /// </summary>
     public HueSceneAutomationStatus GetStatus()
     {
+        EnsureHistoryLoaded();
         var localNow = DateTime.Now;
         var config = Plugin.Instance?.Configuration;
         var schedules = config?.SceneSchedules?
@@ -524,6 +594,7 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private void CompleteRun(string? scheduleId, HueSceneAutomationRunResult? result)
     {
+        EnsureHistoryLoaded();
         var key = scheduleId?.Trim() ?? string.Empty;
         lock (_runtimeStateLock)
         {
@@ -539,7 +610,210 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.LastSucceeded = result?.Succeeded ?? false;
             state.LastMessage = result?.Message ?? "The scheduled scene ended without a result.";
             state.LastCleanupWarning = result?.CleanupWarning;
+            if (result != null)
+                result.RunCount = state.RunCount;
         }
+
+        if (result != null)
+        {
+            lock (_historyLock)
+            {
+                _runHistory.Insert(0, CloneRunResult(result));
+                if (_runHistory.Count > MaxSceneScheduleHistoryCount)
+                    _runHistory.RemoveRange(MaxSceneScheduleHistoryCount, _runHistory.Count - MaxSceneScheduleHistoryCount);
+            }
+        }
+
+        PersistSceneScheduleHistory();
+    }
+
+    private void EnsureHistoryLoaded()
+    {
+        lock (_historyLock)
+        {
+            if (_historyLoaded)
+                return;
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        var persistedEntries = new List<HueSceneScheduleHistoryEntry>();
+        var shouldSave = false;
+        if (config != null)
+        {
+            config.PersistedSceneScheduleHistory ??= new List<HueSceneScheduleHistoryEntry>();
+            if (!config.PersistSceneScheduleHistory)
+            {
+                if (config.PersistedSceneScheduleHistory.Count > 0)
+                {
+                    config.PersistedSceneScheduleHistory.Clear();
+                    shouldSave = true;
+                }
+            }
+            else
+            {
+                persistedEntries = config.PersistedSceneScheduleHistory
+                    .Where(entry => entry != null)
+                    .Take(MaxSceneScheduleHistoryCount)
+                    .Select(CloneHistoryEntry)
+                    .ToList();
+                if (persistedEntries.Count != config.PersistedSceneScheduleHistory.Count)
+                {
+                    config.PersistedSceneScheduleHistory = persistedEntries
+                        .Select(CloneHistoryEntry)
+                        .ToList();
+                    shouldSave = true;
+                }
+            }
+        }
+
+        var loadedResults = persistedEntries
+            .Select(ToRunResult)
+            .ToArray();
+        lock (_historyLock)
+        {
+            if (_historyLoaded)
+                return;
+
+            _runHistory.Clear();
+            _runHistory.AddRange(loadedResults);
+            _historyLoaded = true;
+        }
+
+        if (loadedResults.Length > 0)
+        {
+            lock (_runtimeStateLock)
+            {
+                foreach (var group in loadedResults
+                             .Where(result => !string.IsNullOrWhiteSpace(result.ScheduleId))
+                             .GroupBy(result => result.ScheduleId, StringComparer.OrdinalIgnoreCase))
+                {
+                    var latest = group.First();
+                    if (!_runtimeStates.TryGetValue(group.Key, out var state))
+                    {
+                        state = new HueSceneScheduleRuntimeState();
+                        _runtimeStates[group.Key] = state;
+                    }
+
+                    state.RunCount = Math.Max(latest.RunCount, group.Count());
+                    state.LastRunAtUtc = latest.RunAtUtc;
+                    state.LastSucceeded = latest.Succeeded;
+                    state.LastMessage = latest.Message;
+                    state.LastCleanupWarning = latest.CleanupWarning;
+                }
+            }
+        }
+
+        if (shouldSave)
+            SavePersistedSceneScheduleHistoryConfiguration();
+    }
+
+    private void PersistSceneScheduleHistory()
+    {
+        var plugin = Plugin.Instance;
+        var config = plugin?.Configuration;
+        if (plugin == null || config == null)
+            return;
+
+        List<HueSceneScheduleHistoryEntry> entries;
+        lock (_historyLock)
+        {
+            entries = _runHistory
+                .Take(MaxSceneScheduleHistoryCount)
+                .Select(ToHistoryEntry)
+                .ToList();
+        }
+
+        config.PersistedSceneScheduleHistory ??= new List<HueSceneScheduleHistoryEntry>();
+        if (config.PersistSceneScheduleHistory)
+        {
+            config.PersistedSceneScheduleHistory = entries;
+        }
+        else
+        {
+            if (config.PersistedSceneScheduleHistory.Count == 0)
+                return;
+
+            config.PersistedSceneScheduleHistory.Clear();
+        }
+
+        SavePersistedSceneScheduleHistoryConfiguration();
+    }
+
+    private void SavePersistedSceneScheduleHistoryConfiguration()
+    {
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+        }
+        catch (Exception ex)
+        {
+            // Persistence is diagnostic-only and must never interrupt a cue run.
+            _logger.LogWarning(ex, "Could not persist Hue scheduled-scene history");
+        }
+    }
+
+    private static HueSceneScheduleHistoryEntry ToHistoryEntry(HueSceneAutomationRunResult result)
+    {
+        return new HueSceneScheduleHistoryEntry
+        {
+            ScheduleId = result.ScheduleId,
+            ScheduleName = result.ScheduleName,
+            PresetName = result.PresetName,
+            TargetLabel = result.TargetLabel,
+            Succeeded = result.Succeeded,
+            Message = result.Message,
+            CleanupWarning = result.CleanupWarning,
+            RunAtUtc = result.RunAtUtc,
+            RunCount = result.RunCount
+        };
+    }
+
+    private static HueSceneScheduleHistoryEntry CloneHistoryEntry(HueSceneScheduleHistoryEntry source)
+    {
+        return new HueSceneScheduleHistoryEntry
+        {
+            ScheduleId = source.ScheduleId?.Trim() ?? string.Empty,
+            ScheduleName = source.ScheduleName?.Trim() ?? string.Empty,
+            PresetName = source.PresetName?.Trim() ?? string.Empty,
+            TargetLabel = source.TargetLabel?.Trim(),
+            Succeeded = source.Succeeded,
+            Message = source.Message?.Trim() ?? string.Empty,
+            CleanupWarning = source.CleanupWarning?.Trim(),
+            RunAtUtc = source.RunAtUtc,
+            RunCount = Math.Max(0, source.RunCount)
+        };
+    }
+
+    private static HueSceneAutomationRunResult ToRunResult(HueSceneScheduleHistoryEntry entry)
+    {
+        return new HueSceneAutomationRunResult
+        {
+            ScheduleId = entry.ScheduleId?.Trim() ?? string.Empty,
+            ScheduleName = entry.ScheduleName?.Trim() ?? string.Empty,
+            PresetName = entry.PresetName?.Trim() ?? string.Empty,
+            TargetLabel = entry.TargetLabel?.Trim(),
+            Succeeded = entry.Succeeded,
+            Message = entry.Message?.Trim() ?? string.Empty,
+            CleanupWarning = entry.CleanupWarning?.Trim(),
+            RunAtUtc = entry.RunAtUtc,
+            RunCount = Math.Max(0, entry.RunCount)
+        };
+    }
+
+    private static HueSceneAutomationRunResult CloneRunResult(HueSceneAutomationRunResult source)
+    {
+        return new HueSceneAutomationRunResult
+        {
+            ScheduleId = source.ScheduleId,
+            ScheduleName = source.ScheduleName,
+            PresetName = source.PresetName,
+            TargetLabel = source.TargetLabel,
+            Succeeded = source.Succeeded,
+            Message = source.Message,
+            CleanupWarning = source.CleanupWarning,
+            RunAtUtc = source.RunAtUtc,
+            RunCount = source.RunCount
+        };
     }
 
     internal static string ResolveTargetLabel(PluginConfiguration? config, HueSceneSchedule schedule)
@@ -691,6 +965,9 @@ public sealed class HueSceneAutomationRunResult
 
     [JsonPropertyName("runAtUtc")]
     public DateTime RunAtUtc { get; init; }
+
+    [JsonPropertyName("runCount")]
+    public int RunCount { get; internal set; }
 }
 
 /// <summary>

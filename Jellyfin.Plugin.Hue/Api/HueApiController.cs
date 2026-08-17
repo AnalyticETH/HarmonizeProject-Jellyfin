@@ -924,6 +924,58 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Returns bounded sanitized run history for recurring scene cues. Bridge
+        /// credentials and connection details are never retained or serialized.
+        /// </summary>
+        [HttpGet("SceneSchedules/History")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<HueSceneScheduleHistoryResult> GetSceneScheduleHistory(
+            [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxSceneScheduleHistoryCount,
+            [FromQuery(Name = "scheduleId")] string? scheduleId = null)
+        {
+            var boundedLimit = Math.Clamp(limit, 1, HueSceneAutomationService.MaxSceneScheduleHistoryCount);
+            var normalizedScheduleId = string.IsNullOrWhiteSpace(scheduleId) ? null : scheduleId.Trim();
+            return Ok(new HueSceneScheduleHistoryResult
+            {
+                ServiceAvailable = _sceneAutomationService != null,
+                PersistenceEnabled = Plugin.Instance?.Configuration.PersistSceneScheduleHistory ?? false,
+                Limit = boundedLimit,
+                ScheduleIdFilter = normalizedScheduleId,
+                GeneratedAtUtc = DateTime.UtcNow,
+                Runs = _sceneAutomationService?.GetHistory(boundedLimit, normalizedScheduleId)
+                    ?? Array.Empty<HueSceneAutomationRunResult>()
+            });
+        }
+
+        /// <summary>
+        /// Returns the same sanitized cue history document used by the administrator
+        /// export action. Exporting does not add retention or expose credentials.
+        /// </summary>
+        [HttpGet("SceneSchedules/History/Export")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<HueSceneScheduleHistoryResult> ExportSceneScheduleHistory(
+            [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxSceneScheduleHistoryCount,
+            [FromQuery(Name = "scheduleId")] string? scheduleId = null)
+        {
+            return GetSceneScheduleHistory(limit, scheduleId);
+        }
+
+        /// <summary>
+        /// Clears retained scheduled-scene run history without stopping an active cue.
+        /// </summary>
+        [HttpDelete("SceneSchedules/History")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<HueSceneScheduleHistoryClearResult> ClearSceneScheduleHistory()
+        {
+            return Ok(new HueSceneScheduleHistoryClearResult
+            {
+                ServiceAvailable = _sceneAutomationService != null,
+                ClearedCount = _sceneAutomationService?.ClearHistory() ?? 0,
+                ClearedAtUtc = DateTime.UtcNow
+            });
+        }
+
+        /// <summary>
         /// Saves or updates a recurring scene cue. The cue references an existing saved
         /// scene and a global or per-user target; it never accepts bridge credentials.
         /// </summary>
@@ -1711,6 +1763,7 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 plugin.SaveConfiguration();
                 _syncService?.RefreshSessionHistoryPersistence();
+                _sceneAutomationService?.RefreshSceneScheduleHistoryPersistence();
             }
             catch (Exception ex)
             {
@@ -1894,6 +1947,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
             plugin.SaveConfiguration();
             _syncService?.RefreshSessionHistoryPersistence();
+            _sceneAutomationService?.RefreshSceneScheduleHistoryPersistence();
             return Ok(HuePluginConfigurationSettings.From(config));
         }
 
@@ -2114,6 +2168,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool HasClientKey { get; set; }
         public bool ClearStoredCredentials { get; set; }
         public bool? PersistSessionHistory { get; set; }
+        public bool? PersistSceneScheduleHistory { get; set; }
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string ChannelIds { get; set; } = string.Empty;
         public bool UseCinemaMode { get; set; } = true;
@@ -2152,6 +2207,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 HasAppKey = !string.IsNullOrWhiteSpace(config.HueAppKey),
                 HasClientKey = !string.IsNullOrWhiteSpace(config.HueClientKey),
                 PersistSessionHistory = config.PersistSessionHistory,
+                PersistSceneScheduleHistory = config.PersistSceneScheduleHistory,
                 EntertainmentAreaId = config.EntertainmentAreaId,
                 ChannelIds = config.ChannelIds,
                 UseCinemaMode = config.UseCinemaMode,
@@ -2202,6 +2258,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 config.PersistSessionHistory = PersistSessionHistory.Value;
                 if (!config.PersistSessionHistory)
                     config.PersistedSessionHistory?.Clear();
+            }
+            if (PersistSceneScheduleHistory.HasValue)
+            {
+                config.PersistSceneScheduleHistory = PersistSceneScheduleHistory.Value;
+                if (!config.PersistSceneScheduleHistory)
+                    config.PersistedSceneScheduleHistory?.Clear();
             }
             config.EntertainmentAreaId = EntertainmentAreaId?.Trim() ?? string.Empty;
             config.ChannelIds = ChannelIds?.Trim() ?? string.Empty;
@@ -2811,6 +2873,29 @@ namespace Jellyfin.Plugin.Hue.Api
     /// Sanitized result from clearing completed-session history.
     /// </summary>
     public sealed class HueSessionHistoryClearResult
+    {
+        public bool ServiceAvailable { get; init; }
+        public int ClearedCount { get; init; }
+        public DateTime ClearedAtUtc { get; init; }
+    }
+
+    /// <summary>
+    /// Bounded administrator-facing history response for completed scheduled-scene cues.
+    /// </summary>
+    public sealed class HueSceneScheduleHistoryResult
+    {
+        public bool ServiceAvailable { get; init; }
+        public bool PersistenceEnabled { get; init; }
+        public int Limit { get; init; }
+        public string? ScheduleIdFilter { get; init; }
+        public DateTime GeneratedAtUtc { get; init; }
+        public IReadOnlyList<HueSceneAutomationRunResult> Runs { get; init; } = Array.Empty<HueSceneAutomationRunResult>();
+    }
+
+    /// <summary>
+    /// Sanitized result from clearing scheduled-scene cue history.
+    /// </summary>
+    public sealed class HueSceneScheduleHistoryClearResult
     {
         public bool ServiceAvailable { get; init; }
         public int ClearedCount { get; init; }
