@@ -11,6 +11,27 @@
         <div data-role="content">
             <div class="content-primary">
                 <h1>Philips Hue Sync Configuration</h1>
+                <fieldset class="verticalSection" id="runtimeStatusSection">
+                    <legend>Live Sync Status</legend>
+                    <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
+                        <div style="flex: 1 1 280px;">
+                            <div><strong>State:</strong> <span id="runtimeState">Loading...</span></div>
+                            <div><strong>Item:</strong> <span id="runtimeItem">—</span></div>
+                            <div><strong>Active target:</strong> <span id="runtimeTarget">—</span></div>
+                        </div>
+                        <div style="flex: 1 1 280px;">
+                            <div><strong>Health:</strong> <span id="runtimeHealth">—</span></div>
+                            <div><strong>Frames processed:</strong> <span id="runtimeFrames">0</span></div>
+                            <div><strong>Duration:</strong> <span id="runtimeDuration">—</span></div>
+                        </div>
+                        <button is="emby-button" type="button" class="raised" id="refreshRuntimeStatusBtn">
+                            <span>Refresh Status</span>
+                        </button>
+                    </div>
+                    <div id="runtimeStatusMessage" class="fieldDescription" style="margin-top: 0.5em;">Loading runtime status...</div>
+                    <div id="runtimeStatusError" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
+                    <div class="fieldDescription" style="margin-top: 0.75em;">Updates automatically while this page is open. Bridge credentials are never included in status responses.</div>
+                </fieldset>
                 <form class="huePluginConfigurationForm">
                     <fieldset class="verticalSection">
                         <legend>Bridge connection</legend>
@@ -490,6 +511,93 @@
 
                     bridgeStatus.textContent = message;
                     bridgeStatus.style.background = colors[tone] || colors.info;
+                },
+                readStatusField: function (status, name, fallback) {
+                    if (!status) return fallback;
+                    var camelName = name.charAt(0).toLowerCase() + name.substring(1);
+                    if (typeof status[camelName] !== 'undefined') return status[camelName];
+                    if (typeof status[name] !== 'undefined') return status[name];
+                    return fallback;
+                },
+                formatRuntimeDuration: function (seconds) {
+                    if (seconds === null || typeof seconds === 'undefined' || isNaN(Number(seconds))) {
+                        return "—";
+                    }
+
+                    seconds = Math.max(0, Math.floor(Number(seconds)));
+                    var minutes = Math.floor(seconds / 60);
+                    var remainingSeconds = seconds % 60;
+                    if (minutes === 0) {
+                        return remainingSeconds + "s";
+                    }
+
+                    return minutes + "m " + String(remainingSeconds).padStart(2, "0") + "s";
+                },
+                loadRuntimeStatus: function (page) {
+                    if (!page || page._hueRuntimeStatusLoading) {
+                        return Promise.resolve();
+                    }
+
+                    page._hueRuntimeStatusLoading = true;
+                    var refreshButton = page.querySelector('#refreshRuntimeStatusBtn');
+                    if (refreshButton) refreshButton.disabled = true;
+
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/Status")).then(function (status) {
+                        var state = HueConfigurationPage.readStatusField(status, "State", "Unavailable");
+                        var serviceAvailable = HueConfigurationPage.readStatusField(status, "ServiceAvailable", false);
+                        var isSyncing = HueConfigurationPage.readStatusField(status, "IsSyncing", false);
+                        var currentItem = HueConfigurationPage.readStatusField(status, "CurrentItem", "—");
+                        var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
+                        var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
+                        var frames = HueConfigurationPage.readStatusField(status, "FramesProcessed", 0);
+                        var ffmpegHealthy = HueConfigurationPage.readStatusField(status, "IsFfmpegHealthy", false);
+                        var dtlsHealthy = HueConfigurationPage.readStatusField(status, "IsDtlsHealthy", false);
+                        var duration = HueConfigurationPage.readStatusField(status, "SyncDurationSeconds", null);
+                        var message = HueConfigurationPage.readStatusField(status, "StatusMessage", "");
+                        var lastError = HueConfigurationPage.readStatusField(status, "LastError", "");
+
+                        if (!serviceAvailable) {
+                            state = "Unavailable";
+                            message = message || "Sync service is not available.";
+                        }
+
+                        page.querySelector('#runtimeState').textContent = state + (isSyncing && state !== "Syncing" ? " (active)" : "");
+                        page.querySelector('#runtimeItem').textContent = currentItem || "—";
+                        page.querySelector('#runtimeTarget').textContent = activeBridge && activeArea && activeBridge !== "—"
+                            ? activeBridge + " / " + activeArea
+                            : "—";
+                        page.querySelector('#runtimeHealth').textContent = "FFmpeg: " + (ffmpegHealthy ? "healthy" : "not ready") +
+                            " · DTLS: " + (dtlsHealthy ? "healthy" : "not ready");
+                        page.querySelector('#runtimeFrames').textContent = String(frames || 0);
+                        page.querySelector('#runtimeDuration').textContent = HueConfigurationPage.formatRuntimeDuration(duration);
+                        page.querySelector('#runtimeStatusMessage').textContent = message || "No runtime message.";
+
+                        var errorElement = page.querySelector('#runtimeStatusError');
+                        if (errorElement) {
+                            errorElement.textContent = lastError || "";
+                            errorElement.style.display = lastError ? "block" : "none";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to load Hue runtime status:", err);
+                        page.querySelector('#runtimeState').textContent = "Unavailable";
+                        page.querySelector('#runtimeStatusMessage').textContent = "Unable to read runtime status. Check the server log for details.";
+                    }).finally(function () {
+                        page._hueRuntimeStatusLoading = false;
+                        if (refreshButton) refreshButton.disabled = false;
+                    });
+                },
+                startRuntimeStatusPolling: function (page) {
+                    HueConfigurationPage.stopRuntimeStatusPolling(page);
+                    HueConfigurationPage.loadRuntimeStatus(page);
+                    page._hueRuntimeStatusTimer = window.setInterval(function () {
+                        HueConfigurationPage.loadRuntimeStatus(page);
+                    }, 5000);
+                },
+                stopRuntimeStatusPolling: function (page) {
+                    if (page && page._hueRuntimeStatusTimer) {
+                        window.clearInterval(page._hueRuntimeStatusTimer);
+                        page._hueRuntimeStatusTimer = null;
+                    }
                 },
                 getSelectedAreaId: function (page) {
                     var selectEl = page.querySelector('#entertainmentAreaSelect');
@@ -1135,6 +1243,10 @@
                 HueConfigurationPage.testDefaultConnection(this.closest('.page'));
             });
 
+            document.querySelector('#refreshRuntimeStatusBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadRuntimeStatus(this.closest('.page'));
+            });
+
             document.querySelector('#entertainmentAreaSelect').addEventListener('change', function () {
                 HueConfigurationPage.toggleManualArea(this.closest('.page'), this.value === 'manual');
             });
@@ -1174,6 +1286,13 @@
                     HueConfigurationPage.loadConfiguration(e.target);
                     HueConfigurationPage.loadUsers(e.target);
                     HueConfigurationPage.loadUserMappings(e.target);
+                    HueConfigurationPage.startRuntimeStatusPolling(e.target);
+                }
+            });
+
+            document.addEventListener('pagehide', function (e) {
+                if (e.target.classList && e.target.classList.contains('pluginConfigurationPage')) {
+                    HueConfigurationPage.stopRuntimeStatusPolling(e.target);
                 }
             });
         </script>

@@ -173,6 +173,22 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("ready", result.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void GetStatus_WithoutHostedSyncServiceDoesNotExposeRuntimeSecrets()
+    {
+        var controller = CreateController();
+
+        var action = controller.GetStatus();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var status = Assert.IsType<HueSyncStatus>(response.Value);
+        Assert.False(status.ServiceAvailable);
+        Assert.Equal("Unavailable", status.State);
+        Assert.Null(status.ActiveBridgeIp);
+        Assert.Null(status.ActiveEntertainmentAreaId);
+        Assert.Null(status.LastError);
+    }
+
     private HueApiController CreateController()
     {
         var client = new HueClient(_httpClient, _loggerMock.Object);

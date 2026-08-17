@@ -62,10 +62,40 @@ namespace Jellyfin.Plugin.Hue.Service
         private (string BridgeIp, string AppKey, string ClientKey, string AreaId)? _currentBridgeConfig;
         private bool _bridgeAreaDeactivated;
         private volatile bool _isStopping;
+        private string? _currentItemName;
+        private string _runtimeState = "Idle";
+        private string _runtimeMessage = "Waiting for playback.";
+        private string? _lastError;
 
         // Public property to track sync state
-        public bool IsSyncing => _syncCts != null && !_syncCts.IsCancellationRequested;
-        public string? CurrentItemName { get; private set; }
+        public bool IsSyncing
+        {
+            get
+            {
+                lock (_syncLock)
+                {
+                    return _syncCts != null && !_syncCts.IsCancellationRequested;
+                }
+            }
+        }
+
+        public string? CurrentItemName
+        {
+            get
+            {
+                lock (_syncLock)
+                {
+                    return _currentItemName;
+                }
+            }
+            private set
+            {
+                lock (_syncLock)
+                {
+                    _currentItemName = value;
+                }
+            }
+        }
 
         public HueSyncService(ISessionManager sessionManager, ILogger<HueSyncService> logger, ILoggerFactory loggerFactory, HueClient hueClient, IMediaEncoder mediaEncoder)
         {
@@ -79,6 +109,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public Task StartAsync(CancellationToken cancellationToken)
         {
             _isStopping = false;
+            SetRuntimeStatus("Idle", "Waiting for playback.", clearError: true);
             _logger.LogInformation("Hue Sync Service Started.");
             _sessionManager.PlaybackStart += OnPlaybackStart;
             _sessionManager.PlaybackStopped += OnPlaybackStopped;
@@ -144,6 +175,79 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     _syncLifecycleLock.Release();
                 }
+
+                SetRuntimeStatus("Idle", "Sync service stopped.");
+            }
+        }
+
+        /// <summary>
+        /// Returns a point-in-time snapshot of the active playback synchronization session.
+        /// Credentials are intentionally excluded so this can be safely exposed to the
+        /// administrator status page.
+        /// </summary>
+        public HueRuntimeStatus GetRuntimeStatus()
+        {
+            (string BridgeIp, string AppKey, string ClientKey, string AreaId)? bridgeConfig;
+            string? currentItem;
+            string state;
+            string message;
+            string? lastError;
+            DateTime syncStartTime;
+            CancellationTokenSource? syncCts;
+
+            lock (_syncLock)
+            {
+                bridgeConfig = _currentBridgeConfig;
+                currentItem = _currentItemName;
+                state = _runtimeState;
+                message = _runtimeMessage;
+                lastError = _lastError;
+                syncStartTime = _syncStartTime;
+                syncCts = _syncCts;
+            }
+
+            var isSyncing = syncCts != null && !syncCts.IsCancellationRequested;
+            var ffmpeg = _ffmpegStreamer;
+            var hueStreamer = _hueStreamer;
+            var syncDuration = isSyncing && syncStartTime != default
+                ? Math.Max(0, (DateTime.UtcNow - syncStartTime).TotalSeconds)
+                : (double?)null;
+
+            return new HueRuntimeStatus
+            {
+                State = state,
+                Message = message,
+                LastError = lastError,
+                CurrentItem = currentItem,
+                ActiveBridgeIp = isSyncing ? bridgeConfig?.BridgeIp : null,
+                ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
+                IsSyncing = isSyncing,
+                FramesProcessed = ffmpeg?.FramesProcessed ?? 0,
+                IsFfmpegHealthy = isSyncing && ffmpeg?.IsHealthy() == true,
+                IsDtlsHealthy = isSyncing && hueStreamer?.IsHealthy() == true,
+                SyncDurationSeconds = syncDuration,
+                SyncStartedAtUtc = isSyncing && syncStartTime != default ? syncStartTime : null
+            };
+        }
+
+        private void SetRuntimeStatus(string state, string message, bool clearError = false)
+        {
+            lock (_syncLock)
+            {
+                _runtimeState = state;
+                _runtimeMessage = message;
+                if (clearError)
+                    _lastError = null;
+            }
+        }
+
+        private void SetRuntimeError(string message)
+        {
+            lock (_syncLock)
+            {
+                _runtimeState = "Error";
+                _runtimeMessage = message;
+                _lastError = message;
             }
         }
 
@@ -186,6 +290,7 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             _logger.LogInformation("Playback stopped for item {0}", e.Item?.Name ?? "Unknown");
+            SetRuntimeStatus("Stopping", "Playback stopped; cleaning up.");
 
             // Cancel a startup before waiting for the lifecycle lock. The startup token is
             // assigned before it waits, so this also covers the window before _syncCts exists.
@@ -260,6 +365,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 _logger.LogInformation("Playback paused, stopping light sync");
+                SetRuntimeStatus("Paused", "Playback paused; lights are being restored.");
                 Task pauseCleanup;
                 lock (_syncLock)
                 {
@@ -341,6 +447,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         bridgeConfig.Value.AreaId).ConfigureAwait(false);
                     _bridgeAreaDeactivated = true;
                 }
+
+                SetRuntimeStatus("Paused", "Playback paused; waiting to resume.");
             }
             finally
             {
@@ -504,6 +612,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     if (bytesRead < frameSize)
                     {
                         _logger.LogInformation("End of video stream reached. Total frames processed: {0}", _ffmpegStreamer?.FramesProcessed ?? 0);
+                        if (!token.IsCancellationRequested)
+                            SetRuntimeStatus("Ended", "The video stream ended.");
                         break;
                     }
 
@@ -651,6 +761,8 @@ namespace Jellyfin.Plugin.Hue.Service
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in Sync Loop");
+                if (!token.IsCancellationRequested)
+                    SetRuntimeError("The video sync loop stopped unexpectedly.");
             }
             finally
             {
@@ -764,12 +876,14 @@ namespace Jellyfin.Plugin.Hue.Service
             if (config == null || !config.SyncEnabled)
             {
                 _logger.LogInformation("Hue Sync disabled, skipping.");
+                SetRuntimeStatus("Idle", "Sync is disabled.");
                 return;
             }
 
             if (_hueStreamer == null || _ffmpegStreamer == null)
             {
                 _logger.LogWarning("Hue sync helpers are not initialized yet");
+                SetRuntimeError("Sync service is still initializing.");
                 return;
             }
 
@@ -777,6 +891,7 @@ namespace Jellyfin.Plugin.Hue.Service
             if (validationErrors.Count > 0)
             {
                 _logger.LogWarning("Configuration validation failed: {0}", string.Join(", ", validationErrors));
+                SetRuntimeError("Configuration validation failed. Review the plugin settings.");
                 return;
             }
 
@@ -784,6 +899,7 @@ namespace Jellyfin.Plugin.Hue.Service
             if (string.IsNullOrWhiteSpace(videoPath))
             {
                 _logger.LogWarning("Unable to determine media path for playback item {0}", e.Item?.Name ?? "Unknown");
+                SetRuntimeError("The playback item has no readable media path.");
                 return;
             }
 
@@ -795,6 +911,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 string.IsNullOrWhiteSpace(clientKey) || string.IsNullOrWhiteSpace(areaId))
             {
                 _logger.LogWarning("No valid bridge configuration found for user {0}", userId);
+                SetRuntimeError("No valid bridge configuration is available for this user.");
                 return;
             }
 
@@ -820,6 +937,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentBridgeConfig = (bridgeIp, appKey, clientKey, areaId);
                     _bridgeAreaDeactivated = false;
                     _syncStartTime = DateTime.UtcNow;
+                    _currentItemName = e.Item?.Name;
                     syncStatePublished = true;
                 }
             }
@@ -828,6 +946,9 @@ namespace Jellyfin.Plugin.Hue.Service
 
             try
             {
+                if (syncStatePublished)
+                    SetRuntimeStatus("Starting", $"Preparing '{e.Item?.Name ?? "playback"}'...", clearError: true);
+
                 if (token.IsCancellationRequested)
                     return;
 
@@ -837,6 +958,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (areaConfig == null)
                 {
                     _logger.LogWarning("Failed to load entertainment configuration from bridge");
+                    SetRuntimeError("Could not load the selected entertainment area configuration.");
                     StopSync();
                     return;
                 }
@@ -859,8 +981,6 @@ namespace Jellyfin.Plugin.Hue.Service
                         return;
                 }
 
-                CurrentItemName = e.Item?.Name;
-
                 var lights = new Dictionary<int, (double x, double z)>();
                 if (areaConfig.Value.TryGetProperty("channels", out var channels))
                 {
@@ -877,6 +997,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (lights.Count == 0)
                 {
                     _logger.LogWarning("Entertainment area {0} returned no channels to control", areaId);
+                    SetRuntimeError("The selected entertainment area has no controllable channels.");
                     StopSync();
                     return;
                 }
@@ -887,12 +1008,14 @@ namespace Jellyfin.Plugin.Hue.Service
                 // CRITICAL: Activate the entertainment area on the bridge BEFORE opening the DTLS tunnel.
                 // The bridge silently drops all DTLS packets if the area is not in streaming mode.
                 _logger.LogInformation("Activating entertainment area {0} for streaming", areaId);
+                SetRuntimeStatus("Starting", "Activating the entertainment area...");
                 var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
                 if (token.IsCancellationRequested)
                     return;
                 if (!activated)
                 {
                     _logger.LogError("Could not activate entertainment area {0} — aborting sync", areaId);
+                    SetRuntimeError("The Hue bridge could not activate the entertainment area.");
                     StopSync();
                     return;
                 }
@@ -904,12 +1027,14 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 // Set reconnect callback so DTLS reconnections re-activate the area first
                 _hueStreamer!.OnBeforeReconnect = () => _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
+                SetRuntimeStatus("Starting", "Opening the DTLS light stream...");
                 await _hueStreamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
                 if (token.IsCancellationRequested)
                     return;
                 if (!_hueStreamer.IsHealthy())
                 {
                     _logger.LogError("Could not establish DTLS stream for entertainment area {0}", areaId);
+                    SetRuntimeError("The Hue bridge DTLS stream could not be established.");
                     StopSync();
                     return;
                 }
@@ -929,11 +1054,13 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (videoStream == null)
                 {
                     _logger.LogWarning("FFmpeg stream could not be started for path {0}", videoPath);
+                    SetRuntimeError("FFmpeg could not start the video capture stream.");
                     StopSync();
                     return;
                 }
 
                 // Let RunSyncLoop own disposal even when cancellation wins before scheduling.
+                SetRuntimeStatus("Syncing", "Streaming video colors to Hue.");
                 _ = Task.Run(() => RunSyncLoop(videoStream, lights, areaId, targetFrameDurationMs, token));
             }
             catch (Exception ex)
@@ -941,6 +1068,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (token.IsCancellationRequested)
                     return;
                 _logger.LogError(ex, "Error starting Hue sync session");
+                SetRuntimeError("Hue sync could not start. Check the bridge and FFmpeg diagnostics.");
                 StopSync();
             }
             finally
@@ -985,6 +1113,14 @@ namespace Jellyfin.Plugin.Hue.Service
             finally
             {
                 CurrentItemName = null;
+                lock (_syncLock)
+                {
+                    if (!string.Equals(_runtimeState, "Error", StringComparison.Ordinal))
+                    {
+                        _runtimeState = "Idle";
+                        _runtimeMessage = "Playback stopped.";
+                    }
+                }
                 if (bridgeConfig != null)
                 {
                     try
@@ -1111,5 +1247,25 @@ namespace Jellyfin.Plugin.Hue.Service
                 return p + (q - p) * (2.0 / 3.0 - t) * 6;
             return p;
         }
+    }
+
+    /// <summary>
+    /// Sanitized point-in-time diagnostics for the active Hue synchronization session.
+    /// This type intentionally contains no bridge credentials.
+    /// </summary>
+    public sealed class HueRuntimeStatus
+    {
+        public string State { get; init; } = "Idle";
+        public string Message { get; init; } = "Waiting for playback.";
+        public string? LastError { get; init; }
+        public string? CurrentItem { get; init; }
+        public string? ActiveBridgeIp { get; init; }
+        public string? ActiveEntertainmentAreaId { get; init; }
+        public bool IsSyncing { get; init; }
+        public long FramesProcessed { get; init; }
+        public bool IsFfmpegHealthy { get; init; }
+        public bool IsDtlsHealthy { get; init; }
+        public double? SyncDurationSeconds { get; init; }
+        public DateTime? SyncStartedAtUtc { get; init; }
     }
 }

@@ -19,6 +19,39 @@ namespace Jellyfin.Plugin.Hue.Tests;
 public sealed class HueSyncServiceLifecycleTests
 {
     [Fact]
+    public async Task RuntimeStatus_ReportsActiveDiagnosticsWithoutCredentials()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+
+        await service.StartAsync(CancellationToken.None);
+
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "secret-app-key", "secret-client-key", "area-id"));
+        SetPrivateField(service, "_currentItemName", "Feature film");
+        SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-3));
+        SetPrivateField(service, "_runtimeState", "Syncing");
+        SetPrivateField(service, "_runtimeMessage", "Streaming video colors to Hue.");
+
+        var status = service.GetRuntimeStatus();
+
+        Assert.True(status.IsSyncing);
+        Assert.Equal("Syncing", status.State);
+        Assert.Equal("Feature film", status.CurrentItem);
+        Assert.Equal("192.168.1.100", status.ActiveBridgeIp);
+        Assert.Equal("area-id", status.ActiveEntertainmentAreaId);
+        Assert.True(status.SyncDurationSeconds >= 2);
+        Assert.DoesNotContain("secret-app-key", status.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-client-key", status.Message, StringComparison.Ordinal);
+
+        // Keep shutdown focused on local resources for this snapshot test.
+        SetPrivateField(service, "_bridgeAreaDeactivated", true);
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PlaybackStop_QueuesImmediateNextStartUntilCleanupCompletes()
     {
         var handler = new BlockingHueHandler();

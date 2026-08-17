@@ -86,6 +86,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
 | `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness without starting a stream. |
+| `GET /HueSync/Status` | Read sanitized runtime state, active target, frame count, and FFmpeg/DTLS health. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
@@ -237,7 +238,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.6 (Current)
+### Version 1.5.7 (Current)
+- **Live runtime status**: The configuration page now shows lifecycle state, active bridge/area, frame count, sync duration, and FFmpeg/DTLS health with automatic refresh
+- **Actionable diagnostics**: Startup, pause, stop, bridge, and video-pipeline failures are surfaced as sanitized status messages without exposing Hue credentials
+
+### Version 1.5.6
 - **Connection diagnostics**: Test bridge reachability and selected-area readiness without starting playback
 
 ### Version 1.5.5

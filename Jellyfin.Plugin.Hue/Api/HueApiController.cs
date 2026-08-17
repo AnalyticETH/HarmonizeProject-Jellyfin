@@ -189,13 +189,25 @@ namespace Jellyfin.Plugin.Hue.Api
         public ActionResult<HueSyncStatus> GetStatus()
         {
             var config = Plugin.Instance?.Configuration;
+            var runtime = _syncService?.GetRuntimeStatus();
             var status = new HueSyncStatus
             {
                 IsEnabled = config?.SyncEnabled ?? false,
-                IsSyncing = _syncService?.IsSyncing ?? false,
-                CurrentItem = _syncService?.CurrentItemName,
+                ServiceAvailable = _syncService != null,
+                IsSyncing = runtime?.IsSyncing ?? false,
+                CurrentItem = runtime?.CurrentItem,
                 BridgeIp = config?.HueBridgeIp,
-                EntertainmentAreaId = config?.EntertainmentAreaId
+                EntertainmentAreaId = config?.EntertainmentAreaId,
+                State = runtime?.State ?? "Unavailable",
+                StatusMessage = runtime?.Message ?? "Sync service is not available.",
+                LastError = runtime?.LastError,
+                ActiveBridgeIp = runtime?.ActiveBridgeIp,
+                ActiveEntertainmentAreaId = runtime?.ActiveEntertainmentAreaId,
+                FramesProcessed = runtime?.FramesProcessed ?? 0,
+                IsFfmpegHealthy = runtime?.IsFfmpegHealthy ?? false,
+                IsDtlsHealthy = runtime?.IsDtlsHealthy ?? false,
+                SyncDurationSeconds = runtime?.SyncDurationSeconds,
+                SyncStartedAtUtc = runtime?.SyncStartedAtUtc
             };
 
             return Ok(status);
@@ -358,10 +370,21 @@ namespace Jellyfin.Plugin.Hue.Api
     public class HueSyncStatus
     {
         public bool IsEnabled { get; set; }
+        public bool ServiceAvailable { get; set; }
         public bool IsSyncing { get; set; }
         public string? CurrentItem { get; set; }
         public string? BridgeIp { get; set; }
         public string? EntertainmentAreaId { get; set; }
+        public string State { get; set; } = "Unavailable";
+        public string StatusMessage { get; set; } = string.Empty;
+        public string? LastError { get; set; }
+        public string? ActiveBridgeIp { get; set; }
+        public string? ActiveEntertainmentAreaId { get; set; }
+        public long FramesProcessed { get; set; }
+        public bool IsFfmpegHealthy { get; set; }
+        public bool IsDtlsHealthy { get; set; }
+        public double? SyncDurationSeconds { get; set; }
+        public DateTime? SyncStartedAtUtc { get; set; }
     }
 
 }

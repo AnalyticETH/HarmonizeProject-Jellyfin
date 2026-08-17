@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.7] - 2026-08-17
+
+### Added
+- Live runtime status panel with automatic refresh in the configuration page
+- Sanitized `/HueSync/Status` diagnostics for lifecycle state, active target, frame count, sync duration, and FFmpeg/DTLS health
+- Regression coverage for runtime snapshots and status responses without credential exposure
+
+### Changed
+- Playback startup, pause, stop, bridge, and video-pipeline failures now publish actionable administrator-facing diagnostics
+
 ## [1.5.6] - 2026-08-17
 
 ### Added
