@@ -113,6 +113,37 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task DisabledUserMappingSkipsSyncStartup()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        Plugin.Instance!.Configuration.UserMappings.Add(new UserBridgeMapping
+        {
+            UserId = Guid.Empty.ToString(),
+            SyncEnabled = false
+        });
+
+        await service.StartAsync(CancellationToken.None);
+
+        var startMethod = typeof(HueSyncService).GetMethod("OnPlaybackStart", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        startMethod.Invoke(service, new object?[] { null, CreateProgress("disabled-session") });
+
+        var status = service.GetRuntimeStatus();
+        Assert.False(status.IsSyncing);
+        Assert.Equal("Idle", status.State);
+        Assert.Equal("Sync is disabled for this user.", status.Message);
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.False(handler.FirstConfigurationRequest.Task.IsCompleted);
+
+        var progressMethod = typeof(HueSyncService).GetMethod("OnPlaybackProgress", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        progressMethod.Invoke(service, new object?[] { null, CreateProgress("disabled-session") });
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PlaybackStop_QueuesImmediateNextStartUntilCleanupCompletes()
     {
         var handler = new BlockingHueHandler();

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.10] - 2026-08-17
+
+### Added
+- Per-user **Enable Hue Sync for this user** control for multi-user Jellyfin deployments
+- Credential-free disabled mappings for users whose playback should remain unaffected
+- Regression coverage for mapping opt-out behavior, default fallbacks, and runtime startup suppression
+
+### Changed
+- Disabled user mappings are enforced before configuration validation, FFmpeg startup, or bridge network calls
+- Existing mappings remain enabled by default when the new setting is absent from saved configuration
+
 ## [1.5.9] - 2026-08-17
 
 ### Added

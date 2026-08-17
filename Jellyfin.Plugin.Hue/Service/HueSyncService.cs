@@ -334,6 +334,12 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
+        private bool IsPlaybackUserSyncEnabled(PlaybackProgressEventArgs e)
+        {
+            var config = Plugin.Instance?.Configuration;
+            return config == null || config.IsSyncEnabledForUser(e.Session?.UserId ?? Guid.Empty);
+        }
+
         private void ClearTransientRuntimeWarning()
         {
             lock (_syncLock)
@@ -352,6 +358,13 @@ namespace Jellyfin.Plugin.Hue.Service
             if (_isStopping)
                 return;
             _logger.LogInformation("Playback started for item {0}", e.Item.Name);
+
+            if (!IsPlaybackUserSyncEnabled(e))
+            {
+                _logger.LogInformation("Hue Sync is disabled for this playback user, skipping start");
+                SetRuntimeStatus("Idle", "Sync is disabled for this user.");
+                return;
+            }
 
             // Skip duplicate notifications for the same session, but allow a new session
             // to queue while an earlier startup is being cancelled.
@@ -479,6 +492,9 @@ namespace Jellyfin.Plugin.Hue.Service
         private void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
         {
             if (_isStopping)
+                return;
+
+            if (!IsPlaybackUserSyncEnabled(e))
                 return;
 
             lock (_syncLock)
@@ -1031,6 +1047,14 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
+            var userId = e.Session?.UserId ?? Guid.Empty;
+            if (!config.IsSyncEnabledForUser(userId))
+            {
+                _logger.LogInformation("Hue Sync is disabled for user {0}, skipping.", userId);
+                SetRuntimeStatus("Idle", "Sync is disabled for this user.");
+                return;
+            }
+
             if (_hueStreamer == null || _ffmpegStreamer == null)
             {
                 _logger.LogWarning("Hue sync helpers are not initialized yet");
@@ -1055,7 +1079,6 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             // Get user-specific bridge configuration
-            var userId = e.Session?.UserId ?? Guid.Empty;
             var (bridgeIp, appKey, clientKey, areaId) = config.GetBridgeConfigForUser(userId);
 
             if (string.IsNullOrWhiteSpace(bridgeIp) || string.IsNullOrWhiteSpace(appKey) ||

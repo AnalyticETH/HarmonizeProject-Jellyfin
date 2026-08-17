@@ -76,6 +76,9 @@ To configure per-user mappings:
 Users without a mapping will use the default bridge settings configured above.
 Existing mappings can be updated with **Edit** or removed with **Delete**. Editing keeps the
 selected Jellyfin user fixed while allowing the bridge address, credentials, and area to change.
+To leave a user's playback unchanged, edit or create that mapping and uncheck **Enable Hue Sync
+for this user**; bridge credentials are not required for a disabled mapping. Users without a
+mapping continue to use the default bridge settings.
 
 ### Admin API
 
@@ -89,7 +92,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/Status` | Read sanitized runtime state, active target, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
-| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings. |
+| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, including the per-user sync enable flag. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 
 ### Generating Hue Credentials (Manual Fallback)
@@ -213,8 +216,10 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
   Entertainment Areas**. The selected area must contain color-capable lights.
 * **Lights stop updating:** check that `ffmpeg` and `openssl` are available to the Jellyfin
   service account and inspect the Jellyfin server log for `Hue Sync` and `FFmpeg` entries.
-* **A mapping is ignored:** the mapping must include a valid bridge address, App Key, Client
-  Key, and Entertainment Area ID. Users without a complete mapping use the default bridge.
+* **A mapping is ignored:** enabled mappings must include a valid bridge address, App Key,
+  Client Key, and Entertainment Area ID. A mapping with **Enable Hue Sync for this user**
+  unchecked intentionally leaves that user's playback unchanged; users without a mapping use
+  the default bridge.
 
 ### Performance Benchmarks
 
@@ -239,7 +244,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.9 (Current)
+### Version 1.5.10 (Current)
+- **Per-user opt-out**: Disable Hue sync for selected Jellyfin users without requiring or storing bridge credentials for that mapping; unmapped users continue using the default bridge
+
+### Version 1.5.9
 - **Safe runtime stop**: Administrators can stop the active Hue sync from the live status panel without stopping playback; saved lights are restored and the session remains suppressed until playback ends
 - **Session-safe lifecycle**: Stale playback stop notifications cannot reset a newer playback session after a manual stop
 

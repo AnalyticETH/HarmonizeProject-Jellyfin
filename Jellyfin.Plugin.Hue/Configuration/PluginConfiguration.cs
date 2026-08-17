@@ -11,6 +11,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
     {
         public string UserId { get; set; } = string.Empty;
         public string UserName { get; set; } = string.Empty; // For display purposes
+        // Missing values in older saved configurations deserialize to true, preserving
+        // the existing behavior for every mapping created before per-user opt-out support.
+        public bool SyncEnabled { get; set; } = true;
         public string HueBridgeIp { get; set; } = string.Empty;
         public string HueAppKey { get; set; } = string.Empty;
         public string HueClientKey { get; set; } = string.Empty;
@@ -76,6 +79,17 @@ namespace Jellyfin.Plugin.Hue.Configuration
             return (HueBridgeIp, HueAppKey, HueClientKey, EntertainmentAreaId);
         }
 
+        /// <summary>
+        /// Gets whether synchronization is enabled for a user. Users without a mapping
+        /// retain the default synchronization behavior.
+        /// </summary>
+        public bool IsSyncEnabledForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return mapping?.SyncEnabled ?? true;
+        }
+
         public PluginConfiguration()
         {
             // Defaults
@@ -91,7 +105,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (SyncEnabled)
             {
                 // Default bridge fields are only required if no per-user mappings exist
-                bool hasUserMappings = UserMappings?.Exists(m => !string.IsNullOrWhiteSpace(m.HueBridgeIp)) == true;
+                bool hasUserMappings = UserMappings?.Exists(m => m.SyncEnabled && !string.IsNullOrWhiteSpace(m.HueBridgeIp)) == true;
                 if (!hasUserMappings)
                 {
                     if (string.IsNullOrWhiteSpace(HueBridgeIp))
@@ -162,6 +176,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 {
                     errors.Add($"{label} duplicates another user mapping");
                 }
+
+                if (!mapping.SyncEnabled)
+                    continue;
 
                 // An empty bridge IP represents an intentionally incomplete mapping and
                 // falls back to the default bridge. If an address is supplied, the

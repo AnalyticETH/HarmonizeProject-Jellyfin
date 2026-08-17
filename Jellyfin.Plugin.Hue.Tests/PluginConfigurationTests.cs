@@ -382,6 +382,7 @@ public class PluginConfigurationTests
         Assert.Equal(15, config.BlackoutThreshold);
         Assert.Equal(10, config.ColorChangeThreshold);
         Assert.Equal(3, config.NetworkRetryAttempts);
+        Assert.True(new UserBridgeMapping().SyncEnabled);
     }
 
     [Fact]
@@ -444,6 +445,56 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         // Assert — should still require default bridge fields
+        Assert.Contains("Hue Bridge IP is required when sync is enabled", errors);
+    }
+
+    [Fact]
+    public void Validate_WhenUserMappingDisablesSync_AllowsMissingBridgeCredentials()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-key",
+            HueClientKey = "default-client",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    SyncEnabled = false,
+                    HueBridgeIp = "not-a-bridge",
+                    HueAppKey = "",
+                    HueClientKey = "",
+                    EntertainmentAreaId = ""
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void Validate_WhenOnlyDisabledUserMappingsExist_StillRequiresDefaultBridge()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    SyncEnabled = false
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
         Assert.Contains("Hue Bridge IP is required when sync is enabled", errors);
     }
 
@@ -597,5 +648,25 @@ public class PluginConfigurationTests
         // Assert — falls back to default because mapping has empty bridge IP
         Assert.Equal("10.0.0.1", bridgeIp);
         Assert.Equal("default-key", appKey);
+    }
+
+    [Fact]
+    public void IsSyncEnabledForUser_UsesMappingOptOutAndDefaultsUnmappedUsersToEnabled()
+    {
+        var disabledUser = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = disabledUser.ToString().ToUpperInvariant(),
+                    SyncEnabled = false
+                }
+            }
+        };
+
+        Assert.False(config.IsSyncEnabledForUser(disabledUser));
+        Assert.True(config.IsSyncEnabledForUser(System.Guid.NewGuid()));
     }
 }

@@ -297,7 +297,8 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Saves or updates a user-to-bridge mapping
+        /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
+        /// synchronization without storing bridge credentials.
         /// </summary>
         [HttpPost("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -314,16 +315,28 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("User ID is required.");
             }
 
-            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(mapping.HueBridgeIp))
+            if (mapping.SyncEnabled && !HueBridgeCertificateValidation.IsValidBridgeAddress(mapping.HueBridgeIp))
             {
                 return BadRequest("A valid private bridge IP address or .local host name is required.");
             }
 
-            if (string.IsNullOrWhiteSpace(mapping.HueAppKey) ||
-                string.IsNullOrWhiteSpace(mapping.HueClientKey) ||
-                string.IsNullOrWhiteSpace(mapping.EntertainmentAreaId))
+            if (mapping.SyncEnabled &&
+                (string.IsNullOrWhiteSpace(mapping.HueAppKey) ||
+                 string.IsNullOrWhiteSpace(mapping.HueClientKey) ||
+                 string.IsNullOrWhiteSpace(mapping.EntertainmentAreaId)))
             {
                 return BadRequest("Bridge credentials and entertainment area ID are required.");
+            }
+
+            if (!mapping.SyncEnabled)
+            {
+                // A disabled mapping is only a per-user opt-out. Do not retain stale
+                // bridge credentials or an area that will never be used.
+                mapping.HueBridgeIp = string.Empty;
+                mapping.HueAppKey = string.Empty;
+                mapping.HueClientKey = string.Empty;
+                mapping.EntertainmentAreaId = string.Empty;
+                mapping.EntertainmentAreaName = string.Empty;
             }
 
             var config = Plugin.Instance?.Configuration;
