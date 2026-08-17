@@ -12,11 +12,15 @@ public sealed class HueBridgeLifecycleGateTests
         var diagnosticLease = gate.TryEnterDiagnostic();
 
         Assert.NotNull(diagnosticLease);
+        Assert.False(gate.IsPlaybackActive);
+        Assert.True(gate.IsDiagnosticActive);
         Assert.Null(gate.TryEnterPlayback());
 
         diagnosticLease!.Dispose();
+        Assert.False(gate.IsDiagnosticActive);
         using var playbackLease = gate.TryEnterPlayback();
         Assert.NotNull(playbackLease);
+        Assert.True(gate.IsPlaybackActive);
     }
 
     [Fact]
@@ -26,9 +30,12 @@ public sealed class HueBridgeLifecycleGateTests
         var playbackLease = gate.TryEnterPlayback();
 
         Assert.NotNull(playbackLease);
+        Assert.True(gate.IsPlaybackActive);
+        Assert.False(gate.IsDiagnosticActive);
         Assert.Null(gate.TryEnterDiagnostic());
 
         playbackLease!.Dispose();
+        Assert.False(gate.IsPlaybackActive);
         using var diagnosticLease = gate.TryEnterDiagnostic();
         Assert.NotNull(diagnosticLease);
     }

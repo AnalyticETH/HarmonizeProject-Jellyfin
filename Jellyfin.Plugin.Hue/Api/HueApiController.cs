@@ -25,9 +25,11 @@ namespace Jellyfin.Plugin.Hue.Api
         private readonly HueClient _hueClient;
         private readonly Service.HueSyncService? _syncService;
         private readonly IHueStreamTester? _streamTester;
+        private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
+        private readonly IHueEnvironmentProbe _environmentProbe;
 
         public HueApiController(HueClient hueClient, IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices)
-            : this(hueClient, hostedServices, null)
+            : this(hueClient, hostedServices, null, null, null)
         {
         }
 
@@ -35,11 +37,15 @@ namespace Jellyfin.Plugin.Hue.Api
         public HueApiController(
             HueClient hueClient,
             IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices,
-            IHueStreamTester? streamTester)
+            IHueStreamTester? streamTester,
+            HueBridgeLifecycleGate? bridgeLifecycleGate = null,
+            IHueEnvironmentProbe? environmentProbe = null)
         {
             _hueClient = hueClient;
             _syncService = hostedServices.OfType<Service.HueSyncService>().FirstOrDefault();
             _streamTester = streamTester;
+            _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
+            _environmentProbe = environmentProbe ?? new HueEnvironmentProbe();
         }
 
         [HttpPost("Register")]
@@ -661,6 +667,86 @@ namespace Jellyfin.Plugin.Hue.Api
             };
 
             return Ok(status);
+        }
+
+        /// <summary>
+        /// Reports local playback prerequisites and sanitized bridge lifecycle state without
+        /// contacting or mutating a Hue bridge.
+        /// </summary>
+        [HttpGet("Diagnostics")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<HueDiagnosticsResult>> GetDiagnostics(
+            CancellationToken cancellationToken = default)
+        {
+            var environment = await _environmentProbe.CheckAsync(cancellationToken).ConfigureAwait(false);
+            var config = Plugin.Instance?.Configuration;
+            var configurationErrors = new List<string>();
+            if (config == null)
+            {
+                configurationErrors.Add("Plugin configuration is not available.");
+            }
+            else
+            {
+                try
+                {
+                    configurationErrors.AddRange(config.Validate());
+                }
+                catch
+                {
+                    configurationErrors.Add("Plugin configuration could not be validated safely.");
+                }
+            }
+
+            var runtime = _syncService?.GetRuntimeStatus();
+            var hasDefaultTarget = config != null &&
+                !string.IsNullOrWhiteSpace(config.HueBridgeIp) &&
+                !string.IsNullOrWhiteSpace(config.HueAppKey) &&
+                !string.IsNullOrWhiteSpace(config.HueClientKey) &&
+                !string.IsNullOrWhiteSpace(config.EntertainmentAreaId);
+            var hasCustomUserTarget = config?.UserMappings?.Any(mapping =>
+                mapping != null &&
+                mapping.SyncEnabled &&
+                !string.IsNullOrWhiteSpace(mapping.HueBridgeIp) &&
+                !string.IsNullOrWhiteSpace(mapping.HueAppKey) &&
+                !string.IsNullOrWhiteSpace(mapping.HueClientKey) &&
+                !string.IsNullOrWhiteSpace(mapping.EntertainmentAreaId)) == true;
+            var playbackActive = _bridgeLifecycleGate.IsPlaybackActive;
+            var diagnosticActive = _bridgeLifecycleGate.IsDiagnosticActive;
+            var configurationValid = config != null && configurationErrors.Count == 0;
+            var serviceAvailable = _syncService != null;
+
+            return Ok(new HueDiagnosticsResult
+            {
+                PluginVersion = typeof(Plugin).Assembly.GetName().Version?.ToString(),
+                ConfigurationValid = configurationValid,
+                ConfigurationErrors = configurationErrors,
+                SyncEnabled = config?.SyncEnabled ?? false,
+                DefaultBridgeConfigured = hasDefaultTarget,
+                EnabledUserMappingCount = config?.UserMappings?.Count(mapping => mapping != null && mapping.SyncEnabled) ?? 0,
+                CustomUserTargetConfigured = hasCustomUserTarget,
+                ServiceAvailable = serviceAvailable,
+                Ffmpeg = environment.Ffmpeg,
+                OpenSsl = environment.OpenSsl,
+                PlaybackLifecycleActive = playbackActive,
+                DiagnosticLifecycleActive = diagnosticActive,
+                BridgeLifecycleState = playbackActive
+                    ? "Playback"
+                    : diagnosticActive
+                        ? "Diagnostic"
+                        : "Idle",
+                CanRunDiagnostics = serviceAvailable && configurationValid &&
+                    (hasDefaultTarget || hasCustomUserTarget) &&
+                    environment.OpenSsl.Available && !playbackActive && !diagnosticActive,
+                CanStartPlayback = serviceAvailable && configurationValid && (config?.SyncEnabled ?? false) &&
+                    (hasDefaultTarget || hasCustomUserTarget) &&
+                    environment.Ffmpeg.Available && environment.OpenSsl.Available &&
+                    !playbackActive && !diagnosticActive,
+                RuntimeState = runtime?.State ?? "Unavailable",
+                RuntimeMessage = runtime?.Message,
+                LastError = runtime?.LastError,
+                CleanupWarning = runtime?.CleanupWarning,
+                CheckedAtUtc = DateTime.UtcNow
+            });
         }
 
         /// <summary>
@@ -1391,6 +1477,33 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool IsDtlsHealthy { get; set; }
         public double? SyncDurationSeconds { get; set; }
         public DateTime? SyncStartedAtUtc { get; set; }
+    }
+
+    /// <summary>
+    /// Sanitized setup and runtime diagnostics. No bridge credentials are included.
+    /// </summary>
+    public sealed class HueDiagnosticsResult
+    {
+        public string? PluginVersion { get; init; }
+        public bool ConfigurationValid { get; init; }
+        public IReadOnlyList<string> ConfigurationErrors { get; init; } = Array.Empty<string>();
+        public bool SyncEnabled { get; init; }
+        public bool DefaultBridgeConfigured { get; init; }
+        public int EnabledUserMappingCount { get; init; }
+        public bool CustomUserTargetConfigured { get; init; }
+        public bool ServiceAvailable { get; init; }
+        public HueToolStatus Ffmpeg { get; init; } = new();
+        public HueToolStatus OpenSsl { get; init; } = new();
+        public bool PlaybackLifecycleActive { get; init; }
+        public bool DiagnosticLifecycleActive { get; init; }
+        public string BridgeLifecycleState { get; init; } = "Idle";
+        public bool CanRunDiagnostics { get; init; }
+        public bool CanStartPlayback { get; init; }
+        public string RuntimeState { get; init; } = "Unavailable";
+        public string? RuntimeMessage { get; init; }
+        public string? LastError { get; init; }
+        public string? CleanupWarning { get; init; }
+        public DateTime CheckedAtUtc { get; init; }
     }
 
 }

@@ -51,6 +51,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Discover Bridge** | Ask the Hue discovery service for a bridge address and fill it into the form automatically. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. Disconnecting or canceling the request stops the diagnostic lifecycle safely. |
+| **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, active bridge lifecycle contention, and playback/diagnostic readiness. |
 | **Hue App Key** | "Username" for the REST API (auto-filled). |
 | **Hue Client Key** | "ClientKey" for the streaming API (auto-filled). |
 | **Entertainment Area ID** | UUID of the specific area to sync. |
@@ -145,6 +146,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/ColorPresets` | Save or update a named color scene with `name`, RGB values, `brightnessPercent`, and `durationSeconds`; names are case-insensitive and values are validated. |
 | `DELETE /HueSync/ColorPresets/{name}` | Delete one saved color scene by name. |
 | `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/color/execution/channel/restoration profile, frame count, FFmpeg/DTLS health, cleanup warnings, and whether the current sync can be stopped safely. |
+| `GET /HueSync/Diagnostics` | Run a non-mutating, cancellation-aware local prerequisite check for configuration validity, FFmpeg/OpenSSL versions, bridge lifecycle contention, and playback/diagnostic readiness. No bridge credentials are returned. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, without serializing per-user mappings to the configuration page. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
@@ -271,7 +273,7 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
   use a private IP or .local host name manually when the discovery service cannot see your bridge.
 * **No areas are listed:** verify the bridge IP and App Key, then click **Refresh
   Entertainment Areas**. The selected area must contain color-capable lights.
-* **Lights stop updating:** check that `ffmpeg` and `openssl` are available to the Jellyfin
+* **Lights stop updating:** run **System Diagnostics** first to confirm that `ffmpeg` and `openssl` are available to the Jellyfin
   service account and inspect the Jellyfin server log for `Hue Sync` and `FFmpeg` entries. If a
   frame stream ends or fails, or startup cannot complete, the plugin now rolls back immediately,
   restores saved lights—including color-temperature/mirek mode where applicable—and deactivates the area automatically. If repeated DTLS writes and
@@ -314,7 +316,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.48 (Current)
+### Version 1.5.49 (Current)
+- **System Diagnostics**: Add a non-mutating setup and runtime report for configuration validity, FFmpeg/OpenSSL availability and versions, lifecycle contention, and playback/diagnostic readiness
+- **Actionable setup feedback**: Add a configuration-page diagnostics panel that explains missing prerequisites without exposing bridge credentials
+
+### Version 1.5.48
 - **Cancellation-safe diagnostics**: Test Connection probes and solid-color previews observe request cancellation during capture, activation waits, DTLS startup, and preview holds
 - **Guaranteed cleanup on cancellation**: A canceled diagnostic still stops the stream and restores the entertainment area and captured light state before releasing the shared bridge lease
 

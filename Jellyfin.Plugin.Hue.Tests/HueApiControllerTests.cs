@@ -620,6 +620,59 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Diagnostics_ReturnsSanitizedPrerequisiteAndLifecycleState()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-secret",
+            HueClientKey = "client-secret",
+            EntertainmentAreaId = "area-1"
+        });
+        var probe = new Mock<IHueEnvironmentProbe>();
+        probe
+            .Setup(environment => environment.CheckAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueEnvironmentProbeResult
+            {
+                Ffmpeg = new HueToolStatus
+                {
+                    Available = true,
+                    ExecutablePath = "/usr/bin/ffmpeg",
+                    Version = "ffmpeg version 7.0"
+                },
+                OpenSsl = new HueToolStatus
+                {
+                    Available = true,
+                    ExecutablePath = "/usr/bin/openssl",
+                    Version = "OpenSSL 3.0"
+                }
+            });
+        var gate = new HueBridgeLifecycleGate();
+        using var diagnosticLease = gate.TryEnterDiagnostic();
+        var controller = CreateController(null, gate, probe.Object);
+        using var cancellationSource = new CancellationTokenSource();
+
+        var action = await controller.GetDiagnostics(cancellationSource.Token);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueDiagnosticsResult>(response.Value);
+        Assert.True(diagnostics.ConfigurationValid);
+        Assert.True(diagnostics.DefaultBridgeConfigured);
+        Assert.True(diagnostics.Ffmpeg.Available);
+        Assert.True(diagnostics.OpenSsl.Available);
+        Assert.True(diagnostics.DiagnosticLifecycleActive);
+        Assert.Equal("Diagnostic", diagnostics.BridgeLifecycleState);
+        Assert.False(diagnostics.CanRunDiagnostics);
+        Assert.False(diagnostics.CanStartPlayback);
+        Assert.DoesNotContain("app-secret", System.Text.Json.JsonSerializer.Serialize(diagnostics));
+        Assert.DoesNotContain("client-secret", System.Text.Json.JsonSerializer.Serialize(diagnostics));
+        probe.Verify(
+            environment => environment.CheckAsync(It.Is<CancellationToken>(token => token == cancellationSource.Token)),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task StopSync_WithoutHostedServiceReturnsServiceUnavailable()
     {
         var controller = CreateController();
@@ -1162,10 +1215,18 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Empty(mapping.EntertainmentAreaId);
     }
 
-    private HueApiController CreateController(IHueStreamTester? streamTester = null)
+    private HueApiController CreateController(
+        IHueStreamTester? streamTester = null,
+        HueBridgeLifecycleGate? bridgeLifecycleGate = null,
+        IHueEnvironmentProbe? environmentProbe = null)
     {
         var client = new HueClient(_httpClient, _loggerMock.Object);
-        return new HueApiController(client, Array.Empty<IHostedService>(), streamTester);
+        return new HueApiController(
+            client,
+            Array.Empty<IHostedService>(),
+            streamTester,
+            bridgeLifecycleGate,
+            environmentProbe);
     }
 
     private static PluginConfiguration InstallConfiguration(PluginConfiguration configuration)

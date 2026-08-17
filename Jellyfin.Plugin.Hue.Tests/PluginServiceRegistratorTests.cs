@@ -23,11 +23,16 @@ public class PluginServiceRegistratorTests
 
         var descriptor = Assert.Single(services, service => service.ServiceType == typeof(IHueStreamTester));
         Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
+        var environmentDescriptor = Assert.Single(services, service => service.ServiceType == typeof(IHueEnvironmentProbe));
+        Assert.Equal(ServiceLifetime.Singleton, environmentDescriptor.Lifetime);
 
         using var provider = services.AddLogging().BuildServiceProvider();
         var first = provider.GetRequiredService<IHueStreamTester>();
         var second = provider.GetRequiredService<IHueStreamTester>();
         Assert.Same(first, second);
+        var firstProbe = provider.GetRequiredService<IHueEnvironmentProbe>();
+        var secondProbe = provider.GetRequiredService<IHueEnvironmentProbe>();
+        Assert.Same(firstProbe, secondProbe);
     }
 
     [Theory]

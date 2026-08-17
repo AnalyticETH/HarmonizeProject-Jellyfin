@@ -28,6 +28,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // concurrent API requests from creating separate gates and touching the bridge at
         // the same time.
         serviceCollection.AddSingleton<IHueStreamTester, HueStreamTester>();
+        serviceCollection.AddSingleton<IHueEnvironmentProbe, HueEnvironmentProbe>();
         serviceCollection.AddHostedService<HueSyncService>();
     }
 }

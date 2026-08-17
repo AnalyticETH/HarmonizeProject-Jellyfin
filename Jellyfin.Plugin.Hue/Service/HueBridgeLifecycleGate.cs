@@ -15,6 +15,34 @@ public sealed class HueBridgeLifecycleGate
     private bool _diagnosticActive;
 
     /// <summary>
+    /// Gets whether a playback lifecycle currently owns the bridge.
+    /// </summary>
+    public bool IsPlaybackActive
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _playbackActive;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets whether a diagnostic lifecycle currently owns the bridge.
+    /// </summary>
+    public bool IsDiagnosticActive
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _diagnosticActive;
+            }
+        }
+    }
+
+    /// <summary>
     /// Attempts to reserve the bridge for playback until the returned lease is disposed.
     /// </summary>
     public IDisposable? TryEnterPlayback()

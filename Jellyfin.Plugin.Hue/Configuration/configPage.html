@@ -45,6 +45,29 @@
                     <div id="runtimeCleanupWarning" style="display: none; color: #ffd27f; margin-top: 0.5em;"></div>
                     <div class="fieldDescription" style="margin-top: 0.75em;">Updates automatically while this page is open. Stop Current Sync restores the lights and leaves playback running; bridge credentials are never included in status responses.</div>
                 </fieldset>
+                <fieldset class="verticalSection" id="environmentDiagnosticsSection">
+                    <legend>System Diagnostics</legend>
+                    <div class="fieldDescription" style="margin-bottom: 0.75em;">Check local playback prerequisites and bridge lifecycle contention without changing bridge state.</div>
+                    <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
+                        <div style="flex: 1 1 280px;">
+                            <div><strong>Plugin configuration:</strong> <span id="diagnosticsConfiguration">—</span></div>
+                            <div><strong>FFmpeg:</strong> <span id="diagnosticsFfmpeg">—</span></div>
+                            <div><strong>OpenSSL:</strong> <span id="diagnosticsOpenSsl">—</span></div>
+                            <div><strong>Bridge lifecycle:</strong> <span id="diagnosticsBridgeLifecycle">—</span></div>
+                        </div>
+                        <div style="flex: 1 1 280px;">
+                            <div><strong>Playback readiness:</strong> <span id="diagnosticsPlaybackReadiness">—</span></div>
+                            <div><strong>Diagnostic readiness:</strong> <span id="diagnosticsDiagnosticReadiness">—</span></div>
+                            <div><strong>Runtime:</strong> <span id="diagnosticsRuntime">—</span></div>
+                            <div><strong>Checked:</strong> <span id="diagnosticsCheckedAt">—</span></div>
+                        </div>
+                        <button is="emby-button" type="button" class="raised" id="refreshDiagnosticsBtn">
+                            <span>Run Diagnostics</span>
+                        </button>
+                    </div>
+                    <div id="diagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Run diagnostics to verify FFmpeg, OpenSSL, and saved configuration.</div>
+                    <div id="diagnosticsErrors" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
+                </fieldset>
                 <form class="huePluginConfigurationForm">
                     <fieldset class="verticalSection">
                         <legend>Bridge connection</legend>
@@ -1382,6 +1405,78 @@
                         if (refreshButton) refreshButton.disabled = false;
                     });
                 },
+                formatToolDiagnostics: function (status) {
+                    var available = HueConfigurationPage.readStatusField(status, "Available", false);
+                    var version = HueConfigurationPage.readStatusField(status, "Version", "");
+                    var executablePath = HueConfigurationPage.readStatusField(status, "ExecutablePath", "");
+                    if (available) {
+                        return "Available" + (version ? " · " + version : "") + (executablePath ? " (" + executablePath + ")" : "");
+                    }
+
+                    return "Unavailable" + (HueConfigurationPage.readStatusField(status, "Message", "")
+                        ? " · " + HueConfigurationPage.readStatusField(status, "Message", "")
+                        : "");
+                },
+                loadEnvironmentDiagnostics: function (page) {
+                    if (!page || page._hueDiagnosticsLoading) {
+                        return Promise.resolve();
+                    }
+
+                    page._hueDiagnosticsLoading = true;
+                    var button = page.querySelector('#refreshDiagnosticsBtn');
+                    if (button) button.disabled = true;
+
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/Diagnostics")).then(function (diagnostics) {
+                        var configurationValid = HueConfigurationPage.readStatusField(diagnostics, "ConfigurationValid", false);
+                        var ffmpeg = HueConfigurationPage.readStatusField(diagnostics, "Ffmpeg", {});
+                        var openSsl = HueConfigurationPage.readStatusField(diagnostics, "OpenSsl", {});
+                        var bridgeState = HueConfigurationPage.readStatusField(diagnostics, "BridgeLifecycleState", "Unavailable");
+                        var canStartPlayback = HueConfigurationPage.readStatusField(diagnostics, "CanStartPlayback", false);
+                        var canRunDiagnostics = HueConfigurationPage.readStatusField(diagnostics, "CanRunDiagnostics", false);
+                        var runtimeState = HueConfigurationPage.readStatusField(diagnostics, "RuntimeState", "Unavailable");
+                        var runtimeMessage = HueConfigurationPage.readStatusField(diagnostics, "RuntimeMessage", "");
+                        var errors = HueConfigurationPage.readStatusField(diagnostics, "ConfigurationErrors", []);
+                        var checkedAt = HueConfigurationPage.readStatusField(diagnostics, "CheckedAtUtc", "");
+                        var mappingCount = HueConfigurationPage.readStatusField(diagnostics, "EnabledUserMappingCount", 0);
+
+                        page.querySelector('#diagnosticsConfiguration').textContent = configurationValid
+                            ? "Valid"
+                            : "Needs attention";
+                        page.querySelector('#diagnosticsFfmpeg').textContent = HueConfigurationPage.formatToolDiagnostics(ffmpeg);
+                        page.querySelector('#diagnosticsOpenSsl').textContent = HueConfigurationPage.formatToolDiagnostics(openSsl);
+                        page.querySelector('#diagnosticsBridgeLifecycle').textContent = bridgeState + " · " + String(mappingCount) + " enabled mapping(s)";
+                        page.querySelector('#diagnosticsPlaybackReadiness').textContent = canStartPlayback ? "Ready" : "Blocked";
+                        page.querySelector('#diagnosticsDiagnosticReadiness').textContent = canRunDiagnostics ? "Ready" : "Blocked";
+                        page.querySelector('#diagnosticsRuntime').textContent = runtimeState + (runtimeMessage ? " · " + runtimeMessage : "");
+                        page.querySelector('#diagnosticsCheckedAt').textContent = checkedAt
+                            ? new Date(checkedAt).toLocaleTimeString()
+                            : "—";
+
+                        var message = page.querySelector('#diagnosticsMessage');
+                        if (message) {
+                            message.textContent = canStartPlayback
+                                ? "Playback prerequisites are available."
+                                : canRunDiagnostics
+                                    ? "Diagnostics are available, but playback prerequisites are incomplete."
+                                    : "Resolve the reported prerequisites or wait for the bridge lifecycle to become idle.";
+                        }
+
+                        var errorElement = page.querySelector('#diagnosticsErrors');
+                        if (errorElement) {
+                            errorElement.textContent = Array.isArray(errors) && errors.length > 0
+                                ? "Configuration issues: " + errors.join("; ")
+                                : "";
+                            errorElement.style.display = Array.isArray(errors) && errors.length > 0 ? "block" : "none";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to load Hue environment diagnostics:", err);
+                        var message = page.querySelector('#diagnosticsMessage');
+                        if (message) message.textContent = "Unable to run diagnostics. Check the server log for details.";
+                    }).finally(function () {
+                        page._hueDiagnosticsLoading = false;
+                        if (button) button.disabled = false;
+                    });
+                },
                 stopRuntimeSync: function (page) {
                     if (!page || page._hueRuntimeStopInFlight) return;
 
@@ -2629,6 +2724,10 @@
                 HueConfigurationPage.loadRuntimeStatus(this.closest('.page'));
             });
 
+            document.querySelector('#refreshDiagnosticsBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadEnvironmentDiagnostics(this.closest('.page'));
+            });
+
             document.querySelector('#stopRuntimeSyncBtn').addEventListener('click', function () {
                 HueConfigurationPage.stopRuntimeSync(this.closest('.page'));
             });
@@ -2685,6 +2784,7 @@
                     HueConfigurationPage.loadUsers(e.target);
                     HueConfigurationPage.loadUserMappings(e.target);
                     HueConfigurationPage.startRuntimeStatusPolling(e.target);
+                    HueConfigurationPage.loadEnvironmentDiagnostics(e.target);
                 }
             });
 

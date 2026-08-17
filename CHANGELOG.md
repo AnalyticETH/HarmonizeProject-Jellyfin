@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.49] - 2026-08-17
+
+### Added
+- Non-mutating System Diagnostics report for configuration validity, FFmpeg/OpenSSL availability, and bridge lifecycle contention
+- Configuration-page diagnostics panel with actionable prerequisite and readiness status
+
+### Changed
+- Local executable probes use bounded, cancellation-aware version checks and never expose bridge credentials
+
 ## [1.5.48] - 2026-08-17
 
 ### Added
