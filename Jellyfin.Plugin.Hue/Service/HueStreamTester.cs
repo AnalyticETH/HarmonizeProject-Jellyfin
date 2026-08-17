@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
@@ -54,12 +55,14 @@ public sealed class HueStreamTester : IHueStreamTester
 {
     private const int EntertainmentAreaActivationDelayMs = 200;
     private const byte ProbeColor = 1;
+    private const string DiagnosticBusyMessage = "Another Hue diagnostic is already running. Wait for it to finish before starting another probe or preview.";
     internal const int MinPreviewDurationSeconds = PluginConfiguration.MinPreviewDurationSeconds;
     internal const int MaxPreviewDurationSeconds = PluginConfiguration.MaxPreviewDurationSeconds;
 
     private readonly HueClient _hueClient;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<HueStreamTester> _logger;
+    private readonly SemaphoreSlim _diagnosticLifecycleLock = new(1, 1);
 
     public HueStreamTester(HueClient hueClient, ILoggerFactory loggerFactory, ILogger<HueStreamTester> logger)
     {
@@ -68,7 +71,22 @@ public sealed class HueStreamTester : IHueStreamTester
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public async Task<HueStreamProbeResult> TestAsync(
+    public Task<HueStreamProbeResult> TestAsync(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds = null)
+        => RunSerializedAsync(() => TestCoreAsync(
+            bridgeIp,
+            appKey,
+            clientKey,
+            areaId,
+            areaConfiguration,
+            channelIds));
+
+    private async Task<HueStreamProbeResult> TestCoreAsync(
         string bridgeIp,
         string appKey,
         string clientKey,
@@ -175,7 +193,32 @@ public sealed class HueStreamTester : IHueStreamTester
     /// lifecycle used by playback. This is intentionally separate from TestAsync so a
     /// connection check can remain low intensity and non-disruptive.
     /// </summary>
-    public async Task<HueStreamProbeResult> PreviewAsync(
+    public Task<HueStreamProbeResult> PreviewAsync(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        int red,
+        int green,
+        int blue,
+        int brightnessPercent,
+        int durationSeconds)
+        => RunSerializedAsync(() => PreviewCoreAsync(
+            bridgeIp,
+            appKey,
+            clientKey,
+            areaId,
+            areaConfiguration,
+            channelIds,
+            red,
+            green,
+            blue,
+            brightnessPercent,
+            durationSeconds));
+
+    private async Task<HueStreamProbeResult> PreviewCoreAsync(
         string bridgeIp,
         string appKey,
         string clientKey,
@@ -324,6 +367,21 @@ public sealed class HueStreamTester : IHueStreamTester
         }
 
         return previewResult;
+    }
+
+    private async Task<HueStreamProbeResult> RunSerializedAsync(Func<Task<HueStreamProbeResult>> operation)
+    {
+        if (!await _diagnosticLifecycleLock.WaitAsync(0).ConfigureAwait(false))
+            return Failure(DiagnosticBusyMessage);
+
+        try
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        finally
+        {
+            _diagnosticLifecycleLock.Release();
+        }
     }
 
     private async Task<HueStreamProbeResult> AddCleanupResultAsync(

@@ -192,4 +192,82 @@ public sealed class HueStreamTesterTests
             ItExpr.Is<HttpRequestMessage>(request => request.Method == HttpMethod.Put),
             ItExpr.IsAny<CancellationToken>());
     }
+
+    [Fact]
+    public async Task PreviewAsync_WhileProbeIsRunningReturnsBusyWithoutCapturing()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        var lightRequestStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseLightRequest = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        handler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.Is<HttpRequestMessage>(request =>
+                    request.Method == HttpMethod.Get &&
+                    request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal)),
+                ItExpr.IsAny<CancellationToken>())
+            .Returns(async () =>
+            {
+                lightRequestStarted.TrySetResult(true);
+                return await releaseLightRequest.Task;
+            });
+        using var httpClient = new HttpClient(handler.Object);
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
+        {
+            RetryAttempts = 0
+        };
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
+        var tester = new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>());
+        using var document = JsonDocument.Parse(
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+
+        var firstProbe = tester.TestAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement);
+        await lightRequestStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var secondProbe = await tester.PreviewAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            null,
+            255,
+            0,
+            0,
+            50,
+            1);
+
+        Assert.False(secondProbe.Succeeded);
+        Assert.Contains("already running", secondProbe.Message, StringComparison.OrdinalIgnoreCase);
+
+        releaseLightRequest.SetResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(@"{
+                ""data"": [{
+                    ""on"": {""on"": true},
+                    ""dimming"": {""brightness"": 50},
+                    ""color"": {""xy"": {""x"": 0.3, ""y"": 0.3}}
+                }]
+            }")
+        });
+        await firstProbe;
+
+        handler.Protected().Verify(
+            "SendAsync",
+            Times.Once(),
+            ItExpr.Is<HttpRequestMessage>(request =>
+                request.Method == HttpMethod.Get &&
+                request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal)),
+            ItExpr.IsAny<CancellationToken>());
+    }
 }

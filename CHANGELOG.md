@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.45] - 2026-08-17
+
+### Added
+- Serialized Test Connection probes and solid-color previews with an explicit busy result when another diagnostic lifecycle is already using the bridge
+
+### Changed
+- Concurrent diagnostic requests now fail without touching the bridge, preventing overlapping snapshots, area activation, DTLS streams, and restoration from interfering with one another
+
 ## [1.5.44] - 2026-08-17
 
 ### Added
