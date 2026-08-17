@@ -316,7 +316,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.51 (Current)
+### Version 1.5.52 (Current)
+- **Activation-failure cleanup**: Test Connection and solid-color Preview now deactivate the entertainment area and restore captured lights even when an activation response fails or is ambiguous
+
+### Version 1.5.51
 - **Playback-aligned diagnostics**: System Diagnostics now probes Jellyfin's configured FFmpeg encoder path before falling back to `PATH`, so bundled encoder installations report accurate readiness
 
 ### Version 1.5.50

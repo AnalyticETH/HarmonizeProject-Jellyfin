@@ -177,7 +177,17 @@ public sealed class HueStreamTester : IHueStreamTester
         }
         if (!activated)
         {
-            return Failure("The Hue bridge could not activate the entertainment area.");
+            // A failed response does not prove that the bridge ignored the request:
+            // activation may have reached the bridge before a timeout or transport
+            // error. Run the same non-cancellable cleanup used after a successful
+            // activation so diagnostics never leave a captured target in an unknown
+            // state.
+            return await AddCleanupResultAsync(
+                Failure("The Hue bridge could not activate the entertainment area; the bridge is being restored."),
+                bridgeIp,
+                appKey,
+                areaId,
+                savedLightStates).ConfigureAwait(false);
         }
 
         var probeResult = Failure("The DTLS stream probe did not complete.");
@@ -368,7 +378,15 @@ public sealed class HueStreamTester : IHueStreamTester
         }
         if (!activated)
         {
-            return Failure("The Hue bridge could not activate the entertainment area for preview.");
+            // Treat an unsuccessful activation response as ambiguous. The request may
+            // have reached the bridge even if its response was lost, so always run the
+            // safety cleanup before returning to the configuration page.
+            return await AddCleanupResultAsync(
+                Failure("The Hue bridge could not activate the entertainment area for preview; the bridge is being restored."),
+                bridgeIp,
+                appKey,
+                areaId,
+                savedLightStates).ConfigureAwait(false);
         }
 
         var previewResult = Failure("The solid color preview did not complete.");
