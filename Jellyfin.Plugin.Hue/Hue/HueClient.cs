@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Hue.Service;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Hue.Hue
@@ -16,6 +17,7 @@ namespace Jellyfin.Plugin.Hue.Hue
     {
         private readonly HttpClient _httpClient;
         private readonly ILogger<HueClient> _logger;
+        private readonly IHueBridgeLocalDiscovery? _localDiscovery;
         private const int DefaultRetryAttempts = 3;
         private const int RetryDelayMs = 1000;
 
@@ -24,11 +26,15 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         public int RetryAttempts { get; set; } = DefaultRetryAttempts;
 
-        public HueClient(HttpClient httpClient, ILogger<HueClient> logger)
+        public HueClient(
+            HttpClient httpClient,
+            ILogger<HueClient> logger,
+            IHueBridgeLocalDiscovery? localDiscovery = null)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _httpClient.Timeout = TimeSpan.FromSeconds(10);
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _localDiscovery = localDiscovery;
         }
 
         /// <summary>
@@ -120,7 +126,9 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <returns>The IP address of the bridge, or empty string if not found</returns>
         public async Task<string> DiscoverBridgeIp(CancellationToken cancellationToken = default)
         {
-            // Simple discovery via meethue.com or mDNS (simplified for now)
+            // Prefer the official cloud discovery endpoint for the fastest result, then
+            // fall back to local mDNS when the server is offline from the Hue cloud or the
+            // bridge is not represented in the cloud response.
             try
             {
                 var response = await _httpClient.GetStringAsync("https://discovery.meethue.com/", cancellationToken).ConfigureAwait(false);
@@ -150,8 +158,33 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error discovering bridge");
+                _logger.LogWarning(ex, "Cloud Hue bridge discovery failed; trying local mDNS");
             }
+
+            if (_localDiscovery != null)
+            {
+                try
+                {
+                    var localAddresses = await _localDiscovery.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+                    foreach (var localAddress in localAddresses)
+                    {
+                        if (IPAddress.TryParse(localAddress, out var address) &&
+                            Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(address.ToString()))
+                        {
+                            return address.ToString();
+                        }
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Local mDNS Hue bridge discovery failed");
+                }
+            }
+
             return "";
         }
 

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.Hue.Api;
 using Jellyfin.Plugin.Hue.Hue;
+using Jellyfin.Plugin.Hue.Service;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
@@ -100,6 +101,47 @@ public class HueClientTests : IDisposable
 
         // Assert
         Assert.Equal("", result);
+    }
+
+    [Fact]
+    public async Task DiscoverBridgeIp_WhenCloudDiscoveryFailsUsesLocalDiscovery()
+    {
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Cloud discovery unavailable"));
+        var localDiscovery = new Mock<IHueBridgeLocalDiscovery>();
+        localDiscovery
+            .Setup(discovery => discovery.DiscoverAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<string> { "192.168.1.120" });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object, localDiscovery.Object);
+
+        var result = await client.DiscoverBridgeIp();
+
+        Assert.Equal("192.168.1.120", result);
+        localDiscovery.Verify(
+            discovery => discovery.DiscoverAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task DiscoverBridgeIp_LocalDiscoverySkipsPublicAddresses()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "[]");
+        var localDiscovery = new Mock<IHueBridgeLocalDiscovery>();
+        localDiscovery
+            .Setup(discovery => discovery.DiscoverAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<string> { "8.8.8.8", "192.168.1.121" });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object, localDiscovery.Object);
+
+        var result = await client.DiscoverBridgeIp();
+
+        Assert.Equal("192.168.1.121", result);
     }
 
     [Fact]

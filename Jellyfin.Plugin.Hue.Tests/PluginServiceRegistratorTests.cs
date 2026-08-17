@@ -29,6 +29,8 @@ public class PluginServiceRegistratorTests
         Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
         var environmentDescriptor = Assert.Single(services, service => service.ServiceType == typeof(IHueEnvironmentProbe));
         Assert.Equal(ServiceLifetime.Singleton, environmentDescriptor.Lifetime);
+        var localDiscoveryDescriptor = Assert.Single(services, service => service.ServiceType == typeof(IHueBridgeLocalDiscovery));
+        Assert.Equal(ServiceLifetime.Singleton, localDiscoveryDescriptor.Lifetime);
 
         using var provider = services.AddLogging().BuildServiceProvider();
         var first = provider.GetRequiredService<IHueStreamTester>();
@@ -37,6 +39,9 @@ public class PluginServiceRegistratorTests
         var firstProbe = provider.GetRequiredService<IHueEnvironmentProbe>();
         var secondProbe = provider.GetRequiredService<IHueEnvironmentProbe>();
         Assert.Same(firstProbe, secondProbe);
+        var firstLocalDiscovery = provider.GetRequiredService<IHueBridgeLocalDiscovery>();
+        var secondLocalDiscovery = provider.GetRequiredService<IHueBridgeLocalDiscovery>();
+        Assert.Same(firstLocalDiscovery, secondLocalDiscovery);
     }
 
     [Fact]

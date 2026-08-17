@@ -1,0 +1,391 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Jellyfin.Plugin.Hue.Service;
+
+/// <summary>
+/// Discovers Hue bridge addresses on the local link without contacting the Hue cloud.
+/// </summary>
+public interface IHueBridgeLocalDiscovery
+{
+    Task<IReadOnlyList<string>> DiscoverAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Performs a bounded DNS-SD query for the Hue bridge mDNS service. The implementation
+/// intentionally uses only framework networking APIs so the plugin package does not need
+/// to ship another runtime assembly alongside Jellyfin's plugin DLL.
+/// </summary>
+public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
+{
+    internal const string ServiceType = "_hue._tcp.local";
+
+    private const ushort DnsTypeA = 1;
+    private const ushort DnsTypePtr = 12;
+    private const ushort DnsTypeSrv = 33;
+    private const ushort DnsTypeAaaa = 28;
+    private const ushort DnsClassIn = 1;
+    private const int DnsHeaderLength = 12;
+    private const int MdnsPort = 5353;
+    private const int MaxRecords = 256;
+    private static readonly IPAddress MdnsAddress = IPAddress.Parse("224.0.0.251");
+    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(1.5);
+
+    private readonly TimeSpan _timeout;
+
+    public HueBridgeMdnsDiscovery(TimeSpan? timeout = null)
+    {
+        _timeout = timeout is { } value && value > TimeSpan.Zero
+            ? value
+            : DefaultTimeout;
+    }
+
+    public async Task<IReadOnlyList<string>> DiscoverAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(_timeout);
+
+        UdpClient? client = null;
+        try
+        {
+            client = CreateClient(out var requestedUnicastResponse);
+            var query = BuildQuery(requestedUnicastResponse);
+            var endpoint = new IPEndPoint(MdnsAddress, MdnsPort);
+            await client.SendAsync(query, endpoint).AsTask().WaitAsync(timeoutSource.Token).ConfigureAwait(false);
+
+            var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (!timeoutSource.IsCancellationRequested)
+            {
+                UdpReceiveResult response;
+                try
+                {
+                    response = await client.ReceiveAsync().WaitAsync(timeoutSource.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                foreach (var address in ParseResponse(response.Buffer))
+                    addresses.Add(address);
+            }
+
+            return addresses.ToArray();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Array.Empty<string>();
+        }
+        catch (SocketException)
+        {
+            return Array.Empty<string>();
+        }
+        catch (ObjectDisposedException)
+        {
+            return Array.Empty<string>();
+        }
+        catch (InvalidOperationException)
+        {
+            return Array.Empty<string>();
+        }
+        finally
+        {
+            client?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Builds a DNS-SD PTR query for the Hue service. The unicast-response bit is used
+    /// only when binding the standard mDNS port was unavailable, which lets a running
+    /// Avahi/Bonjour daemon coexist with the fallback socket.
+    /// </summary>
+    internal static byte[] BuildQuery(bool requestUnicastResponse = false)
+    {
+        var query = new List<byte>(64);
+        AppendUInt16(query, 0); // transaction ID
+        AppendUInt16(query, 0); // standard query flags
+        AppendUInt16(query, 1); // one question
+        AppendUInt16(query, 0); // answer count
+        AppendUInt16(query, 0); // authority count
+        AppendUInt16(query, 0); // additional count
+        AppendDnsName(query, ServiceType);
+        AppendUInt16(query, DnsTypePtr);
+        AppendUInt16(query, (ushort)(DnsClassIn | (requestUnicastResponse ? 0x8000 : 0)));
+        return query.ToArray();
+    }
+
+    /// <summary>
+    /// Extracts private/local addresses from a DNS-SD response. Keeping this parser
+    /// internal makes malformed or compressed responses testable without requiring a
+    /// multicast-capable CI runner.
+    /// </summary>
+    internal static IReadOnlyList<string> ParseResponse(byte[]? message)
+    {
+        if (message == null || message.Length < DnsHeaderLength)
+            return Array.Empty<string>();
+
+        var offset = 0;
+        if (!TryReadUInt16(message, ref offset, out _) ||
+            !TryReadUInt16(message, ref offset, out var flags) ||
+            !TryReadUInt16(message, ref offset, out var questionCount) ||
+            !TryReadUInt16(message, ref offset, out var answerCount) ||
+            !TryReadUInt16(message, ref offset, out var authorityCount) ||
+            !TryReadUInt16(message, ref offset, out var additionalCount))
+        {
+            return Array.Empty<string>();
+        }
+
+        if ((flags & 0x8000) == 0)
+            return Array.Empty<string>();
+
+        for (var index = 0; index < questionCount; index++)
+        {
+            if (!TryReadDnsName(message, ref offset, out _) || !TrySkip(message, ref offset, 4))
+                return Array.Empty<string>();
+        }
+
+        var recordCount = (long)answerCount + authorityCount + additionalCount;
+        if (recordCount > MaxRecords)
+            return Array.Empty<string>();
+
+        var records = new List<MdnsRecord>((int)recordCount);
+        for (var index = 0; index < recordCount; index++)
+        {
+            if (!TryReadRecord(message, ref offset, out var record))
+                return Array.Empty<string>();
+
+            records.Add(record);
+        }
+
+        var serviceInstances = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var record in records.Where(record => record.Type == DnsTypePtr &&
+                                                         string.Equals(record.Name, ServiceType, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (!string.IsNullOrWhiteSpace(record.Target))
+                serviceInstances.Add(record.Target);
+        }
+
+        var serviceHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var record in records.Where(record => record.Type == DnsTypeSrv))
+        {
+            if ((serviceInstances.Contains(record.Name) || IsHueServiceInstance(record.Name)) &&
+                !string.IsNullOrWhiteSpace(record.Target))
+            {
+                serviceHosts.Add(record.Target);
+            }
+        }
+
+        var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var record in records.Where(record =>
+                     (record.Type == DnsTypeA || record.Type == DnsTypeAaaa) &&
+                     record.Address != null &&
+                     serviceHosts.Contains(record.Name)))
+        {
+            var address = record.Address!.ToString();
+            if (Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(address))
+                addresses.Add(address);
+        }
+
+        return addresses.ToArray();
+    }
+
+    private static UdpClient CreateClient(out bool requestedUnicastResponse)
+    {
+        UdpClient? client = null;
+        try
+        {
+            client = new UdpClient(AddressFamily.InterNetwork)
+            {
+                ExclusiveAddressUse = false
+            };
+            client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            client.Client.Bind(new IPEndPoint(IPAddress.Any, MdnsPort));
+            client.JoinMulticastGroup(MdnsAddress);
+            requestedUnicastResponse = false;
+            return client;
+        }
+        catch (SocketException)
+        {
+            client?.Dispose();
+            requestedUnicastResponse = true;
+            return new UdpClient(0);
+        }
+        catch (InvalidOperationException)
+        {
+            client?.Dispose();
+            requestedUnicastResponse = true;
+            return new UdpClient(0);
+        }
+    }
+
+    private static bool IsHueServiceInstance(string name)
+        => name.EndsWith("." + ServiceType, StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryReadRecord(byte[] message, ref int offset, out MdnsRecord record)
+    {
+        record = new MdnsRecord(string.Empty, 0, null, null);
+        if (!TryReadDnsName(message, ref offset, out var name) ||
+            !TryReadUInt16(message, ref offset, out var type) ||
+            !TryReadUInt16(message, ref offset, out _) ||
+            !TryReadUInt32(message, ref offset, out _) ||
+            !TryReadUInt16(message, ref offset, out var dataLength))
+        {
+            return false;
+        }
+
+        var dataOffset = offset;
+        if (!TrySkip(message, ref offset, dataLength))
+            return false;
+
+        string? target = null;
+        IPAddress? address = null;
+        var dataCursor = dataOffset;
+        if (type == DnsTypePtr)
+        {
+            TryReadDnsName(message, ref dataCursor, out target);
+        }
+        else if (type == DnsTypeSrv && dataLength >= 6)
+        {
+            dataCursor += 6;
+            TryReadDnsName(message, ref dataCursor, out target);
+        }
+        else if (type == DnsTypeA && dataLength == 4)
+        {
+            address = new IPAddress(message.AsSpan(dataOffset, 4));
+        }
+        else if (type == DnsTypeAaaa && dataLength == 16)
+        {
+            address = new IPAddress(message.AsSpan(dataOffset, 16));
+        }
+
+        record = new MdnsRecord(NormalizeName(name), type, NormalizeName(target), address);
+        return true;
+    }
+
+    private static bool TryReadDnsName(byte[] message, ref int offset, out string name)
+    {
+        var labels = new List<string>();
+        var cursor = offset;
+        var jumped = false;
+        var jumps = 0;
+
+        while (true)
+        {
+            if (cursor >= message.Length)
+            {
+                name = string.Empty;
+                return false;
+            }
+
+            var length = message[cursor++];
+            if (length == 0)
+            {
+                if (!jumped)
+                    offset = cursor;
+
+                name = string.Join('.', labels);
+                return true;
+            }
+
+            if ((length & 0xc0) == 0xc0)
+            {
+                if (cursor >= message.Length || ++jumps > 20)
+                {
+                    name = string.Empty;
+                    return false;
+                }
+
+                var pointer = ((length & 0x3f) << 8) | message[cursor++];
+                if (!jumped)
+                {
+                    offset = cursor;
+                    jumped = true;
+                }
+
+                cursor = pointer;
+                continue;
+            }
+
+            if ((length & 0xc0) != 0 || length > 63 || cursor + length > message.Length)
+            {
+                name = string.Empty;
+                return false;
+            }
+
+            labels.Add(Encoding.UTF8.GetString(message, cursor, length));
+            cursor += length;
+        }
+    }
+
+    private static string NormalizeName(string? name)
+        => (name ?? string.Empty).Trim().TrimEnd('.');
+
+    private static bool TryReadUInt16(byte[] message, ref int offset, out ushort value)
+    {
+        if (offset + 2 > message.Length)
+        {
+            value = 0;
+            return false;
+        }
+
+        value = (ushort)((message[offset] << 8) | message[offset + 1]);
+        offset += 2;
+        return true;
+    }
+
+    private static bool TryReadUInt32(byte[] message, ref int offset, out uint value)
+    {
+        if (offset + 4 > message.Length)
+        {
+            value = 0;
+            return false;
+        }
+
+        value = ((uint)message[offset] << 24) |
+                ((uint)message[offset + 1] << 16) |
+                ((uint)message[offset + 2] << 8) |
+                message[offset + 3];
+        offset += 4;
+        return true;
+    }
+
+    private static bool TrySkip(byte[] message, ref int offset, int length)
+    {
+        if (length < 0 || offset + length > message.Length)
+            return false;
+
+        offset += length;
+        return true;
+    }
+
+    private static void AppendDnsName(List<byte> target, string name)
+    {
+        foreach (var label in name.TrimEnd('.').Split('.', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var bytes = Encoding.UTF8.GetBytes(label);
+            if (bytes.Length is 0 or > 63)
+                throw new ArgumentException("DNS labels must be between 1 and 63 bytes.", nameof(name));
+
+            target.Add((byte)bytes.Length);
+            target.AddRange(bytes);
+        }
+
+        target.Add(0);
+    }
+
+    private static void AppendUInt16(List<byte> target, ushort value)
+    {
+        target.Add((byte)(value >> 8));
+        target.Add((byte)value);
+    }
+
+    private sealed record MdnsRecord(string Name, ushort Type, string? Target, IPAddress? Address);
+}

@@ -48,7 +48,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | Setting | Description |
 | :--- | :--- |
 | **Hue Bridge Address** | The private/local IP address of your bridge (or a .local mDNS host name). |
-| **Discover Bridge** | Ask the Hue discovery service for a bridge address and fill it into the form automatically. |
+| **Discover Bridge** | Ask the Hue discovery service first, then fall back to bounded local mDNS (`_hue._tcp.local`) when the bridge is not returned or cloud discovery is unavailable. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. Disconnecting or canceling the request stops the diagnostic lifecycle safely. |
 | **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, active bridge lifecycle contention, and playback/diagnostic readiness. |
@@ -269,8 +269,10 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
   **Link Bridge**. Hue registration and all v2 REST requests use the bridge's HTTPS API;
   current bridge firmware no longer supports the old HTTP endpoint. The configured target
   must be a private/local bridge address or a .local mDNS name.
-* **Discovery finds no bridge:** the Jellyfin server must be able to reach the local network;
-  use a private IP or .local host name manually when the discovery service cannot see your bridge.
+* **Discovery finds no bridge:** the Jellyfin server must be able to reach the local network and
+  allow mDNS/Bonjour traffic. Cloud discovery is tried first, then the plugin queries the local
+  `_hue._tcp.local` service for private addresses. If both paths are unavailable, use a private
+  IP or `.local` host name manually.
 * **No areas are listed:** verify the bridge IP and App Key, then click **Refresh
   Entertainment Areas**. The selected area must contain color-capable lights.
 * **Lights stop updating:** run **System Diagnostics** first to confirm that `ffmpeg` and `openssl` are available to the Jellyfin
@@ -316,7 +318,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.52 (Current)
+### Version 1.5.53 (Current)
+- **Local bridge discovery**: Discover Bridge now falls back to bounded mDNS/DNS-SD (`_hue._tcp.local`) when cloud discovery is unavailable or incomplete
+
+### Version 1.5.52
 - **Activation-failure cleanup**: Test Connection and solid-color Preview now deactivate the entertainment area and restore captured lights even when an activation response fails or is ambiguous
 
 ### Version 1.5.51
