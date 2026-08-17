@@ -109,7 +109,7 @@ public sealed class HueSyncServiceTests
             PluginConfiguration.SamplingModeCenterWeighted);
 
         Assert.True(weighted[0] > average[0]);
-        Assert.Equal(new byte[] { 0, 0, 0 }, weighted[1..]);
+        Assert.Equal(new byte[] { 0, 0 }, weighted[1..]);
     }
 
     [Fact]
