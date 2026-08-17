@@ -1318,6 +1318,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "app-secret",
             HueClientKey = "client-secret",
+            EntertainmentAreaId = "area-1",
             ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
             SceneSchedules = new List<HueSceneSchedule>
             {

@@ -58,6 +58,33 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void EvaluateReadiness_ReportsDisabledAndMissingTargetWithoutCredentials()
+    {
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-secret",
+            HueClientKey = "client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } }
+        };
+
+        var disabled = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule { Enabled = false, PresetName = "Evening" });
+        var missingTarget = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule { Enabled = true, PresetName = "Evening", TargetUserId = "missing-user" });
+
+        Assert.False(disabled.Ready);
+        Assert.Equal("Disabled.", disabled.Message);
+        Assert.False(missingTarget.Ready);
+        Assert.Contains("mapping", missingTarget.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("app-secret", missingTarget.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("client-secret", missingTarget.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TryResolveTarget_UsesCustomMappingWithoutChangingCredentialFreeSchedule()
     {
         var config = new PluginConfiguration
@@ -155,6 +182,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(1, runtime.RunCount);
         Assert.True(runtime.LastSucceeded == true);
         Assert.False(runtime.IsRunning);
+        Assert.True(runtime.Ready);
+        Assert.Contains("Ready", runtime.ReadinessMessage, StringComparison.Ordinal);
         Assert.Equal("Displayed scheduled scene.", runtime.LastMessage);
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);

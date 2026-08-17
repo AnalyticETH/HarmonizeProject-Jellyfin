@@ -1644,10 +1644,16 @@
 
                         var generatedAt = HueConfigurationPage.readStatusField(response, "GeneratedAtUtc", null);
                         var generatedText = generatedAt ? new Date(generatedAt).toLocaleTimeString() : "";
+                        var notReadyCount = schedules.filter(function (schedule) {
+                            return HueConfigurationPage.readStatusField(schedule, "Enabled", false) &&
+                                !HueConfigurationPage.readStatusField(schedule, "Ready", false);
+                        }).length;
                         if (summary) {
                             summary.textContent = schedules.length === 0
                                 ? "No scheduled cues configured."
-                                : schedules.length + " cue" + (schedules.length === 1 ? "" : "s") + " · updated " + generatedText;
+                                : schedules.length + " cue" + (schedules.length === 1 ? "" : "s") +
+                                    (notReadyCount ? " · " + notReadyCount + " not ready" : " · all enabled cues ready") +
+                                    " · updated " + generatedText;
                             summary.style.color = "";
                         }
                         if (!container) return;
@@ -1670,9 +1676,9 @@
                         var table = document.createElement('table');
                         table.style.width = '100%';
                         table.style.borderCollapse = 'collapse';
-                        table.style.minWidth = '860px';
+                        table.style.minWidth = '980px';
                         var headerRow = document.createElement('tr');
-                        ["Cue", "Target", "Schedule", "Next run (server local)", "Last run", "Result", "Runs"].forEach(function (heading) {
+                        ["Cue", "Target", "Schedule", "Readiness", "Next run (server local)", "Last run", "Result", "Runs"].forEach(function (heading) {
                             var header = document.createElement('th');
                             header.textContent = heading;
                             header.style.textAlign = 'left';
@@ -1691,6 +1697,8 @@
                             var time = HueConfigurationPage.readStatusField(schedule, "TimeOfDay", "—");
                             var mask = HueConfigurationPage.readStatusField(schedule, "DaysOfWeekMask", 0);
                             var enabled = HueConfigurationPage.readStatusField(schedule, "Enabled", false);
+                            var ready = HueConfigurationPage.readStatusField(schedule, "Ready", false);
+                            var readinessMessage = HueConfigurationPage.readStatusField(schedule, "ReadinessMessage", "Not ready");
                             var nextRun = HueConfigurationPage.readStatusField(schedule, "NextRunLocal", null);
                             var lastRun = HueConfigurationPage.readStatusField(schedule, "LastRunAtUtc", null);
                             var succeeded = HueConfigurationPage.readStatusField(schedule, "LastSucceeded", null);
@@ -1710,6 +1718,8 @@
                             addCell(String(name) + (enabled ? "" : " (disabled)"));
                             addCell(String(target));
                             addCell(String(preset) + " · " + String(time) + " · " + daysForMask(mask));
+                            addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
+                                ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
                             addCell(enabled ? formatLocal(nextRun) : "Disabled");
                             addCell(formatLocal(lastRun));
                             var resultText = succeeded === null || typeof succeeded === 'undefined'

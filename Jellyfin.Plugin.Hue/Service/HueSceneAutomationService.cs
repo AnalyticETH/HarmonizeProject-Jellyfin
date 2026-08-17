@@ -88,6 +88,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         var statuses = schedules.Select(schedule =>
         {
             var runtime = GetRuntimeState(schedule.Id);
+            var readiness = EvaluateReadiness(config, schedule);
             return new HueSceneScheduleRuntimeStatus
             {
                 ScheduleId = schedule.Id?.Trim() ?? string.Empty,
@@ -97,6 +98,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 TimeOfDay = schedule.TimeOfDay?.Trim() ?? string.Empty,
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled,
+                Ready = readiness.Ready,
+                ReadinessMessage = readiness.Message,
                 NextRunLocal = GetNextRunLocal(schedule, localNow),
                 LastRunAtUtc = runtime.LastRunAtUtc,
                 LastSucceeded = runtime.LastSucceeded,
@@ -189,6 +192,42 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Evaluates whether a cue can run with the current saved configuration without
+    /// contacting the bridge. The result intentionally contains only fixed diagnostic
+    /// text and never includes credentials or connection details.
+    /// </summary>
+    internal static HueSceneScheduleReadiness EvaluateReadiness(
+        PluginConfiguration? config,
+        HueSceneSchedule schedule)
+    {
+        if (schedule == null)
+            return new HueSceneScheduleReadiness(false, "Schedule is unavailable.");
+
+        if (!schedule.Enabled)
+            return new HueSceneScheduleReadiness(false, "Disabled.");
+
+        if (config == null)
+            return new HueSceneScheduleReadiness(false, "Plugin configuration is unavailable.");
+
+        if (!PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
+            return new HueSceneScheduleReadiness(false, "The scheduled time is invalid.");
+
+        if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > PluginConfiguration.AllSceneScheduleDaysMask)
+            return new HueSceneScheduleReadiness(false, "At least one valid day must be selected.");
+
+        var preset = config.ColorPresets?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (preset == null)
+            return new HueSceneScheduleReadiness(false, "The saved scene no longer exists.");
+
+        if (!TryResolveTarget(config, schedule, out _, out var targetError))
+            return new HueSceneScheduleReadiness(false, targetError);
+
+        return new HueSceneScheduleReadiness(true, "Ready; bridge reachability is checked when the cue runs.");
+    }
+
+    /// <summary>
     /// Testable, credential-free description of how a schedule target resolves.
     /// </summary>
     internal static bool TryResolveTarget(
@@ -232,7 +271,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             }
 
             targetLabel = string.IsNullOrWhiteSpace(mapping.UserName)
-                ? $"User mapping {mapping.UserId.Trim()}"
+                ? $"User mapping {mapping.UserId?.Trim() ?? targetUserId}"
                 : mapping.UserName.Trim();
 
             // Blank mapping targets intentionally inherit every global target field.
@@ -597,6 +636,18 @@ internal sealed class HueSceneScheduleRuntimeState
     }
 }
 
+internal sealed class HueSceneScheduleReadiness
+{
+    public HueSceneScheduleReadiness(bool ready, string message)
+    {
+        Ready = ready;
+        Message = message;
+    }
+
+    public bool Ready { get; }
+    public string Message { get; }
+}
+
 /// <summary>
 /// Internal resolved target. The credential fields never leave the service and are not
 /// part of any API result.
@@ -667,6 +718,12 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("enabled")]
     public bool Enabled { get; init; }
+
+    [JsonPropertyName("ready")]
+    public bool Ready { get; init; }
+
+    [JsonPropertyName("readinessMessage")]
+    public string ReadinessMessage { get; init; } = string.Empty;
 
     [JsonPropertyName("nextRunLocal")]
     public DateTime? NextRunLocal { get; init; }

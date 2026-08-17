@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.72] - 2026-08-17
+
+### Added
+- **Scheduled cue readiness diagnostics**: report whether each enabled cue can run with the current saved scene, mapping, bridge target, time, day mask, credentials, area, and channel profile before its next occurrence
+- **Preflight visibility in the scheduler monitor**: show ready/not-ready state and a sanitized reason alongside next-run and last-run telemetry so configuration errors can be corrected before a cue fires
+
+### Security
+- Readiness checks are local and credential-free in their output; App Keys, Client Keys, bridge addresses, area IDs, channel profiles, and playback tokens remain server-side
+
 ## [1.5.71] - 2026-08-17
 
 ### Added

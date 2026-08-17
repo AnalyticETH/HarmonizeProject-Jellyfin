@@ -73,7 +73,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Solid Color Preview** | Choose a color, brightness, and 1-30 second duration to preview the default target (or the current mapping target). The plugin captures and restores the selected lights automatically, stops promptly when canceled, and refuses to overlap active playback. |
 | **Cleanup diagnostics** | Light capture and restoration retry each light using the captured network policy. Playback, probes, and previews refuse to activate when the snapshot is incomplete; one shared bridge lease also prevents playback and diagnostics from overlapping. Partial restoration or failed entertainment-area deactivation remains visible as a sanitized warning in Live Sync Status and probe/preview results. DTLS startup, writes, and reconnects stop with playback or diagnostic cancellation. |
 | **Saved Color Scenes** | Save up to 50 named color, brightness, and duration presets. Apply a saved scene to the default target or the current mapping; presets contain no bridge credentials. |
-| **Scheduled Scene Cues** | Run a saved scene automatically on selected days at a server-local time, against the global target or an enabled user mapping. Every cue is a short restorative preview, active playback wins, and duplicate polling within a minute is suppressed. The scheduler monitor reports next run, active state, run count, last outcome, and cleanup warnings. |
+| **Scheduled Scene Cues** | Run a saved scene automatically on selected days at a server-local time, against the global target or an enabled user mapping. Every cue is a short restorative preview, active playback wins, and duplicate polling within a minute is suppressed. The scheduler monitor reports readiness, next run, active state, run count, last outcome, and cleanup warnings. |
 | **Restore Light State After Sync** | Save and restore each light's original state after playback. Per-user mappings can override this policy while blank fields inherit the global setting. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
 | **RGB Channel Gains** | Independently scale red, green, and blue channels from 50-200% (default: 100%) for room-specific white-balance correction before saturation and hue processing. |
@@ -162,7 +162,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/SceneSchedules` | Save or update a cue with `id` (optional for new cues), `name`, `presetName`, optional `targetUserId`, `timeOfDay` (`HH:mm` server-local), `daysOfWeekMask` (Sunday bit 1 through Saturday bit 64), and `enabled`. Bridge credentials are resolved server-side from the selected target. |
 | `DELETE /HueSync/SceneSchedules/{id}` | Delete one recurring scene cue by its stable ID. |
 | `POST /HueSync/SceneSchedules/{id}/Run` | Run one cue immediately through the serialized, state-restoring preview lifecycle; active playback or another diagnostic safely blocks the run. |
-| `GET /HueSync/SceneSchedules/Status` | Read credential-free scheduler telemetry for every configured cue: server-local next run, active state, run count, last run/outcome/message, and cleanup warning. |
+| `GET /HueSync/SceneSchedules/Status` | Read credential-free scheduler telemetry for every configured cue: preflight readiness and reason, server-local next run, active state, run count, last run/outcome/message, and cleanup warning. Readiness validates saved configuration locally without contacting the bridge. |
 | `GET /HueSync/Status` | Read sanitized runtime state, active Jellyfin user and target, active performance/color/execution/channel/restoration profile, frame count, effective FPS, stream packet counters, reconnect attempts, seek-recovery restart count and last seek position, FFmpeg/DTLS health, cleanup warnings, the credential-free `lastSession` summary, whether the current sync can be stopped safely, and a `sessions` array for concurrent playback workers. |
 | `GET /HueSync/History?limit=20&outcome=Error` | Read the newest completed Hue session summaries (up to 25), optionally filtered by outcome, including target labels and aggregate playback quality/cleanup telemetry. Results are bounded in memory and never include bridge credentials or playback tokens. |
 | `GET /HueSync/History/Export?limit=25&outcome=Error` | Download the same sanitized session-history document used by the administrator Export JSON action for troubleshooting; bridge credentials and playback tokens are omitted. |
@@ -346,7 +346,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.71 (Current)
+### Version 1.5.72 (Current)
+- **Scheduled cue readiness diagnostics**: identify missing saved scenes, disabled mappings, invalid times/days, missing credentials/areas, and invalid channel profiles before a cue runs
+- **Preflight scheduler monitor**: display a credential-free ready/not-ready reason beside each cue's next run and execution history
+
+### Version 1.5.71
 - **Scheduled cue observability**: inspect each cue's next server-local run, active state, run count, last outcome/message, and cleanup warnings through the scheduler monitor and `GET /HueSync/SceneSchedules/Status`
 - **Resilient automation loop**: isolated bridge/network failures become sanitized cue failures instead of terminating the hosted scheduler
 
