@@ -1515,6 +1515,7 @@ public sealed class HueApiControllerTests : IDisposable
             BlueGain = 110,
             NetworkRetryAttempts = 6,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
+            PersistSessionHistory = true,
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -1548,6 +1549,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(110, settings.BlueGain);
         Assert.Equal(6, settings.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, settings.PauseBehavior);
+        Assert.True(settings.PersistSessionHistory);
         var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
         Assert.DoesNotContain("default-app-key", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("default-client-key", serialized, StringComparison.Ordinal);
@@ -1565,6 +1567,11 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "default-app-secret",
             HueClientKey = "default-client-secret",
             EntertainmentAreaId = "area-1",
+            PersistSessionHistory = true,
+            PersistedSessionHistory = new List<HueSessionHistoryEntry>
+            {
+                new() { Item = "Private title", UserName = "Private viewer" }
+            },
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -1600,12 +1607,16 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(mapping.HasClientKey);
         Assert.Equal(135, mapping.BrightnessBoostOverride);
         Assert.Single(document.ColorPresets);
+        Assert.True(document.Configuration.PersistSessionHistory);
 
         var serialized = System.Text.Json.JsonSerializer.Serialize(document);
         Assert.DoesNotContain("default-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("default-client-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("mapping-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("Private title", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("Private viewer", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("PersistedSessionHistory", serialized, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1791,7 +1802,8 @@ public sealed class HueApiControllerTests : IDisposable
             GreenGain = 95,
             BlueGain = 105,
             NetworkRetryAttempts = 4,
-            PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState
+            PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
+            PersistSessionHistory = true
         });
 
         Assert.IsType<OkObjectResult>(action.Result);
@@ -1810,9 +1822,32 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(105, configuration.BlueGain);
         Assert.Equal(4, configuration.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, configuration.PauseBehavior);
+        Assert.True(configuration.PersistSessionHistory);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
+    }
+
+    [Fact]
+    public void SaveConfiguration_DisablingPersistentHistoryClearsStoredEntries()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            PersistSessionHistory = true,
+            PersistedSessionHistory = new List<HueSessionHistoryEntry>
+            {
+                new() { Item = "Private title" }
+            }
+        });
+
+        var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            PersistSessionHistory = false
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.False(configuration.PersistSessionHistory);
+        Assert.Empty(configuration.PersistedSessionHistory);
     }
 
     [Fact]

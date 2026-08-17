@@ -134,10 +134,10 @@ namespace Jellyfin.Plugin.Hue.Service
 
         /// <summary>
         /// Maximum number of sanitized in-memory session summaries retained for the
-        /// administrator history endpoint. History is intentionally bounded and is not
-        /// persisted with bridge credentials or plugin configuration.
+        /// administrator history endpoint. History is intentionally bounded; optional
+        /// persistence stores only sanitized entries and never adds credentials or tokens.
         /// </summary>
-        public const int MaxSessionHistoryCount = 25;
+        public const int MaxSessionHistoryCount = PluginConfiguration.MaxSessionHistoryCount;
 
         // Public property to track sync state
         public bool IsSyncing
@@ -255,6 +255,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _logger.LogInformation("Hue Sync Service Started.");
             if (_managesPlaybackEvents)
             {
+                LoadPersistedSessionHistory();
                 _sessionManager.PlaybackStart += OnPlaybackStart;
                 _sessionManager.PlaybackStopped += OnPlaybackStopped;
                 _sessionManager.PlaybackProgress += OnPlaybackProgress;
@@ -717,13 +718,163 @@ namespace Jellyfin.Plugin.Hue.Service
         /// </summary>
         public int ClearSessionHistory()
         {
+            int clearedCount;
             lock (_syncLock)
             {
-                var clearedCount = _sessionHistory.Count;
+                clearedCount = _sessionHistory.Count;
                 _sessionHistory.Clear();
                 _lastSessionSummary = null;
-                return clearedCount;
             }
+
+            PersistSessionHistory();
+            return clearedCount;
+        }
+
+        /// <summary>
+        /// Reconciles persisted history with the current administrator setting. This is
+        /// called after configuration changes so enabling retention captures the current
+        /// in-memory window immediately and disabling retention removes stored entries.
+        /// </summary>
+        public void RefreshSessionHistoryPersistence()
+        {
+            if (_managesPlaybackEvents)
+                PersistSessionHistory();
+        }
+
+        private void LoadPersistedSessionHistory()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return;
+
+            config.PersistedSessionHistory ??= new List<HueSessionHistoryEntry>();
+            if (!config.PersistSessionHistory)
+            {
+                if (config.PersistedSessionHistory.Count > 0)
+                {
+                    config.PersistedSessionHistory.Clear();
+                    SavePersistedSessionHistoryConfiguration();
+                }
+
+                return;
+            }
+
+            var persistedEntries = config.PersistedSessionHistory
+                .Where(entry => entry != null)
+                .Take(MaxSessionHistoryCount)
+                .ToList();
+            if (persistedEntries.Count != config.PersistedSessionHistory.Count)
+            {
+                config.PersistedSessionHistory = persistedEntries;
+                SavePersistedSessionHistoryConfiguration();
+            }
+
+            var entries = persistedEntries
+                .Select(ToSessionSummary)
+                .ToArray();
+            lock (_syncLock)
+            {
+                _sessionHistory.Clear();
+                _sessionHistory.AddRange(entries);
+                _lastSessionSummary = _sessionHistory.FirstOrDefault();
+            }
+        }
+
+        private void PersistSessionHistory()
+        {
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return;
+
+            HueSessionHistoryEntry[] entries;
+            lock (_syncLock)
+            {
+                entries = _sessionHistory
+                    .Take(MaxSessionHistoryCount)
+                    .Select(ToPersistedSessionSummary)
+                    .ToArray();
+            }
+
+            config.PersistedSessionHistory ??= new List<HueSessionHistoryEntry>();
+            if (config.PersistSessionHistory)
+            {
+                config.PersistedSessionHistory = entries.ToList();
+            }
+            else
+            {
+                if (config.PersistedSessionHistory.Count == 0)
+                    return;
+
+                config.PersistedSessionHistory.Clear();
+            }
+
+            SavePersistedSessionHistoryConfiguration();
+        }
+
+        private void SavePersistedSessionHistoryConfiguration()
+        {
+            try
+            {
+                Plugin.Instance?.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                // Persistence is diagnostic-only and must never interrupt playback cleanup.
+                _logger.LogWarning(ex, "Could not persist Hue session history");
+            }
+        }
+
+        private static HueSessionSummary ToSessionSummary(HueSessionHistoryEntry entry)
+        {
+            return new HueSessionSummary
+            {
+                Outcome = entry.Outcome,
+                Item = entry.Item,
+                UserId = entry.UserId,
+                UserName = entry.UserName,
+                BridgeIp = entry.BridgeIp,
+                EntertainmentAreaId = entry.EntertainmentAreaId,
+                StartedAtUtc = entry.StartedAtUtc,
+                EndedAtUtc = entry.EndedAtUtc,
+                DurationSeconds = entry.DurationSeconds,
+                EffectiveFps = entry.EffectiveFps,
+                FramesProcessed = entry.FramesProcessed,
+                PacketsSent = entry.PacketsSent,
+                PacketsSkippedByThreshold = entry.PacketsSkippedByThreshold,
+                PacketSendFailures = entry.PacketSendFailures,
+                ReconnectAttempts = entry.ReconnectAttempts,
+                SeekRestartCount = entry.SeekRestartCount,
+                LastSeekPositionSeconds = entry.LastSeekPositionSeconds,
+                Error = entry.Error,
+                CleanupWarning = entry.CleanupWarning
+            };
+        }
+
+        private static HueSessionHistoryEntry ToPersistedSessionSummary(HueSessionSummary summary)
+        {
+            return new HueSessionHistoryEntry
+            {
+                Outcome = summary.Outcome,
+                Item = summary.Item,
+                UserId = summary.UserId,
+                UserName = summary.UserName,
+                BridgeIp = summary.BridgeIp,
+                EntertainmentAreaId = summary.EntertainmentAreaId,
+                StartedAtUtc = summary.StartedAtUtc,
+                EndedAtUtc = summary.EndedAtUtc,
+                DurationSeconds = summary.DurationSeconds,
+                EffectiveFps = summary.EffectiveFps,
+                FramesProcessed = summary.FramesProcessed,
+                PacketsSent = summary.PacketsSent,
+                PacketsSkippedByThreshold = summary.PacketsSkippedByThreshold,
+                PacketSendFailures = summary.PacketSendFailures,
+                ReconnectAttempts = summary.ReconnectAttempts,
+                SeekRestartCount = summary.SeekRestartCount,
+                LastSeekPositionSeconds = summary.LastSeekPositionSeconds,
+                Error = summary.Error,
+                CleanupWarning = summary.CleanupWarning
+            };
         }
 
         private void SetRuntimeStatus(string state, string message, bool clearError = false)
@@ -3437,6 +3588,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 sessionSummarySink = _sessionSummarySink;
             }
 
+            if (_managesPlaybackEvents)
+                PersistSessionHistory();
+
             if (sessionSummarySink != null)
             {
                 try
@@ -3456,6 +3610,8 @@ namespace Jellyfin.Plugin.Hue.Service
             {
                 AddSessionHistoryLocked(summary);
             }
+
+            PersistSessionHistory();
         }
 
         private void AddSessionHistoryLocked(HueSessionSummary summary)

@@ -252,7 +252,7 @@ public sealed class HueSyncServiceLifecycleTests
     {
         var handler = new BlockingHueHandler();
         using var httpClient = new HttpClient(handler);
-        var service = CreateService(httpClient);
+        var service = CreateService(httpClient, persistSessionHistory: true);
         await service.StartAsync(CancellationToken.None);
 
         SetPrivateField(service, "_syncCts", new CancellationTokenSource());
@@ -316,10 +316,49 @@ public sealed class HueSyncServiceLifecycleTests
         var historyJson = System.Text.Json.JsonSerializer.Serialize(history);
         Assert.DoesNotContain("secret-app-key", historyJson, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-client-key", historyJson, StringComparison.Ordinal);
+        var persisted = Assert.Single(Plugin.Instance!.Configuration.PersistedSessionHistory);
+        Assert.Equal(summary.Outcome, persisted.Outcome);
+        var persistedJson = System.Text.Json.JsonSerializer.Serialize(persisted);
+        Assert.DoesNotContain("secret-app-key", persistedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-client-key", persistedJson, StringComparison.Ordinal);
+
+        var sessionHistory = Assert.IsType<List<HueSessionSummary>>(GetPrivateField(service, "_sessionHistory"));
+        sessionHistory.Clear();
+        SetPrivateField(service, "_lastSessionSummary", null);
+        var loadMethod = typeof(HueSyncService).GetMethod("LoadPersistedSessionHistory", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        loadMethod.Invoke(service, null);
+        Assert.Single(service.GetSessionHistory());
+        Assert.Equal(summary.Item, service.GetRuntimeStatus().LastSession!.Item);
 
         Assert.Equal(1, service.ClearSessionHistory());
         Assert.Empty(service.GetSessionHistory());
         Assert.Null(service.GetRuntimeStatus().LastSession);
+        Assert.Empty(Plugin.Instance!.Configuration.PersistedSessionHistory);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PersistedSessionHistory_LoadsNewestEntriesAndEnforcesBound()
+    {
+        using var httpClient = new HttpClient(new BlockingHueHandler());
+        var service = CreateService(httpClient, persistSessionHistory: true);
+        var configuration = Plugin.Instance!.Configuration;
+        configuration.PersistedSessionHistory = Enumerable.Range(0, HueSyncService.MaxSessionHistoryCount + 5)
+            .Select(index => new HueSessionHistoryEntry
+            {
+                Outcome = index % 2 == 0 ? "Ended" : "Error",
+                Item = "Persisted item " + index,
+                UserName = "Persisted viewer " + index
+            })
+            .ToList();
+
+        await service.StartAsync(CancellationToken.None);
+
+        var history = service.GetSessionHistory();
+        Assert.Equal(HueSyncService.MaxSessionHistoryCount, history.Count);
+        Assert.Equal("Persisted item 0", history[0].Item);
+        Assert.Equal(HueSyncService.MaxSessionHistoryCount, configuration.PersistedSessionHistory.Count);
 
         await service.StopAsync(CancellationToken.None);
     }
@@ -1055,7 +1094,8 @@ public sealed class HueSyncServiceLifecycleTests
     private static HueSyncService CreateService(
         HttpClient httpClient,
         HueBridgeLifecycleGate? bridgeLifecycleGate = null,
-        ISessionManager? sessionManager = null)
+        ISessionManager? sessionManager = null,
+        bool persistSessionHistory = false)
     {
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>());
         var loggerFactory = new Mock<ILoggerFactory>();
@@ -1087,6 +1127,7 @@ public sealed class HueSyncServiceLifecycleTests
         configuration.EntertainmentAreaId = "area-id";
         configuration.RestoreLightState = false;
         configuration.UseCinemaMode = false;
+        configuration.PersistSessionHistory = persistSessionHistory;
 
         return new HueSyncService(
             sessionManager ?? Mock.Of<ISessionManager>(),

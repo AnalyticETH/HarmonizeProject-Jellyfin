@@ -72,6 +72,34 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
+    /// Credential-free completed-session telemetry stored only when an administrator opts
+    /// into retaining history across Jellyfin restarts. This shape deliberately contains no
+    /// bridge keys or Jellyfin playback tokens.
+    /// </summary>
+    public sealed class HueSessionHistoryEntry
+    {
+        public string Outcome { get; set; } = "Stopped";
+        public string? Item { get; set; }
+        public string? UserId { get; set; }
+        public string? UserName { get; set; }
+        public string? BridgeIp { get; set; }
+        public string? EntertainmentAreaId { get; set; }
+        public DateTime? StartedAtUtc { get; set; }
+        public DateTime? EndedAtUtc { get; set; }
+        public double? DurationSeconds { get; set; }
+        public double? EffectiveFps { get; set; }
+        public long FramesProcessed { get; set; }
+        public long PacketsSent { get; set; }
+        public long PacketsSkippedByThreshold { get; set; }
+        public long PacketSendFailures { get; set; }
+        public int ReconnectAttempts { get; set; }
+        public int SeekRestartCount { get; set; }
+        public double? LastSeekPositionSeconds { get; set; }
+        public string? Error { get; set; }
+        public string? CleanupWarning { get; set; }
+    }
+
+    /// <summary>
     /// Configuration for the Philips Hue Sync plugin
     /// </summary>
     public class PluginConfiguration : BasePluginConfiguration
@@ -119,6 +147,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxPreviewDurationSeconds = 30;
         public const int MaxColorPresets = 50;
         public const int MaxColorPresetNameLength = 64;
+        public const int MaxSessionHistoryCount = 25;
 
         public bool SyncEnabled { get; set; } = false;
 
@@ -141,6 +170,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// Presets are global and do not contain bridge credentials or channel targets.
         /// </summary>
         public List<HueColorPreset> ColorPresets { get; set; } = new List<HueColorPreset>();
+
+        /// <summary>
+        /// Retains the bounded, sanitized completed-session history in plugin configuration.
+        /// Disabled by default because item and user labels may be private metadata.
+        /// </summary>
+        public bool PersistSessionHistory { get; set; } = false;
+
+        /// <summary>
+        /// Newest-first sanitized session entries used only when <see cref="PersistSessionHistory"/>
+        /// is enabled. These entries are intentionally excluded from configuration exports.
+        /// </summary>
+        public List<HueSessionHistoryEntry> PersistedSessionHistory { get; set; } = new List<HueSessionHistoryEntry>();
 
         public bool UseCinemaMode { get; set; } = true; // Dimming behavior
         public int BrightnessDimLevel { get; set; } = 30;

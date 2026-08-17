@@ -1456,6 +1456,7 @@ namespace Jellyfin.Plugin.Hue.Api
             try
             {
                 plugin.SaveConfiguration();
+                _syncService?.RefreshSessionHistoryPersistence();
             }
             catch (Exception ex)
             {
@@ -1635,6 +1636,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             plugin.SaveConfiguration();
+            _syncService?.RefreshSessionHistoryPersistence();
             return Ok(HuePluginConfigurationSettings.From(config));
         }
 
@@ -1836,6 +1838,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool HasAppKey { get; set; }
         public bool HasClientKey { get; set; }
         public bool ClearStoredCredentials { get; set; }
+        public bool? PersistSessionHistory { get; set; }
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string ChannelIds { get; set; } = string.Empty;
         public bool UseCinemaMode { get; set; } = true;
@@ -1873,6 +1876,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 HueClientKey = string.Empty,
                 HasAppKey = !string.IsNullOrWhiteSpace(config.HueAppKey),
                 HasClientKey = !string.IsNullOrWhiteSpace(config.HueClientKey),
+                PersistSessionHistory = config.PersistSessionHistory,
                 EntertainmentAreaId = config.EntertainmentAreaId,
                 ChannelIds = config.ChannelIds,
                 UseCinemaMode = config.UseCinemaMode,
@@ -1917,6 +1921,12 @@ namespace Jellyfin.Plugin.Hue.Api
                     config.HueAppKey = HueAppKey.Trim();
                 if (!string.IsNullOrWhiteSpace(HueClientKey))
                     config.HueClientKey = HueClientKey.Trim();
+            }
+            if (PersistSessionHistory.HasValue)
+            {
+                config.PersistSessionHistory = PersistSessionHistory.Value;
+                if (!config.PersistSessionHistory)
+                    config.PersistedSessionHistory?.Clear();
             }
             config.EntertainmentAreaId = EntertainmentAreaId?.Trim() ?? string.Empty;
             config.ChannelIds = ChannelIds?.Trim() ?? string.Empty;

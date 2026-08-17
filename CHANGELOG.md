@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.69] - 2026-08-17
+
+### Added
+- **Opt-in persistent session history**: retain the bounded 25-entry sanitized playback history across Jellyfin restarts and restore it into Live Sync Status when the service starts
+- **Privacy-aware retention control**: add a Retain history across Jellyfin restarts setting; disabling it or clearing history removes stored entries without stopping playback
+
+### Security
+- Persisted history stores only the existing aggregate telemetry, target labels, item/user labels, and cleanup diagnostics; bridge credentials and Jellyfin playback tokens are never included, and configuration backups omit the stored entries
+
 ## [1.5.68] - 2026-08-17
 
 ### Added

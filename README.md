@@ -54,7 +54,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, active bridge lifecycle contention, and playback/diagnostic readiness. **Validate Saved Targets** additionally checks every enabled default/inherited/custom bridge mapping for reachability, selected-area presence, and controllable channels without opening a DTLS stream. |
 | **Backup and Restore** | Export global settings, per-user profiles, and saved color scenes as a credential-safe JSON document. Import is atomic, preserves matching stored keys on the same server, and includes an in-page password-field wizard for explicit replacement keys during migrations. |
 | **Live Sync Status** | Show the active Jellyfin user, selected bridge/area, captured profiles, effective FPS, sent/skipped/failed stream updates, reconnect attempts, seek-recovery restarts, frame health, cleanup warnings, and safe per-session stop controls while playback is running. Distinct mapped bridges/areas can be streamed concurrently. |
-| **Recent Hue Sessions** | Review and filter the 25 most recent completed sync sessions, including outcome, target, duration, quality counters, and cleanup/error warnings. Export a credential-free JSON troubleshooting document or clear the in-memory history without stopping playback. |
+| **Recent Hue Sessions** | Review and filter the 25 most recent completed sync sessions, including outcome, target, duration, quality counters, and cleanup/error warnings. Export a credential-free JSON troubleshooting document, clear history without stopping playback, or optionally retain the sanitized window across Jellyfin restarts. |
 | **Startup recovery** | If the plugin or Jellyfin service starts while an unpaused video is already playing, recover the active session at Jellyfin's current position so viewers do not need to stop and restart playback. |
 | **Completed-session summary** | Keep the most recent video session's outcome, duration, frame/packet telemetry, reconnects, seek recoveries, and cleanup warnings visible after playback ends; summaries never contain bridge credentials or playback tokens. Audio-only and other non-video playback is ignored safely. |
 | **Hue App Key** | "Username" for the REST API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it, or use Link Bridge to replace it. |
@@ -163,10 +163,10 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `DELETE /HueSync/History` | Clear retained completed-session summaries and the status API's last-session pointer without stopping active playback. |
 | `GET /HueSync/Diagnostics` | Run a non-mutating, cancellation-aware local prerequisite check for configuration validity, FFmpeg/OpenSSL versions, bridge lifecycle contention, and playback/diagnostic readiness. No bridge credentials are returned. |
 | `GET /HueSync/TargetDiagnostics` | Validate every saved default, inherited, and enabled custom bridge target without mutating bridge state; reports reachability, selected-area presence, controllable channel counts, credential presence, and sanitized readiness messages. |
-| `GET /HueSync/Configuration/Export` | Download a credential-safe JSON backup containing global settings, per-user profile fields, target labels, credential-presence flags, and saved color scenes. Secret values are never included. |
+| `GET /HueSync/Configuration/Export` | Download a credential-safe JSON backup containing global settings, per-user profile fields, target labels, credential-presence flags, the session-history retention preference, and saved color scenes. Secret values and persisted session-history entries are never included. |
 | `POST /HueSync/Configuration/Import` | Atomically restore an export document. Matching stored global/mapping keys are preserved when omitted; explicit global or mapping keys may be supplied for migration, and invalid documents leave the current configuration unchanged. The configuration page keeps replacement keys in memory only and sends them once in this request. Active playback must be stopped first. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. Pass `playSessionId` to stop one listed concurrent session. |
-| `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. |
+| `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile and opt-in persistent session-history preference, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients; `userId` can select a matching stored custom mapping, but POST is preferred so keys do not appear in URLs. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
@@ -340,7 +340,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.68 (Current)
+### Version 1.5.69 (Current)
+- **Opt-in persistent session history**: retain the bounded 25-entry sanitized playback history across Jellyfin restarts and restore it into Live Sync Status when the service starts
+- **Privacy-aware retention control**: add a Retain history across Jellyfin restarts setting; disabling it or clearing history removes stored entries without stopping playback
+
+### Version 1.5.68
 - **Session history operations**: filter recent summaries by outcome, export a credential-free JSON troubleshooting document, and clear retained history without stopping active playback
 - **Administrator history controls**: add outcome filtering, Export JSON, and Clear History actions to the Recent Hue Sessions panel
 

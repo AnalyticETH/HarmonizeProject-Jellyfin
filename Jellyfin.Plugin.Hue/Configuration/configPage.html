@@ -74,6 +74,13 @@
                             <span>Clear History</span>
                         </button>
                     </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top: 0.75em;">
+                        <label>
+                            <input is="emby-checkbox" type="checkbox" id="persistSessionHistory" />
+                            <span>Retain history across Jellyfin restarts</span>
+                        </label>
+                        <div class="fieldDescription">Optional: store the bounded sanitized history in plugin configuration. Item and user labels may be private metadata; disabling this setting removes stored history.</div>
+                    </div>
                     <div id="sessionHistoryStatus" class="fieldDescription" style="margin-top: 0.75em;">Loading recent sessions...</div>
                     <div id="runtimeSessionHistory" style="margin-top: 0.5em; overflow-x: auto;"></div>
                 </fieldset>
@@ -878,6 +885,7 @@
                         page.querySelector('#blackoutThreshold').value = getConfigValue('BlackoutThreshold', 15);
                         page.querySelector('#colorChangeThreshold').value = getConfigValue('ColorChangeThreshold', 10);
                         page.querySelector('#networkRetryAttempts').value = getConfigValue('NetworkRetryAttempts', 3);
+                        page.querySelector('#persistSessionHistory').checked = !!getConfigValue('PersistSessionHistory', false);
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                         HueConfigurationPage.loadColorPresets(page);
                     }).catch(function (err) {
@@ -924,7 +932,8 @@
                         OutputBrightnessPercent: parseNumberOrDefault('#outputBrightnessPercent', 100),
                         BlackoutThreshold: parseNumberOrDefault('#blackoutThreshold', 15),
                         ColorChangeThreshold: parseNumberOrDefault('#colorChangeThreshold', 10),
-                        NetworkRetryAttempts: parseNumberOrDefault('#networkRetryAttempts', 3)
+                        NetworkRetryAttempts: parseNumberOrDefault('#networkRetryAttempts', 3),
+                        PersistSessionHistory: page.querySelector('#persistSessionHistory').checked
                     };
 
                     return ApiClient.ajax({
