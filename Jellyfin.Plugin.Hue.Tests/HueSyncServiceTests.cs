@@ -224,6 +224,32 @@ public sealed class HueSyncServiceTests
         Assert.Equal(3, fallback.NetworkRetryAttempts);
     }
 
+    [Fact]
+    public void ResolveChannelIds_UsesPerUserSelectionAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString(),
+                    ChannelIdsOverride = "9, 2, 9"
+                }
+            }
+        };
+
+        var selected = HueSyncService.ResolveChannelIds(configuration, userId);
+        var fallback = HueSyncService.ResolveChannelIds(configuration, System.Guid.NewGuid());
+
+        Assert.NotNull(selected);
+        Assert.Equal(2, selected!.Count);
+        Assert.Contains(2, selected);
+        Assert.Contains(9, selected);
+        Assert.Null(fallback);
+    }
+
     [Theory]
     [InlineData(0, 18)]
     [InlineData(1, 1)]

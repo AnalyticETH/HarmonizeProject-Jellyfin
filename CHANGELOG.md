@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.36] - 2026-08-17
+
+### Added
+- Optional per-user entertainment channel profiles with global all-channel inheritance
+- Channel-ID discovery from the selected entertainment area in the configuration page and API
+- Active channel-selection diagnostics in sanitized runtime status and the configuration page
+- Regression coverage for channel parsing, validation, persistence, filtered state capture, runtime resolution, and status/API wiring
+
+### Changed
+- Per-user channel selections now consistently constrain cinema dimming, video color streaming, and light-state restoration
+
 ## [1.5.35] - 2026-08-17
 
 ### Added

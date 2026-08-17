@@ -104,6 +104,27 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PostEntertainmentChannels_ReturnsSortedChannelIdsAndMemberCounts()
+    {
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":9,\"members\":[{\"service\":{\"rid\":\"light-9\"}}]},{\"channel_id\":2,\"members\":[]}]}]}");
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentChannels(new HueEntertainmentChannelsRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var channels = Assert.IsAssignableFrom<IEnumerable<HueEntertainmentChannel>>(response.Value).ToArray();
+        Assert.Equal(new[] { 2, 9 }, channels.Select(channel => channel.ChannelId));
+        Assert.Equal(new[] { 0, 1 }, channels.Select(channel => channel.MemberCount));
+    }
+
+    [Fact]
     public async Task TestConnection_ReturnsReachabilityAndAreaCount()
     {
         SetupHttpResponse(
@@ -271,6 +292,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveCustomFfmpegFlagsConfigured);
         Assert.Null(status.ActiveFfmpegStallTimeoutSeconds);
         Assert.Null(status.ActiveNetworkRetryAttempts);
+        Assert.Null(status.ActiveChannelIds);
         Assert.Null(status.ActiveRestoreLightState);
         Assert.Null(status.LastError);
         Assert.False(status.CanStopSync);
@@ -320,6 +342,7 @@ public sealed class HueApiControllerTests : IDisposable
                     CustomFfmpegFlagsOverride = "-hwaccel vaapi",
                     FfmpegStallTimeoutSecondsOverride = 20,
                     NetworkRetryAttemptsOverride = 1,
+                    ChannelIdsOverride = "2, 9",
                     TargetFpsOverride = 30,
                     FrameResolutionOverride = PluginConfiguration.FrameResolutionHigh,
                     VideoScalingModeOverride = PluginConfiguration.VideoScalingModeFit,
@@ -355,6 +378,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("-hwaccel vaapi", mapping.CustomFfmpegFlagsOverride);
         Assert.Equal((int?)20, mapping.FfmpegStallTimeoutSecondsOverride);
         Assert.Equal((int?)1, mapping.NetworkRetryAttemptsOverride);
+        Assert.Equal("2, 9", mapping.ChannelIdsOverride);
         Assert.Equal((int?)30, mapping.TargetFpsOverride);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, mapping.FrameResolutionOverride);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, mapping.VideoScalingModeOverride);
@@ -525,6 +549,7 @@ public sealed class HueApiControllerTests : IDisposable
             CustomFfmpegFlagsOverride = "-threads 2",
             FfmpegStallTimeoutSecondsOverride = 15,
             NetworkRetryAttemptsOverride = 2,
+            ChannelIdsOverride = "1, 3",
             TargetFpsOverride = 30,
             FrameResolutionOverride = PluginConfiguration.FrameResolutionLow,
             VideoScalingModeOverride = PluginConfiguration.VideoScalingModeCrop,
@@ -557,6 +582,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("-threads 2", mapping.CustomFfmpegFlagsOverride);
         Assert.Equal((int?)15, mapping.FfmpegStallTimeoutSecondsOverride);
         Assert.Equal((int?)2, mapping.NetworkRetryAttemptsOverride);
+        Assert.Equal("1, 3", mapping.ChannelIdsOverride);
         Assert.Equal((int?)30, mapping.TargetFpsOverride);
         Assert.Equal(PluginConfiguration.FrameResolutionLow, mapping.FrameResolutionOverride);
         Assert.Equal(PluginConfiguration.VideoScalingModeCrop, mapping.VideoScalingModeOverride);
@@ -596,7 +622,8 @@ public sealed class HueApiControllerTests : IDisposable
             PauseBehaviorOverride = "InvalidPauseBehavior",
             TargetFpsOverride = 0,
             FfmpegStallTimeoutSecondsOverride = 0,
-            NetworkRetryAttemptsOverride = 11
+            NetworkRetryAttemptsOverride = 11,
+            ChannelIdsOverride = "1, bad"
         });
 
         var response = Assert.IsType<BadRequestObjectResult>(action);
@@ -605,6 +632,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("target FPS override must be between 1 and 60", validationBody, StringComparison.Ordinal);
         Assert.Contains("FFmpeg stall timeout override must be between 1 and 60 seconds", validationBody, StringComparison.Ordinal);
         Assert.Contains("network retry attempts override must be between 0 and 10", validationBody, StringComparison.Ordinal);
+        Assert.Contains("channel IDs override must be a comma-separated list of IDs from 0 to 65535", validationBody, StringComparison.Ordinal);
         Assert.Empty(configuration.UserMappings);
     }
 

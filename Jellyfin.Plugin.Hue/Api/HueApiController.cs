@@ -106,6 +106,65 @@ namespace Jellyfin.Plugin.Hue.Api
             return await LoadEntertainmentAreas(request.IpAddress, request.AppKey);
         }
 
+        /// <summary>
+        /// Loads the channel IDs exposed by one entertainment area so an administrator can
+        /// build a per-user channel profile without inspecting the bridge API manually.
+        /// </summary>
+        [HttpPost("EntertainmentChannels")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        public async Task<ActionResult<IEnumerable<HueEntertainmentChannel>>> PostEntertainmentChannels(
+            [FromBody] HueEntertainmentChannelsRequest? request)
+        {
+            if (request == null ||
+                !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
+                string.IsNullOrWhiteSpace(request.AppKey) ||
+                string.IsNullOrWhiteSpace(request.EntertainmentAreaId))
+            {
+                return BadRequest("A valid bridge address, app key, and entertainment area ID are required.");
+            }
+
+            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
+                request.IpAddress.Trim(),
+                request.AppKey.Trim(),
+                request.EntertainmentAreaId.Trim());
+            if (areaConfiguration == null)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, "Could not load entertainment channels from the Hue bridge.");
+            }
+
+            if (!areaConfiguration.Value.TryGetProperty("channels", out var channels) ||
+                channels.ValueKind != System.Text.Json.JsonValueKind.Array)
+            {
+                return Ok(Array.Empty<HueEntertainmentChannel>());
+            }
+
+            var result = new List<HueEntertainmentChannel>();
+            foreach (var channel in channels.EnumerateArray())
+            {
+                if (!channel.TryGetProperty("channel_id", out var channelIdProperty) ||
+                    !channelIdProperty.TryGetInt32(out var channelId) ||
+                    channelId < ushort.MinValue ||
+                    channelId > ushort.MaxValue)
+                {
+                    continue;
+                }
+
+                var memberCount = channel.TryGetProperty("members", out var members) &&
+                    members.ValueKind == System.Text.Json.JsonValueKind.Array
+                    ? members.GetArrayLength()
+                    : 0;
+                result.Add(new HueEntertainmentChannel
+                {
+                    ChannelId = channelId,
+                    MemberCount = memberCount
+                });
+            }
+
+            return Ok(result.OrderBy(channel => channel.ChannelId));
+        }
+
         private async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> LoadEntertainmentAreas(
             string? bridgeIp,
             string? appKey)
@@ -276,6 +335,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveCustomFfmpegFlagsConfigured = runtime?.ActiveCustomFfmpegFlagsConfigured,
                 ActiveFfmpegStallTimeoutSeconds = runtime?.ActiveFfmpegStallTimeoutSeconds,
                 ActiveNetworkRetryAttempts = runtime?.ActiveNetworkRetryAttempts,
+                ActiveChannelIds = runtime?.ActiveChannelIds,
                 ActiveRestoreLightState = runtime?.ActiveRestoreLightState,
                 FramesProcessed = runtime?.FramesProcessed ?? 0,
                 CanStopSync = runtime?.CanStopSync ?? false,
@@ -367,7 +427,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Gets all user-to-bridge mappings without returning stored credentials. Optional
-        /// per-user playback, color-threshold, performance, execution, and restoration profile values are included because they are not secret.
+        /// per-user playback, color-threshold, performance, execution, channel, and restoration profile values are included because they are not secret.
         /// </summary>
         [HttpGet("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -383,7 +443,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
         /// synchronization without storing bridge credentials and can override playback, color processing and scene thresholds,
-        /// capture-performance, execution, or light-restoration settings.
+        /// capture-performance, execution, channel selection, or light-restoration settings.
         /// </summary>
         [HttpPost("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -407,21 +467,25 @@ namespace Jellyfin.Plugin.Hue.Api
             var colorOverrideErrors = PluginConfiguration.ValidateColorOverrides(mapping, overrideLabel);
             var performanceOverrideErrors = PluginConfiguration.ValidatePerformanceOverrides(mapping, overrideLabel);
             var executionOverrideErrors = PluginConfiguration.ValidateExecutionOverrides(mapping, overrideLabel);
+            var channelOverrideErrors = PluginConfiguration.ValidateChannelOverrides(mapping, overrideLabel);
             var overrideErrors = new List<string>(playbackOverrideErrors);
             overrideErrors.AddRange(colorOverrideErrors);
             overrideErrors.AddRange(performanceOverrideErrors);
             overrideErrors.AddRange(executionOverrideErrors);
+            overrideErrors.AddRange(channelOverrideErrors);
             if (overrideErrors.Count > 0)
             {
                 return BadRequest(new
                 {
-                    message = executionOverrideErrors.Count > 0
-                        ? "User execution profile is invalid."
-                        : performanceOverrideErrors.Count > 0
-                            ? "User performance profile is invalid."
-                            : playbackOverrideErrors.Count > 0
-                                ? "User profile overrides are invalid."
-                                : "User color profile is invalid.",
+                    message = channelOverrideErrors.Count > 0
+                        ? "User channel profile is invalid."
+                        : executionOverrideErrors.Count > 0
+                            ? "User execution profile is invalid."
+                            : performanceOverrideErrors.Count > 0
+                                ? "User performance profile is invalid."
+                                : playbackOverrideErrors.Count > 0
+                                    ? "User profile overrides are invalid."
+                                    : "User color profile is invalid.",
                     errors = overrideErrors
                 });
             }
@@ -628,7 +692,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Non-secret representation of a per-user bridge mapping, playback, color, performance,
-    /// execution, and restoration profiles.
+    /// execution, channel, and restoration profiles.
     /// </summary>
     public sealed class UserBridgeMappingSummary
     {
@@ -657,6 +721,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? CustomFfmpegFlagsOverride { get; set; }
         public int? FfmpegStallTimeoutSecondsOverride { get; set; }
         public int? NetworkRetryAttemptsOverride { get; set; }
+        public string? ChannelIdsOverride { get; set; }
         public int? TargetFpsOverride { get; set; }
         public string? FrameResolutionOverride { get; set; }
         public string? VideoScalingModeOverride { get; set; }
@@ -694,6 +759,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 CustomFfmpegFlagsOverride = mapping.CustomFfmpegFlagsOverride,
                 FfmpegStallTimeoutSecondsOverride = mapping.FfmpegStallTimeoutSecondsOverride,
                 NetworkRetryAttemptsOverride = mapping.NetworkRetryAttemptsOverride,
+                ChannelIdsOverride = mapping.ChannelIdsOverride,
                 TargetFpsOverride = mapping.TargetFpsOverride,
                 FrameResolutionOverride = mapping.FrameResolutionOverride,
                 VideoScalingModeOverride = mapping.VideoScalingModeOverride,
@@ -717,6 +783,27 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("appKey")]
         public string AppKey { get; set; } = string.Empty;
+    }
+
+    public class HueEntertainmentChannelsRequest
+    {
+        [JsonPropertyName("ipAddress")]
+        public string IpAddress { get; set; } = string.Empty;
+
+        [JsonPropertyName("appKey")]
+        public string AppKey { get; set; } = string.Empty;
+
+        [JsonPropertyName("entertainmentAreaId")]
+        public string EntertainmentAreaId { get; set; } = string.Empty;
+    }
+
+    public class HueEntertainmentChannel
+    {
+        [JsonPropertyName("channelId")]
+        public int ChannelId { get; set; }
+
+        [JsonPropertyName("memberCount")]
+        public int MemberCount { get; set; }
     }
 
     public class HueConnectionTestRequest
@@ -812,6 +899,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool? ActiveCustomFfmpegFlagsConfigured { get; set; }
         public int? ActiveFfmpegStallTimeoutSeconds { get; set; }
         public int? ActiveNetworkRetryAttempts { get; set; }
+        public string? ActiveChannelIds { get; set; }
         public bool? ActiveRestoreLightState { get; set; }
         public long FramesProcessed { get; set; }
         public bool CanStopSync { get; set; }

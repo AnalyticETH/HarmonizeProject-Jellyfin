@@ -373,6 +373,55 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task GetLightStates_ChannelFilterReadsOnlySelectedChannels()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                {
+                    ""channel_id"": 0,
+                    ""members"": [{""service"": {""rid"": ""light-0""}}]
+                },
+                {
+                    ""channel_id"": 1,
+                    ""members"": [{""service"": {""rid"": ""light-1""}}]
+                }
+            ]
+        }");
+        var requestedLightIds = new List<string>();
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+            {
+                requestedLightIds.Add(request.RequestUri!.Segments[^1].Trim('/'));
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(@"{
+                    ""data"": [{
+                        ""on"": {""on"": true},
+                        ""dimming"": {""brightness"": 50},
+                        ""color"": {""xy"": {""x"": 0.3, ""y"": 0.3}}
+                    }]
+                }")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+        var result = await client.GetLightStates(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement,
+            new HashSet<int> { 1 });
+
+        var state = Assert.Single(result!);
+        Assert.Equal("light-1", state.Id);
+        Assert.Equal(new[] { "light-1" }, requestedLightIds);
+    }
+
+    [Fact]
     public async Task GetLightStates_ColorTemperature_PreservesMirekMode()
     {
         using var doc = JsonDocument.Parse(@"{

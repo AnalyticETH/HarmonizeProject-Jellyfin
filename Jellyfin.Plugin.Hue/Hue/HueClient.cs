@@ -410,13 +410,19 @@ namespace Jellyfin.Plugin.Hue.Hue
             bool HasColor = true);
 
         /// <summary>
-        /// Gets the current state of all lights in an entertainment area for restoration later
+        /// Gets the current state of lights in an entertainment area for restoration later.
+        /// When channelIds is supplied, only lights belonging to those channel IDs are read.
         /// </summary>
         /// <param name="bridgeIp">The IP address of the Hue Bridge</param>
         /// <param name="appKey">The application key for authentication</param>
         /// <param name="areaConfig">The entertainment area configuration</param>
+        /// <param name="channelIds">Optional entertainment channel IDs to capture.</param>
         /// <returns>List of light states, or null if failed</returns>
-        public async Task<List<LightState>?> GetLightStates(string bridgeIp, string appKey, JsonElement areaConfig)
+        public async Task<List<LightState>?> GetLightStates(
+            string bridgeIp,
+            string appKey,
+            JsonElement areaConfig,
+            IReadOnlySet<int>? channelIds = null)
         {
             return await ExecuteWithRetry(async () =>
             {
@@ -427,6 +433,14 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                 foreach (var channel in channels.EnumerateArray())
                 {
+                    if (channelIds != null &&
+                        (!channel.TryGetProperty("channel_id", out var channelIdProperty) ||
+                         !channelIdProperty.TryGetInt32(out var channelId) ||
+                         !channelIds.Contains(channelId)))
+                    {
+                        continue;
+                    }
+
                     if (!channel.TryGetProperty("members", out var members) || members.ValueKind != JsonValueKind.Array)
                         continue;
 

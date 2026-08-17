@@ -1,11 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.Hue.Configuration
 {
     /// <summary>
-    /// Per-user bridge, entertainment area, and optional playback, color, performance, and restoration profile mapping
+    /// Per-user bridge, entertainment area, and optional playback, color, performance, channel, and restoration profile mapping
     /// </summary>
     public class UserBridgeMapping
     {
@@ -51,6 +52,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string? CustomFfmpegFlagsOverride { get; set; }
         public int? FfmpegStallTimeoutSecondsOverride { get; set; }
         public int? NetworkRetryAttemptsOverride { get; set; }
+        public string? ChannelIdsOverride { get; set; }
     }
 
     /// <summary>
@@ -282,6 +284,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     mapping.NetworkRetryAttemptsOverride);
         }
 
+        /// <summary>
+        /// Gets optional per-user entertainment channel IDs. A null result means all channels
+        /// from the selected area should be used.
+        /// </summary>
+        public IReadOnlySet<int>? GetChannelIdsOverrideForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            if (mapping == null || !TryParseChannelIds(mapping.ChannelIdsOverride, out var channelIds) || channelIds.Count == 0)
+                return null;
+
+            return channelIds;
+        }
+
         private static string? NormalizeOptionalOverride(string? value)
             => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -473,6 +489,46 @@ namespace Jellyfin.Plugin.Hue.Configuration
             return errors;
         }
 
+        /// <summary>
+        /// Parses an optional comma-, semicolon-, or whitespace-separated channel ID list.
+        /// </summary>
+        public static bool TryParseChannelIds(string? value, out HashSet<int> channelIds)
+        {
+            channelIds = new HashSet<int>();
+            if (string.IsNullOrWhiteSpace(value))
+                return true;
+
+            var tokens = value.Split(
+                new[] { ',', ';', ' ', '\t', '\r', '\n' },
+                StringSplitOptions.RemoveEmptyEntries);
+            foreach (var token in tokens)
+            {
+                if (!int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var channelId) ||
+                    channelId < ushort.MinValue ||
+                    channelId > ushort.MaxValue)
+                {
+                    channelIds.Clear();
+                    return false;
+                }
+
+                channelIds.Add(channelId);
+            }
+
+            return channelIds.Count > 0;
+        }
+
+        /// <summary>
+        /// Validates an optional per-user channel selection override.
+        /// </summary>
+        public static List<string> ValidateChannelOverrides(UserBridgeMapping mapping, string label = "User mapping")
+        {
+            var errors = new List<string>();
+            if (!TryParseChannelIds(mapping.ChannelIdsOverride, out _))
+                errors.Add($"{label} channel IDs override must be a comma-separated list of IDs from 0 to 65535");
+
+            return errors;
+        }
+
         public PluginConfiguration()
         {
             // Defaults
@@ -623,6 +679,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.AddRange(ValidateColorOverrides(mapping, label));
                 errors.AddRange(ValidatePerformanceOverrides(mapping, label));
                 errors.AddRange(ValidateExecutionOverrides(mapping, label));
+                errors.AddRange(ValidateChannelOverrides(mapping, label));
 
                 if (string.IsNullOrWhiteSpace(mapping.UserId))
                 {

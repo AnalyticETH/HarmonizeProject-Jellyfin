@@ -1191,6 +1191,58 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetChannelIdsOverrideForUser_ParsesDelimitedIdsAndLeavesUnmappedUsersGlobal()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    ChannelIdsOverride = " 12, 4;12 65535 "
+                }
+            }
+        };
+
+        var channelIds = config.GetChannelIdsOverrideForUser(userId);
+        var unmapped = config.GetChannelIdsOverrideForUser(System.Guid.NewGuid());
+
+        Assert.NotNull(channelIds);
+        Assert.Equal(3, channelIds!.Count);
+        Assert.Contains(4, channelIds);
+        Assert.Contains(12, channelIds);
+        Assert.Contains(65535, channelIds);
+        Assert.Null(unmapped);
+    }
+
+    [Fact]
+    public void Validate_WhenUserChannelSelectionIsMalformed_ReturnsChannelProfileError()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-key",
+            HueClientKey = "default-client-key",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    ChannelIdsOverride = "1, nope, 70000"
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("User mapping 1 channel IDs override must be a comma-separated list of IDs from 0 to 65535", errors);
+    }
+
+    [Fact]
     public void GetPlaybackOverridesForUser_UsesMatchingMappingAndLeavesBlankValuesForGlobalSettings()
     {
         var userId = System.Guid.NewGuid();

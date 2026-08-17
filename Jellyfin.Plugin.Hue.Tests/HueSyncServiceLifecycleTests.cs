@@ -59,6 +59,7 @@ public sealed class HueSyncServiceLifecycleTests
                 CustomFfmpegFlags: "-hwaccel vaapi",
                 FfmpegStallTimeoutSeconds: 20,
                 NetworkRetryAttempts: 1));
+        SetPrivateField(service, "_activeChannelIds", new HashSet<int> { 9, 2 });
         SetPrivateField(service, "_activeRestoreLightState", true);
         SetPrivateField(service, "_currentItemName", "Feature film");
         SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-3));
@@ -90,6 +91,7 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal((bool?)true, status.ActiveCustomFfmpegFlagsConfigured);
         Assert.Equal(20, status.ActiveFfmpegStallTimeoutSeconds);
         Assert.Equal(1, status.ActiveNetworkRetryAttempts);
+        Assert.Equal("2, 9", status.ActiveChannelIds);
         Assert.Equal((bool?)true, status.ActiveRestoreLightState);
         Assert.Equal("192.168.1.100", status.ActiveBridgeIp);
         Assert.Equal("area-id", status.ActiveEntertainmentAreaId);

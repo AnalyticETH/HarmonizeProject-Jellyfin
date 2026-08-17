@@ -63,6 +63,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Temporal Color Smoothing** | Blend the previous frame into new colors to reduce flicker (0-90%, default: 0%). Higher values create smoother but slower transitions. |
 | **Performance Profile** | Target FPS, frame resolution, video fit, deinterlacing, sampling breadth/mode, and smoothing can be overridden per user while blank fields inherit global settings. |
 | **Execution Profile** | GPU acceleration, additional FFmpeg flags, FFmpeg stall timeout, and Hue REST/DTLS retry attempts can be overridden per user while blank fields inherit global settings; the effective policy is captured when playback starts. |
+| **Channel Profile** | Select a comma-separated subset of entertainment channel IDs per user; use **Load Channel IDs** in a mapping to read the selected area's available IDs, then edit the list. Blank fields drive every channel in the selected area. The active selection is captured with the playback session. |
 | **Restore Light State After Sync** | Save and restore each light's original state after playback. Per-user mappings can override this policy while blank fields inherit the global setting. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
 | **RGB Channel Gains** | Independently scale red, green, and blue channels from 50-200% (default: 100%) for room-specific white-balance correction before saturation and hue processing. |
@@ -102,13 +103,16 @@ server and are not displayed in the browser. Leave those fields blank to keep th
 enter replacement keys to rotate them. The mapping list reports credential presence without
 revealing the key values.
 
-Each mapping can also define optional per-user color, performance, execution, and restoration profiles. Color fields cover
+Each mapping can also define optional per-user color, performance, execution, channel, and restoration profiles. Color fields cover
 Brightness Boost, RGB Channel Gains, Color Saturation, Hue Shift, Output Brightness, Blackout Threshold, and
 Color Change Threshold. Performance
 fields cover Target FPS, Frame Resolution, Video Fit, Deinterlacing, Sampling Breadth/Mode, and
 Temporal Color Smoothing. Execution fields cover GPU acceleration, additional FFmpeg flags, the FFmpeg
 stall timeout, and Hue REST/DTLS retry attempts. The restoration profile chooses whether that user captures and restores
-the original per-light state or uses the cinema/default cleanup behavior. Leave any profile field
+the original per-light state or uses the cinema/default cleanup behavior. Channel fields accept a comma-separated
+list of Hue entertainment channel IDs; **Load Channel IDs** reads the selected area's available IDs from the bridge, and
+only the chosen channels are captured, dimmed, streamed, and restored for that user.
+Leave any profile field
 blank to inherit the current global setting; populated overrides apply only to that user's playback,
 including when the mapping uses the default bridge.
 
@@ -124,12 +128,13 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | :--- | :--- |
 | `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
+| `POST /HueSync/EntertainmentChannels` | Load the selected area's channel IDs with `{ "ipAddress": "...", "appKey": "...", "entertainmentAreaId": "..." }`. |
 | `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration. |
-| `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/color/execution/restoration profile, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
+| `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/color/execution/channel/restoration profile, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings without serializing per-user mappings to the configuration page. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
-| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/restoration-profile overrides; GET responses redact stored credentials. |
+| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 
 ### Generating Hue Credentials (Manual Fallback)
@@ -206,7 +211,7 @@ docker run --rm -v "$PWD:/src" -v /tmp/hue-nuget:/root/.nuget/packages \
 The test suite covers:
 - **Color Processing**: RGB/HSL conversion, sampling, and round-trip conversions
 - **Configuration Validation**: All plugin settings and edge cases
-- **Per-user Profiles**: Playback, color, performance, execution, restoration inheritance, validation, and API persistence
+- **Per-user Profiles**: Playback, color, performance, execution, channel, restoration inheritance, validation, and API persistence
 - **HueClient Integration**: REST API parsing, error handling, and retry logic
 - **Bridge discovery API**: Authenticated bridge discovery with local-address filtering
 - **HueStreamer Protocol**: Binary packet construction, color encoding, and coordinate mapping
@@ -289,7 +294,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.35 (Current)
+### Version 1.5.36 (Current)
+- **Per-user channel profiles**: Load available entertainment channel IDs for a selected area, choose which IDs each mapped user drives, and keep capture, cinema dimming, streaming, restoration, and Live Sync Status aligned with the captured selection
+
+### Version 1.5.35
 - **Per-user execution profiles**: Override GPU acceleration, additional FFmpeg flags, stall timeout, and Hue REST/DTLS retry attempts per mapping while inheriting global defaults; the captured policy and sanitized diagnostics are shown in Live Sync Status
 
 ### Version 1.5.34

@@ -25,6 +25,7 @@
                             <div><strong>Sampling:</strong> <span id="runtimeSamplingProfile">—</span></div>
                             <div><strong>Color policy:</strong> <span id="runtimeColorProfile">—</span></div>
                             <div><strong>Execution:</strong> <span id="runtimeExecutionProfile">—</span></div>
+                            <div><strong>Channels:</strong> <span id="runtimeChannelProfile">—</span></div>
                             <div><strong>Restoration:</strong> <span id="runtimeRestorationProfile">—</span></div>
                         </div>
                         <div style="flex: 1 1 280px;">
@@ -441,6 +442,23 @@
                                     <label class="inputLabel inputLabelUnfocused" for="mappingNetworkRetryAttemptsOverride">Network Retry Attempts Override</label>
                                     <input id="mappingNetworkRetryAttemptsOverride" type="number" min="0" max="10" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user Hue REST/DTLS retry count (0-10).</div>
+                                </div>
+
+                            </fieldset>
+
+                            <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
+                                <legend>Per-user Channel Profile (optional)</legend>
+                                <div class="fieldDescription" style="margin-bottom: 1em;">Leave this field blank to drive every channel in the selected area. The selected channel policy is captured when this user's playback starts.</div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingChannelIdsOverride">Entertainment Channel IDs Override</label>
+                                    <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
+                                        <input id="mappingChannelIdsOverride" type="text" is="emby-input" placeholder="Leave blank for all channels" style="flex: 1 1 240px;" />
+                                        <button is="emby-button" type="button" class="raised" id="mappingLoadChannelsBtn">
+                                            <span>Load Channel IDs</span>
+                                        </button>
+                                    </div>
+                                    <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535). Only these channels are captured, dimmed, streamed, and restored for this user. Load Channel IDs after entering bridge credentials and selecting an area, then edit the list to choose a subset.</div>
+                                    <div id="mappingChannelIdsStatus" class="fieldDescription" style="margin-top: 0.5em;"></div>
                                 </div>
                             </fieldset>
 
@@ -941,6 +959,7 @@
                         var customFfmpegFlagsConfigured = HueConfigurationPage.readStatusField(status, "ActiveCustomFfmpegFlagsConfigured", null);
                         var ffmpegStallTimeout = HueConfigurationPage.readStatusField(status, "ActiveFfmpegStallTimeoutSeconds", null);
                         var networkRetryAttempts = HueConfigurationPage.readStatusField(status, "ActiveNetworkRetryAttempts", null);
+                        var activeChannelIds = HueConfigurationPage.readStatusField(status, "ActiveChannelIds", null);
                         var restoreLightState = HueConfigurationPage.readStatusField(status, "ActiveRestoreLightState", null);
                         var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
                         var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
@@ -976,6 +995,9 @@
                             ? "—"
                             : "GPU " + (useGpu ? "on" : "off") + " · stall " + String(ffmpegStallTimeout) + "s · retries " + String(networkRetryAttempts) +
                                 " · flags " + (customFfmpegFlagsConfigured ? "custom" : "global/default");
+                        page.querySelector('#runtimeChannelProfile').textContent = activeChannelIds == null
+                            ? "—"
+                            : String(activeChannelIds);
                         page.querySelector('#runtimeRestorationProfile').textContent = restoreLightState == null
                             ? "—"
                             : (restoreLightState ? "Saved light state" : "Cinema/default restoration");
@@ -1274,7 +1296,8 @@
                                 getMappingValue('UseGpuOverride', 'useGpuOverride'),
                                 getMappingValue('CustomFfmpegFlagsOverride', 'customFfmpegFlagsOverride'),
                                 getMappingValue('FfmpegStallTimeoutSecondsOverride', 'ffmpegStallTimeoutSecondsOverride'),
-                                getMappingValue('NetworkRetryAttemptsOverride', 'networkRetryAttemptsOverride')
+                                getMappingValue('NetworkRetryAttemptsOverride', 'networkRetryAttemptsOverride'),
+                                getMappingValue('ChannelIdsOverride', 'channelIdsOverride')
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
@@ -1339,7 +1362,9 @@
                         '#mappingUseGpuOverride',
                         '#mappingCustomFfmpegFlagsOverride',
                         '#mappingFfmpegStallTimeoutSecondsOverride',
-                        '#mappingNetworkRetryAttemptsOverride'
+                        '#mappingNetworkRetryAttemptsOverride',
+                        '#mappingChannelIdsOverride',
+                        '#mappingLoadChannelsBtn'
                     ];
 
                     selectors.forEach(function (selector) {
@@ -1621,6 +1646,84 @@
                     selectEl.disabled = false;
                 },
 
+                loadMappingChannels: function () {
+                    var bridgeIpEl = document.getElementById('mappingBridgeIp');
+                    var appKeyEl = document.getElementById('mappingAppKey');
+                    var areaSelect = document.getElementById('mappingAreaSelect');
+                    var button = document.getElementById('mappingLoadChannelsBtn');
+                    var channelInput = document.getElementById('mappingChannelIdsOverride');
+                    var statusEl = document.getElementById('mappingChannelIdsStatus');
+                    var bridgeIp = bridgeIpEl ? bridgeIpEl.value.trim() : '';
+                    var appKey = appKeyEl ? appKeyEl.value.trim() : '';
+                    var areaId = areaSelect ? areaSelect.value : '';
+
+                    if (areaId === "manual") {
+                        var manualAreaEl = document.getElementById('mappingAreaManual');
+                        areaId = manualAreaEl ? manualAreaEl.value.trim() : '';
+                    }
+
+                    if (!bridgeIp || !appKey || !areaId) {
+                        Dashboard.alert("Enter a bridge address, app key, and entertainment area first.");
+                        return;
+                    }
+
+                    if (button) button.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Loading channel IDs from the selected area...";
+                        statusEl.style.color = "";
+                    }
+
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/EntertainmentChannels"),
+                        data: JSON.stringify({
+                            ipAddress: bridgeIp,
+                            appKey: appKey,
+                            entertainmentAreaId: areaId
+                        }),
+                        contentType: "application/json",
+                        dataType: "json"
+                    }).then(function (response) {
+                        var channels = Array.isArray(response)
+                            ? response
+                            : response && Array.isArray(response.data)
+                                ? response.data
+                                : [];
+                        var channelIds = channels.map(function (channel) {
+                            return channel && (channel.channelId !== undefined ? channel.channelId : channel.ChannelId);
+                        }).filter(function (channelId) {
+                            return channelId !== null && typeof channelId !== 'undefined' && channelId !== '';
+                        }).map(function (channelId) {
+                            return Number(channelId);
+                        }).filter(function (channelId) {
+                            return Number.isInteger(channelId) && channelId >= 0 && channelId <= 65535;
+                        });
+
+                        if (!channelIds.length) {
+                            if (statusEl) {
+                                statusEl.textContent = "The selected area did not report any controllable channel IDs.";
+                                statusEl.style.color = "#f0ad4e";
+                            }
+                            return;
+                        }
+
+                        channelIds.sort(function (left, right) { return left - right; });
+                        if (channelInput) channelInput.value = channelIds.join(', ');
+                        if (statusEl) {
+                            statusEl.textContent = "Loaded " + channelIds.length + " channel IDs. Edit the list to choose a subset, or clear it to use all channels.";
+                            statusEl.style.color = "#8bc34a";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to load entertainment channel IDs:", err);
+                        if (statusEl) {
+                            statusEl.textContent = "Unable to load channel IDs. Verify the bridge credentials and selected area.";
+                            statusEl.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        if (button) button.disabled = false;
+                    });
+                },
+
                 addUserMapping: function () {
                     var page = document.querySelector('.pluginConfigurationPage');
                     var userSelect = document.getElementById('mappingUserSelect');
@@ -1717,7 +1820,8 @@
                         UseGpuOverride: readOptionalBoolean('mappingUseGpuOverride'),
                         CustomFfmpegFlagsOverride: readOptionalString('mappingCustomFfmpegFlagsOverride'),
                         FfmpegStallTimeoutSecondsOverride: readOptionalNumber('mappingFfmpegStallTimeoutSecondsOverride'),
-                        NetworkRetryAttemptsOverride: readOptionalNumber('mappingNetworkRetryAttemptsOverride')
+                        NetworkRetryAttemptsOverride: readOptionalNumber('mappingNetworkRetryAttemptsOverride'),
+                        ChannelIdsOverride: readOptionalString('mappingChannelIdsOverride')
                     };
 
                     ApiClient.ajax({
@@ -1792,7 +1896,8 @@
                         '#mappingUseGpuOverride',
                         '#mappingCustomFfmpegFlagsOverride',
                         '#mappingFfmpegStallTimeoutSecondsOverride',
-                        '#mappingNetworkRetryAttemptsOverride'
+                        '#mappingNetworkRetryAttemptsOverride',
+                        '#mappingChannelIdsOverride'
                     ];
                     profileSelectors.forEach(function (selector) {
                         var element = page.querySelector(selector);
@@ -1806,6 +1911,11 @@
                     if (statusEl) {
                         statusEl.textContent = "Enter bridge address, then link.";
                         statusEl.style.background = "#3f51b5";
+                    }
+                    var channelStatusEl = page.querySelector('#mappingChannelIdsStatus');
+                    if (channelStatusEl) {
+                        channelStatusEl.textContent = "";
+                        channelStatusEl.style.color = "";
                     }
                     HueConfigurationPage.toggleMappingSyncFields(page);
                     HueConfigurationPage.toggleMappingManualArea(false);
@@ -1865,6 +1975,7 @@
                         var customFfmpegFlagsOverride = getMappingValue('CustomFfmpegFlagsOverride', 'customFfmpegFlagsOverride');
                         var ffmpegStallTimeoutSecondsOverride = getMappingValue('FfmpegStallTimeoutSecondsOverride', 'ffmpegStallTimeoutSecondsOverride');
                         var networkRetryAttemptsOverride = getMappingValue('NetworkRetryAttemptsOverride', 'networkRetryAttemptsOverride');
+                        var channelIdsOverride = getMappingValue('ChannelIdsOverride', 'channelIdsOverride');
 
                         var userSelect = page.querySelector('#mappingUserSelect');
                         if (userSelect) {
@@ -1918,6 +2029,7 @@
                         page.querySelector('#mappingCustomFfmpegFlagsOverride').value = customFfmpegFlagsOverride == null ? "" : customFfmpegFlagsOverride;
                         page.querySelector('#mappingFfmpegStallTimeoutSecondsOverride').value = ffmpegStallTimeoutSecondsOverride == null ? "" : ffmpegStallTimeoutSecondsOverride;
                         page.querySelector('#mappingNetworkRetryAttemptsOverride').value = networkRetryAttemptsOverride == null ? "" : networkRetryAttemptsOverride;
+                        page.querySelector('#mappingChannelIdsOverride').value = channelIdsOverride == null ? "" : channelIdsOverride;
                         page.querySelector('#mappingAreaManual').value = "";
                         page.querySelector('#mappingFormLegend').textContent = "Edit User Mapping";
                         page.querySelector('#addMappingBtn').querySelector('span').textContent = "Update User Mapping";
@@ -2020,6 +2132,10 @@
             document.querySelector('#mappingRefreshAreasBtn').addEventListener('click', function () {
                 console.log("Refresh Areas button clicked");
                 HueConfigurationPage.loadMappingAreas();
+            });
+
+            document.querySelector('#mappingLoadChannelsBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadMappingChannels();
             });
 
             document.querySelector('#addMappingBtn').addEventListener('click', function () {

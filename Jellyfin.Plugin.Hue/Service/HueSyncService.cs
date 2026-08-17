@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
@@ -92,6 +93,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string CustomFfmpegFlags,
             int FfmpegStallTimeoutSeconds,
             int NetworkRetryAttempts)? _activeExecutionSettings;
+        private IReadOnlySet<int>? _activeChannelIds;
         private bool? _activeUseCinemaMode;
         private bool? _activeRestoreLightState;
         private string? _activePauseBehavior;
@@ -250,6 +252,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         _activePauseBehavior = null;
                         _activeColorProcessingSettings = null;
                         _activeExecutionSettings = null;
+                        _activeChannelIds = null;
                     }
 
                     _savedLightStates = null;
@@ -340,6 +343,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 string CustomFfmpegFlags,
                 int FfmpegStallTimeoutSeconds,
                 int NetworkRetryAttempts)? activeExecutionSettings;
+            IReadOnlySet<int>? activeChannelIds;
             bool? activeRestoreLightState;
             string state;
             string message;
@@ -361,6 +365,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentColorSmoothingPercent = _currentColorSmoothingPercent;
                 activeColorProcessingSettings = _activeColorProcessingSettings;
                 activeExecutionSettings = _activeExecutionSettings;
+                activeChannelIds = _activeChannelIds;
                 activeRestoreLightState = _activeRestoreLightState;
                 state = _runtimeState;
                 message = _runtimeMessage;
@@ -405,6 +410,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     : null,
                 ActiveFfmpegStallTimeoutSeconds = isSyncing ? activeExecutionSettings?.FfmpegStallTimeoutSeconds : null,
                 ActiveNetworkRetryAttempts = isSyncing ? activeExecutionSettings?.NetworkRetryAttempts : null,
+                ActiveChannelIds = isSyncing ? FormatChannelIds(activeChannelIds) : null,
                 ActiveRestoreLightState = isSyncing ? activeRestoreLightState : null,
                 ActiveBridgeIp = isSyncing ? bridgeConfig?.BridgeIp : null,
                 ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
@@ -821,6 +827,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     _activeColorProcessingSettings = null;
                     _activeExecutionSettings = null;
+                    _activeChannelIds = null;
                 }
             }
             finally
@@ -909,7 +916,8 @@ namespace Jellyfin.Plugin.Hue.Service
             string clientKey,
             string areaId,
             System.Text.Json.JsonElement areaConfig,
-            int brightnessDimLevel)
+            int brightnessDimLevel,
+            IReadOnlySet<int>? channelIds)
         {
             try
             {
@@ -923,9 +931,15 @@ namespace Jellyfin.Plugin.Hue.Service
                 foreach (var channel in channels.EnumerateArray())
                 {
                     var channelId = channel.GetProperty("channel_id").GetInt32();
+                    if (channelIds != null && !channelIds.Contains(channelId))
+                        continue;
+
                     // Warm white color at dim level
                     channelColors[channelId] = new byte[] { dimBrightness, dimBrightness, dimBrightness, dimBrightness, (byte)(dimBrightness * 0.8), (byte)(dimBrightness * 0.8) };
                 }
+
+                if (channelColors.Count == 0)
+                    return;
 
                 // Send dim command before starting stream
                 await SendTemporaryColorsWithConfig(bridgeIp, appKey, clientKey, areaId, channelColors, CinemaModeDimmingDelayMs);
@@ -939,7 +953,12 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Restores lights to normal brightness after playback
         /// </summary>
-        private async Task RestoreLightsAfterPlayback(string bridgeIp, string appKey, string clientKey, string areaId)
+        private async Task RestoreLightsAfterPlayback(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            IReadOnlySet<int>? channelIds)
         {
             try
             {
@@ -951,9 +970,15 @@ namespace Jellyfin.Plugin.Hue.Service
                 foreach (var channel in channels.EnumerateArray())
                 {
                     var channelId = channel.GetProperty("channel_id").GetInt32();
+                    if (channelIds != null && !channelIds.Contains(channelId))
+                        continue;
+
                     // Full white
                     channelColors[channelId] = new byte[] { FullBrightnessValue, FullBrightnessValue, FullBrightnessValue, FullBrightnessValue, FullBrightnessValue, FullBrightnessValue };
                 }
+
+                if (channelColors.Count == 0)
+                    return;
 
                 await SendTemporaryColorsWithConfig(bridgeIp, appKey, clientKey, areaId, channelColors, RestoreLightsDelayMs);
             }
@@ -1064,6 +1089,18 @@ namespace Jellyfin.Plugin.Hue.Service
                     0,
                     10));
         }
+
+        internal static IReadOnlySet<int>? ResolveChannelIds(PluginConfiguration config, Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            var channelIds = config.GetChannelIdsOverrideForUser(userId);
+            return channelIds == null ? null : new HashSet<int>(channelIds);
+        }
+
+        private static string FormatChannelIds(IReadOnlySet<int>? channelIds)
+            => channelIds == null
+                ? "All channels"
+                : string.Join(", ", channelIds.OrderBy(channelId => channelId));
 
         private static string NormalizeFrameResolution(string? value)
         {
@@ -1819,6 +1856,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var performanceSettings = ResolvePerformanceSettings(config, userId);
             var colorProcessingSettings = ResolveColorProcessingSettings(config, userId);
             var executionSettings = ResolveExecutionSettings(config, userId);
+            var selectedChannelIds = ResolveChannelIds(config, userId);
 
             var videoPath = e.Item?.Path;
             if (string.IsNullOrWhiteSpace(videoPath))
@@ -1879,6 +1917,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentColorSmoothingPercent = performanceSettings.ColorSmoothingPercent;
                     _activeColorProcessingSettings = colorProcessingSettings;
                     _activeExecutionSettings = executionSettings;
+                    _activeChannelIds = selectedChannelIds;
                     _activeUseCinemaMode = useCinemaMode;
                     _activeRestoreLightState = restoreLightState;
                     _activePauseBehavior = pauseBehavior;
@@ -1906,41 +1945,48 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 }
 
-                // Save current light states if configured
-                var shouldCaptureLightState = ShouldCaptureLightState(
-                    restoreLightState,
-                    _savedLightStates != null,
-                    _savedLightStatePlaySessionId,
-                    e.PlaySessionId);
-                if (shouldCaptureLightState)
-                {
-                    _logger.LogInformation("Saving current light states for restoration");
-                    var savedLightStates = await _hueClient.GetLightStates(bridgeIp, appKey, areaConfig.Value);
-                    if (token.IsCancellationRequested)
-                        return;
-                    _savedLightStates = savedLightStates;
-                    _savedLightStatePlaySessionId = e.PlaySessionId;
-                }
-
-                if (useCinemaMode)
-                {
-                    _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", brightnessDimLevel);
-                    await ApplyCinemaMode(bridgeIp, appKey, clientKey, areaId, areaConfig.Value, brightnessDimLevel);
-                    if (token.IsCancellationRequested)
-                        return;
-                }
-
                 var lights = new Dictionary<int, (double x, double z)>();
-                if (areaConfig.Value.TryGetProperty("channels", out var channels))
+                if (areaConfig.Value.TryGetProperty("channels", out var channels) &&
+                    channels.ValueKind == System.Text.Json.JsonValueKind.Array)
                 {
                     foreach (var channel in channels.EnumerateArray())
                     {
-                        var channelId = channel.GetProperty("channel_id").GetInt32();
-                        var pos = channel.GetProperty("position");
-                        var x = pos.GetProperty("x").GetDouble();
-                        var z = pos.GetProperty("z").GetDouble();
+                        if (!channel.TryGetProperty("channel_id", out var channelIdProperty) ||
+                            !channelIdProperty.TryGetInt32(out var channelId) ||
+                            channelId < 0 ||
+                            channelId > ushort.MaxValue ||
+                            !channel.TryGetProperty("position", out var position) ||
+                            !position.TryGetProperty("x", out var xProperty) ||
+                            !position.TryGetProperty("z", out var zProperty) ||
+                            !xProperty.TryGetDouble(out var x) ||
+                            !zProperty.TryGetDouble(out var z))
+                        {
+                            continue;
+                        }
+
                         lights[channelId] = (x, z);
                     }
+                }
+
+                if (selectedChannelIds != null)
+                {
+                    var missingChannelIds = selectedChannelIds
+                        .Where(channelId => !lights.ContainsKey(channelId))
+                        .OrderBy(channelId => channelId)
+                        .ToArray();
+                    if (missingChannelIds.Length > 0)
+                    {
+                        _logger.LogWarning(
+                            "Configured channel IDs {0} were not found in entertainment area {1}",
+                            string.Join(", ", missingChannelIds),
+                            areaId);
+                        SetRuntimeError("One or more configured channel IDs are not present in the selected entertainment area.");
+                        return;
+                    }
+
+                    lights = lights
+                        .Where(pair => selectedChannelIds.Contains(pair.Key))
+                        .ToDictionary(pair => pair.Key, pair => pair.Value);
                 }
 
                 if (lights.Count == 0)
@@ -1952,6 +1998,42 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 if (token.IsCancellationRequested)
                     return;
+
+                // Save current light states if configured. A channel profile limits the
+                // capture to the same subset that playback will control.
+                var shouldCaptureLightState = ShouldCaptureLightState(
+                    restoreLightState,
+                    _savedLightStates != null,
+                    _savedLightStatePlaySessionId,
+                    e.PlaySessionId);
+                if (shouldCaptureLightState)
+                {
+                    _logger.LogInformation("Saving current light states for restoration");
+                    var savedLightStates = await _hueClient.GetLightStates(
+                        bridgeIp,
+                        appKey,
+                        areaConfig.Value,
+                        selectedChannelIds);
+                    if (token.IsCancellationRequested)
+                        return;
+                    _savedLightStates = savedLightStates;
+                    _savedLightStatePlaySessionId = e.PlaySessionId;
+                }
+
+                if (useCinemaMode)
+                {
+                    _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", brightnessDimLevel);
+                    await ApplyCinemaMode(
+                        bridgeIp,
+                        appKey,
+                        clientKey,
+                        areaId,
+                        areaConfig.Value,
+                        brightnessDimLevel,
+                        selectedChannelIds);
+                    if (token.IsCancellationRequested)
+                        return;
+                }
 
                 // CRITICAL: Activate the entertainment area on the bridge BEFORE opening the DTLS tunnel.
                 // The bridge silently drops all DTLS packets if the area is not in streaming mode.
@@ -2083,10 +2165,12 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             bool effectiveUseCinemaMode;
             bool effectiveRestoreLightState;
+            IReadOnlySet<int>? activeChannelIds;
             lock (_syncLock)
             {
                 effectiveUseCinemaMode = _activeUseCinemaMode ?? config?.UseCinemaMode ?? false;
                 effectiveRestoreLightState = _activeRestoreLightState ?? config?.RestoreLightState ?? true;
+                activeChannelIds = _activeChannelIds;
             }
 
             try
@@ -2108,7 +2192,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         bridgeConfig.Value.BridgeIp,
                         bridgeConfig.Value.AppKey,
                         bridgeConfig.Value.ClientKey,
-                        bridgeConfig.Value.AreaId);
+                        bridgeConfig.Value.AreaId,
+                        activeChannelIds);
                 }
             }
             catch (Exception ex)
@@ -2137,6 +2222,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _activePauseBehavior = null;
                     _activeColorProcessingSettings = null;
                     _activeExecutionSettings = null;
+                    _activeChannelIds = null;
                 }
                 if (bridgeConfig != null)
                 {
@@ -2303,6 +2389,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public bool? ActiveCustomFfmpegFlagsConfigured { get; init; }
         public int? ActiveFfmpegStallTimeoutSeconds { get; init; }
         public int? ActiveNetworkRetryAttempts { get; init; }
+        public string? ActiveChannelIds { get; init; }
         public bool? ActiveRestoreLightState { get; init; }
         public string? ActiveBridgeIp { get; init; }
         public string? ActiveEntertainmentAreaId { get; init; }
