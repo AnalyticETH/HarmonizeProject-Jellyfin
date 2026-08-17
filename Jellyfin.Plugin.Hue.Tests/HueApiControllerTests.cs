@@ -331,6 +331,93 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_WithSelectedChannelsPassesColorAndDurationToStreamTester()
+    {
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":1},{\"channel_id\":2}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<System.Text.Json.JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>()))
+            .ReturnsAsync(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Preview sent."
+            });
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.Preview(new HuePreviewRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "2",
+            Red = 255,
+            Green = 128,
+            Blue = 32,
+            BrightnessPercent = 75,
+            DurationSeconds = 4
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HuePreviewResult>(response.Value);
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, result.AvailableChannelCount);
+        Assert.Equal(1, result.SelectedChannelCount);
+        streamTester.Verify(tester => tester.PreviewAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-1",
+            It.IsAny<System.Text.Json.JsonElement>(),
+            It.Is<IReadOnlySet<int>?>(ids => ids != null && ids.Count == 1 && ids.Contains(2)),
+            255,
+            128,
+            32,
+            75,
+            4), Times.Once);
+    }
+
+    [Fact]
+    public async Task Preview_WithInvalidColorOrDurationReturnsBadRequestWithoutTouchingBridge()
+    {
+        var controller = CreateController(Mock.Of<IHueStreamTester>());
+
+        var invalidColor = await controller.Preview(new HuePreviewRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            Red = 256
+        });
+        Assert.IsType<BadRequestObjectResult>(invalidColor.Result);
+
+        var invalidDuration = await controller.Preview(new HuePreviewRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            DurationSeconds = HueStreamTester.MaxPreviewDurationSeconds + 1
+        });
+        Assert.IsType<BadRequestObjectResult>(invalidDuration.Result);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task TestConnection_WithClientKeyRunsDtlsProbe()
     {
         _httpHandlerMock

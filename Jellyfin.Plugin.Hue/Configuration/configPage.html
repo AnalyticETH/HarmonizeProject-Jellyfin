@@ -127,6 +127,29 @@
                     </fieldset>
 
                     <fieldset class="verticalSection">
+                        <legend>Solid Color Preview</legend>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a single color on the default bridge target for a few seconds. The selected lights are saved and restored automatically. Stop active playback before previewing.</div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
+                            <div>
+                                <label class="inputLabel inputLabelUnfocused" for="previewColor">Color</label>
+                                <input id="previewColor" type="color" value="#ffffff" style="width: 5em; height: 2.5em; padding: 0.15em;" />
+                            </div>
+                            <div style="min-width: 130px;">
+                                <label class="inputLabel inputLabelUnfocused" for="previewBrightness">Brightness (%)</label>
+                                <input id="previewBrightness" type="number" min="0" max="100" value="100" is="emby-input" />
+                            </div>
+                            <div style="min-width: 130px;">
+                                <label class="inputLabel inputLabelUnfocused" for="previewDuration">Duration (seconds)</label>
+                                <input id="previewDuration" type="number" min="1" max="30" value="5" is="emby-input" />
+                            </div>
+                            <button is="emby-button" type="button" class="raised" id="previewColorBtn">
+                                <span>Preview Default Target</span>
+                            </button>
+                        </div>
+                        <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the default bridge, area, and global channel profile above.</div>
+                    </fieldset>
+
+                    <fieldset class="verticalSection">
                         <legend>Sync performance</legend>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="targetFps">Target FPS</label>
@@ -490,6 +513,9 @@
                                 <button is="emby-button" type="button" class="raised" id="mappingTestConnectionBtn" style="margin-bottom: 20px;">
                                     <span>Test Connection</span>
                                 </button>
+                                <button is="emby-button" type="button" class="raised" id="mappingPreviewColorBtn" style="margin-bottom: 20px;">
+                                    <span>Preview Current Color</span>
+                                </button>
                                 <button is="emby-button" type="button" class="raised" id="mappingLinkBridgeBtn" style="margin-bottom: 20px;">
                                     <span>Link Bridge</span>
                                 </button>
@@ -771,6 +797,116 @@
                         contentType: "application/json",
                         dataType: "json"
                     });
+                },
+                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds) {
+                    var payload = {
+                        ipAddress: bridgeIp,
+                        appKey: appKey,
+                        clientKey: clientKey,
+                        entertainmentAreaId: areaId,
+                        red: red,
+                        green: green,
+                        blue: blue,
+                        brightnessPercent: brightnessPercent,
+                        durationSeconds: durationSeconds
+                    };
+                    if (channelIds && channelIds.trim()) {
+                        payload.channelIds = channelIds.trim();
+                    }
+
+                    return ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/Preview"),
+                        data: JSON.stringify(payload),
+                        contentType: "application/json",
+                        dataType: "json"
+                    });
+                },
+                getPreviewValues: function (page) {
+                    var color = page.querySelector('#previewColor').value || '#ffffff';
+                    var hex = color.replace('#', '');
+                    if (hex.length !== 6) {
+                        throw new Error("Choose a valid preview color.");
+                    }
+
+                    var brightness = parseInt(page.querySelector('#previewBrightness').value, 10);
+                    var duration = parseInt(page.querySelector('#previewDuration').value, 10);
+                    brightness = isNaN(brightness) ? 100 : brightness;
+                    duration = isNaN(duration) ? 5 : duration;
+                    if (brightness < 0 || brightness > 100) {
+                        throw new Error("Preview brightness must be between 0 and 100 percent.");
+                    }
+                    if (duration < 1 || duration > 30) {
+                        throw new Error("Preview duration must be between 1 and 30 seconds.");
+                    }
+
+                    return {
+                        red: parseInt(hex.substring(0, 2), 16),
+                        green: parseInt(hex.substring(2, 4), 16),
+                        blue: parseInt(hex.substring(4, 6), 16),
+                        brightnessPercent: brightness,
+                        durationSeconds: duration
+                    };
+                },
+                previewMessage: function (response) {
+                    var succeeded = response && (response.succeeded !== undefined ? response.succeeded : response.Succeeded);
+                    var message = response && (response.message || response.Message);
+                    return {
+                        tone: succeeded ? "success" : "error",
+                        text: message || (succeeded ? "Color preview completed." : "Color preview failed.")
+                    };
+                },
+                previewDefaultColor: function (page) {
+                    var button = page.querySelector('#previewColorBtn');
+                    var statusEl = page.querySelector('#previewColorStatus');
+                    var bridgeIp = page.querySelector('#hueBridgeIp').value.trim();
+                    var appKey = page.querySelector('#hueAppKey').value.trim();
+                    var clientKey = page.querySelector('#hueClientKey').value.trim();
+                    var areaId = HueConfigurationPage.getSelectedAreaId(page);
+                    var channelIds = page.querySelector('#channelIds').value.trim();
+                    var values;
+
+                    if (!bridgeIp || !appKey || !clientKey || !areaId) {
+                        Dashboard.alert("Enter bridge credentials, a client key, and an entertainment area first.");
+                        return;
+                    }
+
+                    try {
+                        values = HueConfigurationPage.getPreviewValues(page);
+                    } catch (err) {
+                        Dashboard.alert(err.message || err);
+                        return;
+                    }
+
+                    button.disabled = true;
+                    statusEl.textContent = "Saving light state and sending preview...";
+                    statusEl.style.color = "";
+                    Dashboard.showLoadingMsg();
+                    HueConfigurationPage.fetchColorPreview(
+                        bridgeIp,
+                        appKey,
+                        clientKey,
+                        areaId,
+                        channelIds,
+                        values.red,
+                        values.green,
+                        values.blue,
+                        values.brightnessPercent,
+                        values.durationSeconds)
+                        .then(function (response) {
+                            var result = HueConfigurationPage.previewMessage(response);
+                            statusEl.textContent = result.text;
+                            statusEl.style.color = result.tone === "success" ? "#8bc34a" : "#d9534f";
+                        })
+                        .catch(function (err) {
+                            console.error("Default color preview error:", err);
+                            statusEl.textContent = "Color preview failed. Stop active playback and verify the bridge credentials and client key.";
+                            statusEl.style.color = "#d9534f";
+                        })
+                        .finally(function () {
+                            button.disabled = false;
+                            Dashboard.hideLoadingMsg();
+                        });
                 },
                 connectionTestMessage: function (response, areaId) {
                     var areaFound = response && (response.areaFound !== undefined ? response.areaFound : response.AreaFound);
@@ -1514,6 +1650,79 @@
                         });
                 },
 
+                previewMappingColor: function (page) {
+                    var bridgeIpEl = document.getElementById('mappingBridgeIp');
+                    var appKeyEl = document.getElementById('mappingAppKey');
+                    var clientKeyEl = document.getElementById('mappingClientKey');
+                    var areaSelect = document.getElementById('mappingAreaSelect');
+                    var channelIdsEl = document.getElementById('mappingChannelIdsOverride');
+                    var globalChannelIdsEl = document.getElementById('channelIds');
+                    var button = document.getElementById('mappingPreviewColorBtn');
+                    var statusEl = document.getElementById('mappingBridgeStatus');
+                    var bridgeIp = bridgeIpEl ? bridgeIpEl.value.trim() : '';
+                    var appKey = appKeyEl ? appKeyEl.value.trim() : '';
+                    var clientKey = clientKeyEl ? clientKeyEl.value.trim() : '';
+                    var areaId = areaSelect ? areaSelect.value : '';
+                    var channelIds = channelIdsEl ? channelIdsEl.value.trim() : '';
+                    var values;
+
+                    if (areaId === "manual") {
+                        var manualAreaEl = document.getElementById('mappingAreaManual');
+                        areaId = manualAreaEl ? manualAreaEl.value.trim() : '';
+                    }
+                    if (!channelIds && globalChannelIdsEl) {
+                        channelIds = globalChannelIdsEl.value.trim();
+                    }
+
+                    if (!bridgeIp || !appKey || !clientKey || !areaId) {
+                        Dashboard.alert("Enter mapping bridge credentials, a client key, and an entertainment area first.");
+                        return;
+                    }
+
+                    try {
+                        values = HueConfigurationPage.getPreviewValues(page);
+                    } catch (err) {
+                        Dashboard.alert(err.message || err);
+                        return;
+                    }
+
+                    button.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Saving mapping lights and sending preview...";
+                        statusEl.style.background = "#3f51b5";
+                    }
+                    Dashboard.showLoadingMsg();
+                    HueConfigurationPage.fetchColorPreview(
+                        bridgeIp,
+                        appKey,
+                        clientKey,
+                        areaId,
+                        channelIds,
+                        values.red,
+                        values.green,
+                        values.blue,
+                        values.brightnessPercent,
+                        values.durationSeconds)
+                        .then(function (response) {
+                            var result = HueConfigurationPage.previewMessage(response);
+                            if (statusEl) {
+                                statusEl.textContent = result.text;
+                                statusEl.style.background = result.tone === "success" ? "#4caf50" : "#d9534f";
+                            }
+                        })
+                        .catch(function (err) {
+                            console.error("Mapping color preview error:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "Color preview failed. Stop active playback and verify the mapping credentials and client key.";
+                                statusEl.style.background = "#d9534f";
+                            }
+                        })
+                        .finally(function () {
+                            button.disabled = false;
+                            Dashboard.hideLoadingMsg();
+                        });
+                },
+
                 registerMappingBridge: function () {
                     var bridgeIpEl = document.getElementById('mappingBridgeIp');
                     var ip = bridgeIpEl ? bridgeIpEl.value.trim() : '';
@@ -2164,6 +2373,10 @@
                 HueConfigurationPage.loadDefaultChannels(this.closest('.page'));
             });
 
+            document.querySelector('#previewColorBtn').addEventListener('click', function () {
+                HueConfigurationPage.previewDefaultColor(this.closest('.page'));
+            });
+
             document.querySelector('#refreshRuntimeStatusBtn').addEventListener('click', function () {
                 HueConfigurationPage.loadRuntimeStatus(this.closest('.page'));
             });
@@ -2183,6 +2396,10 @@
 
             document.querySelector('#mappingTestConnectionBtn').addEventListener('click', function () {
                 HueConfigurationPage.testMappingConnection();
+            });
+
+            document.querySelector('#mappingPreviewColorBtn').addEventListener('click', function () {
+                HueConfigurationPage.previewMappingColor(this.closest('.page'));
             });
 
             document.querySelector('#mappingLinkBridgeBtn').addEventListener('click', function () {

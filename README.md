@@ -64,6 +64,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Performance Profile** | Target FPS, frame resolution, video fit, deinterlacing, sampling breadth/mode, and smoothing can be overridden per user while blank fields inherit global settings. |
 | **Execution Profile** | GPU acceleration, additional FFmpeg flags, FFmpeg stall timeout, and Hue REST/DTLS retry attempts can be overridden per user while blank fields inherit global settings; the effective policy is captured when playback starts. |
 | **Channel Profile** | Select a comma-separated subset of entertainment channel IDs globally; use **Load Channel IDs** after choosing an area to read available IDs, then edit the list. Blank global fields drive every channel. A populated per-user channel override takes precedence, while blank per-user fields inherit the global selection. The active selection is captured with the playback session. |
+| **Solid Color Preview** | Choose a color, brightness, and 1-30 second duration to preview the default target (or the current mapping target). The plugin captures and restores the selected lights automatically and refuses to overlap active playback. |
 | **Restore Light State After Sync** | Save and restore each light's original state after playback. Per-user mappings can override this policy while blank fields inherit the global setting. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
 | **RGB Channel Gains** | Independently scale red, green, and blue channels from 50-200% (default: 100%) for room-specific white-balance correction before saturation and hue processing. |
@@ -115,6 +116,7 @@ from the bridge, and only the chosen channels are captured, dimmed, streamed, an
 override can narrow or replace the global selection; a blank per-user field inherits the global profile, and a blank
 global field drives every channel.
 The mapping **Test Connection** action validates the list against the selected area and, when a Client Key is present, probes only the selected channels; stale IDs are reported before any DTLS stream is opened.
+The **Preview Current Color** action uses the color, brightness, and duration controls from the global preview section with that mapping's bridge, area, and channel profile; a blank mapping channel field inherits the global selection.
 Leave any profile field
 blank to inherit the current global setting; populated overrides apply only to that user's playback,
 including when the mapping uses the default bridge.
@@ -133,6 +135,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
 | `POST /HueSync/EntertainmentChannels` | Load the selected area's channel IDs with `{ "ipAddress": "...", "appKey": "...", "entertainmentAreaId": "..." }`. |
 | `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration; supplying `channelIds` (comma-separated) validates and probes only that channel profile. |
+| `POST /HueSync/Preview` | Display a bounded solid color and restore the selected lights. Request fields include `ipAddress`, `appKey`, `clientKey`, `entertainmentAreaId`, optional `channelIds`, `red`, `green`, `blue` (0-255), `brightnessPercent` (0-100), and `durationSeconds` (1-30). Active playback must be stopped first. |
 | `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/color/execution/channel/restoration profile, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, without serializing per-user mappings to the configuration page. |
@@ -297,7 +300,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.38 (Current)
+### Version 1.5.39 (Current)
+- **Solid color preview**: Add an administrator color picker with brightness and duration controls for the default target and current per-user mapping, backed by a bounded DTLS preview that saves and restores light state
+- **Preview API**: Add `POST /HueSync/Preview` with channel-profile validation, active-playback protection, sanitized results, and regression coverage for color conversion and API wiring
+
+### Version 1.5.38
 - **Global channel profiles**: Choose a default entertainment-channel subset from the main configuration, inherit it from mappings with blank channel overrides, and keep explicit per-user selections authoritative
 
 ### Version 1.5.37

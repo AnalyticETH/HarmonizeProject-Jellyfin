@@ -69,6 +69,53 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public void TryBuildSolidColors_AppliesBrightnessAndUsesSelectedChannels()
+    {
+        using var document = JsonDocument.Parse(
+            "{\"channels\":[{\"channel_id\":1},{\"channel_id\":2},{\"channel_id\":3}]}");
+
+        var valid = HueStreamTester.TryBuildSolidColors(
+            document.RootElement,
+            new HashSet<int> { 2 },
+            red: 255,
+            green: 128,
+            blue: 0,
+            brightnessPercent: 50,
+            out var colors);
+
+        Assert.True(valid);
+        Assert.Single(colors);
+        Assert.Equal(new byte[] { 63, 63, 32, 32, 0, 0 }, colors[2]);
+    }
+
+    [Fact]
+    public void TryBuildSolidColors_RejectsUnknownOrInvalidPreviewValues()
+    {
+        using var document = JsonDocument.Parse(
+            "{\"channels\":[{\"channel_id\":1}]}");
+
+        Assert.False(HueStreamTester.TryBuildSolidColors(
+            document.RootElement,
+            new HashSet<int> { 9 },
+            255,
+            255,
+            255,
+            100,
+            out var unknownColors));
+        Assert.Empty(unknownColors);
+
+        Assert.False(HueStreamTester.TryBuildSolidColors(
+            document.RootElement,
+            null,
+            256,
+            0,
+            0,
+            100,
+            out var invalidColors));
+        Assert.Empty(invalidColors);
+    }
+
+    [Fact]
     public async Task TestAsync_WithMalformedAreaDoesNotTouchBridge()
     {
         var handler = new Mock<HttpMessageHandler>();

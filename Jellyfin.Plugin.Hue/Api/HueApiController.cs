@@ -355,6 +355,140 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(result);
         }
 
+        /// <summary>
+        /// Displays a bounded solid-color preview through the configured entertainment
+        /// area. The stream tester captures and restores the selected lights so this
+        /// diagnostic never leaves a manual color behind.
+        /// </summary>
+        [HttpPost("Preview")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<HuePreviewResult>> Preview(
+            [FromBody] HuePreviewRequest? request)
+        {
+            if (request == null ||
+                !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
+                string.IsNullOrWhiteSpace(request.AppKey) ||
+                string.IsNullOrWhiteSpace(request.ClientKey) ||
+                string.IsNullOrWhiteSpace(request.EntertainmentAreaId))
+            {
+                return BadRequest("A valid bridge address, app key, client key, and entertainment area ID are required.");
+            }
+
+            if (request.Red < 0 || request.Red > 255 ||
+                request.Green < 0 || request.Green > 255 ||
+                request.Blue < 0 || request.Blue > 255)
+            {
+                return BadRequest("Preview RGB values must be between 0 and 255.");
+            }
+
+            if (request.BrightnessPercent < 0 || request.BrightnessPercent > 100)
+            {
+                return BadRequest("Preview brightness must be between 0 and 100 percent.");
+            }
+
+            if (request.DurationSeconds < HueStreamTester.MinPreviewDurationSeconds ||
+                request.DurationSeconds > HueStreamTester.MaxPreviewDurationSeconds)
+            {
+                return BadRequest($"Preview duration must be between {HueStreamTester.MinPreviewDurationSeconds} and {HueStreamTester.MaxPreviewDurationSeconds} seconds.");
+            }
+
+            if (_streamTester == null)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
+            }
+
+            if (_syncService?.IsSyncing == true)
+            {
+                return Conflict("Stop active playback before running a solid color preview.");
+            }
+
+            HashSet<int>? requestedChannelIds = null;
+            if (!string.IsNullOrWhiteSpace(request.ChannelIds))
+            {
+                if (!PluginConfiguration.TryParseChannelIds(request.ChannelIds, out var parsedChannelIds) ||
+                    parsedChannelIds.Count == 0)
+                {
+                    return BadRequest("channelIds must be a comma-separated list of IDs from 0 to 65535.");
+                }
+
+                requestedChannelIds = parsedChannelIds;
+            }
+
+            var bridgeIp = request.IpAddress.Trim();
+            var appKey = request.AppKey.Trim();
+            var clientKey = request.ClientKey.Trim();
+            var areaId = request.EntertainmentAreaId.Trim();
+            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(bridgeIp, appKey, areaId);
+            if (areaConfiguration == null)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, "Could not load the selected entertainment area from the Hue bridge.");
+            }
+
+            var availableChannelIds = GetValidChannelIds(areaConfiguration.Value);
+            if (availableChannelIds.Count == 0)
+            {
+                return BadRequest("The selected entertainment area has no controllable channels.");
+            }
+
+            if (requestedChannelIds != null)
+            {
+                var missingChannelIds = requestedChannelIds
+                    .Where(channelId => !availableChannelIds.Contains(channelId))
+                    .OrderBy(channelId => channelId)
+                    .ToArray();
+                if (missingChannelIds.Length > 0)
+                {
+                    return BadRequest(new
+                    {
+                        message = "The channel profile references IDs not present in this entertainment area.",
+                        missingChannelIds = string.Join(", ", missingChannelIds)
+                    });
+                }
+            }
+
+            HueStreamProbeResult streamPreview;
+            try
+            {
+                streamPreview = await _streamTester.PreviewAsync(
+                    bridgeIp,
+                    appKey,
+                    clientKey,
+                    areaId,
+                    areaConfiguration.Value,
+                    requestedChannelIds,
+                    request.Red,
+                    request.Green,
+                    request.Blue,
+                    request.BrightnessPercent,
+                    request.DurationSeconds);
+            }
+            catch
+            {
+                streamPreview = new HueStreamProbeResult
+                {
+                    Succeeded = false,
+                    Message = "The solid color preview failed unexpectedly. Check the server log."
+                };
+            }
+
+            return Ok(new HuePreviewResult
+            {
+                Succeeded = streamPreview.Succeeded,
+                Message = streamPreview.Message,
+                Red = request.Red,
+                Green = request.Green,
+                Blue = request.Blue,
+                BrightnessPercent = request.BrightnessPercent,
+                DurationSeconds = request.DurationSeconds,
+                AvailableChannelCount = availableChannelIds.Count,
+                SelectedChannelCount = requestedChannelIds?.Count ?? availableChannelIds.Count
+            });
+        }
+
         [HttpGet("Status")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<HueSyncStatus> GetStatus()
@@ -886,6 +1020,39 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? ChannelIds { get; set; }
     }
 
+    public class HuePreviewRequest
+    {
+        [JsonPropertyName("ipAddress")]
+        public string IpAddress { get; set; } = string.Empty;
+
+        [JsonPropertyName("appKey")]
+        public string AppKey { get; set; } = string.Empty;
+
+        [JsonPropertyName("clientKey")]
+        public string ClientKey { get; set; } = string.Empty;
+
+        [JsonPropertyName("entertainmentAreaId")]
+        public string EntertainmentAreaId { get; set; } = string.Empty;
+
+        [JsonPropertyName("channelIds")]
+        public string? ChannelIds { get; set; }
+
+        [JsonPropertyName("red")]
+        public int Red { get; set; } = 255;
+
+        [JsonPropertyName("green")]
+        public int Green { get; set; } = 255;
+
+        [JsonPropertyName("blue")]
+        public int Blue { get; set; } = 255;
+
+        [JsonPropertyName("brightnessPercent")]
+        public int BrightnessPercent { get; set; } = 100;
+
+        [JsonPropertyName("durationSeconds")]
+        public int DurationSeconds { get; set; } = 5;
+    }
+
     public class HueConnectionTestResult
     {
         [JsonPropertyName("isReachable")]
@@ -926,6 +1093,36 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
+    }
+
+    public class HuePreviewResult
+    {
+        [JsonPropertyName("succeeded")]
+        public bool Succeeded { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("red")]
+        public int Red { get; set; }
+
+        [JsonPropertyName("green")]
+        public int Green { get; set; }
+
+        [JsonPropertyName("blue")]
+        public int Blue { get; set; }
+
+        [JsonPropertyName("brightnessPercent")]
+        public int BrightnessPercent { get; set; }
+
+        [JsonPropertyName("durationSeconds")]
+        public int DurationSeconds { get; set; }
+
+        [JsonPropertyName("availableChannelCount")]
+        public int AvailableChannelCount { get; set; }
+
+        [JsonPropertyName("selectedChannelCount")]
+        public int SelectedChannelCount { get; set; }
     }
 
     public class HueRegistrationResult

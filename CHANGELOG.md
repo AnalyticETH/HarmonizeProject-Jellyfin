@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.39] - 2026-08-17
+
+### Added
+- Solid-color preview controls with configurable color, brightness, duration, and default or per-user mapping targets
+- Bounded `POST /HueSync/Preview` endpoint with channel-profile validation and active-playback protection
+- Preview lifecycle that saves selected light state, activates the entertainment area, sends a DTLS color packet, and restores state automatically
+- Regression coverage for preview color conversion, channel filtering, invalid values, duration limits, and API wiring
+
 ## [1.5.38] - 2026-08-17
 
 ### Added
