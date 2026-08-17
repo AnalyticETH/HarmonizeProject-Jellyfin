@@ -314,7 +314,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.45 (Current)
+### Version 1.5.46 (Current)
+- **Process-wide diagnostic lock**: The shared Test Connection/preview gate now lives in the singleton tester service, so concurrent API requests cannot bypass serialization by resolving separate tester instances
+
+### Version 1.5.45
 - **Diagnostic lifecycle serialization**: Test Connection probes and solid-color previews now reserve one shared lifecycle; a concurrent request returns a clear busy result without touching the bridge
 - **Bridge-state isolation**: Prevent overlapping capture, activation, DTLS, deactivation, and restoration operations from corrupting one another's snapshots
 

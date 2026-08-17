@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.46] - 2026-08-17
+
+### Fixed
+- Registered `HueStreamTester` as a singleton so the diagnostic lifecycle gate is shared across API requests
+- Prevented separate Test Connection and preview requests from creating independent locks and touching the bridge concurrently
+
 ## [1.5.45] - 2026-08-17
 
 ### Added

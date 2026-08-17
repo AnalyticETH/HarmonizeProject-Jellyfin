@@ -2,12 +2,34 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Security;
 using Jellyfin.Plugin.Hue;
+using Jellyfin.Plugin.Hue.Service;
+using MediaBrowser.Controller;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.Hue.Tests;
 
 public class PluginServiceRegistratorTests
 {
+    [Fact]
+    public void RegisterServices_UsesSingletonDiagnosticTester()
+    {
+        var services = new ServiceCollection();
+        var registrator = new PluginServiceRegistrator();
+
+        registrator.RegisterServices(services, Mock.Of<IServerApplicationHost>());
+
+        var descriptor = Assert.Single(services, service => service.ServiceType == typeof(IHueStreamTester));
+        Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
+
+        using var provider = services.AddLogging().BuildServiceProvider();
+        var first = provider.GetRequiredService<IHueStreamTester>();
+        var second = provider.GetRequiredService<IHueStreamTester>();
+        Assert.Same(first, second);
+    }
+
     [Theory]
     [InlineData("192.168.1.100")]
     [InlineData("10.0.0.15")]

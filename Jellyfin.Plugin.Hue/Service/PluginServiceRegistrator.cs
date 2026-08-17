@@ -23,7 +23,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             {
                 ServerCertificateCustomValidationCallback = HueBridgeCertificateValidation.ValidateServerCertificate
             });
-        serviceCollection.AddTransient<IHueStreamTester, HueStreamTester>();
+        // The tester owns the process-wide diagnostic lifecycle gate. A singleton keeps
+        // concurrent API requests from creating separate gates and touching the bridge at
+        // the same time.
+        serviceCollection.AddSingleton<IHueStreamTester, HueStreamTester>();
         serviceCollection.AddHostedService<HueSyncService>();
     }
 }
