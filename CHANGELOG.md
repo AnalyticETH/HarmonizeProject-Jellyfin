@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.29] - 2026-08-17
+
+### Added
+- Optional per-user cinema-mode enablement and dim-level overrides for multi-room mappings
+- Blank playback profile fields inherit the global cinema-mode settings
+- Regression coverage for per-user playback resolution, cleanup behavior, validation, persistence, and UI/API wiring
+
+### Changed
+- Playback cleanup now restores lights according to the effective cinema-mode setting used by the active user
+
 ## [1.5.28] - 2026-08-17
 
 ### Added

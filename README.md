@@ -101,6 +101,10 @@ Saturation, Hue Shift, and Output Brightness. Leave any profile field blank to i
 global setting; populated overrides apply only to that user's playback, including when the mapping
 uses the default bridge.
 
+Mappings can also override Cinema Mode and its dim level. Choose **Inherit global setting** to keep
+the default behavior, or enable/disable cinema mode for that user and optionally set a separate
+0-100% dim level.
+
 ### Admin API
 
 The configuration page uses authenticated administrator endpoints under `/HueSync`:
@@ -114,7 +118,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings without serializing per-user mappings to the configuration page. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
-| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, and optional color-profile overrides; GET responses redact stored credentials. |
+| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-profile overrides; GET responses redact stored credentials. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 
 ### Generating Hue Credentials (Manual Fallback)
@@ -273,7 +277,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.28 (Current)
+### Version 1.5.29 (Current)
+- **Per-user cinema profiles**: Choose Cinema Mode independently per mapping and optionally set that user's dim level; blank fields inherit the global settings
+
+### Version 1.5.28
 - **Per-user color profiles**: Override Brightness Boost, Color Saturation, Hue Shift, and Output Brightness for an individual mapping; blank fields inherit the global settings
 
 ### Version 1.5.27

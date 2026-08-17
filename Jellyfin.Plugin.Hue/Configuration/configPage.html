@@ -244,6 +244,27 @@
                             </div>
 
                             <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
+                                <legend>Per-user Playback Profile (optional)</legend>
+                                <div class="fieldDescription" style="margin-bottom: 1em;">Leave these fields blank to inherit the global cinema-mode settings. Overrides apply only to this user's playback.</div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingUseCinemaModeOverride">Cinema Mode Override</label>
+                                    <select id="mappingUseCinemaModeOverride" is="emby-select">
+                                        <option value="">Inherit global setting</option>
+                                        <option value="true">Enable cinema mode</option>
+                                        <option value="false">Disable cinema mode</option>
+                                    </select>
+                                    <div class="fieldDescription">Choose whether this user's lights dim before color sync, independent of the global toggle.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingBrightnessDimLevelOverride">Cinema Dim Level Override (%)</label>
+                                    <input id="mappingBrightnessDimLevelOverride" type="number" min="0" max="100" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user cinema dim level (0-100%).</div>
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
                                 <legend>Per-user Color Profile (optional)</legend>
                                 <div class="fieldDescription" style="margin-bottom: 1em;">Leave any field blank to inherit the global color setting. These overrides follow this user to the mapped bridge or the default bridge.</div>
 
@@ -986,7 +1007,7 @@
                         html += '<th style="text-align: left; padding: 8px;">Sync</th>';
                         html += '<th style="text-align: left; padding: 8px;">Bridge Address</th>';
                         html += '<th style="text-align: left; padding: 8px;">Entertainment Area</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Color Profile</th>';
+                        html += '<th style="text-align: left; padding: 8px;">Profile</th>';
                         html += '<th style="text-align: left; padding: 8px;">Credentials</th>';
                         html += '<th style="text-align: right; padding: 8px;">Actions</th>';
                         html += '</tr></thead><tbody>';
@@ -1009,13 +1030,20 @@
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
+                            var hasPlaybackProfile = [
+                                getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride'),
+                                getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride')
+                            ].some(function (value) {
+                                return value !== null && typeof value !== 'undefined' && value !== '';
+                            });
+                            var hasProfile = hasColorProfile || hasPlaybackProfile;
                             var credentialState = !syncEnabled ? 'Not required' : (hasAppKey && hasClientKey ? 'Stored' : 'Incomplete');
                             html += '<tr style="border-bottom: 1px solid #333;">';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.UserName || mapping.userName || userId || 'Unknown') + '</td>';
                             html += '<td style="padding: 8px;">' + (syncEnabled ? 'Enabled' : 'Disabled') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.HueBridgeIp || mapping.hueBridgeIp || '') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.EntertainmentAreaName || mapping.entertainmentAreaName || mapping.EntertainmentAreaId || mapping.entertainmentAreaId || '') + '</td>';
-                            html += '<td style="padding: 8px;">' + (hasColorProfile ? 'Custom' : 'Global') + '</td>';
+                            html += '<td style="padding: 8px;">' + (hasProfile ? 'Custom' : 'Global') + '</td>';
                             html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid)">Edit</button> ';
@@ -1046,6 +1074,8 @@
                         '#mappingAreaSelect',
                         '#mappingRefreshAreasBtn',
                         '#mappingAreaManual',
+                        '#mappingUseCinemaModeOverride',
+                        '#mappingBrightnessDimLevelOverride',
                         '#mappingBrightnessBoostOverride',
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
@@ -1345,6 +1375,11 @@
                         var value = parseInt(element.value, 10);
                         return isNaN(value) ? null : value;
                     };
+                    var readOptionalBoolean = function (selector) {
+                        var element = document.getElementById(selector);
+                        if (!element || element.value === '') return null;
+                        return element.value === 'true';
+                    };
 
                     var userId = userSelect ? userSelect.value : '';
                     var userName = userSelect && userSelect.selectedOptions[0] ? userSelect.selectedOptions[0].dataset.userName || '' : '';
@@ -1394,6 +1429,8 @@
                         HueClientKey: clientKey,
                         EntertainmentAreaId: areaId,
                         EntertainmentAreaName: areaName,
+                        UseCinemaModeOverride: readOptionalBoolean('mappingUseCinemaModeOverride'),
+                        BrightnessDimLevelOverride: readOptionalNumber('mappingBrightnessDimLevelOverride'),
                         BrightnessBoostOverride: readOptionalNumber('mappingBrightnessBoostOverride'),
                         ColorSaturationOverride: readOptionalNumber('mappingColorSaturationOverride'),
                         HueShiftDegreesOverride: readOptionalNumber('mappingHueShiftDegreesOverride'),
@@ -1449,6 +1486,8 @@
                     }
                     if (syncEnabledEl) syncEnabledEl.checked = true;
                     var profileSelectors = [
+                        '#mappingUseCinemaModeOverride',
+                        '#mappingBrightnessDimLevelOverride',
                         '#mappingBrightnessBoostOverride',
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
@@ -1501,6 +1540,8 @@
                         var getMappingValue = function (pascalName, camelName) {
                             return typeof mapping[pascalName] !== 'undefined' ? mapping[pascalName] : mapping[camelName];
                         };
+                        var useCinemaModeOverride = getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride');
+                        var brightnessDimLevelOverride = getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride');
                         var brightnessBoostOverride = getMappingValue('BrightnessBoostOverride', 'brightnessBoostOverride');
                         var colorSaturationOverride = getMappingValue('ColorSaturationOverride', 'colorSaturationOverride');
                         var hueShiftDegreesOverride = getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride');
@@ -1534,6 +1575,8 @@
                         page.querySelector('#mappingClientKey').value = "";
                         page.querySelector('#mappingClientKey').placeholder = hasClientKey ? "Stored securely; leave blank to keep" : "Enter Hue Client Key";
                         page.querySelector('#mappingSyncEnabled').checked = syncEnabled;
+                        page.querySelector('#mappingUseCinemaModeOverride').value = useCinemaModeOverride == null ? "" : String(useCinemaModeOverride).toLowerCase();
+                        page.querySelector('#mappingBrightnessDimLevelOverride').value = brightnessDimLevelOverride == null ? "" : brightnessDimLevelOverride;
                         page.querySelector('#mappingBrightnessBoostOverride').value = brightnessBoostOverride == null ? "" : brightnessBoostOverride;
                         page.querySelector('#mappingColorSaturationOverride').value = colorSaturationOverride == null ? "" : colorSaturationOverride;
                         page.querySelector('#mappingHueShiftDegreesOverride').value = hueShiftDegreesOverride == null ? "" : hueShiftDegreesOverride;

@@ -73,6 +73,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _currentFrameResolution;
         private string? _currentVideoScalingMode;
         private string? _currentVideoDeinterlaceMode;
+        private bool? _activeUseCinemaMode;
         private string? _manuallyStoppedPlaySessionId;
         private string _runtimeState = "Idle";
         private string _runtimeMessage = "Waiting for playback.";
@@ -215,6 +216,11 @@ namespace Jellyfin.Plugin.Hue.Service
                             bridgeConfig,
                             savedLightStates,
                             publishIdleStatus: false).ConfigureAwait(false);
+                    }
+
+                    lock (_syncLock)
+                    {
+                        _activeUseCinemaMode = null;
                     }
 
                     _savedLightStates = null;
@@ -780,16 +786,22 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
-        /// Applies cinema mode by dimming lights to configured level
+        /// Applies cinema mode by dimming lights to the effective user level
         /// </summary>
-        private async Task ApplyCinemaMode(PluginConfiguration config, string bridgeIp, string appKey, string clientKey, string areaId, System.Text.Json.JsonElement areaConfig)
+        private async Task ApplyCinemaMode(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            System.Text.Json.JsonElement areaConfig,
+            int brightnessDimLevel)
         {
             try
             {
                 if (!areaConfig.TryGetProperty("channels", out var channels))
                     return;
 
-                var dimLevel = Math.Clamp(config.BrightnessDimLevel, 0, 100);
+                var dimLevel = Math.Clamp(brightnessDimLevel, 0, 100);
                 var dimBrightness = (byte)(dimLevel * 255 / 100 / 2); // Divide by 2 for 16-bit compatibility
 
                 var channelColors = new Dictionary<int, byte[]>();
@@ -834,6 +846,17 @@ namespace Jellyfin.Plugin.Hue.Service
             {
                 _logger.LogWarning(ex, "Failed to restore lights");
             }
+        }
+
+        internal static (bool UseCinemaMode, int BrightnessDimLevel) ResolvePlaybackSettings(
+            PluginConfiguration config,
+            Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            var overrides = config.GetPlaybackOverridesForUser(userId);
+            return (
+                overrides.UseCinemaMode ?? config.UseCinemaMode,
+                Math.Clamp(overrides.BrightnessDimLevel ?? config.BrightnessDimLevel, 0, 100));
         }
 
         internal static int CalculateSamplingDistance(int samplingBreadthPercent)
@@ -1499,6 +1522,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
+            var (useCinemaMode, brightnessDimLevel) = ResolvePlaybackSettings(config, userId);
+
             var videoPath = e.Item?.Path;
             if (string.IsNullOrWhiteSpace(videoPath))
             {
@@ -1551,6 +1576,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentFrameResolution = frameResolution;
                     _currentVideoScalingMode = videoScalingMode;
                     _currentVideoDeinterlaceMode = videoDeinterlaceMode;
+                    _activeUseCinemaMode = useCinemaMode;
                     syncStatePublished = true;
                 }
             }
@@ -1591,10 +1617,10 @@ namespace Jellyfin.Plugin.Hue.Service
                     _savedLightStatePlaySessionId = e.PlaySessionId;
                 }
 
-                if (config.UseCinemaMode)
+                if (useCinemaMode)
                 {
-                    _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", config.BrightnessDimLevel);
-                    await ApplyCinemaMode(config, bridgeIp, appKey, clientKey, areaId, areaConfig.Value);
+                    _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", brightnessDimLevel);
+                    await ApplyCinemaMode(bridgeIp, appKey, clientKey, areaId, areaConfig.Value, brightnessDimLevel);
                     if (token.IsCancellationRequested)
                         return;
                 }
@@ -1749,6 +1775,12 @@ namespace Jellyfin.Plugin.Hue.Service
             bool publishIdleStatus = true,
             bool clearCurrentItem = true)
         {
+            bool effectiveUseCinemaMode;
+            lock (_syncLock)
+            {
+                effectiveUseCinemaMode = _activeUseCinemaMode ?? config?.UseCinemaMode ?? false;
+            }
+
             try
             {
                 if (config != null && config.SyncEnabled && config.RestoreLightState && savedLightStates != null && bridgeConfig != null)
@@ -1761,7 +1793,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         _savedLightStatePlaySessionId = null;
                     }
                 }
-                else if (config != null && config.UseCinemaMode && config.SyncEnabled && bridgeConfig != null)
+                else if (config != null && effectiveUseCinemaMode && config.SyncEnabled && bridgeConfig != null)
                 {
                     _logger.LogInformation("Restoring lights after playback");
                     await RestoreLightsAfterPlayback(
@@ -1789,6 +1821,10 @@ namespace Jellyfin.Plugin.Hue.Service
                             _runtimeMessage = "Playback stopped.";
                         }
                     }
+                }
+                lock (_syncLock)
+                {
+                    _activeUseCinemaMode = null;
                 }
                 if (bridgeConfig != null)
                 {

@@ -1096,6 +1096,32 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetPlaybackOverridesForUser_UsesMatchingMappingAndLeavesBlankValuesForGlobalSettings()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    UseCinemaModeOverride = false,
+                    BrightnessDimLevelOverride = 10
+                }
+            }
+        };
+
+        var overrides = config.GetPlaybackOverridesForUser(userId);
+        var unmappedOverrides = config.GetPlaybackOverridesForUser(System.Guid.NewGuid());
+
+        Assert.Equal((bool?)false, overrides.UseCinemaMode);
+        Assert.Equal((int?)10, overrides.BrightnessDimLevel);
+        Assert.Null(unmappedOverrides.UseCinemaMode);
+        Assert.Null(unmappedOverrides.BrightnessDimLevel);
+    }
+
+    [Fact]
     public void Validate_WhenUserColorProfileOverridesAreOutOfRange_ReturnsProfileErrors()
     {
         var config = new PluginConfiguration
@@ -1124,5 +1150,30 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 color saturation override must be between 0 and 200", errors);
         Assert.Contains("User mapping 1 hue shift override must be between -180 and 180 degrees", errors);
         Assert.Contains("User mapping 1 output brightness override must be between 0 and 100 percent", errors);
+    }
+
+    [Fact]
+    public void Validate_WhenUserPlaybackOverridesAreOutOfRange_ReturnsProfileErrors()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-key",
+            HueClientKey = "default-client-key",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    BrightnessDimLevelOverride = 101
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("User mapping 1 brightness dim level override must be between 0 and 100", errors);
     }
 }

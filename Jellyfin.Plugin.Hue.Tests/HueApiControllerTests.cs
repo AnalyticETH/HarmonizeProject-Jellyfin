@@ -282,6 +282,8 @@ public sealed class HueApiControllerTests : IDisposable
                     HueClientKey = "mapping-client-secret",
                     EntertainmentAreaId = "area-1",
                     EntertainmentAreaName = "Living Room",
+                    UseCinemaModeOverride = false,
+                    BrightnessDimLevelOverride = 10,
                     BrightnessBoostOverride = 150,
                     ColorSaturationOverride = 0,
                     HueShiftDegreesOverride = -45,
@@ -297,6 +299,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("user-1", mapping.UserId);
         Assert.True(mapping.HasAppKey);
         Assert.True(mapping.HasClientKey);
+        Assert.Equal((bool?)false, mapping.UseCinemaModeOverride);
+        Assert.Equal((int?)10, mapping.BrightnessDimLevelOverride);
         Assert.Equal((int?)150, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)0, mapping.ColorSaturationOverride);
         Assert.Equal((int?)-45, mapping.HueShiftDegreesOverride);
@@ -435,6 +439,8 @@ public sealed class HueApiControllerTests : IDisposable
             HueBridgeIp = "192.168.1.101",
             EntertainmentAreaId = "new-area",
             EntertainmentAreaName = "New Room",
+            UseCinemaModeOverride = true,
+            BrightnessDimLevelOverride = 20,
             BrightnessBoostOverride = 125,
             ColorSaturationOverride = 80,
             HueShiftDegreesOverride = 30,
@@ -447,6 +453,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("old-client-secret", mapping.HueClientKey);
         Assert.Equal("192.168.1.101", mapping.HueBridgeIp);
         Assert.Equal("new-area", mapping.EntertainmentAreaId);
+        Assert.Equal((bool?)true, mapping.UseCinemaModeOverride);
+        Assert.Equal((int?)20, mapping.BrightnessDimLevelOverride);
         Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)80, mapping.ColorSaturationOverride);
         Assert.Equal((int?)30, mapping.HueShiftDegreesOverride);
@@ -471,7 +479,7 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
-    public void SaveUserMapping_InvalidColorProfileReturnsBadRequestWithoutSaving()
+    public void SaveUserMapping_InvalidProfileOverrideReturnsBadRequestWithoutSaving()
     {
         var configuration = InstallConfiguration(new PluginConfiguration());
 
@@ -479,7 +487,7 @@ public sealed class HueApiControllerTests : IDisposable
         {
             UserId = "new-user",
             SyncEnabled = false,
-            HueShiftDegreesOverride = 181
+            BrightnessDimLevelOverride = 101
         });
 
         var response = Assert.IsType<BadRequestObjectResult>(action);

@@ -346,7 +346,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Gets all user-to-bridge mappings without returning stored credentials. Optional
-        /// per-user color profile values are included because they are not secret.
+        /// per-user playback and color profile values are included because they are not secret.
         /// </summary>
         [HttpGet("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -361,7 +361,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
-        /// synchronization without storing bridge credentials and can override color processing.
+        /// synchronization without storing bridge credentials and can override playback or color processing.
         /// </summary>
         [HttpPost("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -378,17 +378,21 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("User ID is required.");
             }
 
-            var colorOverrideErrors = PluginConfiguration.ValidateColorOverrides(
-                mapping,
-                string.IsNullOrWhiteSpace(mapping.UserName)
-                    ? "User mapping"
-                    : $"User mapping for '{mapping.UserName.Trim()}'");
-            if (colorOverrideErrors.Count > 0)
+            var overrideLabel = string.IsNullOrWhiteSpace(mapping.UserName)
+                ? "User mapping"
+                : $"User mapping for '{mapping.UserName.Trim()}'";
+            var playbackOverrideErrors = PluginConfiguration.ValidatePlaybackOverrides(mapping, overrideLabel);
+            var colorOverrideErrors = PluginConfiguration.ValidateColorOverrides(mapping, overrideLabel);
+            var overrideErrors = new List<string>(playbackOverrideErrors);
+            overrideErrors.AddRange(colorOverrideErrors);
+            if (overrideErrors.Count > 0)
             {
                 return BadRequest(new
                 {
-                    message = "User color profile is invalid.",
-                    errors = colorOverrideErrors
+                    message = playbackOverrideErrors.Count > 0
+                        ? "User profile overrides are invalid."
+                        : "User color profile is invalid.",
+                    errors = overrideErrors
                 });
             }
 
@@ -584,7 +588,7 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Non-secret representation of a per-user bridge mapping and color profile.
+    /// Non-secret representation of a per-user bridge mapping, playback profile, and color profile.
     /// </summary>
     public sealed class UserBridgeMappingSummary
     {
@@ -596,6 +600,8 @@ namespace Jellyfin.Plugin.Hue.Api
         public string EntertainmentAreaName { get; set; } = string.Empty;
         public bool HasAppKey { get; set; }
         public bool HasClientKey { get; set; }
+        public bool? UseCinemaModeOverride { get; set; }
+        public int? BrightnessDimLevelOverride { get; set; }
         public int? BrightnessBoostOverride { get; set; }
         public int? ColorSaturationOverride { get; set; }
         public int? HueShiftDegreesOverride { get; set; }
@@ -613,6 +619,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 EntertainmentAreaName = mapping.EntertainmentAreaName,
                 HasAppKey = !string.IsNullOrWhiteSpace(mapping.HueAppKey),
                 HasClientKey = !string.IsNullOrWhiteSpace(mapping.HueClientKey),
+                UseCinemaModeOverride = mapping.UseCinemaModeOverride,
+                BrightnessDimLevelOverride = mapping.BrightnessDimLevelOverride,
                 BrightnessBoostOverride = mapping.BrightnessBoostOverride,
                 ColorSaturationOverride = mapping.ColorSaturationOverride,
                 HueShiftDegreesOverride = mapping.HueShiftDegreesOverride,

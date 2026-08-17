@@ -28,6 +28,34 @@ public sealed class HueSyncServiceTests
                 playSessionId));
     }
 
+    [Fact]
+    public void ResolvePlaybackSettings_UsesPerUserOverridesAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            UseCinemaMode = true,
+            BrightnessDimLevel = 40,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString(),
+                    UseCinemaModeOverride = false,
+                    BrightnessDimLevelOverride = 10
+                }
+            }
+        };
+
+        var effective = HueSyncService.ResolvePlaybackSettings(configuration, userId);
+        var fallback = HueSyncService.ResolvePlaybackSettings(configuration, System.Guid.NewGuid());
+
+        Assert.False(effective.UseCinemaMode);
+        Assert.Equal(10, effective.BrightnessDimLevel);
+        Assert.True(fallback.UseCinemaMode);
+        Assert.Equal(40, fallback.BrightnessDimLevel);
+    }
+
     [Theory]
     [InlineData(0, 18)]
     [InlineData(1, 1)]

@@ -5,7 +5,7 @@ using MediaBrowser.Model.Plugins;
 namespace Jellyfin.Plugin.Hue.Configuration
 {
     /// <summary>
-    /// Per-user bridge, entertainment area, and optional color profile mapping
+    /// Per-user bridge, entertainment area, and optional playback/color profile mapping
     /// </summary>
     public class UserBridgeMapping
     {
@@ -19,6 +19,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string HueClientKey { get; set; } = string.Empty;
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string EntertainmentAreaName { get; set; } = string.Empty; // For display purposes
+
+        // Optional per-user cinema-mode overrides. Null values inherit the global setting.
+        public bool? UseCinemaModeOverride { get; set; }
+        public int? BrightnessDimLevelOverride { get; set; }
 
         // Optional per-user color profile overrides. Null values inherit the global setting.
         public int? BrightnessBoostOverride { get; set; }
@@ -132,6 +136,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Gets optional per-user cinema-mode overrides. Null values mean the global plugin
+        /// setting should be used for that component.
+        /// </summary>
+        public (bool? UseCinemaMode, int? BrightnessDimLevel) GetPlaybackOverridesForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return mapping == null
+                ? (null, null)
+                : (mapping.UseCinemaModeOverride, mapping.BrightnessDimLevelOverride);
+        }
+
+        /// <summary>
         /// Gets optional per-user color-processing overrides. Null values mean the global
         /// plugin setting should be used for that component.
         /// </summary>
@@ -182,6 +199,23 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.OutputBrightnessPercentOverride.Value > MaxOutputBrightnessPercent))
             {
                 errors.Add($"{label} output brightness override must be between 0 and 100 percent");
+            }
+
+            return errors;
+        }
+
+        /// <summary>
+        /// Validates optional per-user cinema-mode overrides.
+        /// </summary>
+        public static List<string> ValidatePlaybackOverrides(UserBridgeMapping mapping, string label = "User mapping")
+        {
+            var errors = new List<string>();
+
+            if (mapping.BrightnessDimLevelOverride.HasValue &&
+                (mapping.BrightnessDimLevelOverride.Value < MinBrightnessDimLevel ||
+                 mapping.BrightnessDimLevelOverride.Value > MaxBrightnessDimLevel))
+            {
+                errors.Add($"{label} brightness dim level override must be between 0 and 100");
             }
 
             return errors;
@@ -324,6 +358,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     ? $"User mapping {index + 1}"
                     : $"User mapping for '{mapping.UserName.Trim()}'";
 
+                errors.AddRange(ValidatePlaybackOverrides(mapping, label));
                 errors.AddRange(ValidateColorOverrides(mapping, label));
 
                 if (string.IsNullOrWhiteSpace(mapping.UserId))
