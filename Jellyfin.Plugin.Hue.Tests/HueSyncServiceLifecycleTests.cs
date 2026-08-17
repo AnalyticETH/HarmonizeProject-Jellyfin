@@ -16,6 +16,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.Hue.Tests;
 
+[Collection("PluginState")]
 public sealed class HueSyncServiceLifecycleTests
 {
     [Fact]

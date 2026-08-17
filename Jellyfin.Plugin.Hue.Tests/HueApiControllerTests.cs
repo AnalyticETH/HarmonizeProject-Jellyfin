@@ -17,6 +17,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.Hue.Tests;
 
+[Collection("PluginState")]
 public sealed class HueApiControllerTests : IDisposable
 {
     private readonly Mock<ILogger<HueClient>> _loggerMock = new();
