@@ -111,6 +111,22 @@
                     </fieldset>
 
                     <fieldset class="verticalSection">
+                        <legend>Global Channel Profile</legend>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Choose the entertainment channels driven by the default profile. Leave this field blank to drive every channel. Per-user mappings with a populated channel override take precedence; blank per-user fields inherit this global selection.</div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="channelIds">Entertainment Channel IDs</label>
+                            <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
+                                <input id="channelIds" name="channelIds" type="text" is="emby-input" placeholder="Leave blank for all channels" style="flex: 1 1 240px;" />
+                                <button is="emby-button" type="button" class="raised" id="loadChannelsBtn">
+                                    <span>Load Channel IDs</span>
+                                </button>
+                            </div>
+                            <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535). Load Channel IDs after entering bridge credentials and selecting an area, then edit the list to choose a subset. Test Connection validates this global selection.</div>
+                            <div id="channelIdsStatus" class="fieldDescription" style="margin-top: 0.5em;"></div>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="verticalSection">
                         <legend>Sync performance</legend>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="targetFps">Target FPS</label>
@@ -452,12 +468,12 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="mappingChannelIdsOverride">Entertainment Channel IDs Override</label>
                                     <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
-                                        <input id="mappingChannelIdsOverride" type="text" is="emby-input" placeholder="Leave blank for all channels" style="flex: 1 1 240px;" />
+                                        <input id="mappingChannelIdsOverride" type="text" is="emby-input" placeholder="Leave blank to inherit global" style="flex: 1 1 240px;" />
                                         <button is="emby-button" type="button" class="raised" id="mappingLoadChannelsBtn">
                                             <span>Load Channel IDs</span>
                                         </button>
                                     </div>
-                                    <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535). Only these channels are captured, dimmed, streamed, and restored for this user. Load Channel IDs after entering bridge credentials and selecting an area, then edit the list to choose a subset. Test Connection validates this selection and probes only the chosen channels.</div>
+                                    <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535). Only these channels are captured, dimmed, streamed, and restored for this user. Load Channel IDs after entering bridge credentials and selecting an area, then edit the list to choose a subset. Leave blank to inherit the global channel profile. Test Connection validates this selection and probes only the chosen channels.</div>
                                     <div id="mappingChannelIdsStatus" class="fieldDescription" style="margin-top: 0.5em;"></div>
                                 </div>
                             </fieldset>
@@ -635,6 +651,7 @@
                         page.querySelector('#hueAppKey').value = getConfigValue('HueAppKey', '');
                         page.querySelector('#hueClientKey').value = getConfigValue('HueClientKey', '');
                         HueConfigurationPage.selectedAreaId = getConfigValue('EntertainmentAreaId', '');
+                        page.querySelector('#channelIds').value = getConfigValue('ChannelIds', '');
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#frameResolution').value = getConfigValue('FrameResolution', '160x90');
                         page.querySelector('#videoScalingMode').value = getConfigValue('VideoScalingMode', 'Stretch');
@@ -680,6 +697,7 @@
                         HueAppKey: page.querySelector('#hueAppKey').value,
                         HueClientKey: page.querySelector('#hueClientKey').value,
                         EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
+                        ChannelIds: page.querySelector('#channelIds').value,
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         FrameResolution: page.querySelector('#frameResolution').value,
                         VideoScalingMode: page.querySelector('#videoScalingMode').value,
@@ -1163,6 +1181,7 @@
                     var appKey = page.querySelector('#hueAppKey').value.trim();
                     var clientKey = page.querySelector('#hueClientKey').value.trim();
                     var areaId = HueConfigurationPage.getSelectedAreaId(page);
+                    var channelIds = page.querySelector('#channelIds').value.trim();
 
                     if (!bridgeIp || !appKey) {
                         Dashboard.alert("Enter a bridge address and app key first.");
@@ -1172,7 +1191,7 @@
                     button.disabled = true;
                     HueConfigurationPage.refreshStatus(page, "Testing bridge connection...", "info");
                     Dashboard.showLoadingMsg();
-                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey)
+                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey, channelIds)
                         .then(function (response) {
                             var result = HueConfigurationPage.connectionTestMessage(response, areaId);
                             HueConfigurationPage.refreshStatus(page, result.text, result.tone);
@@ -1447,6 +1466,10 @@
                     var clientKey = clientKeyEl ? clientKeyEl.value.trim() : '';
                     var channelIdsEl = document.getElementById('mappingChannelIdsOverride');
                     var channelIds = channelIdsEl ? channelIdsEl.value.trim() : '';
+                    if (!channelIds) {
+                        var globalChannelIdsEl = document.getElementById('channelIds');
+                        channelIds = globalChannelIdsEl ? globalChannelIdsEl.value.trim() : '';
+                    }
                     var areaId = areaSelect ? areaSelect.value : '';
 
                     if (areaId === "manual") {
@@ -1661,25 +1684,10 @@
                     selectEl.disabled = false;
                 },
 
-                loadMappingChannels: function () {
-                    var bridgeIpEl = document.getElementById('mappingBridgeIp');
-                    var appKeyEl = document.getElementById('mappingAppKey');
-                    var areaSelect = document.getElementById('mappingAreaSelect');
-                    var button = document.getElementById('mappingLoadChannelsBtn');
-                    var channelInput = document.getElementById('mappingChannelIdsOverride');
-                    var statusEl = document.getElementById('mappingChannelIdsStatus');
-                    var bridgeIp = bridgeIpEl ? bridgeIpEl.value.trim() : '';
-                    var appKey = appKeyEl ? appKeyEl.value.trim() : '';
-                    var areaId = areaSelect ? areaSelect.value : '';
-
-                    if (areaId === "manual") {
-                        var manualAreaEl = document.getElementById('mappingAreaManual');
-                        areaId = manualAreaEl ? manualAreaEl.value.trim() : '';
-                    }
-
+                loadChannelIds: function (bridgeIp, appKey, areaId, button, channelInput, statusEl) {
                     if (!bridgeIp || !appKey || !areaId) {
                         Dashboard.alert("Enter a bridge address, app key, and entertainment area first.");
-                        return;
+                        return Promise.resolve();
                     }
 
                     if (button) button.disabled = true;
@@ -1688,7 +1696,7 @@
                         statusEl.style.color = "";
                     }
 
-                    ApiClient.ajax({
+                    return ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/EntertainmentChannels"),
                         data: JSON.stringify({
@@ -1725,7 +1733,7 @@
                         channelIds.sort(function (left, right) { return left - right; });
                         if (channelInput) channelInput.value = channelIds.join(', ');
                         if (statusEl) {
-                            statusEl.textContent = "Loaded " + channelIds.length + " channel IDs. Edit the list to choose a subset, or clear it to use all channels.";
+                            statusEl.textContent = "Loaded " + channelIds.length + " channel IDs. Edit the list to choose a subset, or clear it to inherit the global profile (blank global means all channels).";
                             statusEl.style.color = "#8bc34a";
                         }
                     }).catch(function (err) {
@@ -1737,6 +1745,39 @@
                     }).finally(function () {
                         if (button) button.disabled = false;
                     });
+                },
+
+                loadDefaultChannels: function (page) {
+                    var bridgeIp = page.querySelector('#hueBridgeIp').value.trim();
+                    var appKey = page.querySelector('#hueAppKey').value.trim();
+                    var areaId = HueConfigurationPage.getSelectedAreaId(page);
+                    return HueConfigurationPage.loadChannelIds(
+                        bridgeIp,
+                        appKey,
+                        areaId,
+                        page.querySelector('#loadChannelsBtn'),
+                        page.querySelector('#channelIds'),
+                        page.querySelector('#channelIdsStatus'));
+                },
+
+                loadMappingChannels: function () {
+                    var bridgeIpEl = document.getElementById('mappingBridgeIp');
+                    var appKeyEl = document.getElementById('mappingAppKey');
+                    var areaSelect = document.getElementById('mappingAreaSelect');
+                    var areaId = areaSelect ? areaSelect.value : '';
+
+                    if (areaId === "manual") {
+                        var manualAreaEl = document.getElementById('mappingAreaManual');
+                        areaId = manualAreaEl ? manualAreaEl.value.trim() : '';
+                    }
+
+                    return HueConfigurationPage.loadChannelIds(
+                        bridgeIpEl ? bridgeIpEl.value.trim() : '',
+                        appKeyEl ? appKeyEl.value.trim() : '',
+                        areaId,
+                        document.getElementById('mappingLoadChannelsBtn'),
+                        document.getElementById('mappingChannelIdsOverride'),
+                        document.getElementById('mappingChannelIdsStatus'));
                 },
 
                 addUserMapping: function () {
@@ -2117,6 +2158,10 @@
 
             document.querySelector('#testConnectionBtn').addEventListener('click', function () {
                 HueConfigurationPage.testDefaultConnection(this.closest('.page'));
+            });
+
+            document.querySelector('#loadChannelsBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadDefaultChannels(this.closest('.page'));
             });
 
             document.querySelector('#refreshRuntimeStatusBtn').addEventListener('click', function () {

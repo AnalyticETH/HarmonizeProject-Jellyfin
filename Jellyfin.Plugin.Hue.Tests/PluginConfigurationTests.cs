@@ -1218,6 +1218,55 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetChannelIdsForUser_InheritsGlobalSelectionUnlessUserOverridesIt()
+    {
+        var userId = System.Guid.NewGuid();
+        var inheritedUserId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            ChannelIds = "7, 3, 7",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString(),
+                    ChannelIdsOverride = "12, 4"
+                },
+                new()
+                {
+                    UserId = inheritedUserId.ToString()
+                }
+            }
+        };
+
+        var explicitSelection = configuration.GetChannelIdsForUser(userId);
+        var inheritedSelection = configuration.GetChannelIdsForUser(inheritedUserId);
+        var unmappedSelection = configuration.GetChannelIdsForUser(System.Guid.NewGuid());
+
+        Assert.Equal(new[] { 4, 12 }, explicitSelection!.OrderBy(channelId => channelId));
+        Assert.Equal(new[] { 3, 7 }, inheritedSelection!.OrderBy(channelId => channelId));
+        Assert.Equal(new[] { 3, 7 }, unmappedSelection!.OrderBy(channelId => channelId));
+    }
+
+    [Fact]
+    public void Validate_WhenGlobalChannelSelectionIsMalformed_ReturnsChannelProfileError()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-key",
+            HueClientKey = "default-client-key",
+            EntertainmentAreaId = "default-area",
+            ChannelIds = "1, nope, 70000"
+        };
+
+        var errors = configuration.Validate();
+
+        Assert.Contains("Global channel IDs must be a comma-separated list of IDs from 0 to 65535", errors);
+    }
+
+    [Fact]
     public void Validate_WhenUserChannelSelectionIsMalformed_ReturnsChannelProfileError()
     {
         var config = new PluginConfiguration

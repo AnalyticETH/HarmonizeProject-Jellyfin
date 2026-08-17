@@ -230,6 +230,7 @@ public sealed class HueSyncServiceTests
         var userId = System.Guid.NewGuid();
         var configuration = new PluginConfiguration
         {
+            ChannelIds = "5, 1, 5",
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -247,7 +248,8 @@ public sealed class HueSyncServiceTests
         Assert.Equal(2, selected!.Count);
         Assert.Contains(2, selected);
         Assert.Contains(9, selected);
-        Assert.Null(fallback);
+        Assert.NotNull(fallback);
+        Assert.Equal(new[] { 1, 5 }, fallback!.OrderBy(channelId => channelId));
     }
 
     [Theory]

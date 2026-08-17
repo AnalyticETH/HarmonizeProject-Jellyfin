@@ -533,6 +533,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "default-app-key",
             HueClientKey = "default-client-key",
+            ChannelIds = "2, 9",
             FrameResolution = PluginConfiguration.FrameResolutionHigh,
             VideoScalingMode = PluginConfiguration.VideoScalingModeFit,
             VideoDeinterlaceMode = PluginConfiguration.VideoDeinterlaceModeAuto,
@@ -562,6 +563,7 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var settings = Assert.IsType<HuePluginConfigurationSettings>(response.Value);
         Assert.Equal("default-app-key", settings.HueAppKey);
+        Assert.Equal("2, 9", settings.ChannelIds);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, settings.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, settings.VideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, settings.VideoDeinterlaceMode);
@@ -599,6 +601,7 @@ public sealed class HueApiControllerTests : IDisposable
         var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
         {
             SyncEnabled = false,
+            ChannelIds = "4, 8",
             TargetFps = 30,
             FrameResolution = PluginConfiguration.FrameResolutionLow,
             VideoScalingMode = PluginConfiguration.VideoScalingModeCrop,
@@ -616,6 +619,7 @@ public sealed class HueApiControllerTests : IDisposable
         });
 
         Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Equal("4, 8", configuration.ChannelIds);
         Assert.Equal(30, configuration.TargetFps);
         Assert.Equal(PluginConfiguration.FrameResolutionLow, configuration.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeCrop, configuration.VideoScalingMode);
@@ -633,6 +637,34 @@ public sealed class HueApiControllerTests : IDisposable
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
+    }
+
+    [Fact]
+    public void SaveConfiguration_InvalidGlobalChannelProfileReturnsBadRequestWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-key",
+            HueClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "2, 9"
+        });
+
+        var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-key",
+            HueClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "1, nope"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Equal("2, 9", configuration.ChannelIds);
     }
 
     [Fact]

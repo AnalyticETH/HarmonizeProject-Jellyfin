@@ -107,6 +107,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string HueAppKey { get; set; } = string.Empty;
         public string HueClientKey { get; set; } = string.Empty; // For DTLS
         public string EntertainmentAreaId { get; set; } = string.Empty;
+        /// <summary>
+        /// Optional global entertainment channel selection. Blank means every channel in the area.
+        /// Per-user channel profiles override this selection when populated.
+        /// </summary>
+        public string ChannelIds { get; set; } = string.Empty;
 
         // Per-user bridge mappings
         public List<UserBridgeMapping> UserMappings { get; set; } = new List<UserBridgeMapping>();
@@ -285,8 +290,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
-        /// Gets optional per-user entertainment channel IDs. A null result means all channels
-        /// from the selected area should be used.
+        /// Gets optional per-user entertainment channel IDs. A null result means the mapping
+        /// inherits the global channel selection.
         /// </summary>
         public IReadOnlySet<int>? GetChannelIdsOverrideForUser(Guid userId)
         {
@@ -297,6 +302,25 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             return channelIds;
         }
+
+        /// <summary>
+        /// Gets the optional global entertainment channel selection. A null result means every
+        /// channel in the selected area should be used.
+        /// </summary>
+        public IReadOnlySet<int>? GetGlobalChannelIds()
+        {
+            if (!TryParseChannelIds(ChannelIds, out var channelIds) || channelIds.Count == 0)
+                return null;
+
+            return channelIds;
+        }
+
+        /// <summary>
+        /// Gets the effective entertainment channel selection for a user. A populated per-user
+        /// profile wins; otherwise the global profile is inherited.
+        /// </summary>
+        public IReadOnlySet<int>? GetChannelIdsForUser(Guid userId)
+            => GetChannelIdsOverrideForUser(userId) ?? GetGlobalChannelIds();
 
         private static string? NormalizeOptionalOverride(string? value)
             => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -529,6 +553,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
             return errors;
         }
 
+        /// <summary>
+        /// Validates the optional global entertainment channel selection.
+        /// </summary>
+        public static List<string> ValidateGlobalChannelIds(string? channelIds, string label = "Global")
+        {
+            var errors = new List<string>();
+            if (!TryParseChannelIds(channelIds, out _))
+                errors.Add($"{label} channel IDs must be a comma-separated list of IDs from 0 to 65535");
+
+            return errors;
+        }
+
         public PluginConfiguration()
         {
             // Defaults
@@ -651,6 +687,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     FfmpegStallTimeoutSeconds > MaxFfmpegStallTimeoutSeconds)
                     errors.Add("FFmpeg stall timeout must be between 1 and 60 seconds");
 
+                errors.AddRange(ValidateGlobalChannelIds(ChannelIds));
                 ValidateUserMappings(errors);
             }
 

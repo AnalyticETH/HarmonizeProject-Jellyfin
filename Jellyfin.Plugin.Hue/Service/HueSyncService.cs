@@ -1093,7 +1093,7 @@ namespace Jellyfin.Plugin.Hue.Service
         internal static IReadOnlySet<int>? ResolveChannelIds(PluginConfiguration config, Guid userId)
         {
             ArgumentNullException.ThrowIfNull(config);
-            var channelIds = config.GetChannelIdsOverrideForUser(userId);
+            var channelIds = config.GetChannelIdsForUser(userId);
             return channelIds == null ? null : new HashSet<int>(channelIds);
         }
 

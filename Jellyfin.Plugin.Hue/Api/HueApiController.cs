@@ -654,6 +654,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string HueAppKey { get; set; } = string.Empty;
         public string HueClientKey { get; set; } = string.Empty;
         public string EntertainmentAreaId { get; set; } = string.Empty;
+        public string ChannelIds { get; set; } = string.Empty;
         public bool UseCinemaMode { get; set; } = true;
         public int BrightnessDimLevel { get; set; } = 30;
         public string PauseBehavior { get; set; } = PluginConfiguration.PauseBehaviorKeepLastColors;
@@ -688,6 +689,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 HueAppKey = config.HueAppKey,
                 HueClientKey = config.HueClientKey,
                 EntertainmentAreaId = config.EntertainmentAreaId,
+                ChannelIds = config.ChannelIds,
                 UseCinemaMode = config.UseCinemaMode,
                 BrightnessDimLevel = config.BrightnessDimLevel,
                 PauseBehavior = config.PauseBehavior,
@@ -722,6 +724,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.HueAppKey = HueAppKey?.Trim() ?? string.Empty;
             config.HueClientKey = HueClientKey?.Trim() ?? string.Empty;
             config.EntertainmentAreaId = EntertainmentAreaId?.Trim() ?? string.Empty;
+            config.ChannelIds = ChannelIds?.Trim() ?? string.Empty;
             config.UseCinemaMode = UseCinemaMode;
             config.BrightnessDimLevel = BrightnessDimLevel;
             config.PauseBehavior = PauseBehavior?.Trim() ?? PluginConfiguration.PauseBehaviorKeepLastColors;

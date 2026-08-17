@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.38] - 2026-08-17
+
+### Added
+- Optional global entertainment channel profiles with all-channel inheritance when blank
+- Configuration-page channel discovery for the default profile
+- Regression coverage for global channel parsing, validation, persistence, and per-user inheritance
+
+### Changed
+- Per-user mappings with blank channel overrides now inherit the global channel selection; explicit per-user lists remain authoritative
+- Default Test Connection now validates the configured global channel profile
+
 ## [1.5.37] - 2026-08-17
 
 ### Added
