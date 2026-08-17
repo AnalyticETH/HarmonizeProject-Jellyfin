@@ -59,6 +59,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Temporal Color Smoothing** | Blend the previous frame into new colors to reduce flicker (0-90%, default: 0%). Higher values create smoother but slower transitions. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
+| **Network Retry Attempts** | Number of retry attempts for Hue REST requests and DTLS stream recovery (0-10, default: 3). |
 | **Enable Real-time Sync** | Master toggle for the sync feature. |
 
 ### Per-User Bridge Mappings
@@ -260,7 +261,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.18 (Current)
+### Version 1.5.19 (Current)
+- **Unified network recovery**: The existing Network Retry Attempts setting now controls both Hue REST retries and DTLS reconnect attempts, including an explicit zero-retry mode
+
+### Version 1.5.18
 - **Temporal color smoothing**: Optionally blend up to 90% of the previous frame into new colors to reduce flicker while preserving immediate blackout transitions
 
 ### Version 1.5.17

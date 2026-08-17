@@ -36,7 +36,10 @@ namespace Jellyfin.Plugin.Hue.Hue
         private PluginConfiguration? _lastConfig;
         private (string bridgeIp, string appKey, string clientKey)? _lastBridgeConfig;
         private int _reconnectAttempts = 0;
-        private const int MaxReconnectAttempts = 3;
+        private const int DefaultMaxReconnectAttempts = 3;
+        private const int MinMaxReconnectAttempts = 0;
+        private const int MaxMaxReconnectAttempts = 10;
+        private int _maxReconnectAttempts = DefaultMaxReconnectAttempts;
         private Dictionary<int, byte[]>? _lastSentColors;
         private byte _sequenceNumber = 0;
         private readonly SemaphoreSlim _reconnectLock = new SemaphoreSlim(1, 1);
@@ -65,6 +68,20 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// Returns true if preparation succeeded and reconnection should proceed.
         /// </summary>
         public Func<Task<bool>>? OnBeforeReconnect { get; set; }
+
+        /// <summary>
+        /// Gets or sets the maximum number of DTLS reconnect attempts after a stream failure.
+        /// The plugin configuration applies its NetworkRetryAttempts value here for playback
+        /// sessions; zero disables reconnect attempts while preserving the active stream path.
+        /// </summary>
+        public int MaxReconnectAttempts
+        {
+            get => _maxReconnectAttempts;
+            set => _maxReconnectAttempts = Math.Clamp(
+                value,
+                MinMaxReconnectAttempts,
+                MaxMaxReconnectAttempts);
+        }
 
         public HueStreamer(ILogger<HueStreamer> logger)
         {

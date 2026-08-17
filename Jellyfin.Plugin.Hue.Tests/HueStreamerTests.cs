@@ -33,6 +33,19 @@ public class HueStreamerTests
         _streamer = new HueStreamer(_loggerMock.Object);
     }
 
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, 0)]
+    [InlineData(3, 3)]
+    [InlineData(10, 10)]
+    [InlineData(11, 10)]
+    public void MaxReconnectAttempts_ClampsConfiguredValue(int configured, int expected)
+    {
+        _streamer.MaxReconnectAttempts = configured;
+
+        Assert.Equal(expected, _streamer.MaxReconnectAttempts);
+    }
+
     #region Color Encoding Tests
 
     [Theory]

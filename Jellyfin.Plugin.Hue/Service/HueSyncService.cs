@@ -1347,6 +1347,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _logger.LogInformation("Starting sync for user {0} with bridge {1} and area {2}", userId, bridgeIp, areaId);
 
             _hueClient.RetryAttempts = config.NetworkRetryAttempts;
+            _hueStreamer.MaxReconnectAttempts = config.NetworkRetryAttempts;
             if (startupToken.IsCancellationRequested)
                 return;
 

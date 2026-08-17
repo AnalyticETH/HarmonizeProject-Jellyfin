@@ -71,7 +71,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int ColorSaturation { get; set; } = 100; // Color saturation adjustment (0-200%)
         public int BlackoutThreshold { get; set; } = 15; // Average brightness below which lights are set to black (0-255)
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
-        public int NetworkRetryAttempts { get; set; } = 3; // Number of retry attempts for network operations
+        public int NetworkRetryAttempts { get; set; } = 3; // Number of retry attempts for Hue REST and DTLS recovery
 
         /// <summary>
         /// Gets the bridge configuration for a specific user, or falls back to default

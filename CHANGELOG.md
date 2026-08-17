@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.19] - 2026-08-17
+
+### Changed
+- The Network Retry Attempts setting now controls both Hue REST retries and DTLS reconnect attempts
+- A zero retry setting now explicitly disables DTLS reconnect attempts while leaving initial stream setup unchanged
+
+### Added
+- Regression coverage for DTLS retry-attempt clamping and configuration wiring
+
 ## [1.5.18] - 2026-08-17
 
 ### Added
