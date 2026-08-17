@@ -34,6 +34,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string FrameResolutionLow = "80x45";
         public const string FrameResolutionStandard = "160x90";
         public const string FrameResolutionHigh = "320x180";
+        public const string VideoScalingModeStretch = "Stretch";
+        public const string VideoScalingModeFit = "Fit";
+        public const string VideoScalingModeCrop = "Crop";
 
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
@@ -70,6 +73,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string PauseBehavior { get; set; } = PauseBehaviorKeepLastColors;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = FrameResolutionStandard;
+        public string VideoScalingMode { get; set; } = VideoScalingModeStretch;
         public int SamplingBreadthPercent { get; set; } = 15;
         public string SamplingMode { get; set; } = SamplingModeAverage;
         public int ColorSmoothingPercent { get; set; } = 0;
@@ -167,6 +171,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     !string.Equals(FrameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(FrameResolution, FrameResolutionHigh, StringComparison.OrdinalIgnoreCase))
                     errors.Add("Frame resolution must be 80x45, 160x90, or 320x180");
+
+                if (!string.Equals(VideoScalingMode, VideoScalingModeStretch, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(VideoScalingMode, VideoScalingModeFit, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(VideoScalingMode, VideoScalingModeCrop, StringComparison.OrdinalIgnoreCase))
+                    errors.Add("Video scaling mode must be Stretch, Fit, or Crop");
 
                 if (!string.Equals(PauseBehavior, PauseBehaviorKeepLastColors, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(PauseBehavior, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase))

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Hue.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Hue.Video
@@ -89,9 +90,24 @@ namespace Jellyfin.Plugin.Hue.Video
             Math.Clamp(stallTimeoutSeconds, MinStallTimeoutSeconds, MaxStallTimeoutSeconds);
 
         internal static string BuildVideoFilter(int frameWidth, int frameHeight)
+            => BuildVideoFilter(frameWidth, frameHeight, PluginConfiguration.VideoScalingModeStretch);
+
+        internal static string BuildVideoFilter(int frameWidth, int frameHeight, string? scalingMode)
         {
             if (frameWidth <= 0 || frameHeight <= 0)
                 throw new ArgumentOutOfRangeException(nameof(frameWidth), "FFmpeg output dimensions must be positive.");
+
+            if (string.Equals(scalingMode, PluginConfiguration.VideoScalingModeFit, StringComparison.OrdinalIgnoreCase))
+            {
+                return $"scale={frameWidth}:{frameHeight}:force_original_aspect_ratio=decrease," +
+                       $"pad={frameWidth}:{frameHeight}:(ow-iw)/2:(oh-ih)/2";
+            }
+
+            if (string.Equals(scalingMode, PluginConfiguration.VideoScalingModeCrop, StringComparison.OrdinalIgnoreCase))
+            {
+                return $"scale={frameWidth}:{frameHeight}:force_original_aspect_ratio=increase," +
+                       $"crop={frameWidth}:{frameHeight}:(in_w-out_w)/2:(in_h-out_h)/2";
+            }
 
             return $"scale={frameWidth}:{frameHeight}";
         }
@@ -150,6 +166,7 @@ namespace Jellyfin.Plugin.Hue.Video
         /// <param name="seekPositionSeconds">Seek to this position before extracting (default: 0 = start)</param>
         /// <param name="frameWidth">Output frame width in pixels (default: 160)</param>
         /// <param name="frameHeight">Output frame height in pixels (default: 90)</param>
+        /// <param name="scalingMode">Video fit mode: Stretch, Fit, or Crop (default: Stretch)</param>
         /// <returns>Stream of raw RGB24 frames, or null if failed</returns>
         public Stream? StartFfmpeg(
             string videoPath,
@@ -159,7 +176,8 @@ namespace Jellyfin.Plugin.Hue.Video
             string ffmpegPath = "ffmpeg",
             double seekPositionSeconds = 0,
             int frameWidth = 160,
-            int frameHeight = 90)
+            int frameHeight = 90,
+            string scalingMode = PluginConfiguration.VideoScalingModeStretch)
         {
             if (string.IsNullOrWhiteSpace(videoPath))
             {
@@ -189,7 +207,7 @@ namespace Jellyfin.Plugin.Hue.Video
             // replacing the field so repeated playback-start events cannot leak it.
             Stop();
 
-            // -vf scale={width}:{height} -f rawvideo -pix_fmt rgb24
+            // -vf <scaling filter> -f rawvideo -pix_fmt rgb24
             // Add -r {fps} and custom flags
             var flagParts = new System.Collections.Generic.List<string>();
             if (useGpu)
@@ -214,7 +232,7 @@ namespace Jellyfin.Plugin.Hue.Video
             var startInfo = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"{flags}{seekPrefix}-i \"{videoPath}\" -vf {BuildVideoFilter(frameWidth, frameHeight)} -r {fps} -f rawvideo -pix_fmt rgb24 pipe:1",
+                Arguments = $"{flags}{seekPrefix}-i \"{videoPath}\" -vf {BuildVideoFilter(frameWidth, frameHeight, scalingMode)} -r {fps} -f rawvideo -pix_fmt rgb24 pipe:1",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,

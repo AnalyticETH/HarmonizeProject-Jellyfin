@@ -19,6 +19,7 @@
                             <div><strong>Item:</strong> <span id="runtimeItem">—</span></div>
                             <div><strong>Active target:</strong> <span id="runtimeTarget">—</span></div>
                             <div><strong>Frame resolution:</strong> <span id="runtimeResolution">—</span></div>
+                            <div><strong>Video fit:</strong> <span id="runtimeScalingMode">—</span></div>
                         </div>
                         <div style="flex: 1 1 280px;">
                             <div><strong>Health:</strong> <span id="runtimeHealth">—</span></div>
@@ -119,6 +120,16 @@
                                 <option value="320x180">High (320×180, more spatial detail)</option>
                             </select>
                             <div class="fieldDescription">Choose the RGB frame size sent through the sampler. Higher resolution preserves finer spatial detail but uses more CPU and memory.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="videoScalingMode">Video Fit Mode</label>
+                            <select id="videoScalingMode" name="videoScalingMode" is="emby-select">
+                                <option value="Stretch">Stretch to frame (current default)</option>
+                                <option value="Fit">Fit with letterbox bars</option>
+                                <option value="Crop">Crop to fill frame</option>
+                            </select>
+                            <div class="fieldDescription">Stretch fills the 16:9 sampler exactly. Fit preserves the source aspect ratio with bars; Crop preserves it while trimming the excess edges.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -361,6 +372,7 @@
                         HueConfigurationPage.selectedAreaId = getConfigValue('EntertainmentAreaId', '');
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#frameResolution').value = getConfigValue('FrameResolution', '160x90');
+                        page.querySelector('#videoScalingMode').value = getConfigValue('VideoScalingMode', 'Stretch');
                         page.querySelector('#samplingBreadthPercent').value = getConfigValue('SamplingBreadthPercent', 15);
                         page.querySelector('#samplingMode').value = getConfigValue('SamplingMode', 'Average');
                         page.querySelector('#colorSmoothingPercent').value = getConfigValue('ColorSmoothingPercent', 0);
@@ -399,6 +411,7 @@
                         EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         FrameResolution: page.querySelector('#frameResolution').value,
+                        VideoScalingMode: page.querySelector('#videoScalingMode').value,
                         SamplingBreadthPercent: parseNumberOrDefault('#samplingBreadthPercent', 15),
                         SamplingMode: page.querySelector('#samplingMode').value,
                         ColorSmoothingPercent: parseNumberOrDefault('#colorSmoothingPercent', 0),
@@ -650,6 +663,7 @@
                         var canStop = HueConfigurationPage.readStatusField(status, "CanStopSync", false);
                         var currentItem = HueConfigurationPage.readStatusField(status, "CurrentItem", "—");
                         var frameResolution = HueConfigurationPage.readStatusField(status, "ActiveFrameResolution", "—");
+                        var scalingMode = HueConfigurationPage.readStatusField(status, "ActiveVideoScalingMode", "—");
                         var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
                         var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
                         var frames = HueConfigurationPage.readStatusField(status, "FramesProcessed", 0);
@@ -667,6 +681,7 @@
                         page.querySelector('#runtimeState').textContent = state + (isSyncing && state !== "Syncing" ? " (active)" : "");
                         page.querySelector('#runtimeItem').textContent = currentItem || "—";
                         page.querySelector('#runtimeResolution').textContent = frameResolution || "—";
+                        page.querySelector('#runtimeScalingMode').textContent = scalingMode || "—";
                         page.querySelector('#runtimeTarget').textContent = activeBridge && activeArea && activeBridge !== "—"
                             ? activeBridge + " / " + activeArea
                             : "—";

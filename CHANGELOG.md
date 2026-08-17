@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.24] - 2026-08-17
+
+### Added
+- Configurable Stretch, Fit, and Crop video scaling modes
+- Active video fit diagnostics in Live Sync Status
+- Regression coverage for fit filters, validation, persistence, and status
+
+### Changed
+- FFmpeg preserves Stretch as the default while Fit and Crop handle non-16:9 source aspect ratios
+
 ## [1.5.23] - 2026-08-17
 
 ### Added

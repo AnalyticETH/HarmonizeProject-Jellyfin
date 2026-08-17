@@ -309,6 +309,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "default-app-key",
             HueClientKey = "default-client-key",
             FrameResolution = PluginConfiguration.FrameResolutionHigh,
+            VideoScalingMode = PluginConfiguration.VideoScalingModeFit,
             SamplingBreadthPercent = 25,
             SamplingMode = PluginConfiguration.SamplingModeCenterWeighted,
             ColorSmoothingPercent = 65,
@@ -331,6 +332,7 @@ public sealed class HueApiControllerTests : IDisposable
         var settings = Assert.IsType<HuePluginConfigurationSettings>(response.Value);
         Assert.Equal("default-app-key", settings.HueAppKey);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, settings.FrameResolution);
+        Assert.Equal(PluginConfiguration.VideoScalingModeFit, settings.VideoScalingMode);
         Assert.Equal(25, settings.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, settings.SamplingMode);
         Assert.Equal(65, settings.ColorSmoothingPercent);
@@ -362,6 +364,7 @@ public sealed class HueApiControllerTests : IDisposable
             SyncEnabled = false,
             TargetFps = 30,
             FrameResolution = PluginConfiguration.FrameResolutionLow,
+            VideoScalingMode = PluginConfiguration.VideoScalingModeCrop,
             SamplingBreadthPercent = 25,
             SamplingMode = PluginConfiguration.SamplingModeCenterPixel,
             ColorSmoothingPercent = 40,
@@ -372,6 +375,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(action.Result);
         Assert.Equal(30, configuration.TargetFps);
         Assert.Equal(PluginConfiguration.FrameResolutionLow, configuration.FrameResolution);
+        Assert.Equal(PluginConfiguration.VideoScalingModeCrop, configuration.VideoScalingMode);
         Assert.Equal(25, configuration.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeCenterPixel, configuration.SamplingMode);
         Assert.Equal(40, configuration.ColorSmoothingPercent);

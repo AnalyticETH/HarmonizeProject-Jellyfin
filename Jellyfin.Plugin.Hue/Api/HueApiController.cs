@@ -487,6 +487,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string PauseBehavior { get; set; } = PluginConfiguration.PauseBehaviorKeepLastColors;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = PluginConfiguration.FrameResolutionStandard;
+        public string VideoScalingMode { get; set; } = PluginConfiguration.VideoScalingModeStretch;
         public int SamplingBreadthPercent { get; set; } = 15;
         public string SamplingMode { get; set; } = PluginConfiguration.SamplingModeAverage;
         public int ColorSmoothingPercent { get; set; } = 0;
@@ -514,6 +515,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PauseBehavior = config.PauseBehavior,
                 TargetFps = config.TargetFps,
                 FrameResolution = config.FrameResolution,
+                VideoScalingMode = config.VideoScalingMode,
                 SamplingBreadthPercent = config.SamplingBreadthPercent,
                 SamplingMode = config.SamplingMode,
                 ColorSmoothingPercent = config.ColorSmoothingPercent,
@@ -541,6 +543,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.PauseBehavior = PauseBehavior?.Trim() ?? PluginConfiguration.PauseBehaviorKeepLastColors;
             config.TargetFps = TargetFps;
             config.FrameResolution = FrameResolution?.Trim() ?? PluginConfiguration.FrameResolutionStandard;
+            config.VideoScalingMode = VideoScalingMode?.Trim() ?? PluginConfiguration.VideoScalingModeStretch;
             config.SamplingBreadthPercent = SamplingBreadthPercent;
             config.SamplingMode = SamplingMode?.Trim() ?? PluginConfiguration.SamplingModeAverage;
             config.ColorSmoothingPercent = ColorSmoothingPercent;

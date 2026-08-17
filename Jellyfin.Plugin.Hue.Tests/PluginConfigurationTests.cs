@@ -420,6 +420,7 @@ public class PluginConfigurationTests
         Assert.Equal(30, config.BrightnessDimLevel);
         Assert.Equal(20, config.TargetFps);
         Assert.Equal(PluginConfiguration.FrameResolutionStandard, config.FrameResolution);
+        Assert.Equal(PluginConfiguration.VideoScalingModeStretch, config.VideoScalingMode);
         Assert.Equal(15, config.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeAverage, config.SamplingMode);
         Assert.Equal(0, config.ColorSmoothingPercent);
@@ -483,6 +484,48 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         Assert.DoesNotContain("Frame resolution must be 80x45, 160x90, or 320x180", errors);
+    }
+
+    [Theory]
+    [InlineData("Unsupported")]
+    [InlineData("")]
+    public void Validate_WhenVideoScalingModeIsInvalid_ReturnsError(string videoScalingMode)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            VideoScalingMode = videoScalingMode
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Video scaling mode must be Stretch, Fit, or Crop", errors);
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.VideoScalingModeStretch)]
+    [InlineData(PluginConfiguration.VideoScalingModeFit)]
+    [InlineData(PluginConfiguration.VideoScalingModeCrop)]
+    [InlineData("fit")]
+    public void Validate_WhenVideoScalingModeIsValid_ReturnsNoScalingError(string videoScalingMode)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            VideoScalingMode = videoScalingMode
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("Video scaling mode must be Stretch, Fit, or Crop", errors);
     }
 
     [Theory]
