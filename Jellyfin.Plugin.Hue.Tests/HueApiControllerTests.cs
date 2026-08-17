@@ -201,6 +201,136 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task TestConnection_WithChannelProfileValidatesAndPassesSelectedChannelsToProbe()
+    {
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1},{\"channel_id\":2}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.TestAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<System.Text.Json.JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>()))
+            .ReturnsAsync(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "DTLS probe succeeded."
+            });
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "2"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConnectionTestResult>(response.Value);
+        Assert.True(result.ChannelProfileValid);
+        Assert.Equal(2, result.AvailableChannelCount);
+        Assert.Equal(1, result.SelectedChannelCount);
+        Assert.True(result.StreamReady);
+        streamTester.Verify(tester => tester.TestAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-1",
+            It.IsAny<System.Text.Json.JsonElement>(),
+            It.Is<IReadOnlySet<int>?>(ids => ids != null && ids.Count == 1 && ids.Contains(2))), Times.Once);
+    }
+
+    [Fact]
+    public async Task TestConnection_WithStaleChannelProfileReportsMissingIdsWithoutProbing()
+    {
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var streamTester = new Mock<IHueStreamTester>();
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "9"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConnectionTestResult>(response.Value);
+        Assert.False(result.ChannelProfileValid);
+        Assert.Equal("9", result.MissingChannelIds);
+        Assert.False(result.StreamTested);
+        Assert.Contains("not present", result.Message, StringComparison.OrdinalIgnoreCase);
+        streamTester.Verify(tester => tester.TestAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<System.Text.Json.JsonElement>(),
+            It.IsAny<IReadOnlySet<int>?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task TestConnection_WithMalformedChannelProfileReturnsBadRequest()
+    {
+        var controller = CreateController();
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "2, nope"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task TestConnection_WithClientKeyRunsDtlsProbe()
     {
         _httpHandlerMock
@@ -230,7 +360,8 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
-                It.IsAny<System.Text.Json.JsonElement>()))
+                It.IsAny<System.Text.Json.JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>()))
             .ReturnsAsync(new HueStreamProbeResult
             {
                 Succeeded = true,
@@ -256,7 +387,8 @@ public sealed class HueApiControllerTests : IDisposable
             "app-key",
             "client-key",
             "area-1",
-            It.IsAny<System.Text.Json.JsonElement>()), Times.Once);
+            It.IsAny<System.Text.Json.JsonElement>(),
+            It.IsAny<IReadOnlySet<int>?>()), Times.Once);
     }
 
     [Fact]

@@ -186,9 +186,33 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(areas);
         }
 
+        private static HashSet<int> GetValidChannelIds(System.Text.Json.JsonElement areaConfiguration)
+        {
+            var channelIds = new HashSet<int>();
+            if (!areaConfiguration.TryGetProperty("channels", out var channels) ||
+                channels.ValueKind != System.Text.Json.JsonValueKind.Array)
+            {
+                return channelIds;
+            }
+
+            foreach (var channel in channels.EnumerateArray())
+            {
+                if (channel.TryGetProperty("channel_id", out var channelIdProperty) &&
+                    channelIdProperty.TryGetInt32(out var channelId) &&
+                    channelId >= ushort.MinValue &&
+                    channelId <= ushort.MaxValue)
+                {
+                    channelIds.Add(channelId);
+                }
+            }
+
+            return channelIds;
+        }
+
         /// <summary>
         /// Tests bridge reachability and, when supplied, verifies an entertainment area. A client key
-        /// additionally opts into a short non-destructive DTLS stream probe.
+        /// additionally opts into a short non-destructive DTLS stream probe. A channelIds profile can
+        /// validate and limit that probe to the channels selected for a per-user mapping.
         /// </summary>
         [HttpPost("TestConnection")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -202,6 +226,18 @@ namespace Jellyfin.Plugin.Hue.Api
                 string.IsNullOrWhiteSpace(request.AppKey))
             {
                 return BadRequest("A valid private bridge address and app key are required.");
+            }
+
+            HashSet<int>? requestedChannelIds = null;
+            if (!string.IsNullOrWhiteSpace(request.ChannelIds))
+            {
+                if (!PluginConfiguration.TryParseChannelIds(request.ChannelIds, out var parsedChannelIds) ||
+                    parsedChannelIds.Count == 0)
+                {
+                    return BadRequest("channelIds must be a comma-separated list of IDs from 0 to 65535.");
+                }
+
+                requestedChannelIds = parsedChannelIds;
             }
 
             var bridgeIp = request.IpAddress.Trim();
@@ -253,6 +289,28 @@ namespace Jellyfin.Plugin.Hue.Api
 
             result.AreaFound = true;
             result.AreaName = selectedArea.Name;
+            var selectedChannelIds = requestedChannelIds;
+            if (selectedChannelIds != null)
+            {
+                var availableChannelIds = GetValidChannelIds(areaConfiguration.Value);
+                var missingChannelIds = selectedChannelIds
+                    .Where(channelId => !availableChannelIds.Contains(channelId))
+                    .OrderBy(channelId => channelId)
+                    .ToArray();
+                result.AvailableChannelCount = availableChannelIds.Count;
+                result.SelectedChannelCount = selectedChannelIds.Count;
+                result.ChannelProfileValid = missingChannelIds.Length == 0;
+                result.MissingChannelIds = missingChannelIds.Length == 0
+                    ? null
+                    : string.Join(", ", missingChannelIds);
+                if (missingChannelIds.Length > 0)
+                {
+                    result.StreamTested = false;
+                    result.StreamMessage = $"The channel profile references IDs not present in this entertainment area: {result.MissingChannelIds}.";
+                    result.Message = $"Bridge reachable and area '{selectedArea.Name}' is configured, but the channel profile is invalid. {result.StreamMessage}";
+                    return Ok(result);
+                }
+            }
             if (!string.IsNullOrWhiteSpace(request.ClientKey) && _streamTester != null)
             {
                 if (_syncService?.IsSyncing == true)
@@ -272,7 +330,8 @@ namespace Jellyfin.Plugin.Hue.Api
                             appKey,
                             request.ClientKey.Trim(),
                             areaId,
-                            areaConfiguration.Value);
+                            areaConfiguration.Value,
+                            selectedChannelIds);
                     }
                     catch
                     {
@@ -819,6 +878,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("entertainmentAreaId")]
         public string? EntertainmentAreaId { get; set; }
+
+        [JsonPropertyName("channelIds")]
+        public string? ChannelIds { get; set; }
     }
 
     public class HueConnectionTestResult
@@ -846,6 +908,18 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("streamMessage")]
         public string? StreamMessage { get; set; }
+
+        [JsonPropertyName("availableChannelCount")]
+        public int? AvailableChannelCount { get; set; }
+
+        [JsonPropertyName("selectedChannelCount")]
+        public int? SelectedChannelCount { get; set; }
+
+        [JsonPropertyName("channelProfileValid")]
+        public bool? ChannelProfileValid { get; set; }
+
+        [JsonPropertyName("missingChannelIds")]
+        public string? MissingChannelIds { get; set; }
 
         [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;

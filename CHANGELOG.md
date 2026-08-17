@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.37] - 2026-08-17
+
+### Added
+- Channel-aware per-user Test Connection diagnostics with available, selected, and missing channel reporting
+- DTLS stream probes now honor the selected mapping channel profile and restore only the probed lights
+- Regression coverage for selected-channel probing, stale channel profiles, malformed requests, and filtered probe colors
+
+### Changed
+- Mapping Test Connection now validates saved channel IDs against the selected entertainment area before opening a stream
+
 ## [1.5.36] - 2026-08-17
 
 ### Added

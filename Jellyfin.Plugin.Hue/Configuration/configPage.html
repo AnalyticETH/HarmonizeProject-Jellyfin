@@ -457,7 +457,7 @@
                                             <span>Load Channel IDs</span>
                                         </button>
                                     </div>
-                                    <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535). Only these channels are captured, dimmed, streamed, and restored for this user. Load Channel IDs after entering bridge credentials and selecting an area, then edit the list to choose a subset.</div>
+                                    <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535). Only these channels are captured, dimmed, streamed, and restored for this user. Load Channel IDs after entering bridge credentials and selecting an area, then edit the list to choose a subset. Test Connection validates this selection and probes only the chosen channels.</div>
                                     <div id="mappingChannelIdsStatus" class="fieldDescription" style="margin-top: 0.5em;"></div>
                                 </div>
                             </fieldset>
@@ -735,16 +735,21 @@
                         dataType: "json"
                     });
                 },
-                fetchConnectionTest: function (bridgeIp, appKey, areaId, clientKey) {
+                fetchConnectionTest: function (bridgeIp, appKey, areaId, clientKey, channelIds) {
+                    var payload = {
+                        ipAddress: bridgeIp,
+                        appKey: appKey,
+                        clientKey: clientKey || "",
+                        entertainmentAreaId: areaId || ""
+                    };
+                    if (channelIds && channelIds.trim()) {
+                        payload.channelIds = channelIds.trim();
+                    }
+
                     return ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/TestConnection"),
-                        data: JSON.stringify({
-                            ipAddress: bridgeIp,
-                            appKey: appKey,
-                            clientKey: clientKey || "",
-                            entertainmentAreaId: areaId || ""
-                        }),
+                        data: JSON.stringify(payload),
                         contentType: "application/json",
                         dataType: "json"
                     });
@@ -755,10 +760,18 @@
                     var streamTested = response && (response.streamTested !== undefined ? response.streamTested : response.StreamTested);
                     var streamReady = response && (response.streamReady !== undefined ? response.streamReady : response.StreamReady);
                     var streamMessage = response && (response.streamMessage || response.StreamMessage);
+                    var channelProfileValid = response && (response.channelProfileValid !== undefined ? response.channelProfileValid : response.ChannelProfileValid);
                     if (areaId && areaFound === false) {
                         return {
                             tone: "warning",
                             text: message || "Bridge is reachable, but the selected entertainment area was not found."
+                        };
+                    }
+
+                    if (channelProfileValid === false) {
+                        return {
+                            tone: "warning",
+                            text: message || "The selected channel profile does not match the entertainment area."
                         };
                     }
 
@@ -1432,6 +1445,8 @@
                     var appKey = appKeyEl ? appKeyEl.value.trim() : '';
                     var clientKeyEl = document.getElementById('mappingClientKey');
                     var clientKey = clientKeyEl ? clientKeyEl.value.trim() : '';
+                    var channelIdsEl = document.getElementById('mappingChannelIdsOverride');
+                    var channelIds = channelIdsEl ? channelIdsEl.value.trim() : '';
                     var areaId = areaSelect ? areaSelect.value : '';
 
                     if (areaId === "manual") {
@@ -1450,7 +1465,7 @@
                         statusEl.style.background = "#3f51b5";
                     }
                     Dashboard.showLoadingMsg();
-                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey)
+                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey, channelIds)
                         .then(function (response) {
                             var result = HueConfigurationPage.connectionTestMessage(response, areaId);
                             if (statusEl) {

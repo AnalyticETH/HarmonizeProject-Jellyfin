@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
 using Jellyfin.Plugin.Hue.Hue;
@@ -31,6 +32,37 @@ public sealed class HueStreamTesterTests
             "{\"channels\":[{\"channel_id\":-1}]}");
 
         var valid = HueStreamTester.TryBuildProbeColors(document.RootElement, out var colors);
+
+        Assert.False(valid);
+        Assert.Empty(colors);
+    }
+
+    [Fact]
+    public void TryBuildProbeColors_WithChannelProfileUsesOnlySelectedChannels()
+    {
+        using var document = JsonDocument.Parse(
+            "{\"channels\":[{\"channel_id\":1},{\"channel_id\":2},{\"channel_id\":3}]}");
+
+        var valid = HueStreamTester.TryBuildProbeColors(
+            document.RootElement,
+            new HashSet<int> { 2 },
+            out var colors);
+
+        Assert.True(valid);
+        Assert.Single(colors);
+        Assert.Contains(2, colors);
+    }
+
+    [Fact]
+    public void TryBuildProbeColors_WithUnknownChannelProfileIsRejected()
+    {
+        using var document = JsonDocument.Parse(
+            "{\"channels\":[{\"channel_id\":1}]}");
+
+        var valid = HueStreamTester.TryBuildProbeColors(
+            document.RootElement,
+            new HashSet<int> { 9 },
+            out var colors);
 
         Assert.False(valid);
         Assert.Empty(colors);

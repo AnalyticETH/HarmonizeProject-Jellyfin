@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Hue;
@@ -17,7 +18,8 @@ public interface IHueStreamTester
         string appKey,
         string clientKey,
         string areaId,
-        JsonElement areaConfiguration);
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds = null);
 }
 
 /// <summary>
@@ -54,7 +56,8 @@ public sealed class HueStreamTester : IHueStreamTester
         string appKey,
         string clientKey,
         string areaId,
-        JsonElement areaConfiguration)
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds = null)
     {
         if (string.IsNullOrWhiteSpace(bridgeIp) ||
             string.IsNullOrWhiteSpace(appKey) ||
@@ -64,15 +67,21 @@ public sealed class HueStreamTester : IHueStreamTester
             return Failure("Bridge address, app key, client key, and entertainment area are required.");
         }
 
-        if (!TryBuildProbeColors(areaConfiguration, out var channelColors))
+        if (!TryBuildProbeColors(areaConfiguration, channelIds, out var channelColors))
         {
-            return Failure("The selected entertainment area has no valid controllable channels.");
+            return Failure(channelIds == null
+                ? "The selected entertainment area has no valid controllable channels."
+                : "The selected channel profile has no valid controllable channels in this entertainment area.");
         }
 
         List<HueClient.LightState>? savedLightStates;
         try
         {
-            savedLightStates = await _hueClient.GetLightStates(bridgeIp, appKey, areaConfiguration).ConfigureAwait(false);
+            savedLightStates = await _hueClient.GetLightStates(
+                bridgeIp,
+                appKey,
+                areaConfiguration,
+                channelIds).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -137,6 +146,12 @@ public sealed class HueStreamTester : IHueStreamTester
     }
 
     internal static bool TryBuildProbeColors(JsonElement areaConfiguration, out Dictionary<int, byte[]> channelColors)
+        => TryBuildProbeColors(areaConfiguration, null, out channelColors);
+
+    internal static bool TryBuildProbeColors(
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        out Dictionary<int, byte[]> channelColors)
     {
         channelColors = new Dictionary<int, byte[]>();
         if (!areaConfiguration.TryGetProperty("channels", out var channels) ||
@@ -145,6 +160,7 @@ public sealed class HueStreamTester : IHueStreamTester
             return false;
         }
 
+        var availableChannelIds = new HashSet<int>();
         foreach (var channel in channels.EnumerateArray())
         {
             if (!channel.TryGetProperty("channel_id", out var channelIdProperty) ||
@@ -157,6 +173,10 @@ public sealed class HueStreamTester : IHueStreamTester
                 return false;
             }
 
+            availableChannelIds.Add(channelId);
+            if (channelIds != null && !channelIds.Contains(channelId))
+                continue;
+
             channelColors[channelId] = new[]
             {
                 ProbeColor, ProbeColor,
@@ -165,7 +185,8 @@ public sealed class HueStreamTester : IHueStreamTester
             };
         }
 
-        return channelColors.Count > 0;
+        return channelColors.Count > 0 &&
+            (channelIds == null || channelIds.All(availableChannelIds.Contains));
     }
 
     private static HueStreamProbeResult Failure(string message) => new()

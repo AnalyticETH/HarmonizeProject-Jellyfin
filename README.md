@@ -112,6 +112,7 @@ stall timeout, and Hue REST/DTLS retry attempts. The restoration profile chooses
 the original per-light state or uses the cinema/default cleanup behavior. Channel fields accept a comma-separated
 list of Hue entertainment channel IDs; **Load Channel IDs** reads the selected area's available IDs from the bridge, and
 only the chosen channels are captured, dimmed, streamed, and restored for that user.
+The mapping **Test Connection** action validates the list against the selected area and, when a Client Key is present, probes only the selected channels; stale IDs are reported before any DTLS stream is opened.
 Leave any profile field
 blank to inherit the current global setting; populated overrides apply only to that user's playback,
 including when the mapping uses the default bridge.
@@ -129,7 +130,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
 | `POST /HueSync/EntertainmentChannels` | Load the selected area's channel IDs with `{ "ipAddress": "...", "appKey": "...", "entertainmentAreaId": "..." }`. |
-| `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration. |
+| `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration; supplying `channelIds` (comma-separated) validates and probes only that channel profile. |
 | `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/color/execution/channel/restoration profile, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings without serializing per-user mappings to the configuration page. |
@@ -294,7 +295,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.36 (Current)
+### Version 1.5.37 (Current)
+- **Channel-aware connection diagnostics**: Mapping Test Connection validates selected channel IDs against the area, reports stale IDs before probing, and limits the DTLS probe and temporary state capture to the selected channels
+
+### Version 1.5.36
 - **Per-user channel profiles**: Load available entertainment channel IDs for a selected area, choose which IDs each mapped user drives, and keep capture, cinema dimming, streaming, restoration, and Live Sync Status aligned with the captured selection
 
 ### Version 1.5.35
