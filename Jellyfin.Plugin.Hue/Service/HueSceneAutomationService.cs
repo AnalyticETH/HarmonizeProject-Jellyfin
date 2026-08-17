@@ -175,6 +175,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                     : timeZone.DisplayName,
                 StartDate = schedule.StartDate?.Trim() ?? string.Empty,
                 EndDate = schedule.EndDate?.Trim() ?? string.Empty,
+                ExcludedDates = PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
+                    schedule.ExcludedDates,
+                    out var excludedDates)
+                    ? excludedDates
+                    : Array.Empty<string>(),
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled,
                 Ready = readiness.Ready,
@@ -269,8 +274,21 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
 
         var date = scheduleDate.Date;
-        return (!startDate.HasValue || date >= startDate.Value) &&
-               (!endDate.HasValue || date <= endDate.Value);
+        if ((startDate.HasValue && date < startDate.Value) ||
+            (endDate.HasValue && date > endDate.Value))
+        {
+            return false;
+        }
+
+        if (!PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
+                schedule.ExcludedDates,
+                out var excludedDates))
+        {
+            return false;
+        }
+
+        var normalizedDate = date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        return !excludedDates.Contains(normalizedDate, StringComparer.Ordinal);
     }
 
     private static bool TryGetScheduleDateBounds(
@@ -334,6 +352,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             var candidateDate = firstCandidateDate.AddDays(dayOffset);
             if (endDate.HasValue && candidateDate > endDate.Value)
                 break;
+            if (!IsScheduleDateAllowed(schedule, candidateDate))
+                continue;
             var dayBit = 1 << (int)candidateDate.DayOfWeek;
             if ((schedule.DaysOfWeekMask & dayBit) == 0)
                 continue;
@@ -474,6 +494,13 @@ public sealed class HueSceneAutomationService : BackgroundService
             endDate < startDate)
         {
             return new HueSceneScheduleReadiness(false, "The schedule end date is before the start date.");
+        }
+
+        if (!PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
+                schedule.ExcludedDates,
+                out _))
+        {
+            return new HueSceneScheduleReadiness(false, "One or more schedule excluded dates are invalid or exceed the limit.");
         }
 
         if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > PluginConfiguration.AllSceneScheduleDaysMask)
@@ -1060,6 +1087,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TimeZoneId = source.TimeZoneId,
             StartDate = source.StartDate,
             EndDate = source.EndDate,
+            ExcludedDates = source.ExcludedDates?.ToList() ?? new List<string>(),
             DaysOfWeekMask = source.DaysOfWeekMask,
             Enabled = source.Enabled
         };
@@ -1198,6 +1226,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("endDate")]
     public string EndDate { get; init; } = string.Empty;
+
+    [JsonPropertyName("excludedDates")]
+    public IReadOnlyList<string> ExcludedDates { get; init; } = Array.Empty<string>();
 
     [JsonPropertyName("daysOfWeekMask")]
     public int DaysOfWeekMask { get; init; }

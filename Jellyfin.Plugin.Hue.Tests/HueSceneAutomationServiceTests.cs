@@ -114,20 +114,25 @@ public sealed class HueSceneAutomationServiceTests
             TimeOfDay = "07:05",
             TimeZoneId = TimeZoneInfo.Utc.Id,
             StartDate = "2026-08-24",
-            EndDate = "2026-08-31",
+            EndDate = "2026-09-07",
+            ExcludedDates = new List<string> { "2026-08-24" },
             DaysOfWeekMask = 1 << (int)DayOfWeek.Monday
         };
 
         var beforeStartUtc = new DateTime(2026, 8, 17, 7, 5, 30, DateTimeKind.Utc);
         var insideWindowUtc = new DateTime(2026, 8, 24, 7, 5, 30, DateTimeKind.Utc);
-        var afterEndUtc = new DateTime(2026, 9, 7, 7, 5, 30, DateTimeKind.Utc);
+        var afterEndUtc = new DateTime(2026, 9, 14, 7, 5, 30, DateTimeKind.Utc);
 
         Assert.False(HueSceneAutomationService.IsDue(
             schedule,
             TimeZoneInfo.ConvertTimeFromUtc(beforeStartUtc, TimeZoneInfo.Local)));
-        Assert.True(HueSceneAutomationService.IsDue(
+        Assert.False(HueSceneAutomationService.IsDue(
             schedule,
             TimeZoneInfo.ConvertTimeFromUtc(insideWindowUtc, TimeZoneInfo.Local)));
+        var nextAllowedUtc = new DateTime(2026, 8, 31, 7, 5, 30, DateTimeKind.Utc);
+        Assert.True(HueSceneAutomationService.IsDue(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(nextAllowedUtc, TimeZoneInfo.Local)));
         Assert.False(HueSceneAutomationService.IsDue(
             schedule,
             TimeZoneInfo.ConvertTimeFromUtc(afterEndUtc, TimeZoneInfo.Local)));
@@ -135,11 +140,11 @@ public sealed class HueSceneAutomationServiceTests
         var nextBeforeStart = HueSceneAutomationService.GetNextRunUtc(
             schedule,
             TimeZoneInfo.ConvertTimeFromUtc(beforeStartUtc.AddMinutes(-1), TimeZoneInfo.Local));
-        Assert.Equal(new DateTime(2026, 8, 24, 7, 5, 0, DateTimeKind.Utc), nextBeforeStart);
+        Assert.Equal(new DateTime(2026, 8, 31, 7, 5, 0, DateTimeKind.Utc), nextBeforeStart);
 
         var nextAfterEnd = HueSceneAutomationService.GetNextRunUtc(
             schedule,
-            TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 9, 1, 7, 0, 0, DateTimeKind.Utc), TimeZoneInfo.Local));
+            TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 9, 8, 7, 0, 0, DateTimeKind.Utc), TimeZoneInfo.Local));
         Assert.Null(nextAfterEnd);
     }
 
@@ -163,11 +168,21 @@ public sealed class HueSceneAutomationServiceTests
                 StartDate = "2026-09-01",
                 EndDate = "2026-08-01"
             });
+        var invalidExcluded = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule
+            {
+                Enabled = true,
+                PresetName = "Evening",
+                ExcludedDates = new List<string> { "2026-02-30" }
+            });
 
         Assert.False(invalidStart.Ready);
         Assert.Contains("start date", invalidStart.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(reversed.Ready);
         Assert.Contains("before", reversed.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(invalidExcluded.Ready);
+        Assert.Contains("excluded", invalidExcluded.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

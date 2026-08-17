@@ -421,6 +421,16 @@ namespace Jellyfin.Plugin.Hue.Api
                     : string.IsNullOrWhiteSpace(mapping.UserName)
                         ? $"User mapping {mapping.UserId.Trim()}"
                         : mapping.UserName.Trim();
+            IReadOnlyList<string> excludedDates =
+                PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
+                    schedule.ExcludedDates,
+                    out var normalizedExcludedDates)
+                    ? normalizedExcludedDates
+                    : (schedule.ExcludedDates ?? new List<string>())
+                        .Select(value => value?.Trim() ?? string.Empty)
+                        .Where(value => !string.IsNullOrWhiteSpace(value))
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray();
 
             return new HueSceneScheduleResult
             {
@@ -433,6 +443,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
                 StartDate = schedule.StartDate?.Trim() ?? string.Empty,
                 EndDate = schedule.EndDate?.Trim() ?? string.Empty,
+                ExcludedDates = excludedDates,
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled
             };
@@ -450,6 +461,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 TimeZoneId = schedule.TimeZoneId,
                 StartDate = schedule.StartDate,
                 EndDate = schedule.EndDate,
+                ExcludedDates = schedule.ExcludedDates?.ToList() ?? new List<string>(),
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled
             };
@@ -1031,6 +1043,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 schedule.StartDate = normalizedStartDate;
             if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.EndDate, out var normalizedEndDate))
                 schedule.EndDate = normalizedEndDate;
+            if (PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
+                    schedule.ExcludedDates,
+                    out var normalizedExcludedDates))
+            {
+                schedule.ExcludedDates = normalizedExcludedDates;
+            }
 
             var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
             var candidateSchedules = previousSchedules
@@ -1742,6 +1760,12 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.StartDate = normalizedStartDate;
                 if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.EndDate, out var normalizedEndDate))
                     schedule.EndDate = normalizedEndDate;
+                if (PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
+                        schedule.ExcludedDates,
+                        out var normalizedExcludedDates))
+                {
+                    schedule.ExcludedDates = normalizedExcludedDates;
+                }
 
                 var existingIndex = candidateSchedules.FindIndex(existing =>
                     string.Equals(existing.Id?.Trim(), schedule.Id.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -2741,7 +2765,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Request shape for one recurring saved-scene cue. TargetUserId is blank for the
-    /// global bridge target; bridge credentials are intentionally not accepted here.
+    /// global bridge target; optional date bounds/exclusions are calendar rules in the
+    /// selected cue timezone. Bridge credentials are intentionally not accepted here.
     /// </summary>
     public sealed class HueSceneScheduleRequest
     {
@@ -2769,6 +2794,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("endDate")]
         public string EndDate { get; set; } = string.Empty;
 
+        [JsonPropertyName("excludedDates")]
+        public List<string> ExcludedDates { get; set; } = new();
+
         [JsonPropertyName("daysOfWeekMask")]
         public int DaysOfWeekMask { get; set; } = PluginConfiguration.AllSceneScheduleDaysMask;
 
@@ -2787,6 +2815,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 TimeZoneId = TimeZoneId?.Trim() ?? string.Empty,
                 StartDate = StartDate?.Trim() ?? string.Empty,
                 EndDate = EndDate?.Trim() ?? string.Empty,
+                ExcludedDates = (ExcludedDates ?? new List<string>())
+                    .Select(value => value?.Trim() ?? string.Empty)
+                    .ToList(),
                 DaysOfWeekMask = DaysOfWeekMask,
                 Enabled = Enabled
             };
@@ -2794,7 +2825,8 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Credential-free recurring scene cue returned by the administrator API.
+    /// Credential-free recurring scene cue returned by the administrator API, including
+    /// optional inclusive bounds and normalized excluded calendar dates.
     /// </summary>
     public sealed class HueSceneScheduleResult
     {
@@ -2824,6 +2856,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("endDate")]
         public string EndDate { get; set; } = string.Empty;
+
+        [JsonPropertyName("excludedDates")]
+        public IReadOnlyList<string> ExcludedDates { get; set; } = Array.Empty<string>();
 
         [JsonPropertyName("daysOfWeekMask")]
         public int DaysOfWeekMask { get; set; }

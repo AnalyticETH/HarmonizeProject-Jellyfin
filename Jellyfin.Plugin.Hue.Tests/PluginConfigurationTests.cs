@@ -75,7 +75,8 @@ public class PluginConfigurationTests
                     PresetName = " evening ",
                     TimeOfDay = "07:05",
                     TimeZoneId = TimeZoneInfo.Utc.Id,
-                    DaysOfWeekMask = 1 | 32
+                    DaysOfWeekMask = 1 | 32,
+                    ExcludedDates = new List<string> { "2026-12-25" }
                 }
             }
         };
@@ -113,6 +114,10 @@ public class PluginConfigurationTests
         Assert.Equal("2026-08-01", normalizedStart);
         Assert.True(PluginConfiguration.TryNormalizeSceneScheduleDate(string.Empty, out var normalizedBlank));
         Assert.Equal(string.Empty, normalizedBlank);
+        Assert.True(PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
+            new[] { "2026-12-31", " 2026-12-24 ", "2026-12-31" },
+            out var normalizedExcluded));
+        Assert.Equal(new[] { "2026-12-24", "2026-12-31" }, normalizedExcluded);
     }
 
     [Fact]
@@ -129,6 +134,7 @@ public class PluginConfigurationTests
                     Name = "Invalid date",
                     PresetName = "Evening",
                     StartDate = "2026-02-30",
+                    ExcludedDates = new List<string> { "2026-13-01" },
                     DaysOfWeekMask = 127
                 },
                 new()
@@ -138,6 +144,7 @@ public class PluginConfigurationTests
                     PresetName = "Evening",
                     StartDate = "2026-09-01",
                     EndDate = "2026-08-01",
+                    ExcludedDates = new List<string> { "2026-12-01", "2026-12-01" },
                     DaysOfWeekMask = 127
                 }
             }
@@ -146,7 +153,35 @@ public class PluginConfigurationTests
         var errors = config.ValidateSceneSchedules();
 
         Assert.Contains("Scene schedule 1 start date must use yyyy-MM-dd format", errors);
+        Assert.Contains("Scene schedule 1 excluded date 1 must use yyyy-MM-dd format", errors);
         Assert.Contains("Scene schedule 2 end date must be on or after the start date", errors);
+        Assert.Contains("Scene schedule 2 excludes the date 2026-12-01 more than once", errors);
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsTooManyExcludedDates()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-too-many-exclusions",
+                    Name = "Too many exclusions",
+                    PresetName = "Evening",
+                    ExcludedDates = Enumerable.Range(0, PluginConfiguration.MaxSceneScheduleExcludedDates + 1)
+                        .Select(offset => new DateTime(2026, 1, 1).AddDays(offset).ToString("yyyy-MM-dd"))
+                        .ToList(),
+                    DaysOfWeekMask = 127
+                }
+            }
+        };
+
+        Assert.Contains(
+            $"Scene schedule 1 may exclude no more than {PluginConfiguration.MaxSceneScheduleExcludedDates} dates",
+            config.ValidateSceneSchedules());
     }
 
     [Fact]

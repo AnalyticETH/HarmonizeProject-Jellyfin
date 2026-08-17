@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.76] - 2026-08-17
+
+### Added
+- **Scheduled cue exclusions**: optionally skip up to 100 specific calendar dates inside a recurring cue's date window for holidays, maintenance, or room blackout days
+- **Timezone-local exclusion runtime**: due checks and next-run calculations compare exclusions against the cue's selected timezone while preserving inclusive date-window behavior
+- **Portable exclusion controls**: expose normalized excluded dates through schedule CRUD, credential-safe backup/restore, readiness/status telemetry, and the administrator editor
+
+### Security
+- Exclusion metadata contains only bounded calendar dates; bridge credentials, connection details, and playback tokens remain excluded from schedule/status responses
+
 ## [1.5.75] - 2026-08-17
 
 ### Added

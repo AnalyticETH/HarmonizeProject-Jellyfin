@@ -73,7 +73,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
     /// <summary>
     /// A recurring, credential-free cue that displays one saved color scene at a
-    /// selected time-zone wall-clock time. The target is resolved from the global bridge or a
+    /// selected time-zone wall-clock time. Optional date bounds and exclusions control
+    /// its calendar recurrence. The target is resolved from the global bridge or a
     /// persisted user mapping when the cue runs; credentials are never stored here.
     /// </summary>
     public sealed class HueSceneSchedule
@@ -98,6 +99,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// yyyy-MM-dd. Blank means the cue has no upper date bound.
         /// </summary>
         public string EndDate { get; set; } = string.Empty;
+        /// <summary>
+        /// Optional calendar dates on which this cue must not run, formatted as yyyy-MM-dd
+        /// in the cue's time zone. Values are normalized, sorted, and bounded during API saves.
+        /// </summary>
+        public List<string> ExcludedDates { get; set; } = new List<string>();
         public int DaysOfWeekMask { get; set; } = 127;
         public bool Enabled { get; set; } = true;
     }
@@ -198,6 +204,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxColorPresetNameLength = 64;
         public const int MaxSceneSchedules = 50;
         public const int MaxSceneScheduleNameLength = 64;
+        public const int MaxSceneScheduleExcludedDates = 100;
         public const int AllSceneScheduleDaysMask = 127;
         public const int MaxSessionHistoryCount = 25;
         public const int MaxSceneScheduleHistoryCount = 100;
@@ -835,6 +842,27 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.Add($"{label} end date must be on or after the start date");
             }
 
+            var excludedDates = schedule.ExcludedDates ?? new List<string>();
+            if (excludedDates.Count > MaxSceneScheduleExcludedDates)
+                errors.Add($"{label} may exclude no more than {MaxSceneScheduleExcludedDates} dates");
+
+            var seenExcludedDates = new HashSet<string>(StringComparer.Ordinal);
+            for (var index = 0; index < excludedDates.Count; index++)
+            {
+                var value = excludedDates[index]?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                if (!TryNormalizeSceneScheduleDate(value, out var normalizedExcludedDate))
+                {
+                    errors.Add($"{label} excluded date {index + 1} must use yyyy-MM-dd format");
+                }
+                else if (!seenExcludedDates.Add(normalizedExcludedDate))
+                {
+                    errors.Add($"{label} excludes the date {normalizedExcludedDate} more than once");
+                }
+            }
+
             if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > AllSceneScheduleDaysMask)
                 errors.Add($"{label} must select at least one day of the week");
 
@@ -961,6 +989,44 @@ namespace Jellyfin.Plugin.Hue.Configuration
             }
 
             normalized = parsed.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        /// <summary>
+        /// Normalizes an optional excluded-date collection to unique sorted yyyy-MM-dd
+        /// values. Blank entries are ignored so text-based administrator clients can send
+        /// a trailing separator safely; invalid values or an oversized collection fail.
+        /// </summary>
+        public static bool TryNormalizeSceneScheduleExcludedDates(
+            IEnumerable<string>? values,
+            out List<string> normalized)
+        {
+            normalized = new List<string>();
+            if (values == null)
+                return true;
+
+            foreach (var value in values)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                if (!TryNormalizeSceneScheduleDate(value, out var normalizedDate))
+                {
+                    normalized.Clear();
+                    return false;
+                }
+
+                if (!normalized.Contains(normalizedDate, StringComparer.Ordinal))
+                    normalized.Add(normalizedDate);
+            }
+
+            if (normalized.Count > MaxSceneScheduleExcludedDates)
+            {
+                normalized.Clear();
+                return false;
+            }
+
+            normalized.Sort(StringComparer.Ordinal);
             return true;
         }
 
