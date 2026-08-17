@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.61] - 2026-08-17
+
+### Added
+- **Seek-aware playback recovery**: large forward skips and backward seeks now restart FFmpeg at the viewer's current position while keeping the active Hue scene and saved light-state lifecycle intact
+- **Seek telemetry**: Live Sync Status and `GET /HueSync/Status` report capture restart count and the most recent seek position without exposing credentials
+
 ## [1.5.60] - 2026-08-17
 
 ### Added

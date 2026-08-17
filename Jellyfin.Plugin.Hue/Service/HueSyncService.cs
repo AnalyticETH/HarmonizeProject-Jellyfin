@@ -42,6 +42,13 @@ namespace Jellyfin.Plugin.Hue.Service
         private const int DefaultFfmpegStallTimeoutSeconds = 5;
         private const int MaxConsecutiveDtlsSendFailures = 5;
 
+        // Jellyfin emits progress events throughout playback. Small timing differences
+        // between those events are normal, so only a meaningful discontinuity is treated
+        // as a seek that needs a fresh FFmpeg capture position.
+        private const double PlaybackSeekBackwardToleranceSeconds = 2;
+        private const double PlaybackSeekMinimumForwardJumpSeconds = 5;
+        private const double PlaybackSeekForwardToleranceSeconds = 8;
+
         // Color processing constants
         private const int ColorDivisor = 2; // Divide by 2 for 16-bit color compatibility
         private const int FullBrightnessValue = 127; // Full brightness for 16-bit representation
@@ -62,6 +69,12 @@ namespace Jellyfin.Plugin.Hue.Service
         private List<HueClient.LightState>? _savedLightStates;
         private string? _savedLightStatePlaySessionId;
         private DateTime _syncStartTime;
+        private long? _lastPlaybackPositionTicks;
+        private DateTime _lastPlaybackPositionObservedUtc;
+        private bool _lastPlaybackProgressWasPaused;
+        private bool _seekRestartInFlight;
+        private int _seekRestartCount;
+        private double? _lastSeekPositionSeconds;
         private const int MinSyncDurationBeforePauseMs = 5000; // Ignore pause events for first 5 seconds
         private string? _startingPlaySessionId;
         private int _syncStartsInFlight;
@@ -212,6 +225,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _startupCts?.Cancel();
                 _syncCts?.Cancel();
                 _manuallyStoppedPlaySessionId = null;
+                ResetPlaybackProgressTrackingLocked();
                 pauseCleanup = _pauseCleanupTask;
             }
 
@@ -374,6 +388,8 @@ namespace Jellyfin.Plugin.Hue.Service
             DateTime syncStartTime;
             CancellationTokenSource? syncCts;
             bool canStopSync;
+            int seekRestartCount;
+            double? lastSeekPositionSeconds;
 
             lock (_syncLock)
             {
@@ -399,6 +415,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 syncStartTime = _syncStartTime;
                 syncCts = _syncCts;
                 canStopSync = CanStopSync;
+                seekRestartCount = _seekRestartCount;
+                lastSeekPositionSeconds = _lastSeekPositionSeconds;
             }
 
             var isSyncing = syncCts != null && !syncCts.IsCancellationRequested;
@@ -455,6 +473,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 PacketsSkippedByThreshold = isSyncing ? hueStreamer?.PacketsSkippedByThreshold ?? 0 : 0,
                 PacketSendFailures = isSyncing ? hueStreamer?.PacketSendFailures ?? 0 : 0,
                 ReconnectAttempts = isSyncing ? hueStreamer?.ReconnectAttempts ?? 0 : 0,
+                SeekRestartCount = isSyncing ? seekRestartCount : 0,
+                LastSeekPositionSeconds = isSyncing ? lastSeekPositionSeconds : null,
                 IsFfmpegHealthy = isSyncing && ffmpeg?.IsHealthy(
                     activeExecutionSettings?.FfmpegStallTimeoutSeconds
                         ?? Plugin.Instance?.Configuration?.FfmpegStallTimeoutSeconds
@@ -512,6 +532,47 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             var config = Plugin.Instance?.Configuration;
             return config == null || config.IsSyncEnabledForUser(e.Session?.UserId ?? Guid.Empty);
+        }
+
+        /// <summary>
+        /// Determines whether two playback progress samples describe a real seek rather
+        /// than ordinary progress between Jellyfin notifications. The comparison uses the
+        /// elapsed wall-clock time so a slow event cadence does not cause unnecessary
+        /// restarts.
+        /// </summary>
+        internal static bool IsPlaybackSeek(
+            long? previousPositionTicks,
+            DateTime previousObservedUtc,
+            long? currentPositionTicks,
+            DateTime currentObservedUtc)
+        {
+            if (!previousPositionTicks.HasValue || !currentPositionTicks.HasValue ||
+                previousPositionTicks.Value < 0 || currentPositionTicks.Value < 0 ||
+                previousObservedUtc == default || currentObservedUtc == default)
+            {
+                return false;
+            }
+
+            var positionDeltaSeconds = TimeSpan.FromTicks(
+                currentPositionTicks.Value - previousPositionTicks.Value).TotalSeconds;
+            if (positionDeltaSeconds < -PlaybackSeekBackwardToleranceSeconds)
+                return true;
+
+            if (positionDeltaSeconds < PlaybackSeekMinimumForwardJumpSeconds)
+                return false;
+
+            var elapsedSeconds = Math.Max(0, (currentObservedUtc - previousObservedUtc).TotalSeconds);
+            return positionDeltaSeconds - elapsedSeconds >= PlaybackSeekForwardToleranceSeconds;
+        }
+
+        private void ResetPlaybackProgressTrackingLocked()
+        {
+            _lastPlaybackPositionTicks = null;
+            _lastPlaybackPositionObservedUtc = default;
+            _lastPlaybackProgressWasPaused = false;
+            _seekRestartInFlight = false;
+            _seekRestartCount = 0;
+            _lastSeekPositionSeconds = null;
         }
 
         private void ClearTransientRuntimeWarning()
@@ -601,7 +662,14 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 if (_currentPlaySessionId == null)
+                {
                     _currentPlaySessionId = e.PlaySessionId;
+                    ResetPlaybackProgressTrackingLocked();
+                }
+
+                _lastPlaybackPositionTicks = e.PlaybackPositionTicks;
+                _lastPlaybackPositionObservedUtc = DateTime.UtcNow;
+                _lastPlaybackProgressWasPaused = e.IsPaused;
             }
 
             ObserveTask(StartSyncForItem(e));
@@ -704,7 +772,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 lock (_syncLock)
                 {
                     if (string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                    {
                         _currentPlaySessionId = null;
+                        ResetPlaybackProgressTrackingLocked();
+                    }
                 }
                 _syncLifecycleLock.Release();
             }
@@ -726,6 +797,64 @@ namespace Jellyfin.Plugin.Hue.Service
 
             if (_currentPlaySessionId != null && !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
             {
+                return;
+            }
+
+            var observedAtUtc = DateTime.UtcNow;
+            var shouldRestartForSeek = false;
+            lock (_syncLock)
+            {
+                var isCurrentSession = string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal);
+                if (isCurrentSession)
+                {
+                    var wasPaused = _lastPlaybackProgressWasPaused;
+                    shouldRestartForSeek = !e.IsPaused &&
+                        !wasPaused &&
+                        !_seekRestartInFlight &&
+                        _startingPlaySessionId == null &&
+                        _syncCts != null &&
+                        !_syncCts.IsCancellationRequested &&
+                        IsPlaybackSeek(
+                            _lastPlaybackPositionTicks,
+                            _lastPlaybackPositionObservedUtc,
+                            e.PlaybackPositionTicks,
+                            observedAtUtc);
+
+                    if (e.PlaybackPositionTicks.HasValue)
+                    {
+                        _lastPlaybackPositionTicks = e.PlaybackPositionTicks;
+                        _lastPlaybackPositionObservedUtc = observedAtUtc;
+                    }
+                    else if (e.IsPaused)
+                    {
+                        // Reset the wall-clock baseline when a pause event has no position;
+                        // the pause duration must not look like a forward seek on resume.
+                        _lastPlaybackPositionObservedUtc = observedAtUtc;
+                    }
+
+                    _lastPlaybackProgressWasPaused = e.IsPaused;
+                    if (shouldRestartForSeek)
+                    {
+                        _seekRestartInFlight = true;
+                        _seekRestartCount++;
+                        _lastSeekPositionSeconds = e.PlaybackPositionTicks.HasValue
+                            ? TimeSpan.FromTicks(e.PlaybackPositionTicks.Value).TotalSeconds
+                            : null;
+                    }
+                }
+            }
+
+            if (shouldRestartForSeek)
+            {
+                var seekPosition = e.PlaybackPositionTicks.HasValue
+                    ? TimeSpan.FromTicks(e.PlaybackPositionTicks.Value).TotalSeconds
+                    : 0;
+                _logger.LogInformation(
+                    "Playback seek detected at {0:0.0}s for session {1}; restarting the video capture stream",
+                    seekPosition,
+                    e.PlaySessionId);
+                SetRuntimeStatus("Resyncing", "Playback seek detected; resynchronizing Hue output.");
+                ObserveTask(RestartSyncAfterSeekAsync(e));
                 return;
             }
 
@@ -1840,7 +1969,40 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
+        private async Task RestartSyncAfterSeekAsync(PlaybackProgressEventArgs e)
+        {
+            try
+            {
+                lock (_syncLock)
+                {
+                    if (_isStopping ||
+                        !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal) ||
+                        _lastPlaybackProgressWasPaused)
+                    {
+                        return;
+                    }
+                }
+
+                // Reuse the current Hue target and saved light-state snapshot. The restart
+                // stops only the active stream/capture pipeline; it does not run playback
+                // cleanup, so the lights do not flash back to their pre-playback state.
+                await StartSyncForItemWithOptions(e, preserveSessionMetadata: true).ConfigureAwait(false);
+            }
+            finally
+            {
+                lock (_syncLock)
+                {
+                    _seekRestartInFlight = false;
+                }
+            }
+        }
+
         private async Task StartSyncForItem(PlaybackProgressEventArgs e)
+            => await StartSyncForItemWithOptions(e, preserveSessionMetadata: false).ConfigureAwait(false);
+
+        private async Task StartSyncForItemWithOptions(
+            PlaybackProgressEventArgs e,
+            bool preserveSessionMetadata)
         {
             lock (_syncLock)
             {
@@ -1859,7 +2021,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             try
             {
-                await StartSyncForItemInternal(e);
+                await StartSyncForItemInternal(e, preserveSessionMetadata);
             }
             finally
             {
@@ -1877,7 +2039,9 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private async Task StartSyncForItemInternal(PlaybackProgressEventArgs e)
+        private async Task StartSyncForItemInternal(
+            PlaybackProgressEventArgs e,
+            bool preserveSessionMetadata)
         {
             var startupCts = new CancellationTokenSource();
             lock (_syncLock)
@@ -1917,7 +2081,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (startupCts.IsCancellationRequested)
                     return;
 
-                await StartSyncForItemCore(e, startupCts.Token).ConfigureAwait(false);
+                await StartSyncForItemCoreWithOptions(e, startupCts.Token, preserveSessionMetadata).ConfigureAwait(false);
             }
             finally
             {
@@ -1932,7 +2096,15 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private async Task StartSyncForItemCore(PlaybackProgressEventArgs e, CancellationToken startupToken)
+        // Keep the original two-argument helper for lifecycle tests and older internal
+        // callers; seek restarts use the options-aware implementation below.
+        private Task StartSyncForItemCore(PlaybackProgressEventArgs e, CancellationToken startupToken)
+            => StartSyncForItemCoreWithOptions(e, startupToken, preserveSessionMetadata: false);
+
+        private async Task StartSyncForItemCoreWithOptions(
+            PlaybackProgressEventArgs e,
+            CancellationToken startupToken,
+            bool preserveSessionMetadata)
         {
             lock (_syncLock)
             {
@@ -2010,12 +2182,38 @@ namespace Jellyfin.Plugin.Hue.Service
             if (startupToken.IsCancellationRequested)
                 return;
 
-            IDisposable? playbackLifecycleLease = _bridgeLifecycleGate.TryEnterPlayback();
-            if (playbackLifecycleLease == null)
+            IDisposable? playbackLifecycleLease = null;
+            var reusingPlaybackLease = false;
+            if (preserveSessionMetadata)
+            {
+                lock (_syncLock)
+                {
+                    reusingPlaybackLease = string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal) &&
+                        _playbackLifecycleLease != null;
+                }
+            }
+
+            if (!reusingPlaybackLease)
+                playbackLifecycleLease = _bridgeLifecycleGate.TryEnterPlayback();
+
+            if (!reusingPlaybackLease && playbackLifecycleLease == null)
             {
                 _logger.LogWarning("Hue playback startup was blocked because a diagnostic is using the bridge");
                 SetRuntimeError("Hue playback could not start while a Hue diagnostic (connection probe or preview) is using the bridge.");
                 return;
+            }
+
+            DateTime? preservedSyncStartTime = null;
+            if (preserveSessionMetadata)
+            {
+                lock (_syncLock)
+                {
+                    if (string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal) &&
+                        _syncStartTime != default)
+                    {
+                        preservedSyncStartTime = _syncStartTime;
+                    }
+                }
             }
 
             StopSync();
@@ -2031,15 +2229,18 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
                 else
                 {
-                    _playbackLifecycleLease = playbackLifecycleLease;
-                    playbackLifecycleLease = null;
+                    if (!reusingPlaybackLease)
+                    {
+                        _playbackLifecycleLease = playbackLifecycleLease;
+                        playbackLifecycleLease = null;
+                    }
                     _syncCts = syncCts;
                     _currentPlaySessionId = e.PlaySessionId;
                     _currentUserId = userId == Guid.Empty ? null : userId;
                     _currentUserName = string.IsNullOrWhiteSpace(userName) ? null : userName;
                     _currentBridgeConfig = (bridgeIp, appKey, clientKey, areaId);
                     _bridgeAreaDeactivated = false;
-                    _syncStartTime = DateTime.UtcNow;
+                    _syncStartTime = preservedSyncStartTime ?? DateTime.UtcNow;
                     _currentItemName = e.Item?.Name;
                     _currentFrameResolution = frameResolution;
                     _currentVideoScalingMode = videoScalingMode;
@@ -2185,16 +2386,23 @@ namespace Jellyfin.Plugin.Hue.Service
                         // the failure was observed, so cleanup must still restore it.
                         _activeCinemaModeAttempted = true;
                     }
-                    _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", brightnessDimLevel);
-                    await ApplyCinemaMode(
-                        bridgeIp,
-                        appKey,
-                        clientKey,
-                        areaId,
-                        areaConfig.Value,
-                        brightnessDimLevel,
-                        selectedChannelIds,
-                        startupToken);
+                    if (!preserveSessionMetadata)
+                    {
+                        _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", brightnessDimLevel);
+                        await ApplyCinemaMode(
+                            bridgeIp,
+                            appKey,
+                            clientKey,
+                            areaId,
+                            areaConfig.Value,
+                            brightnessDimLevel,
+                            selectedChannelIds,
+                            startupToken);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Reusing the active cinema-mode light policy after playback seek");
+                    }
                     if (token.IsCancellationRequested)
                         return;
                 }
@@ -2311,6 +2519,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
                 finally
                 {
+                    if (!syncStatePublished && reusingPlaybackLease)
+                        ReleasePlaybackLifecycleLease();
+
                     if (!syncLoopStarted)
                     {
                         try
@@ -2626,6 +2837,8 @@ namespace Jellyfin.Plugin.Hue.Service
         public long PacketsSkippedByThreshold { get; init; }
         public long PacketSendFailures { get; init; }
         public int ReconnectAttempts { get; init; }
+        public int SeekRestartCount { get; init; }
+        public double? LastSeekPositionSeconds { get; init; }
         public bool IsFfmpegHealthy { get; init; }
         public bool IsDtlsHealthy { get; init; }
         public double? SyncDurationSeconds { get; init; }

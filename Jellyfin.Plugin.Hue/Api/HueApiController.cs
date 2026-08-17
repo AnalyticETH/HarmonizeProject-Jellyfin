@@ -870,6 +870,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 PacketsSkippedByThreshold = runtime?.PacketsSkippedByThreshold ?? 0,
                 PacketSendFailures = runtime?.PacketSendFailures ?? 0,
                 ReconnectAttempts = runtime?.ReconnectAttempts ?? 0,
+                SeekRestartCount = runtime?.SeekRestartCount ?? 0,
+                LastSeekPositionSeconds = runtime?.LastSeekPositionSeconds,
                 CanStopSync = runtime?.CanStopSync ?? false,
                 IsFfmpegHealthy = runtime?.IsFfmpegHealthy ?? false,
                 IsDtlsHealthy = runtime?.IsDtlsHealthy ?? false,
@@ -1956,6 +1958,8 @@ namespace Jellyfin.Plugin.Hue.Api
         public long PacketsSkippedByThreshold { get; set; }
         public long PacketSendFailures { get; set; }
         public int ReconnectAttempts { get; set; }
+        public int SeekRestartCount { get; set; }
+        public double? LastSeekPositionSeconds { get; set; }
         public bool CanStopSync { get; set; }
         public bool IsFfmpegHealthy { get; set; }
         public bool IsDtlsHealthy { get; set; }

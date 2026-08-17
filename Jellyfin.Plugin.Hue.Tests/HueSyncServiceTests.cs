@@ -7,6 +7,49 @@ namespace Jellyfin.Plugin.Hue.Tests;
 
 public sealed class HueSyncServiceTests
 {
+    [Fact]
+    public void IsPlaybackSeek_RecognizesBackwardAndLargeForwardJumps()
+    {
+        var start = DateTime.UtcNow;
+        var previous = TimeSpan.FromSeconds(100).Ticks;
+
+        Assert.True(HueSyncService.IsPlaybackSeek(
+            previous,
+            start,
+            TimeSpan.FromSeconds(90).Ticks,
+            start.AddSeconds(1)));
+
+        Assert.True(HueSyncService.IsPlaybackSeek(
+            previous,
+            start,
+            TimeSpan.FromSeconds(140).Ticks,
+            start.AddSeconds(1)));
+    }
+
+    [Fact]
+    public void IsPlaybackSeek_IgnoresNormalProgressAndIncompleteSamples()
+    {
+        var start = DateTime.UtcNow;
+
+        Assert.False(HueSyncService.IsPlaybackSeek(
+            TimeSpan.FromSeconds(100).Ticks,
+            start,
+            TimeSpan.FromSeconds(110).Ticks,
+            start.AddSeconds(10)));
+
+        Assert.False(HueSyncService.IsPlaybackSeek(
+            null,
+            start,
+            TimeSpan.FromSeconds(110).Ticks,
+            start.AddSeconds(1)));
+
+        Assert.False(HueSyncService.IsPlaybackSeek(
+            TimeSpan.FromSeconds(100).Ticks,
+            start,
+            TimeSpan.FromSeconds(90).Ticks,
+            default));
+    }
+
     [Theory]
     [InlineData(true, false, null, "session-a", true)]
     [InlineData(true, true, "session-a", "session-a", false)]

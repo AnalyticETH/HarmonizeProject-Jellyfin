@@ -1161,6 +1161,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(0, status.PacketsSkippedByThreshold);
         Assert.Equal(0, status.PacketSendFailures);
         Assert.Equal(0, status.ReconnectAttempts);
+        Assert.Equal(0, status.SeekRestartCount);
+        Assert.Null(status.LastSeekPositionSeconds);
         Assert.Null(status.LastError);
         Assert.Null(status.CleanupWarning);
         Assert.False(status.CanStopSync);

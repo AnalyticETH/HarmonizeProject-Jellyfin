@@ -33,6 +33,7 @@
                             <div><strong>Health:</strong> <span id="runtimeHealth">—</span></div>
                             <div><strong>Frames processed:</strong> <span id="runtimeFrames">0</span></div>
                             <div><strong>Stream quality:</strong> <span id="runtimeQuality">—</span></div>
+                            <div><strong>Seek recovery:</strong> <span id="runtimeSeekRecovery">—</span></div>
                             <div><strong>Duration:</strong> <span id="runtimeDuration">—</span></div>
                         </div>
                         <button is="emby-button" type="button" class="raised" id="refreshRuntimeStatusBtn">
@@ -1433,6 +1434,8 @@
                         var packetsSkipped = HueConfigurationPage.readStatusField(status, "PacketsSkippedByThreshold", 0);
                         var packetFailures = HueConfigurationPage.readStatusField(status, "PacketSendFailures", 0);
                         var reconnectAttempts = HueConfigurationPage.readStatusField(status, "ReconnectAttempts", 0);
+                        var seekRestartCount = HueConfigurationPage.readStatusField(status, "SeekRestartCount", 0);
+                        var lastSeekPosition = HueConfigurationPage.readStatusField(status, "LastSeekPositionSeconds", null);
                         var ffmpegHealthy = HueConfigurationPage.readStatusField(status, "IsFfmpegHealthy", false);
                         var dtlsHealthy = HueConfigurationPage.readStatusField(status, "IsDtlsHealthy", false);
                         var duration = HueConfigurationPage.readStatusField(status, "SyncDurationSeconds", null);
@@ -1482,6 +1485,10 @@
                             ? (effectiveFps == null ? "warming up" : Number(effectiveFps).toFixed(1) + " FPS effective") +
                                 " · " + String(packetsSent || 0) + " sent · " + String(packetsSkipped || 0) + " threshold-skipped · " +
                                 String(packetFailures || 0) + " failed · " + String(reconnectAttempts || 0) + " reconnects"
+                            : "—";
+                        page.querySelector('#runtimeSeekRecovery').textContent = isSyncing
+                            ? String(seekRestartCount || 0) + " capture restart" + (Number(seekRestartCount || 0) === 1 ? "" : "s") +
+                                (lastSeekPosition == null ? "" : " · last at " + Number(lastSeekPosition).toFixed(1) + "s")
                             : "—";
                         page.querySelector('#runtimeDuration').textContent = HueConfigurationPage.formatRuntimeDuration(duration);
                         page.querySelector('#runtimeStatusMessage').textContent = message || "No runtime message.";

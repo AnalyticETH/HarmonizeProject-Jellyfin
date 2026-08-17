@@ -66,6 +66,8 @@ public sealed class HueSyncServiceLifecycleTests
         SetPrivateField(service, "_currentUserName", "Living Room Viewer");
         SetPrivateField(service, "_currentItemName", "Feature film");
         SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-3));
+        SetPrivateField(service, "_seekRestartCount", 2);
+        SetPrivateField(service, "_lastSeekPositionSeconds", 142.5);
         SetPrivateField(service, "_runtimeState", "Syncing");
         SetPrivateField(service, "_runtimeMessage", "Streaming video colors to Hue.");
         var hueStreamer = Assert.IsType<HueStreamer>(GetPrivateField(service, "_hueStreamer"));
@@ -113,6 +115,8 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal(7, status.PacketsSkippedByThreshold);
         Assert.Equal(2, status.PacketSendFailures);
         Assert.Equal(1, status.ReconnectAttempts);
+        Assert.Equal(2, status.SeekRestartCount);
+        Assert.Equal(142.5, status.LastSeekPositionSeconds);
         Assert.True(status.SyncDurationSeconds >= 2);
         Assert.DoesNotContain("secret-app-key", status.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-client-key", status.Message, StringComparison.Ordinal);
@@ -123,6 +127,8 @@ public sealed class HueSyncServiceLifecycleTests
         var stoppedStatus = service.GetRuntimeStatus();
         Assert.Null(stoppedStatus.ActiveUserId);
         Assert.Null(stoppedStatus.ActiveUserName);
+        Assert.Equal(0, stoppedStatus.SeekRestartCount);
+        Assert.Null(stoppedStatus.LastSeekPositionSeconds);
     }
 
     [Fact]
