@@ -50,7 +50,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Hue Bridge Address** | The private/local IP address of your bridge (or a .local mDNS host name). |
 | **Discover Bridge** | Ask the Hue discovery service for a bridge address and fill it into the form automatically. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
-| **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. |
+| **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that saves and restores current light state. |
 | **Hue App Key** | "Username" for the REST API (auto-filled). |
 | **Hue Client Key** | "ClientKey" for the streaming API (auto-filled). |
 | **Entertainment Area ID** | UUID of the specific area to sync. |
@@ -85,7 +85,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | :--- | :--- |
 | `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
-| `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness without starting a stream. |
+| `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration. |
 | `GET /HueSync/Status` | Read sanitized runtime state, active target, frame count, and FFmpeg/DTLS health. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings. |
@@ -238,7 +238,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.7 (Current)
+### Version 1.5.8 (Current)
+- **DTLS setup probe**: Test Connection can now verify the Client Key and send a low-intensity probe packet through the selected entertainment area before playback
+
+### Version 1.5.7
 - **Live runtime status**: The configuration page now shows lifecycle state, active bridge/area, frame count, sync duration, and FFmpeg/DTLS health with automatic refresh
 - **Actionable diagnostics**: Startup, pause, stop, bridge, and video-pipeline failures are surfaced as sanitized status messages without exposing Hue credentials
 

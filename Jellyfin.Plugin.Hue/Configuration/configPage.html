@@ -72,7 +72,7 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="hueClientKey">Hue Client Key (DTLS)</label>
                             <input id="hueClientKey" name="hueClientKey" type="text" is="emby-input" />
-                            <div class="fieldDescription">Auto-generated via Link.</div>
+                            <div class="fieldDescription">Auto-generated via Link. Test Connection uses it to verify a short DTLS stream probe.</div>
                         </div>
                     </fieldset>
 
@@ -188,7 +188,7 @@
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="mappingClientKey">Client Key</label>
                                 <input id="mappingClientKey" type="text" class="emby-input" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
-                                <div class="fieldDescription">Auto-filled via Link, or enter manually.</div>
+                                <div class="fieldDescription">Auto-filled via Link, or enter manually. Test Connection verifies the DTLS stream when set.</div>
                             </div>
 
                             <div class="inputContainer">
@@ -363,13 +363,14 @@
                         dataType: "json"
                     });
                 },
-                fetchConnectionTest: function (bridgeIp, appKey, areaId) {
+                fetchConnectionTest: function (bridgeIp, appKey, areaId, clientKey) {
                     return ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/TestConnection"),
                         data: JSON.stringify({
                             ipAddress: bridgeIp,
                             appKey: appKey,
+                            clientKey: clientKey || "",
                             entertainmentAreaId: areaId || ""
                         }),
                         contentType: "application/json",
@@ -379,10 +380,27 @@
                 connectionTestMessage: function (response, areaId) {
                     var areaFound = response && (response.areaFound !== undefined ? response.areaFound : response.AreaFound);
                     var message = response && (response.message || response.Message);
+                    var streamTested = response && (response.streamTested !== undefined ? response.streamTested : response.StreamTested);
+                    var streamReady = response && (response.streamReady !== undefined ? response.streamReady : response.StreamReady);
+                    var streamMessage = response && (response.streamMessage || response.StreamMessage);
                     if (areaId && areaFound === false) {
                         return {
                             tone: "warning",
                             text: message || "Bridge is reachable, but the selected entertainment area was not found."
+                        };
+                    }
+
+                    if (streamTested && streamReady === false) {
+                        return {
+                            tone: "error",
+                            text: message || streamMessage || "Bridge is reachable, but the DTLS stream probe failed."
+                        };
+                    }
+
+                    if (streamTested === false && streamMessage) {
+                        return {
+                            tone: "warning",
+                            text: message || streamMessage
                         };
                     }
 
@@ -686,6 +704,7 @@
                     var button = page.querySelector('#testConnectionBtn');
                     var bridgeIp = page.querySelector('#hueBridgeIp').value.trim();
                     var appKey = page.querySelector('#hueAppKey').value.trim();
+                    var clientKey = page.querySelector('#hueClientKey').value.trim();
                     var areaId = HueConfigurationPage.getSelectedAreaId(page);
 
                     if (!bridgeIp || !appKey) {
@@ -696,7 +715,7 @@
                     button.disabled = true;
                     HueConfigurationPage.refreshStatus(page, "Testing bridge connection...", "info");
                     Dashboard.showLoadingMsg();
-                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId)
+                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey)
                         .then(function (response) {
                             var result = HueConfigurationPage.connectionTestMessage(response, areaId);
                             HueConfigurationPage.refreshStatus(page, result.text, result.tone);
@@ -854,6 +873,8 @@
                     var statusEl = document.getElementById('mappingBridgeStatus');
                     var bridgeIp = bridgeIpEl ? bridgeIpEl.value.trim() : '';
                     var appKey = appKeyEl ? appKeyEl.value.trim() : '';
+                    var clientKeyEl = document.getElementById('mappingClientKey');
+                    var clientKey = clientKeyEl ? clientKeyEl.value.trim() : '';
                     var areaId = areaSelect ? areaSelect.value : '';
 
                     if (areaId === "manual") {
@@ -872,12 +893,17 @@
                         statusEl.style.background = "#3f51b5";
                     }
                     Dashboard.showLoadingMsg();
-                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId)
+                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey)
                         .then(function (response) {
                             var result = HueConfigurationPage.connectionTestMessage(response, areaId);
                             if (statusEl) {
                                 statusEl.textContent = result.text;
-                                statusEl.style.background = result.tone === "success" ? "#4caf50" : "#f0ad4e";
+                                var statusColors = {
+                                    success: "#4caf50",
+                                    warning: "#f0ad4e",
+                                    error: "#d9534f"
+                                };
+                                statusEl.style.background = statusColors[result.tone] || "#3f51b5";
                             }
                         })
                         .catch(function (err) {

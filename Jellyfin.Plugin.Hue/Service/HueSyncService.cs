@@ -251,6 +251,30 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
+        private void SetRuntimeWarning(string message)
+        {
+            lock (_syncLock)
+            {
+                if (!string.Equals(_runtimeState, "Error", StringComparison.Ordinal))
+                    _runtimeState = "Syncing";
+                _runtimeMessage = message;
+                _lastError = message;
+            }
+        }
+
+        private void ClearTransientRuntimeWarning()
+        {
+            lock (_syncLock)
+            {
+                if (_lastError != null && _lastError.StartsWith("The DTLS stream could not send", StringComparison.Ordinal))
+                {
+                    _runtimeState = "Syncing";
+                    _runtimeMessage = "Streaming video colors to Hue.";
+                    _lastError = null;
+                }
+            }
+        }
+
         private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
         {
             if (_isStopping)
@@ -679,7 +703,11 @@ namespace Jellyfin.Plugin.Hue.Service
                                 {
                                     blackColors[kvp.Key] = new byte[] { 0, 0, 0, 0, 0, 0 };
                                 }
-                                await _hueStreamer!.SendColors(areaId, blackColors, config.ColorChangeThreshold);
+                                var blackoutSent = await _hueStreamer!.SendColors(areaId, blackColors, config.ColorChangeThreshold);
+                                if (!blackoutSent && !token.IsCancellationRequested)
+                                    SetRuntimeWarning("The DTLS stream could not send blackout colors; reconnect is being attempted.");
+                                else if (blackoutSent)
+                                    ClearTransientRuntimeWarning();
 
                                 var elapsedBlackout = loopTimer.ElapsedMilliseconds;
                                 if (targetFrameDurationMs > 0)
@@ -730,7 +758,11 @@ namespace Jellyfin.Plugin.Hue.Service
                             processedColors[kvp.Key] = new byte[] { r16, r16, g16, g16, b16, b16 };
                         }
 
-                        await _hueStreamer!.SendColors(areaId, processedColors, config.ColorChangeThreshold);
+                        var processedSent = await _hueStreamer!.SendColors(areaId, processedColors, config.ColorChangeThreshold);
+                        if (!processedSent && !token.IsCancellationRequested)
+                            SetRuntimeWarning("The DTLS stream could not send colors; reconnect is being attempted.");
+                        else if (processedSent)
+                            ClearTransientRuntimeWarning();
                     }
                     else
                     {
@@ -743,7 +775,11 @@ namespace Jellyfin.Plugin.Hue.Service
                             byte b2 = (byte)(kvp.Value[2] / ColorDivisor);
                             simpleColors[kvp.Key] = new byte[] { r2, r2, g2, g2, b2, b2 };
                         }
-                        await _hueStreamer!.SendColors(areaId, simpleColors);
+                        var simpleSent = await _hueStreamer!.SendColors(areaId, simpleColors);
+                        if (!simpleSent && !token.IsCancellationRequested)
+                            SetRuntimeWarning("The DTLS stream could not send colors; reconnect is being attempted.");
+                        else if (simpleSent)
+                            ClearTransientRuntimeWarning();
                     }
 
                     var elapsedMs = loopTimer.ElapsedMilliseconds;

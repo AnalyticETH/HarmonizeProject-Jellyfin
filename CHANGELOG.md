@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.8] - 2026-08-17
+
+### Added
+- Optional non-destructive DTLS stream probe from the default and per-user Test Connection flows
+- Explicit stream probe result fields for API clients, including stream readiness and a sanitized diagnostic message
+- Regression coverage for probe channel validation, API wiring, and malformed-area safety
+
+### Changed
+- `HueStreamer.SendColors` now reports whether a packet was successfully written so diagnostics can distinguish an open process from a usable stream
+
 ## [1.5.7] - 2026-08-17
 
 ### Added

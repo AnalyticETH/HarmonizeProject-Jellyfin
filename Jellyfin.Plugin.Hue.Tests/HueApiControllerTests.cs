@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Jellyfin.Plugin.Hue.Api;
 using Jellyfin.Plugin.Hue.Hue;
+using Jellyfin.Plugin.Hue.Service;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
@@ -174,6 +175,65 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task TestConnection_WithClientKeyRunsDtlsProbe()
+    {
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.TestAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<System.Text.Json.JsonElement>()))
+            .ReturnsAsync(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "DTLS probe succeeded."
+            });
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConnectionTestResult>(response.Value);
+        Assert.True(result.StreamTested);
+        Assert.True(result.StreamReady);
+        Assert.Contains("DTLS stream", result.Message, StringComparison.OrdinalIgnoreCase);
+        streamTester.Verify(tester => tester.TestAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-1",
+            It.IsAny<System.Text.Json.JsonElement>()), Times.Once);
+    }
+
+    [Fact]
     public void GetStatus_WithoutHostedSyncServiceDoesNotExposeRuntimeSecrets()
     {
         var controller = CreateController();
@@ -189,10 +249,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.LastError);
     }
 
-    private HueApiController CreateController()
+    private HueApiController CreateController(IHueStreamTester? streamTester = null)
     {
         var client = new HueClient(_httpClient, _loggerMock.Object);
-        return new HueApiController(client, Array.Empty<IHostedService>());
+        return new HueApiController(client, Array.Empty<IHostedService>(), streamTester);
     }
 
     private void SetupHttpResponse(HttpStatusCode statusCode, string body)

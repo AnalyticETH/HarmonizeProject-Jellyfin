@@ -421,14 +421,15 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="areaId">The entertainment area ID (used for logging only)</param>
         /// <param name="channelColors">Dictionary mapping channel IDs to 6-byte RGB16 color data</param>
         /// <param name="colorChangeThreshold">Minimum per-channel color change to trigger update (0 to disable)</param>
-        public async Task SendColors(string areaId, Dictionary<int, byte[]> channelColors, int colorChangeThreshold = 0)
+        /// <returns>True when the packet was sent or intentionally skipped by the change threshold; otherwise false.</returns>
+        public async Task<bool> SendColors(string areaId, Dictionary<int, byte[]> channelColors, int colorChangeThreshold = 0)
         {
             ArgumentNullException.ThrowIfNull(channelColors);
 
             // Skip if colors haven't changed significantly
             if (colorChangeThreshold > 0 && !HasSignificantColorChange(channelColors, colorChangeThreshold))
             {
-                return;
+                return true;
             }
 
             // Check health and try to reconnect if needed
@@ -438,7 +439,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 if (!await TryReconnectAsync().ConfigureAwait(false))
                 {
                     _logger.LogError("Failed to reconnect DTLS stream after {0} attempts", MaxReconnectAttempts);
-                    return;
+                    return false;
                 }
             }
 
@@ -448,7 +449,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 if (_stdin == null)
                 {
                     _logger.LogWarning("Cannot send colors: DTLS stream not initialized");
-                    return;
+                    return false;
                 }
                 stdinCopy = _stdin;
             }
@@ -465,10 +466,12 @@ namespace Jellyfin.Plugin.Hue.Hue
                 {
                     _lastSentColors[kvp.Key] = (byte[])kvp.Value.Clone();
                 }
+                return true;
             }
             catch (ObjectDisposedException)
             {
                 _logger.LogDebug("Stream disposed while sending colors");
+                return false;
             }
             catch (IOException ex)
             {
@@ -480,10 +483,12 @@ namespace Jellyfin.Plugin.Hue.Hue
                     else if (t.Result == false)
                         _logger.LogWarning("DTLS reconnection failed — lights may stop syncing until next playback");
                 }, TaskContinuationOptions.ExecuteSynchronously);
+                return false;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error sending colors");
+                return false;
             }
         }
     }

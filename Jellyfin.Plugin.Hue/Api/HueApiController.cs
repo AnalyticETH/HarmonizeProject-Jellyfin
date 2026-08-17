@@ -7,9 +7,11 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
+using Jellyfin.Plugin.Hue.Service;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.Hue.Api
 {
@@ -21,11 +23,22 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         private readonly HueClient _hueClient;
         private readonly Service.HueSyncService? _syncService;
+        private readonly IHueStreamTester? _streamTester;
 
         public HueApiController(HueClient hueClient, IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices)
+            : this(hueClient, hostedServices, null)
+        {
+        }
+
+        [ActivatorUtilitiesConstructor]
+        public HueApiController(
+            HueClient hueClient,
+            IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices,
+            IHueStreamTester? streamTester)
         {
             _hueClient = hueClient;
             _syncService = hostedServices.OfType<Service.HueSyncService>().FirstOrDefault();
+            _streamTester = streamTester;
         }
 
         [HttpPost("Register")]
@@ -115,7 +128,8 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Tests bridge reachability and, when supplied, verifies an entertainment area without starting a stream.
+        /// Tests bridge reachability and, when supplied, verifies an entertainment area. A client key
+        /// additionally opts into a short non-destructive DTLS stream probe.
         /// </summary>
         [HttpPost("TestConnection")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -180,7 +194,46 @@ namespace Jellyfin.Plugin.Hue.Api
 
             result.AreaFound = true;
             result.AreaName = selectedArea.Name;
-            result.Message = $"Bridge reachable. Entertainment area '{selectedArea.Name}' is ready.";
+            if (!string.IsNullOrWhiteSpace(request.ClientKey) && _streamTester != null)
+            {
+                if (_syncService?.IsSyncing == true)
+                {
+                    result.StreamTested = false;
+                    result.StreamMessage = "Stop active playback before running a DTLS stream probe.";
+                    result.Message = $"Bridge reachable and area '{selectedArea.Name}' is configured, but the stream probe was skipped because playback sync is active.";
+                }
+                else
+                {
+                    result.StreamTested = true;
+                    HueStreamProbeResult streamProbe;
+                    try
+                    {
+                        streamProbe = await _streamTester.TestAsync(
+                            bridgeIp,
+                            appKey,
+                            request.ClientKey.Trim(),
+                            areaId,
+                            areaConfiguration.Value);
+                    }
+                    catch
+                    {
+                        streamProbe = new HueStreamProbeResult
+                        {
+                            Succeeded = false,
+                            Message = "The DTLS stream probe failed unexpectedly. Check the server log."
+                        };
+                    }
+                    result.StreamReady = streamProbe.Succeeded;
+                    result.StreamMessage = streamProbe.Message;
+                    result.Message = streamProbe.Succeeded
+                        ? $"Bridge reachable. Entertainment area '{selectedArea.Name}' and DTLS stream are ready."
+                        : $"Bridge reachable and area '{selectedArea.Name}' is configured, but the DTLS stream probe failed: {streamProbe.Message}";
+                }
+            }
+            else
+            {
+                result.Message = $"Bridge reachable. Entertainment area '{selectedArea.Name}' is ready.";
+            }
             return Ok(result);
         }
 
@@ -327,6 +380,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("appKey")]
         public string AppKey { get; set; } = string.Empty;
 
+        [JsonPropertyName("clientKey")]
+        public string? ClientKey { get; set; }
+
         [JsonPropertyName("entertainmentAreaId")]
         public string? EntertainmentAreaId { get; set; }
     }
@@ -347,6 +403,15 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("areaName")]
         public string? AreaName { get; set; }
+
+        [JsonPropertyName("streamTested")]
+        public bool? StreamTested { get; set; }
+
+        [JsonPropertyName("streamReady")]
+        public bool? StreamReady { get; set; }
+
+        [JsonPropertyName("streamMessage")]
+        public string? StreamMessage { get; set; }
 
         [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;

@@ -23,6 +23,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             {
                 ServerCertificateCustomValidationCallback = HueBridgeCertificateValidation.ValidateServerCertificate
             });
+        serviceCollection.AddTransient<IHueStreamTester, HueStreamTester>();
         serviceCollection.AddHostedService<HueSyncService>();
     }
 }
