@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.23] - 2026-08-17
+
+### Added
+- Configurable 80x45, 160x90, and 320x180 RGB frame sampling resolutions
+- Active frame resolution diagnostics in Live Sync Status
+- Regression coverage for resolution validation, scaling, FFmpeg filters, and high-resolution sampling
+
+### Changed
+- FFmpeg output and spatial sampling now use the selected resolution while 160x90 remains the default
+
 ## [1.5.22] - 2026-08-17
 
 ### Added

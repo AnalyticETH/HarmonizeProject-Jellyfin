@@ -31,6 +31,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string SamplingModeAverage = "Average";
         public const string SamplingModeCenterWeighted = "CenterWeighted";
         public const string SamplingModeCenterPixel = "CenterPixel";
+        public const string FrameResolutionLow = "80x45";
+        public const string FrameResolutionStandard = "160x90";
+        public const string FrameResolutionHigh = "320x180";
 
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
@@ -66,6 +69,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int BrightnessDimLevel { get; set; } = 30;
         public string PauseBehavior { get; set; } = PauseBehaviorKeepLastColors;
         public int TargetFps { get; set; } = 20;
+        public string FrameResolution { get; set; } = FrameResolutionStandard;
         public int SamplingBreadthPercent { get; set; } = 15;
         public string SamplingMode { get; set; } = SamplingModeAverage;
         public int ColorSmoothingPercent { get; set; } = 0;
@@ -113,6 +117,22 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Gets the RGB frame dimensions used by FFmpeg and the sampling loop.
+        /// Unknown values fall back to the standard resolution so older or manually
+        /// edited configurations remain safe to load.
+        /// </summary>
+        public static (int Width, int Height) GetFrameDimensions(string? frameResolution)
+        {
+            if (string.Equals(frameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase))
+                return (80, 45);
+
+            if (string.Equals(frameResolution, FrameResolutionHigh, StringComparison.OrdinalIgnoreCase))
+                return (320, 180);
+
+            return (160, 90);
+        }
+
+        /// <summary>
         /// Validates the configuration and returns a list of validation errors
         /// </summary>
         public List<string> Validate()
@@ -142,6 +162,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (TargetFps < MinTargetFps || TargetFps > MaxTargetFps)
                     errors.Add("Target FPS must be between 1 and 60");
+
+                if (!string.Equals(FrameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(FrameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(FrameResolution, FrameResolutionHigh, StringComparison.OrdinalIgnoreCase))
+                    errors.Add("Frame resolution must be 80x45, 160x90, or 320x180");
 
                 if (!string.Equals(PauseBehavior, PauseBehaviorKeepLastColors, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(PauseBehavior, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase))

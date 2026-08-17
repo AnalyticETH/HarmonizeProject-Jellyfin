@@ -419,6 +419,7 @@ public class PluginConfigurationTests
         Assert.True(config.RestoreLightState);
         Assert.Equal(30, config.BrightnessDimLevel);
         Assert.Equal(20, config.TargetFps);
+        Assert.Equal(PluginConfiguration.FrameResolutionStandard, config.FrameResolution);
         Assert.Equal(15, config.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeAverage, config.SamplingMode);
         Assert.Equal(0, config.ColorSmoothingPercent);
@@ -431,6 +432,57 @@ public class PluginConfigurationTests
         Assert.Equal(5, config.FfmpegStallTimeoutSeconds);
         Assert.Equal(PluginConfiguration.PauseBehaviorKeepLastColors, config.PauseBehavior);
         Assert.True(new UserBridgeMapping().SyncEnabled);
+    }
+
+    [Fact]
+    public void GetFrameDimensions_ReturnsConfiguredResolutionPresets()
+    {
+        Assert.Equal((80, 45), PluginConfiguration.GetFrameDimensions(PluginConfiguration.FrameResolutionLow));
+        Assert.Equal((160, 90), PluginConfiguration.GetFrameDimensions(PluginConfiguration.FrameResolutionStandard));
+        Assert.Equal((320, 180), PluginConfiguration.GetFrameDimensions(PluginConfiguration.FrameResolutionHigh));
+        Assert.Equal((160, 90), PluginConfiguration.GetFrameDimensions("unknown"));
+    }
+
+    [Theory]
+    [InlineData("Unsupported")]
+    [InlineData("")]
+    public void Validate_WhenFrameResolutionIsInvalid_ReturnsError(string frameResolution)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            FrameResolution = frameResolution
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Frame resolution must be 80x45, 160x90, or 320x180", errors);
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.FrameResolutionLow)]
+    [InlineData(PluginConfiguration.FrameResolutionStandard)]
+    [InlineData(PluginConfiguration.FrameResolutionHigh)]
+    [InlineData("320X180")]
+    public void Validate_WhenFrameResolutionIsValid_ReturnsNoResolutionError(string frameResolution)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            FrameResolution = frameResolution
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("Frame resolution must be 80x45, 160x90, or 320x180", errors);
     }
 
     [Theory]

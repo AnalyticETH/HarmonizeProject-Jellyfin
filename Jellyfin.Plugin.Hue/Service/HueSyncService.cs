@@ -70,6 +70,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private bool _bridgeAreaDeactivated;
         private volatile bool _isStopping;
         private string? _currentItemName;
+        private string? _currentFrameResolution;
         private string? _manuallyStoppedPlaySessionId;
         private string _runtimeState = "Idle";
         private string _runtimeMessage = "Waiting for playback.";
@@ -201,6 +202,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     StopSync(deactivateArea: false);
                     _currentBridgeConfig = null;
                     _currentItemName = null;
+                    _currentFrameResolution = null;
 
                     if (bridgeConfig != null && (!areaAlreadyDeactivated || savedLightStates != null))
                     {
@@ -250,6 +252,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 var savedLightStates = _savedLightStates;
                 StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId, clearSession: false);
                 _currentBridgeConfig = null;
+                _currentFrameResolution = null;
 
                 await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
                 SetRuntimeStatus("Stopped", "Hue sync stopped by an administrator; playback continues.");
@@ -270,6 +273,7 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             (string BridgeIp, string AppKey, string ClientKey, string AreaId)? bridgeConfig;
             string? currentItem;
+            string? currentFrameResolution;
             string state;
             string message;
             string? lastError;
@@ -281,6 +285,7 @@ namespace Jellyfin.Plugin.Hue.Service
             {
                 bridgeConfig = _currentBridgeConfig;
                 currentItem = _currentItemName;
+                currentFrameResolution = _currentFrameResolution;
                 state = _runtimeState;
                 message = _runtimeMessage;
                 lastError = _lastError;
@@ -302,6 +307,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 Message = message,
                 LastError = lastError,
                 CurrentItem = currentItem,
+                ActiveFrameResolution = isSyncing ? currentFrameResolution : null,
                 ActiveBridgeIp = isSyncing ? bridgeConfig?.BridgeIp : null,
                 ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
                 IsSyncing = isSyncing,
@@ -520,6 +526,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var savedLightStates = _savedLightStates;
             StopSync(deactivateArea: false, expectedPlaySessionId: e.PlaySessionId, clearSession: false);
             _currentBridgeConfig = null;
+            _currentFrameResolution = null;
 
             try
             {
@@ -660,6 +667,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (restoreOnPause)
                 {
                     _currentBridgeConfig = null;
+                    _currentFrameResolution = null;
                     await RestoreAndDeactivateAsync(
                         config,
                         bridgeConfig,
@@ -813,11 +821,17 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         internal static int CalculateSamplingDistance(int samplingBreadthPercent)
+            => CalculateSamplingDistance(samplingBreadthPercent, FrameWidth, FrameHeight);
+
+        internal static int CalculateSamplingDistance(
+            int samplingBreadthPercent,
+            int frameWidth,
+            int frameHeight)
         {
             var normalizedPercent = samplingBreadthPercent <= 0
                 ? DefaultSamplingBreadthPercent
                 : Math.Clamp(samplingBreadthPercent, MinSamplingBreadthPercent, MaxSamplingBreadthPercent);
-            var averageFrameSize = (FrameWidth + FrameHeight) / 2;
+            var averageFrameSize = (frameWidth + frameHeight) / 2;
             return Math.Max(1, (int)(normalizedPercent / 100.0 * averageFrameSize));
         }
 
@@ -827,8 +841,25 @@ namespace Jellyfin.Plugin.Hue.Service
             int centerY,
             int distance,
             string? samplingMode)
+            => SampleRegionColor(
+                frame,
+                centerX,
+                centerY,
+                distance,
+                samplingMode,
+                FrameWidth,
+                FrameHeight);
+
+        internal static byte[] SampleRegionColor(
+            byte[] frame,
+            int centerX,
+            int centerY,
+            int distance,
+            string? samplingMode,
+            int frameWidth,
+            int frameHeight)
         {
-            var normalizedDistance = Math.Clamp(distance, 0, Math.Max(FrameWidth, FrameHeight));
+            var normalizedDistance = Math.Clamp(distance, 0, Math.Max(frameWidth, frameHeight));
             var mode = string.Equals(samplingMode, PluginConfiguration.SamplingModeCenterPixel, StringComparison.OrdinalIgnoreCase)
                 ? PluginConfiguration.SamplingModeCenterPixel
                 : string.Equals(samplingMode, PluginConfiguration.SamplingModeCenterWeighted, StringComparison.OrdinalIgnoreCase)
@@ -837,18 +868,18 @@ namespace Jellyfin.Plugin.Hue.Service
 
             if (mode == PluginConfiguration.SamplingModeCenterPixel)
             {
-                var clampedCenterX = Math.Clamp(centerX, 0, FrameWidth - 1);
-                var clampedCenterY = Math.Clamp(centerY, 0, FrameHeight - 1);
-                var centerIndex = (clampedCenterY * FrameWidth + clampedCenterX) * BytesPerPixel;
+                var clampedCenterX = Math.Clamp(centerX, 0, frameWidth - 1);
+                var clampedCenterY = Math.Clamp(centerY, 0, frameHeight - 1);
+                var centerIndex = (clampedCenterY * frameWidth + clampedCenterX) * BytesPerPixel;
                 return new[] { frame[centerIndex], frame[centerIndex + 1], frame[centerIndex + 2] };
             }
 
             // Keep the Average mode's original half-open bounds unchanged so existing
             // configurations produce the same colors as before this setting was added.
             var minX = (int)Math.Max(0L, (long)centerX - normalizedDistance);
-            var maxX = (int)Math.Min(FrameWidth, (long)centerX + normalizedDistance);
+            var maxX = (int)Math.Min(frameWidth, (long)centerX + normalizedDistance);
             var minY = (int)Math.Max(0L, (long)centerY - normalizedDistance);
-            var maxY = (int)Math.Min(FrameHeight, (long)centerY + normalizedDistance);
+            var maxY = (int)Math.Min(frameHeight, (long)centerY + normalizedDistance);
             long redSum = 0;
             long greenSum = 0;
             long blueSum = 0;
@@ -856,7 +887,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             for (var y = minY; y < maxY; y++)
             {
-                var rowStart = y * FrameWidth * BytesPerPixel;
+                var rowStart = y * frameWidth * BytesPerPixel;
                 for (var x = minX; x < maxX; x++)
                 {
                     var index = rowStart + x * BytesPerPixel;
@@ -997,7 +1028,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 expectedSyncCts,
                 playSessionId,
                 DefaultSamplingBreadthPercent,
-                PluginConfiguration.SamplingModeAverage);
+                PluginConfiguration.SamplingModeAverage,
+                PluginConfiguration.FrameResolutionStandard);
         }
 
         private async Task RunSyncLoopWithSampling(
@@ -1008,9 +1040,11 @@ namespace Jellyfin.Plugin.Hue.Service
             CancellationTokenSource expectedSyncCts,
             string playSessionId,
             int samplingBreadthPercent,
-            string samplingMode)
+            string samplingMode,
+            string frameResolution)
         {
-            int frameSize = FrameWidth * FrameHeight * BytesPerPixel;
+            var (frameWidth, frameHeight) = PluginConfiguration.GetFrameDimensions(frameResolution);
+            int frameSize = frameWidth * frameHeight * BytesPerPixel;
             byte[] buffer = new byte[frameSize];
             var token = expectedSyncCts.Token;
             var streamEnded = false;
@@ -1020,7 +1054,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             // Pre-calculate bounds for each light based on position
             // Following HarmonizeProject logic: use x (horizontal) and z (vertical) for 2D screen plane
-            int dist = CalculateSamplingDistance(samplingBreadthPercent);
+            int dist = CalculateSamplingDistance(samplingBreadthPercent, frameWidth, frameHeight);
 
             try
             {
@@ -1070,10 +1104,17 @@ namespace Jellyfin.Plugin.Hue.Service
                         // Convert from Hue coordinate space to pixel coordinates
                         // Hue: x: -1 (left) to 1 (right), z: -1 (bottom) to 1 (top)
                         // Pixels: 0,0 is top-left; clamp to valid range [0, dimension-1]
-                        int cx = (int)((kvp.Value.x + 1.0) * (FrameWidth - 1) / 2.0);
-                        int cy = (int)((1.0 - kvp.Value.z) * (FrameHeight - 1) / 2.0); // Invert z for screen coordinates
+                        int cx = (int)((kvp.Value.x + 1.0) * (frameWidth - 1) / 2.0);
+                        int cy = (int)((1.0 - kvp.Value.z) * (frameHeight - 1) / 2.0); // Invert z for screen coordinates
 
-                        channelColors[kvp.Key] = SampleRegionColor(buffer, cx, cy, dist, samplingMode);
+                        channelColors[kvp.Key] = SampleRegionColor(
+                            buffer,
+                            cx,
+                            cy,
+                            dist,
+                            samplingMode,
+                            frameWidth,
+                            frameHeight);
                     }
 
                     // Get configuration for advanced color processing
@@ -1251,6 +1292,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 var savedLightStates = _savedLightStates;
                 StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId, clearSession: false);
                 _currentBridgeConfig = null;
+                _currentFrameResolution = null;
 
                 try
                 {
@@ -1412,6 +1454,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
+            var frameResolution = config.FrameResolution;
+
             // Get user-specific bridge configuration
             var (bridgeIp, appKey, clientKey, areaId) = config.GetBridgeConfigForUser(userId);
 
@@ -1449,6 +1493,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _bridgeAreaDeactivated = false;
                     _syncStartTime = DateTime.UtcNow;
                     _currentItemName = e.Item?.Name;
+                    _currentFrameResolution = frameResolution;
                     syncStatePublished = true;
                 }
             }
@@ -1555,6 +1600,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 var targetFrameDurationMs = config.TargetFps > 0
                     ? 1000 / Math.Clamp(config.TargetFps, MinFps, MaxFps)
                     : DefaultFrameDurationMs;
+                var (frameWidth, frameHeight) = PluginConfiguration.GetFrameDimensions(frameResolution);
 
                 // Seek to current playback position so lights sync to what's actually on screen
                 double seekSeconds = 0;
@@ -1564,7 +1610,15 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (token.IsCancellationRequested)
                     return;
                 _ffmpegStreamer!.StallTimeoutSeconds = config.FfmpegStallTimeoutSeconds;
-                videoStream = _ffmpegStreamer!.StartFfmpeg(videoPath, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags, _mediaEncoder.EncoderPath, seekPositionSeconds: seekSeconds);
+                videoStream = _ffmpegStreamer!.StartFfmpeg(
+                    videoPath,
+                    config.TargetFps,
+                    config.UseGpu,
+                    config.CustomFfmpegFlags,
+                    _mediaEncoder.EncoderPath,
+                    seekPositionSeconds: seekSeconds,
+                    frameWidth: frameWidth,
+                    frameHeight: frameHeight);
                 if (videoStream == null)
                 {
                     _logger.LogWarning("FFmpeg stream could not be started for path {0}", videoPath);
@@ -1587,7 +1641,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     syncCts,
                     e.PlaySessionId,
                     samplingBreadthPercent,
-                    samplingMode));
+                    samplingMode,
+                    frameResolution));
                 syncLoopStarted = true;
             }
             catch (Exception ex)
@@ -1719,6 +1774,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var savedLightStates = _savedLightStates;
             StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId);
             _currentBridgeConfig = null;
+            _currentFrameResolution = null;
             await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
         }
 
@@ -1813,6 +1869,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public string Message { get; init; } = "Waiting for playback.";
         public string? LastError { get; init; }
         public string? CurrentItem { get; init; }
+        public string? ActiveFrameResolution { get; init; }
         public string? ActiveBridgeIp { get; init; }
         public string? ActiveEntertainmentAreaId { get; init; }
         public bool IsSyncing { get; init; }

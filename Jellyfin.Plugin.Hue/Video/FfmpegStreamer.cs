@@ -88,6 +88,14 @@ namespace Jellyfin.Plugin.Hue.Video
         private static int NormalizeStallTimeout(int stallTimeoutSeconds) =>
             Math.Clamp(stallTimeoutSeconds, MinStallTimeoutSeconds, MaxStallTimeoutSeconds);
 
+        internal static string BuildVideoFilter(int frameWidth, int frameHeight)
+        {
+            if (frameWidth <= 0 || frameHeight <= 0)
+                throw new ArgumentOutOfRangeException(nameof(frameWidth), "FFmpeg output dimensions must be positive.");
+
+            return $"scale={frameWidth}:{frameHeight}";
+        }
+
         private static bool IsHealthy(Process? process, DateTime startTime, DateTime lastFrameTime, int stallTimeoutSeconds)
         {
             if (process == null)
@@ -140,8 +148,18 @@ namespace Jellyfin.Plugin.Hue.Video
         /// <param name="customFlags">Additional FFmpeg flags to append</param>
         /// <param name="ffmpegPath">Path to ffmpeg executable (default: "ffmpeg")</param>
         /// <param name="seekPositionSeconds">Seek to this position before extracting (default: 0 = start)</param>
+        /// <param name="frameWidth">Output frame width in pixels (default: 160)</param>
+        /// <param name="frameHeight">Output frame height in pixels (default: 90)</param>
         /// <returns>Stream of raw RGB24 frames, or null if failed</returns>
-        public Stream? StartFfmpeg(string videoPath, int fps = 20, bool useGpu = true, string customFlags = "", string ffmpegPath = "ffmpeg", double seekPositionSeconds = 0)
+        public Stream? StartFfmpeg(
+            string videoPath,
+            int fps = 20,
+            bool useGpu = true,
+            string customFlags = "",
+            string ffmpegPath = "ffmpeg",
+            double seekPositionSeconds = 0,
+            int frameWidth = 160,
+            int frameHeight = 90)
         {
             if (string.IsNullOrWhiteSpace(videoPath))
             {
@@ -161,11 +179,17 @@ namespace Jellyfin.Plugin.Hue.Video
                 seekPositionSeconds = 0;
             }
 
+            if (frameWidth <= 0 || frameHeight <= 0)
+            {
+                _logger.LogError("FFmpeg output dimensions must be positive: {0}x{1}", frameWidth, frameHeight);
+                return null;
+            }
+
             // A streamer owns one FFmpeg process. Stop any previous process before
             // replacing the field so repeated playback-start events cannot leak it.
             Stop();
 
-            // -vf scale=160:90 -f rawvideo -pix_fmt rgb24
+            // -vf scale={width}:{height} -f rawvideo -pix_fmt rgb24
             // Add -r {fps} and custom flags
             var flagParts = new System.Collections.Generic.List<string>();
             if (useGpu)
@@ -190,7 +214,7 @@ namespace Jellyfin.Plugin.Hue.Video
             var startInfo = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"{flags}{seekPrefix}-i \"{videoPath}\" -vf scale=160:90 -r {fps} -f rawvideo -pix_fmt rgb24 pipe:1",
+                Arguments = $"{flags}{seekPrefix}-i \"{videoPath}\" -vf {BuildVideoFilter(frameWidth, frameHeight)} -r {fps} -f rawvideo -pix_fmt rgb24 pipe:1",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,

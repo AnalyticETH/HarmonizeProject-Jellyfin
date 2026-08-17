@@ -39,6 +39,20 @@ public sealed class HueSyncServiceTests
         Assert.Equal(expectedDistance, HueSyncService.CalculateSamplingDistance(samplingBreadthPercent));
     }
 
+    [Theory]
+    [InlineData(80, 45, 9)]
+    [InlineData(160, 90, 18)]
+    [InlineData(320, 180, 37)]
+    public void CalculateSamplingDistance_ScalesWithFrameResolution(
+        int frameWidth,
+        int frameHeight,
+        int expectedDistance)
+    {
+        Assert.Equal(
+            expectedDistance,
+            HueSyncService.CalculateSamplingDistance(15, frameWidth, frameHeight));
+    }
+
     [Fact]
     public void SampleRegionColor_CenterPixelReturnsMappedPixel()
     {
@@ -56,6 +70,27 @@ public sealed class HueSyncServiceTests
             "centerpixel");
 
         Assert.Equal(new byte[] { 231, 87, 14 }, sampled);
+    }
+
+    [Fact]
+    public void SampleRegionColor_SupportsHighResolutionFrames()
+    {
+        var frame = new byte[320 * 180 * 3];
+        var index = (90 * 320 + 160) * 3;
+        frame[index] = 12;
+        frame[index + 1] = 34;
+        frame[index + 2] = 56;
+
+        var sampled = HueSyncService.SampleRegionColor(
+            frame,
+            160,
+            90,
+            37,
+            PluginConfiguration.SamplingModeCenterPixel,
+            320,
+            180);
+
+        Assert.Equal(new byte[] { 12, 34, 56 }, sampled);
     }
 
     [Fact]
