@@ -84,6 +84,7 @@ public sealed class HueSyncServiceLifecycleTests
             service,
             "Idle",
             "Video stream ended; lights were restored.");
+        await WaitForSyncStateClearedAsync(service);
 
         Assert.False(service.IsSyncing);
         Assert.Equal("Idle", service.GetRuntimeStatus().State);
@@ -124,6 +125,7 @@ public sealed class HueSyncServiceLifecycleTests
         await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
         handler.ReleaseStopRequest();
         await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForSyncStateClearedAsync(service);
 
         var status = service.GetRuntimeStatus();
         Assert.False(service.IsSyncing);
@@ -157,6 +159,26 @@ public sealed class HueSyncServiceLifecycleTests
         var finalStatus = service.GetRuntimeStatus();
         Assert.Equal(expectedState, finalStatus.State);
         Assert.Equal(expectedMessage, finalStatus.Message);
+    }
+
+    private static async Task WaitForSyncStateClearedAsync(HueSyncService service)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (GetPrivateField(service, "_syncCts") == null &&
+                GetPrivateField(service, "_currentPlaySessionId") == null &&
+                GetPrivateField(service, "_currentBridgeConfig") == null)
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
     }
 
     [Fact]
