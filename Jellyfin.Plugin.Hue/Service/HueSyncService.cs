@@ -821,7 +821,25 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private async Task RunSyncLoop(
+        private Task RunSyncLoop(
+            Stream videoStream,
+            Dictionary<int, (double x, double z)> lights,
+            string areaId,
+            int targetFrameDurationMs,
+            CancellationTokenSource expectedSyncCts,
+            string playSessionId)
+        {
+            return RunSyncLoopWithSampling(
+                videoStream,
+                lights,
+                areaId,
+                targetFrameDurationMs,
+                expectedSyncCts,
+                playSessionId,
+                DefaultSamplingBreadthPercent);
+        }
+
+        private async Task RunSyncLoopWithSampling(
             Stream videoStream,
             Dictionary<int, (double x, double z)> lights,
             string areaId,
@@ -1397,7 +1415,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 // Let RunSyncLoop own disposal even when cancellation wins before scheduling.
                 SetRuntimeStatus("Syncing", "Streaming video colors to Hue.");
-                _ = Task.Run(() => RunSyncLoop(
+                _ = Task.Run(() => RunSyncLoopWithSampling(
                     videoStream!,
                     lights,
                     areaId,
