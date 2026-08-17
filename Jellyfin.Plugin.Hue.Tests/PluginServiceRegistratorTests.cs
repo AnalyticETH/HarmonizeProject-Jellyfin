@@ -34,6 +34,23 @@ public class PluginServiceRegistratorTests
         Assert.False(HueBridgeCertificateValidation.IsLocalBridgeHost(host));
     }
 
+    [Theory]
+    [InlineData("192.168.1.100")]
+    [InlineData("hue-bridge.local")]
+    public void IsValidBridgeAddress_AcceptsLocalBridgeTargets(string address)
+    {
+        Assert.True(HueBridgeCertificateValidation.IsValidBridgeAddress(address));
+    }
+
+    [Theory]
+    [InlineData("8.8.8.8")]
+    [InlineData("hue.example.com")]
+    [InlineData("https://192.168.1.100")]
+    public void IsValidBridgeAddress_RejectsPublicOrUrlTargets(string address)
+    {
+        Assert.False(HueBridgeCertificateValidation.IsValidBridgeAddress(address));
+    }
+
     [Fact]
     public void ValidateServerCertificate_TrustedCertificateIsAccepted()
     {

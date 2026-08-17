@@ -29,6 +29,18 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
 internal static class HueBridgeCertificateValidation
 {
+    internal static bool IsValidBridgeAddress(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var host = value.Trim();
+        return host.IndexOfAny(new[] { '/', '\\', '?', '#' }) < 0 &&
+               IsLocalBridgeHost(host);
+    }
+
     internal static bool ValidateServerCertificate(
         HttpRequestMessage? request,
         X509Certificate2? certificate,

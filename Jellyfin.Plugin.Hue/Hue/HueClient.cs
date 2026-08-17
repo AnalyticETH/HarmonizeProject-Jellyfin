@@ -88,10 +88,9 @@ namespace Jellyfin.Plugin.Hue.Hue
         private static string FormatBridgeHost(string bridgeIp)
         {
             var host = bridgeIp.Trim();
-            if (host.Length == 0 || host.IndexOfAny(new[] { '/', '\\', '?', '#' }) >= 0 ||
-                Uri.CheckHostName(host) == UriHostNameType.Unknown)
+            if (!Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(host))
             {
-                throw new ArgumentException("Bridge address must be a host name or IP address.", nameof(bridgeIp));
+                throw new ArgumentException("Bridge address must be a private IP address or .local host name.", nameof(bridgeIp));
             }
 
             return IPAddress.TryParse(host, out var address) && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6

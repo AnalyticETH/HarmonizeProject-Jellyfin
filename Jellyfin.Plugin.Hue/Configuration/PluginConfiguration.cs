@@ -96,8 +96,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 {
                     if (string.IsNullOrWhiteSpace(HueBridgeIp))
                         errors.Add("Hue Bridge IP is required when sync is enabled");
-                    else if (!System.Net.IPAddress.TryParse(HueBridgeIp, out _))
-                        errors.Add("Hue Bridge IP must be a valid IP address");
+                    else if (!Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(HueBridgeIp))
+                        errors.Add("Hue Bridge address must be a valid private IP address or .local host name");
 
                     if (string.IsNullOrWhiteSpace(HueAppKey))
                         errors.Add("Hue App Key is required. Use the 'Link Bridge' button to generate credentials");
@@ -164,13 +164,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 }
 
                 // An empty bridge IP represents an intentionally incomplete mapping and
-                // falls back to the default bridge. If an IP is supplied, the remaining
-                // credentials must be complete and the address must be valid.
+                // falls back to the default bridge. If an address is supplied, the
+                // remaining credentials must be complete and the address must be valid.
                 if (string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
                     continue;
 
-                if (!System.Net.IPAddress.TryParse(mapping.HueBridgeIp.Trim(), out _))
-                    errors.Add($"{label} bridge IP must be a valid IP address");
+                if (!Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(mapping.HueBridgeIp))
+                    errors.Add($"{label} bridge address must be a valid private IP address or .local host name");
 
                 if (string.IsNullOrWhiteSpace(mapping.HueAppKey))
                     errors.Add($"{label} requires a Hue App Key");

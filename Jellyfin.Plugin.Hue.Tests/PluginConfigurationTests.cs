@@ -89,7 +89,7 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         // Assert
-        Assert.Contains("Hue Bridge IP must be a valid IP address", errors);
+        Assert.Contains("Hue Bridge address must be a valid private IP address or .local host name", errors);
     }
 
     [Fact]
@@ -531,7 +531,7 @@ public class PluginConfigurationTests
 
         var errors = config.Validate();
 
-        Assert.Contains("User mapping 1 bridge IP must be a valid IP address", errors);
+        Assert.Contains("User mapping 1 bridge address must be a valid private IP address or .local host name", errors);
         Assert.Contains("User mapping 1 requires a Hue App Key", errors);
         Assert.Contains("User mapping 1 requires a Hue Client Key", errors);
         Assert.Contains("User mapping 1 requires an Entertainment Area ID", errors);

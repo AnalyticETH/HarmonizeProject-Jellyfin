@@ -47,7 +47,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 
 | Setting | Description |
 | :--- | :--- |
-| **Hue Bridge IP** | The local IP address of your bridge. |
+| **Hue Bridge IP** | The private/local IP address of your bridge (or a .local mDNS host name). |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Hue App Key** | "Username" for the REST API (auto-filled). |
 | **Hue Client Key** | "ClientKey" for the streaming API (auto-filled). |
@@ -185,7 +185,8 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
 
 * **Registration fails:** press the physical Link button immediately before clicking
   **Link Bridge**. Hue registration and all v2 REST requests use the bridge's HTTPS API;
-  current bridge firmware no longer supports the old HTTP endpoint.
+  current bridge firmware no longer supports the old HTTP endpoint. The configured target
+  must be a private/local bridge address or a .local mDNS name.
 * **No areas are listed:** verify the bridge IP and App Key, then click **Refresh
   Entertainment Areas**. The selected area must contain color-capable lights.
 * **Lights stop updating:** check that `ffmpeg` and `openssl` are available to the Jellyfin
@@ -216,9 +217,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.1 (Current)
+### Version 1.5.2 (Current)
 - **Hue HTTPS compatibility**: Link-button registration uses the TLS-protected bridge API required by current firmware
 - **Scoped certificate handling**: Self-signed bridge certificates are accepted only for private/local bridge addresses; public discovery uses normal TLS validation
+- **Local bridge target validation**: Configuration and API mapping inputs reject public hosts and malformed URLs
 
 ### Version 1.5.0
 - **Playback lifecycle hardening**: Stop, pause, resume, and shutdown paths serialize cleanup and bridge deactivation safely

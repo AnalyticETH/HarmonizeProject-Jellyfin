@@ -33,9 +33,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<ActionResult<HueRegistrationResult>> RegisterBridge([FromBody] HueRegistrationRequest? request)
         {
-            if (request == null || string.IsNullOrWhiteSpace(request.IpAddress) || !IsValidBridgeAddress(request.IpAddress))
+            if (request == null || !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress))
             {
-                return BadRequest("A valid bridge IP address or host name is required.");
+                return BadRequest("A valid private bridge IP address or .local host name is required.");
             }
 
             var result = await _hueClient.RegisterWithBridge(request.IpAddress.Trim());
@@ -117,9 +117,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("User ID is required.");
             }
 
-            if (!IsValidBridgeAddress(mapping.HueBridgeIp))
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(mapping.HueBridgeIp))
             {
-                return BadRequest("A valid bridge IP address or host name is required.");
+                return BadRequest("A valid private bridge IP address or .local host name is required.");
             }
 
             if (string.IsNullOrWhiteSpace(mapping.HueAppKey) ||
@@ -178,15 +178,6 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(new { message = "Mapping deleted successfully." });
         }
 
-        private static bool IsValidBridgeAddress(string? value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-                return false;
-
-            var host = value.Trim();
-            return host.IndexOfAny(new[] { '/', '\\', '?', '#' }) < 0 &&
-                   Uri.CheckHostName(host) != UriHostNameType.Unknown;
-        }
     }
 
     public class HueRegistrationRequest
