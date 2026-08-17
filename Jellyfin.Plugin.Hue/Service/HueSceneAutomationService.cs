@@ -159,6 +159,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             var runtime = GetRuntimeState(schedule.Id);
             var readiness = EvaluateReadiness(config, schedule);
+            var timeZone = PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var resolvedTimeZone)
+                ? resolvedTimeZone
+                : TimeZoneInfo.Local;
             return new HueSceneScheduleRuntimeStatus
             {
                 ScheduleId = schedule.Id?.Trim() ?? string.Empty,
@@ -166,11 +169,16 @@ public sealed class HueSceneAutomationService : BackgroundService
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 TargetLabel = ResolveTargetLabel(config, schedule),
                 TimeOfDay = schedule.TimeOfDay?.Trim() ?? string.Empty,
+                TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
+                TimeZoneDisplayName = string.IsNullOrWhiteSpace(schedule.TimeZoneId)
+                    ? $"Server local ({timeZone.DisplayName})"
+                    : timeZone.DisplayName,
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled,
                 Ready = readiness.Ready,
                 ReadinessMessage = readiness.Message,
                 NextRunLocal = GetNextRunLocal(schedule, localNow),
+                NextRunUtc = GetNextRunUtc(schedule, localNow),
                 LastRunAtUtc = runtime.LastRunAtUtc,
                 LastSucceeded = runtime.LastSucceeded,
                 LastMessage = runtime.LastMessage,
@@ -185,39 +193,28 @@ public sealed class HueSceneAutomationService : BackgroundService
             ServiceAvailable = true,
             GeneratedAtUtc = DateTime.UtcNow,
             ServerLocalNow = DateTime.SpecifyKind(localNow, DateTimeKind.Unspecified),
+            ServerTimeZoneId = TimeZoneInfo.Local.Id,
             Schedules = statuses
         };
     }
 
     /// <summary>
-    /// Calculates the next server-local occurrence after the supplied local time.
-    /// The return value intentionally has an unspecified kind so clients do not mistake
-    /// it for a UTC timestamp; the companion status field names the server-local basis.
+    /// Calculates the next occurrence in the cue's configured time zone after the
+    /// supplied server-local time. The return value intentionally has an unspecified
+    /// kind; use <see cref="GetNextRunUtc"/> when an absolute instant is required.
     /// </summary>
     internal static DateTime? GetNextRunLocal(HueSceneSchedule schedule, DateTime localNow)
     {
-        if (schedule == null || !schedule.Enabled ||
-            (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0 ||
-            !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized))
-        {
-            return null;
-        }
+        return GetNextRun(schedule, localNow, out _);
+    }
 
-        var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
-        var unspecifiedNow = DateTime.SpecifyKind(localNow, DateTimeKind.Unspecified);
-        for (var dayOffset = 0; dayOffset <= 7; dayOffset++)
-        {
-            var candidateDate = unspecifiedNow.Date.AddDays(dayOffset);
-            var dayBit = 1 << (int)candidateDate.DayOfWeek;
-            if ((schedule.DaysOfWeekMask & dayBit) == 0)
-                continue;
-
-            var candidate = candidateDate.Add(expectedTime);
-            if (candidate > unspecifiedNow)
-                return DateTime.SpecifyKind(candidate, DateTimeKind.Unspecified);
-        }
-
-        return null;
+    /// <summary>
+    /// Calculates the absolute UTC instant corresponding to the next cue occurrence.
+    /// </summary>
+    internal static DateTime? GetNextRunUtc(HueSceneSchedule schedule, DateTime localNow)
+    {
+        _ = GetNextRun(schedule, localNow, out var nextRunUtc);
+        return nextRunUtc;
     }
 
     /// <summary>
@@ -243,22 +240,145 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
-    /// Determines whether a schedule is due in the supplied server-local minute.
+    /// Determines whether a schedule is due in the supplied server-local minute after
+    /// converting that instant into the cue's configured time zone.
     /// Sunday is bit 0 and Saturday is bit 6 in <see cref="HueSceneSchedule.DaysOfWeekMask"/>.
     /// </summary>
     internal static bool IsDue(HueSceneSchedule schedule, DateTime localNow)
     {
         if (schedule == null || !schedule.Enabled ||
-            !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized))
-        {
+            !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized) ||
+            !TryGetScheduleLocalNow(schedule, localNow, out var scheduleNow, out _))
             return false;
+
+        var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
+        var dayBit = 1 << (int)scheduleNow.DayOfWeek;
+        return (schedule.DaysOfWeekMask & dayBit) != 0 &&
+               scheduleNow.Hour == expectedTime.Hours &&
+               scheduleNow.Minute == expectedTime.Minutes;
+    }
+
+    private static DateTime? GetNextRun(
+        HueSceneSchedule schedule,
+        DateTime serverLocalNow,
+        out DateTime? nextRunUtc)
+    {
+        nextRunUtc = null;
+        if (schedule == null || !schedule.Enabled ||
+            (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0 ||
+            !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized) ||
+            !TryGetScheduleLocalNow(schedule, serverLocalNow, out var scheduleNow, out var serverUtcNow, out var timeZone))
+        {
+            return null;
         }
 
         var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
-        var dayBit = 1 << (int)localNow.DayOfWeek;
-        return (schedule.DaysOfWeekMask & dayBit) != 0 &&
-               localNow.Hour == expectedTime.Hours &&
-               localNow.Minute == expectedTime.Minutes;
+        for (var dayOffset = 0; dayOffset <= 8; dayOffset++)
+        {
+            var candidateDate = scheduleNow.Date.AddDays(dayOffset);
+            var dayBit = 1 << (int)candidateDate.DayOfWeek;
+            if ((schedule.DaysOfWeekMask & dayBit) == 0)
+                continue;
+
+            var candidateLocal = DateTime.SpecifyKind(candidateDate.Add(expectedTime), DateTimeKind.Unspecified);
+            // A spring-forward transition can remove a local wall-clock time. Skipping
+            // that occurrence is deterministic and avoids silently shifting the cue.
+            if (timeZone.IsInvalidTime(candidateLocal))
+                continue;
+
+            DateTime candidateUtc;
+            try
+            {
+                candidateUtc = TimeZoneInfo.ConvertTimeToUtc(candidateLocal, timeZone);
+            }
+            catch (ArgumentException)
+            {
+                continue;
+            }
+
+            if (candidateUtc <= serverUtcNow)
+                continue;
+
+            nextRunUtc = DateTime.SpecifyKind(candidateUtc, DateTimeKind.Utc);
+            return candidateLocal;
+        }
+
+        return null;
+    }
+
+    private static bool TryGetScheduleLocalNow(
+        HueSceneSchedule schedule,
+        DateTime serverLocalNow,
+        out DateTime scheduleLocalNow,
+        out DateTime serverUtcNow)
+    {
+        return TryGetScheduleLocalNow(
+            schedule,
+            serverLocalNow,
+            out scheduleLocalNow,
+            out serverUtcNow,
+            out _);
+    }
+
+    private static bool TryGetScheduleLocalNow(
+        HueSceneSchedule schedule,
+        DateTime serverLocalNow,
+        out DateTime scheduleLocalNow,
+        out DateTime serverUtcNow,
+        out TimeZoneInfo timeZone)
+    {
+        scheduleLocalNow = DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified);
+        serverUtcNow = DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Utc);
+        if (!PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule?.TimeZoneId, out timeZone))
+            return false;
+
+        try
+        {
+            serverUtcNow = serverLocalNow.Kind switch
+            {
+                DateTimeKind.Utc => serverLocalNow,
+                DateTimeKind.Local => serverLocalNow.ToUniversalTime(),
+                _ => TimeZoneInfo.ConvertTimeToUtc(
+                    DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified),
+                    TimeZoneInfo.Local)
+            };
+        }
+        catch (ArgumentException)
+        {
+            // DateTime.Now cannot normally be an invalid local wall-clock value, but a
+            // caller can supply one in tests or a custom host. Preserve progress with
+            // the platform's normal unspecified-to-UTC conversion in that edge case.
+            serverUtcNow = DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified).ToUniversalTime();
+        }
+
+        scheduleLocalNow = DateTime.SpecifyKind(
+            TimeZoneInfo.ConvertTimeFromUtc(serverUtcNow, timeZone),
+            DateTimeKind.Unspecified);
+        return true;
+    }
+
+    private static DateTime GetScheduleRunSlot(HueSceneSchedule schedule, DateTime serverLocalNow)
+    {
+        if (TryGetScheduleLocalNow(schedule, serverLocalNow, out var scheduleLocalNow, out _))
+        {
+            return new DateTime(
+                scheduleLocalNow.Year,
+                scheduleLocalNow.Month,
+                scheduleLocalNow.Day,
+                scheduleLocalNow.Hour,
+                scheduleLocalNow.Minute,
+                0,
+                DateTimeKind.Unspecified);
+        }
+
+        return new DateTime(
+            serverLocalNow.Year,
+            serverLocalNow.Month,
+            serverLocalNow.Day,
+            serverLocalNow.Hour,
+            serverLocalNow.Minute,
+            0,
+            DateTimeKind.Unspecified);
     }
 
     /// <summary>
@@ -281,6 +401,9 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         if (!PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
             return new HueSceneScheduleReadiness(false, "The scheduled time is invalid.");
+
+        if (!PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
+            return new HueSceneScheduleReadiness(false, "The scheduled time zone is not available on this server.");
 
         if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > PluginConfiguration.AllSceneScheduleDaysMask)
             return new HueSceneScheduleReadiness(false, "At least one valid day must be selected.");
@@ -431,9 +554,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (config == null || schedules == null || schedules.Length == 0)
             return;
 
-        var slot = new DateTime(localNow.Year, localNow.Month, localNow.Day, localNow.Hour, localNow.Minute, 0, DateTimeKind.Unspecified);
         foreach (var schedule in schedules)
         {
+            var slot = GetScheduleRunSlot(schedule, localNow);
             if (!IsDue(schedule, localNow) || !TryClaimRunSlot(schedule.Id, slot))
                 continue;
 
@@ -863,6 +986,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PresetName = source.PresetName,
             TargetUserId = source.TargetUserId,
             TimeOfDay = source.TimeOfDay,
+            TimeZoneId = source.TimeZoneId,
             DaysOfWeekMask = source.DaysOfWeekMask,
             Enabled = source.Enabled
         };
@@ -990,6 +1114,12 @@ public sealed class HueSceneScheduleRuntimeStatus
     [JsonPropertyName("timeOfDay")]
     public string TimeOfDay { get; init; } = string.Empty;
 
+    [JsonPropertyName("timeZoneId")]
+    public string TimeZoneId { get; init; } = string.Empty;
+
+    [JsonPropertyName("timeZoneDisplayName")]
+    public string TimeZoneDisplayName { get; init; } = string.Empty;
+
     [JsonPropertyName("daysOfWeekMask")]
     public int DaysOfWeekMask { get; init; }
 
@@ -1004,6 +1134,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("nextRunLocal")]
     public DateTime? NextRunLocal { get; init; }
+
+    [JsonPropertyName("nextRunUtc")]
+    public DateTime? NextRunUtc { get; init; }
 
     [JsonPropertyName("lastRunAtUtc")]
     public DateTime? LastRunAtUtc { get; init; }
@@ -1037,6 +1170,9 @@ public sealed class HueSceneAutomationStatus
 
     [JsonPropertyName("serverLocalNow")]
     public DateTime ServerLocalNow { get; init; }
+
+    [JsonPropertyName("serverTimeZoneId")]
+    public string ServerTimeZoneId { get; init; } = string.Empty;
 
     [JsonPropertyName("schedules")]
     public IReadOnlyList<HueSceneScheduleRuntimeStatus> Schedules { get; init; } = Array.Empty<HueSceneScheduleRuntimeStatus>();

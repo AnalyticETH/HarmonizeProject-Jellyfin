@@ -1078,6 +1078,7 @@ public sealed class HueApiControllerTests : IDisposable
             PresetName = "evening",
             TargetUserId = "user-1",
             TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
             DaysOfWeekMask = 1 | 32,
             Enabled = true
         });
@@ -1087,6 +1088,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(savedResult.Id));
         Assert.Equal("Living Room", savedResult.TargetLabel);
         Assert.Equal("07:05", savedResult.TimeOfDay);
+        Assert.Equal(TimeZoneInfo.Utc.Id, savedResult.TimeZoneId);
         Assert.Single(configuration.SceneSchedules);
 
         var updated = controller.SaveSceneSchedule(new HueSceneScheduleRequest
@@ -1106,6 +1108,7 @@ public sealed class HueApiControllerTests : IDisposable
         var listResponse = Assert.IsType<OkObjectResult>(list.Result);
         var listed = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleResult>>(listResponse.Value));
         Assert.Equal("Evening Cue Updated", listed.Name);
+        Assert.Equal(string.Empty, listed.TimeZoneId);
         var serialized = System.Text.Json.JsonSerializer.Serialize(listed);
         Assert.DoesNotContain("secret-app-key", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-client-key", serialized, StringComparison.Ordinal);
@@ -1114,6 +1117,24 @@ public sealed class HueApiControllerTests : IDisposable
 
         Assert.IsType<OkObjectResult>(controller.DeleteSceneSchedule(savedResult.Id));
         Assert.Empty(configuration.SceneSchedules);
+    }
+
+    [Fact]
+    public void SceneScheduleTimeZones_ReturnsSystemChoicesWithoutCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueAppKey = "secret-app-key",
+            HueClientKey = "secret-client-key"
+        });
+
+        var action = CreateController().GetSceneScheduleTimeZones();
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var zones = Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleTimeZoneResult>>(response.Value);
+        Assert.Contains(zones, zone => zone.Id == TimeZoneInfo.Utc.Id);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(zones);
+        Assert.DoesNotContain("secret-app-key", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-client-key", serialized, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -74,6 +74,7 @@ public class PluginConfigurationTests
                     Name = "Evening welcome",
                     PresetName = " evening ",
                     TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
                     DaysOfWeekMask = 1 | 32
                 }
             }
@@ -82,6 +83,8 @@ public class PluginConfigurationTests
         Assert.Empty(config.ValidateSceneSchedules());
         Assert.True(PluginConfiguration.TryNormalizeSceneScheduleTime("07:05", out var normalized));
         Assert.Equal("07:05", normalized);
+        Assert.True(PluginConfiguration.TryResolveSceneScheduleTimeZone(TimeZoneInfo.Utc.Id, out var timeZone));
+        Assert.Equal(TimeZoneInfo.Utc.Id, timeZone.Id);
     }
 
     [Fact]
@@ -92,7 +95,7 @@ public class PluginConfigurationTests
             ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
             SceneSchedules = new List<HueSceneSchedule>
             {
-                new() { Id = "duplicate", Name = "Cue", PresetName = "Missing", TimeOfDay = "25:00", DaysOfWeekMask = 0 },
+                new() { Id = "duplicate", Name = "Cue", PresetName = "Missing", TimeOfDay = "25:00", TimeZoneId = "Missing/Zone", DaysOfWeekMask = 0 },
                 new() { Id = "duplicate", Name = " cue ", PresetName = "Evening", TimeOfDay = "20:00", DaysOfWeekMask = 127 }
             }
         };
@@ -101,6 +104,7 @@ public class PluginConfigurationTests
 
         Assert.Contains("Scene schedule 1 references a saved scene that does not exist", errors);
         Assert.Contains("Scene schedule 1 time must use 24-hour HH:mm format", errors);
+        Assert.Contains("Scene schedule 1 time zone is not available on this server", errors);
         Assert.Contains("Scene schedule 1 must select at least one day of the week", errors);
         Assert.Contains("Scene schedule 2 duplicates another scene schedule ID", errors);
         Assert.Contains("Scene schedule 2 duplicates another scene schedule name", errors);

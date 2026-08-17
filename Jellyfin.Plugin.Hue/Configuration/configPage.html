@@ -263,7 +263,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen server-local time. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -287,8 +287,14 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTime">Server-local time</label>
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTime">Cue time</label>
                                 <input id="sceneScheduleTime" type="time" value="20:00" is="emby-input" />
+                            </div>
+                            <div style="flex: 1 1 280px;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTimeZone">Time zone</label>
+                                <select id="sceneScheduleTimeZone" is="emby-select" style="width: 100%;">
+                                    <option value="">Server local time zone</option>
+                                </select>
                             </div>
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTarget">Target</label>
@@ -312,7 +318,7 @@
                                 <option value="32" selected>Friday</option>
                                 <option value="64" selected>Saturday</option>
                             </select>
-                            <div class="fieldDescription">Choose one or more days. The scheduler checks every few seconds and runs each cue at most once per local minute.</div>
+                            <div class="fieldDescription">Choose one or more days. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default.</div>
                         </div>
                         <button is="emby-button" type="button" class="raised button-submit" id="saveSceneScheduleBtn" style="margin-top: 0.5em;"><span>Save Scheduled Cue</span></button>
                         <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule times, and target mapping IDs; bridge credentials remain server-side.</div>
@@ -1564,11 +1570,13 @@
                     return Promise.all([
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules")),
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets")),
-                        ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings"))
+                        ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings")),
+                        ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/TimeZones")).catch(function () { return []; })
                     ]).then(function (responses) {
                         var schedules = Array.isArray(responses[0]) ? responses[0] : [];
                         var presets = Array.isArray(responses[1]) ? responses[1] : [];
                         var mappings = Array.isArray(responses[2]) ? responses[2] : [];
+                        var timeZones = Array.isArray(responses[3]) ? responses[3] : [];
                         page._hueSceneSchedules = schedules;
 
                         var presetSelect = page.querySelector('#sceneSchedulePresetSelect');
@@ -1596,6 +1604,20 @@
                                 option.value = userId;
                                 option.textContent = label + (mapping.syncEnabled === false || mapping.SyncEnabled === false ? ' (disabled)' : '');
                                 targetSelect.appendChild(option);
+                            });
+                        }
+
+                        var timeZoneSelect = page.querySelector('#sceneScheduleTimeZone');
+                        if (timeZoneSelect) {
+                            timeZoneSelect.innerHTML = '<option value="">Server local time zone</option>';
+                            timeZones.forEach(function (timeZone) {
+                                var id = timeZone && (timeZone.id !== undefined ? timeZone.id : timeZone.Id);
+                                if (!id) return;
+                                var displayName = timeZone.displayName !== undefined ? timeZone.displayName : timeZone.DisplayName;
+                                var option = document.createElement('option');
+                                option.value = id;
+                                option.textContent = displayName || id;
+                                timeZoneSelect.appendChild(option);
                             });
                         }
 
@@ -1689,12 +1711,17 @@
                         var formatLocal = function (value) {
                             return value ? new Date(value).toLocaleString() : "—";
                         };
+                        var formatScheduleLocal = function (value) {
+                            if (!value) return "—";
+                            var match = String(value).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+                            return match ? match[1] + " " + match[2] : String(value);
+                        };
                         var table = document.createElement('table');
                         table.style.width = '100%';
                         table.style.borderCollapse = 'collapse';
                         table.style.minWidth = '980px';
                         var headerRow = document.createElement('tr');
-                        ["Cue", "Target", "Schedule", "Readiness", "Next run (server local)", "Last run", "Result", "Runs"].forEach(function (heading) {
+                        ["Cue", "Target", "Schedule", "Readiness", "Next run (cue zone)", "Last run", "Result", "Runs"].forEach(function (heading) {
                             var header = document.createElement('th');
                             header.textContent = heading;
                             header.style.textAlign = 'left';
@@ -1711,6 +1738,7 @@
                             var preset = HueConfigurationPage.readStatusField(schedule, "PresetName", "—");
                             var target = HueConfigurationPage.readStatusField(schedule, "TargetLabel", "Default bridge target");
                             var time = HueConfigurationPage.readStatusField(schedule, "TimeOfDay", "—");
+                            var timeZone = HueConfigurationPage.readStatusField(schedule, "TimeZoneDisplayName", "Server local");
                             var mask = HueConfigurationPage.readStatusField(schedule, "DaysOfWeekMask", 0);
                             var enabled = HueConfigurationPage.readStatusField(schedule, "Enabled", false);
                             var ready = HueConfigurationPage.readStatusField(schedule, "Ready", false);
@@ -1733,10 +1761,10 @@
                             };
                             addCell(String(name) + (enabled ? "" : " (disabled)"));
                             addCell(String(target));
-                            addCell(String(preset) + " · " + String(time) + " · " + daysForMask(mask));
+                            addCell(String(preset) + " · " + String(time) + " · " + String(timeZone) + " · " + daysForMask(mask));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
-                            addCell(enabled ? formatLocal(nextRun) : "Disabled");
+                            addCell(enabled ? (formatScheduleLocal(nextRun) + " · " + String(timeZone)) : "Disabled");
                             addCell(formatLocal(lastRun));
                             var resultText = succeeded === null || typeof succeeded === 'undefined'
                                 ? "Not run yet"
@@ -1957,6 +1985,16 @@
                     page.querySelector('#sceneScheduleName').value = get('Name', 'name', '');
                     page.querySelector('#sceneSchedulePresetSelect').value = get('PresetName', 'presetName', '');
                     page.querySelector('#sceneScheduleTime').value = get('TimeOfDay', 'timeOfDay', '20:00');
+                    var scheduleTimeZoneId = get('TimeZoneId', 'timeZoneId', '');
+                    var scheduleTimeZoneSelect = page.querySelector('#sceneScheduleTimeZone');
+                    scheduleTimeZoneSelect.value = scheduleTimeZoneId;
+                    if (scheduleTimeZoneId && scheduleTimeZoneSelect.value !== scheduleTimeZoneId) {
+                        var unavailableTimeZone = document.createElement('option');
+                        unavailableTimeZone.value = scheduleTimeZoneId;
+                        unavailableTimeZone.textContent = "Unavailable on this server: " + scheduleTimeZoneId;
+                        scheduleTimeZoneSelect.appendChild(unavailableTimeZone);
+                        scheduleTimeZoneSelect.value = scheduleTimeZoneId;
+                    }
                     page.querySelector('#sceneScheduleTarget').value = get('TargetUserId', 'targetUserId', '');
                     page.querySelector('#sceneScheduleEnabled').checked = get('Enabled', 'enabled', true) !== false;
                     HueConfigurationPage.setSceneScheduleDaysMask(page, get('DaysOfWeekMask', 'daysOfWeekMask', 127));
@@ -1969,6 +2007,7 @@
                     page.querySelector('#sceneScheduleName').value = '';
                     page.querySelector('#sceneSchedulePresetSelect').value = '';
                     page.querySelector('#sceneScheduleTime').value = '20:00';
+                    page.querySelector('#sceneScheduleTimeZone').value = '';
                     page.querySelector('#sceneScheduleTarget').value = '';
                     page.querySelector('#sceneScheduleEnabled').checked = true;
                     HueConfigurationPage.setSceneScheduleDaysMask(page, 127);
@@ -1978,6 +2017,7 @@
                     var name = page.querySelector('#sceneScheduleName').value.trim();
                     var presetName = page.querySelector('#sceneSchedulePresetSelect').value;
                     var timeOfDay = page.querySelector('#sceneScheduleTime').value;
+                    var timeZoneId = page.querySelector('#sceneScheduleTimeZone').value;
                     var daysOfWeekMask = HueConfigurationPage.getSceneScheduleDaysMask(page);
                     if (!name || !presetName || !timeOfDay || !daysOfWeekMask) {
                         Dashboard.alert("Enter a cue name, saved scene, time, and at least one day.");
@@ -2000,6 +2040,7 @@
                             presetName: presetName,
                             targetUserId: page.querySelector('#sceneScheduleTarget').value || '',
                             timeOfDay: timeOfDay,
+                            timeZoneId: timeZoneId,
                             daysOfWeekMask: daysOfWeekMask,
                             enabled: page.querySelector('#sceneScheduleEnabled').checked
                         }),

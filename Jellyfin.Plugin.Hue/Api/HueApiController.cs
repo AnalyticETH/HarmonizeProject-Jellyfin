@@ -430,6 +430,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = targetUserId,
                 TargetLabel = targetLabel,
                 TimeOfDay = schedule.TimeOfDay,
+                TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled
             };
@@ -444,6 +445,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetName = schedule.PresetName,
                 TargetUserId = schedule.TargetUserId,
                 TimeOfDay = schedule.TimeOfDay,
+                TimeZoneId = schedule.TimeZoneId,
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled
             };
@@ -902,6 +904,27 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Lists the system time zones available to recurring scene cues. IDs are the
+        /// exact values accepted by <see cref="TimeZoneInfo.FindSystemTimeZoneById"/>.
+        /// </summary>
+        [HttpGet("SceneSchedules/TimeZones")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<IEnumerable<HueSceneScheduleTimeZoneResult>> GetSceneScheduleTimeZones()
+        {
+            var zones = TimeZoneInfo.GetSystemTimeZones()
+                .OrderBy(zone => zone.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(zone => zone.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(zone => new HueSceneScheduleTimeZoneResult
+                {
+                    Id = zone.Id,
+                    DisplayName = zone.DisplayName,
+                    BaseUtcOffsetMinutes = (int)zone.BaseUtcOffset.TotalMinutes
+                })
+                .ToArray();
+            return Ok(zones);
+        }
+
+        /// <summary>
         /// Returns next-run and last-run telemetry for recurring scene cues without
         /// exposing bridge credentials or target connection details.
         /// </summary>
@@ -916,6 +939,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     ServiceAvailable = false,
                     GeneratedAtUtc = DateTime.UtcNow,
                     ServerLocalNow = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified),
+                    ServerTimeZoneId = TimeZoneInfo.Local.Id,
                     Schedules = Array.Empty<HueSceneScheduleRuntimeStatus>()
                 });
             }
@@ -2724,6 +2748,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("timeOfDay")]
         public string TimeOfDay { get; set; } = "20:00";
 
+        [JsonPropertyName("timeZoneId")]
+        public string TimeZoneId { get; set; } = string.Empty;
+
         [JsonPropertyName("daysOfWeekMask")]
         public int DaysOfWeekMask { get; set; } = PluginConfiguration.AllSceneScheduleDaysMask;
 
@@ -2739,6 +2766,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetName = PresetName?.Trim() ?? string.Empty,
                 TargetUserId = TargetUserId?.Trim() ?? string.Empty,
                 TimeOfDay = TimeOfDay?.Trim() ?? string.Empty,
+                TimeZoneId = TimeZoneId?.Trim() ?? string.Empty,
                 DaysOfWeekMask = DaysOfWeekMask,
                 Enabled = Enabled
             };
@@ -2768,11 +2796,29 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("timeOfDay")]
         public string TimeOfDay { get; set; } = string.Empty;
 
+        [JsonPropertyName("timeZoneId")]
+        public string TimeZoneId { get; set; } = string.Empty;
+
         [JsonPropertyName("daysOfWeekMask")]
         public int DaysOfWeekMask { get; set; }
 
         [JsonPropertyName("enabled")]
         public bool Enabled { get; set; }
+    }
+
+    /// <summary>
+    /// Sanitized system time-zone choice for recurring scene cues.
+    /// </summary>
+    public sealed class HueSceneScheduleTimeZoneResult
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("displayName")]
+        public string DisplayName { get; set; } = string.Empty;
+
+        [JsonPropertyName("baseUtcOffsetMinutes")]
+        public int BaseUtcOffsetMinutes { get; set; }
     }
 
     public class HueRegistrationResult

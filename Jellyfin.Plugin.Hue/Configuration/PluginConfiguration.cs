@@ -73,7 +73,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
     /// <summary>
     /// A recurring, credential-free cue that displays one saved color scene at a
-    /// selected local time. The target is resolved from the global bridge or a
+    /// selected time-zone wall-clock time. The target is resolved from the global bridge or a
     /// persisted user mapping when the cue runs; credentials are never stored here.
     /// </summary>
     public sealed class HueSceneSchedule
@@ -83,6 +83,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string PresetName { get; set; } = string.Empty;
         public string TargetUserId { get; set; } = string.Empty;
         public string TimeOfDay { get; set; } = "20:00";
+        /// <summary>
+        /// Optional system time-zone ID for this cue. Blank preserves the original
+        /// server-local behavior and is resolved from <see cref="TimeZoneInfo.Local"/>.
+        /// </summary>
+        public string TimeZoneId { get; set; } = string.Empty;
         public int DaysOfWeekMask { get; set; } = 127;
         public bool Enabled { get; set; } = true;
     }
@@ -804,6 +809,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (!TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
                 errors.Add($"{label} time must use 24-hour HH:mm format");
 
+            if (!TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
+                errors.Add($"{label} time zone is not available on this server");
+
             if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > AllSceneScheduleDaysMask)
                 errors.Add($"{label} must select at least one day of the week");
 
@@ -871,6 +879,41 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             normalized = parsed.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
             return true;
+        }
+
+        /// <summary>
+        /// Resolves an optional schedule time-zone ID. An empty ID intentionally maps to
+        /// the server's local zone for backward compatibility with existing cues.
+        /// </summary>
+        public static bool TryResolveSceneScheduleTimeZone(string? value, out TimeZoneInfo timeZone)
+        {
+            var normalized = value?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                timeZone = TimeZoneInfo.Local;
+                return true;
+            }
+
+            try
+            {
+                timeZone = TimeZoneInfo.FindSystemTimeZoneById(normalized);
+                return true;
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                timeZone = TimeZoneInfo.Local;
+                return false;
+            }
+            catch (InvalidTimeZoneException)
+            {
+                timeZone = TimeZoneInfo.Local;
+                return false;
+            }
+            catch (ArgumentException)
+            {
+                timeZone = TimeZoneInfo.Local;
+                return false;
+            }
         }
 
         public PluginConfiguration()

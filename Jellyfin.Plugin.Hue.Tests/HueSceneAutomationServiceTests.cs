@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
@@ -58,6 +59,53 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TimeZoneAwareSchedule_UsesUtcInstantAndSelectedZoneWallClock()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            DaysOfWeekMask = 1 << (int)DayOfWeek.Monday
+        };
+        var dueUtc = new DateTime(2026, 8, 17, 7, 5, 30, DateTimeKind.Utc);
+        var serverLocalNow = TimeZoneInfo.ConvertTimeFromUtc(dueUtc, TimeZoneInfo.Local);
+
+        Assert.True(HueSceneAutomationService.IsDue(schedule, serverLocalNow));
+
+        var nextServerLocal = TimeZoneInfo.ConvertTimeFromUtc(
+            new DateTime(2026, 8, 17, 6, 59, 0, DateTimeKind.Utc),
+            TimeZoneInfo.Local);
+        var nextLocal = HueSceneAutomationService.GetNextRunLocal(schedule, nextServerLocal);
+        var nextUtc = HueSceneAutomationService.GetNextRunUtc(schedule, nextServerLocal);
+        Assert.Equal(new DateTime(2026, 8, 17, 7, 5, 0), nextLocal);
+        Assert.Equal(new DateTime(2026, 8, 17, 7, 5, 0, DateTimeKind.Utc), nextUtc);
+    }
+
+    [Fact]
+    public void TimeZoneAwareSchedule_SkipsInvalidSpringForwardWallClock()
+    {
+        var zone = TimeZoneInfo.GetSystemTimeZones()
+            .FirstOrDefault(candidate => candidate.Id.Equals("America/New_York", StringComparison.OrdinalIgnoreCase));
+        if (zone == null)
+            return;
+
+        var schedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "02:30",
+            TimeZoneId = zone.Id,
+            DaysOfWeekMask = 1 << (int)DayOfWeek.Sunday
+        };
+        var serverLocalNow = TimeZoneInfo.ConvertTimeFromUtc(
+            new DateTime(2026, 3, 8, 6, 0, 0, DateTimeKind.Utc),
+            TimeZoneInfo.Local);
+
+        var nextLocal = HueSceneAutomationService.GetNextRunLocal(schedule, serverLocalNow);
+        Assert.NotEqual(new DateTime(2026, 3, 8, 2, 30, 0), nextLocal);
+    }
+
+    [Fact]
     public void EvaluateReadiness_ReportsDisabledAndMissingTargetWithoutCredentials()
     {
         var config = new PluginConfiguration
@@ -75,6 +123,9 @@ public sealed class HueSceneAutomationServiceTests
         var missingTarget = HueSceneAutomationService.EvaluateReadiness(
             config,
             new HueSceneSchedule { Enabled = true, PresetName = "Evening", TargetUserId = "missing-user" });
+        var missingTimeZone = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule { Enabled = true, PresetName = "Evening", TimeZoneId = "Missing/Zone" });
 
         Assert.False(disabled.Ready);
         Assert.Equal("Disabled.", disabled.Message);
@@ -82,6 +133,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Contains("mapping", missingTarget.Message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("app-secret", missingTarget.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("client-secret", missingTarget.Message, StringComparison.Ordinal);
+        Assert.False(missingTimeZone.Ready);
+        Assert.Contains("time zone", missingTimeZone.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -186,6 +239,9 @@ public sealed class HueSceneAutomationServiceTests
         var runtime = Assert.Single(status.Schedules);
         Assert.True(status.ServiceAvailable);
         Assert.Equal("cue-1", runtime.ScheduleId);
+        Assert.Equal(string.Empty, runtime.TimeZoneId);
+        Assert.Contains("Server local", runtime.TimeZoneDisplayName, StringComparison.Ordinal);
+        Assert.NotNull(runtime.NextRunUtc);
         Assert.Equal(1, runtime.RunCount);
         Assert.True(runtime.LastSucceeded == true);
         Assert.False(runtime.IsRunning);

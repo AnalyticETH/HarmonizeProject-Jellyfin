@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.74] - 2026-08-17
+
+### Added
+- **Per-cue time zones**: recurring scene cues can use any time zone installed on the Jellyfin host while existing blank values continue to use the server's local zone
+- **DST-aware scheduling**: due checks and next-run calculations convert through the selected zone, skip nonexistent spring-forward wall-clock times, and expose both cue-local and UTC next-run values
+- **Time-zone catalog API and UI**: add `GET /HueSync/SceneSchedules/TimeZones` and a validated administrator selector for portable schedule setup
+
+### Security
+- Time-zone metadata is limited to system zone IDs, display names, and offsets; credentials and bridge connection details remain excluded from schedule/status responses
+
 ## [1.5.73] - 2026-08-17
 
 ### Added

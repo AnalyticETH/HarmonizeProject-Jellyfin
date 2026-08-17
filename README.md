@@ -73,7 +73,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Solid Color Preview** | Choose a color, brightness, and 1-30 second duration to preview the default target (or the current mapping target). The plugin captures and restores the selected lights automatically, stops promptly when canceled, and refuses to overlap active playback. |
 | **Cleanup diagnostics** | Light capture and restoration retry each light using the captured network policy. Playback, probes, and previews refuse to activate when the snapshot is incomplete; one shared bridge lease also prevents playback and diagnostics from overlapping. Partial restoration or failed entertainment-area deactivation remains visible as a sanitized warning in Live Sync Status and probe/preview results. DTLS startup, writes, and reconnects stop with playback or diagnostic cancellation. |
 | **Saved Color Scenes** | Save up to 50 named color, brightness, and duration presets. Apply a saved scene to the default target or the current mapping; presets contain no bridge credentials. |
-| **Scheduled Scene Cues** | Run a saved scene automatically on selected days at a server-local time, against the global target or an enabled user mapping. Every cue is a short restorative preview, active playback wins, and duplicate polling within a minute is suppressed. The scheduler monitor reports readiness, next run, active state, run count, last outcome, cleanup warnings, and an optional bounded cue-run history that can survive Jellyfin restarts. |
+| **Scheduled Scene Cues** | Run a saved scene automatically on selected days and a chosen time zone, against the global target or an enabled user mapping. Every cue is a short restorative preview, active playback wins, duplicate polling within a selected-zone minute is suppressed, and DST transitions are handled deterministically. The scheduler monitor reports readiness, cue-local/UTC next run, active state, run count, last outcome, cleanup warnings, and an optional bounded cue-run history that can survive Jellyfin restarts. |
 | **Restore Light State After Sync** | Save and restore each light's original state after playback. Per-user mappings can override this policy while blank fields inherit the global setting. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
 | **RGB Channel Gains** | Independently scale red, green, and blue channels from 50-200% (default: 100%) for room-specific white-balance correction before saturation and hue processing. |
@@ -158,11 +158,12 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/ColorPresets` | List saved, credential-free color scenes sorted by name. |
 | `POST /HueSync/ColorPresets` | Save or update a named color scene with `name`, RGB values, `brightnessPercent`, and `durationSeconds`; names are case-insensitive and values are validated. |
 | `DELETE /HueSync/ColorPresets/{name}` | Delete one saved color scene by name; returns a conflict while any scheduled cue still references it. |
-| `GET /HueSync/SceneSchedules` | List credential-free recurring scene cues with their saved-scene reference, target label, local time, day mask, and enabled state. |
-| `POST /HueSync/SceneSchedules` | Save or update a cue with `id` (optional for new cues), `name`, `presetName`, optional `targetUserId`, `timeOfDay` (`HH:mm` server-local), `daysOfWeekMask` (Sunday bit 1 through Saturday bit 64), and `enabled`. Bridge credentials are resolved server-side from the selected target. |
+| `GET /HueSync/SceneSchedules` | List credential-free recurring scene cues with their saved-scene reference, target label, cue time/time zone, day mask, and enabled state. |
+| `POST /HueSync/SceneSchedules` | Save or update a cue with `id` (optional for new cues), `name`, `presetName`, optional `targetUserId`, `timeOfDay` (`HH:mm` in the selected zone), optional `timeZoneId` (blank means server local), `daysOfWeekMask` (Sunday bit 1 through Saturday bit 64), and `enabled`. Bridge credentials are resolved server-side from the selected target. |
 | `DELETE /HueSync/SceneSchedules/{id}` | Delete one recurring scene cue by its stable ID. |
 | `POST /HueSync/SceneSchedules/{id}/Run` | Run one cue immediately through the serialized, state-restoring preview lifecycle; active playback or another diagnostic safely blocks the run. |
-| `GET /HueSync/SceneSchedules/Status` | Read credential-free scheduler telemetry for every configured cue: preflight readiness and reason, server-local next run, active state, run count, last run/outcome/message, and cleanup warning. Readiness validates saved configuration locally without contacting the bridge. |
+| `GET /HueSync/SceneSchedules/TimeZones` | List the Jellyfin host's available system time zones for schedule selection, including stable IDs, display names, and base UTC offsets. |
+| `GET /HueSync/SceneSchedules/Status` | Read credential-free scheduler telemetry for every configured cue: preflight readiness and reason, selected time zone, cue-local and UTC next run, active state, run count, last run/outcome/message, and cleanup warning. Readiness validates saved configuration locally without contacting the bridge. |
 | `GET /HueSync/SceneSchedules/History?limit=100&scheduleId=...` | Read the newest sanitized scheduled-cue runs, optionally filtered by stable cue ID; results include cue/scene/target labels, outcome, message, cleanup warning, timestamp, and retained run count. |
 | `GET /HueSync/SceneSchedules/History/Export?limit=100` | Download the same credential-free scheduled-cue history document used by the administrator Export JSON action. |
 | `DELETE /HueSync/SceneSchedules/History` | Clear retained scheduled-cue run summaries and reset last-run pointers without stopping an active cue. |
@@ -349,7 +350,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.73 (Current)
+### Version 1.5.74 (Current)
+- **Per-cue time zones**: schedule each recurring scene in a validated host time zone while preserving server-local behavior for existing cues
+- **DST-aware scheduler telemetry**: expose cue-local and UTC next-run values, selected zone labels, and deterministic handling for nonexistent spring-forward times
+
+### Version 1.5.73
 - **Persistent scheduled-cue history**: optionally retain the newest 100 sanitized cue runs across Jellyfin restarts and restore last outcomes/run counts into the scheduler monitor
 - **Cue history controls**: add `GET /HueSync/SceneSchedules/History`, export JSON, clear history, and a credential-free administrator history table
 
