@@ -523,6 +523,7 @@ public sealed class HueSyncServiceLifecycleTests
         onStartMethod.Invoke(service, new object?[] { null, CreateProgress("session-a") });
         await handler.FirstConfigurationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Plugin.Instance!.Configuration.RestoreLightState = true;
+        SetPrivateField(service, "_activeRestoreLightState", true);
         typeof(HueSyncService).GetField("_savedLightStates", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(service, new List<HueClient.LightState> { new("light-id", true, 50, 0.1, 0.2) });
 
