@@ -316,7 +316,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.50 (Current)
+### Version 1.5.51 (Current)
+- **Playback-aligned diagnostics**: System Diagnostics now probes Jellyfin's configured FFmpeg encoder path before falling back to `PATH`, so bundled encoder installations report accurate readiness
+
+### Version 1.5.50
 - **End-to-end request cancellation**: Bridge discovery, registration, entertainment-area reads, area configuration reads, and streaming-area activation now honor the originating API request token
 - **Activation cleanup safety**: If cancellation arrives while the bridge activation request is in flight, the diagnostic still deactivates the area and restores the captured light state before releasing the lifecycle lease
 

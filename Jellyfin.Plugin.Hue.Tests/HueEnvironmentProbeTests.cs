@@ -3,6 +3,8 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Service;
+using MediaBrowser.Controller.MediaEncoding;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.Hue.Tests;
@@ -58,6 +60,26 @@ public sealed class HueEnvironmentProbeTests
         Assert.False(string.IsNullOrWhiteSpace(result.Ffmpeg.Version));
         Assert.True(result.OpenSsl.Available);
         Assert.False(string.IsNullOrWhiteSpace(result.OpenSsl.Version));
+    }
+
+    [Fact]
+    public async Task CheckAsync_UsesConfiguredMediaEncoderPathForFfmpeg()
+    {
+        var processPath = Environment.ProcessPath;
+        Assert.False(string.IsNullOrWhiteSpace(processPath));
+
+        var mediaEncoder = new Mock<IMediaEncoder>();
+        mediaEncoder.SetupGet(encoder => encoder.EncoderPath).Returns(processPath!);
+        var probe = new HueEnvironmentProbe(
+            openSslCommand: processPath!,
+            versionArgument: "--version",
+            mediaEncoder: mediaEncoder.Object);
+
+        var result = await probe.CheckAsync();
+
+        Assert.True(result.Ffmpeg.Available);
+        Assert.Equal(Path.GetFullPath(processPath!), result.Ffmpeg.ExecutablePath);
+        Assert.False(string.IsNullOrWhiteSpace(result.Ffmpeg.Version));
     }
 
     [Fact]

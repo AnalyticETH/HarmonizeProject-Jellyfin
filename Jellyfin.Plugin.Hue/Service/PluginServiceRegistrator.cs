@@ -5,6 +5,7 @@ using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using Jellyfin.Plugin.Hue.Service;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -28,7 +29,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // concurrent API requests from creating separate gates and touching the bridge at
         // the same time.
         serviceCollection.AddSingleton<IHueStreamTester, HueStreamTester>();
-        serviceCollection.AddSingleton<IHueEnvironmentProbe, HueEnvironmentProbe>();
+        serviceCollection.AddSingleton<IHueEnvironmentProbe>(serviceProvider =>
+            new HueEnvironmentProbe(mediaEncoder: serviceProvider.GetService<IMediaEncoder>()));
         serviceCollection.AddHostedService<HueSyncService>();
     }
 }

@@ -1,9 +1,13 @@
+using System;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Security;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue;
 using Jellyfin.Plugin.Hue.Service;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.MediaEncoding;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -33,6 +37,24 @@ public class PluginServiceRegistratorTests
         var firstProbe = provider.GetRequiredService<IHueEnvironmentProbe>();
         var secondProbe = provider.GetRequiredService<IHueEnvironmentProbe>();
         Assert.Same(firstProbe, secondProbe);
+    }
+
+    [Fact]
+    public async Task RegisterServices_UsesConfiguredMediaEncoderForEnvironmentProbe()
+    {
+        var services = new ServiceCollection();
+        var processPath = Environment.ProcessPath;
+        Assert.False(string.IsNullOrWhiteSpace(processPath));
+        var mediaEncoder = Mock.Of<IMediaEncoder>(encoder => encoder.EncoderPath == processPath);
+        services.AddSingleton(mediaEncoder);
+
+        new PluginServiceRegistrator().RegisterServices(services, Mock.Of<IServerApplicationHost>());
+
+        using var provider = services.AddLogging().BuildServiceProvider();
+        var probe = Assert.IsType<HueEnvironmentProbe>(provider.GetRequiredService<IHueEnvironmentProbe>());
+        var result = await probe.CheckAsync();
+
+        Assert.Equal(Path.GetFullPath(processPath!), result.Ffmpeg.ExecutablePath);
     }
 
     [Theory]

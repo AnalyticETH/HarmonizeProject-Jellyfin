@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.MediaEncoding;
 
 namespace Jellyfin.Plugin.Hue.Service;
 
@@ -30,9 +31,15 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
     public HueEnvironmentProbe(
         string ffmpegCommand = "ffmpeg",
         string openSslCommand = "openssl",
-        string versionArgument = "-version")
+        string versionArgument = "-version",
+        IMediaEncoder? mediaEncoder = null)
     {
-        _ffmpegCommand = string.IsNullOrWhiteSpace(ffmpegCommand) ? "ffmpeg" : ffmpegCommand.Trim();
+        // Jellyfin may use a bundled encoder that is not on the service account's PATH.
+        // Prefer the same configured executable playback uses, while retaining the
+        // injectable command fallback for hosted environments and deterministic tests.
+        _ffmpegCommand = !string.IsNullOrWhiteSpace(mediaEncoder?.EncoderPath)
+            ? mediaEncoder.EncoderPath.Trim()
+            : (string.IsNullOrWhiteSpace(ffmpegCommand) ? "ffmpeg" : ffmpegCommand.Trim());
         _openSslCommand = string.IsNullOrWhiteSpace(openSslCommand) ? "openssl" : openSslCommand.Trim();
         _versionArgument = string.IsNullOrWhiteSpace(versionArgument) ? "-version" : versionArgument.Trim();
     }
@@ -111,7 +118,7 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
             return new HueToolStatus
             {
                 Available = false,
-                Message = "Executable was not found on the server PATH."
+                Message = "Executable was not found at the configured path or on the server PATH."
             };
         }
 
