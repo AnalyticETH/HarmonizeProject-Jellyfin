@@ -35,7 +35,7 @@
                                 <span>Refresh Entertainment Areas</span>
                             </button>
                             <div id="bridgeStatus" style="flex: 1 1 200px; color: #fff; padding: 6px 10px; border-radius: 6px; background: #3f51b5;">
-                                Enter bridge IP & keys, then refresh to test.
+                                Enter bridge address and keys, then refresh to test.
                             </div>
                         </div>
 
@@ -126,7 +126,7 @@
                         </div>
 
                         <fieldset class="verticalSection" style="background: rgba(255,255,255,0.05); padding: 1em; border-radius: 6px; margin-top: 1em;">
-                            <legend>Add New User Mapping</legend>
+                            <legend id="mappingFormLegend">Add New User Mapping</legend>
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="mappingUserSelect">Jellyfin User</label>
                                 <select id="mappingUserSelect" is="emby-select" class="emby-select-withcolor" style="min-width: 200px;">
@@ -147,7 +147,7 @@
                                     <span>Link Bridge</span>
                                 </button>
                                 <div id="mappingBridgeStatus" style="flex: 1 1 200px; color: #fff; padding: 6px 10px; border-radius: 6px; background: #3f51b5;">
-                                    Enter bridge IP, then link.
+                                    Enter bridge address, then link.
                                 </div>
                             </div>
 
@@ -182,6 +182,9 @@
 
                             <button is="emby-button" type="button" class="raised button-submit" id="addMappingBtn" style="margin-top: 1em;">
                                 <span>Add User Mapping</span>
+                            </button>
+                            <button is="emby-button" type="button" class="raised" id="cancelMappingEditBtn" style="margin-top: 1em; display: none;">
+                                <span>Cancel Edit</span>
                             </button>
                         </fieldset>
                     </fieldset>
@@ -320,6 +323,18 @@
                         Dashboard.hideLoadingMsg();
                     });
                 },
+                fetchEntertainmentAreas: function (bridgeIp, appKey) {
+                    return ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/EntertainmentAreas"),
+                        data: JSON.stringify({
+                            ipAddress: bridgeIp,
+                            appKey: appKey
+                        }),
+                        contentType: "application/json",
+                        dataType: "json"
+                    });
+                },
                 loadEntertainmentAreas: function (page, selectedId) {
                     var statusEl = page.querySelector('#entertainmentAreaStatus');
                     var selectEl = page.querySelector('#entertainmentAreaSelect');
@@ -337,7 +352,7 @@
                     HueConfigurationPage.refreshStatus(page, "Contacting bridge...", "info");
 
                     if (!bridgeIp || !appKey) {
-                        statusEl.textContent = "Enter bridge IP and app key, then refresh.";
+                        statusEl.textContent = "Enter bridge address and app key, then refresh.";
                         selectEl.value = "";
                         HueConfigurationPage.toggleManualArea(page, true, selectedId);
                         selectEl.disabled = false;
@@ -345,12 +360,7 @@
                         return;
                     }
 
-                    ApiClient.getJSON(
-                        ApiClient.getUrl("HueSync/EntertainmentAreas", {
-                            ip: bridgeIp,
-                            appKey: appKey
-                        })
-                    ).then(function (response) {
+                    HueConfigurationPage.fetchEntertainmentAreas(bridgeIp, appKey).then(function (response) {
                         console.log("Entertainment areas response:", response);
                         console.log("Response type:", typeof response);
                         console.log("Is array:", Array.isArray(response));
@@ -490,7 +500,7 @@
                 registerBridge: function (page) {
                     var ip = page.querySelector('#hueBridgeIp').value;
                     if (!ip) {
-                        Dashboard.alert("Please enter a Bridge IP first.");
+                        Dashboard.alert("Please enter a bridge address first.");
                         return;
                     }
 
@@ -598,7 +608,7 @@
                         var html = '<table style="width: 100%; border-collapse: collapse;">';
                         html += '<thead><tr style="border-bottom: 1px solid #444;">';
                         html += '<th style="text-align: left; padding: 8px;">User</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Bridge IP</th>';
+                        html += '<th style="text-align: left; padding: 8px;">Bridge Address</th>';
                         html += '<th style="text-align: left; padding: 8px;">Entertainment Area</th>';
                         html += '<th style="text-align: right; padding: 8px;">Actions</th>';
                         html += '</tr></thead><tbody>';
@@ -610,6 +620,7 @@
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.HueBridgeIp || mapping.hueBridgeIp || '') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.EntertainmentAreaName || mapping.entertainmentAreaName || mapping.EntertainmentAreaId || mapping.entertainmentAreaId || '') + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid)">Edit</button> ';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid)">Delete</button>';
                             html += '</td></tr>';
                         });
@@ -672,7 +683,7 @@
                     console.log("registerMappingBridge - ip:", ip);
 
                     if (!ip) {
-                        Dashboard.alert("Please enter a Bridge IP first.");
+                        Dashboard.alert("Please enter a bridge address first.");
                         return;
                     }
 
@@ -720,7 +731,7 @@
                     });
                 },
 
-                loadMappingAreas: function () {
+                loadMappingAreas: function (selectedAreaId) {
                     var selectEl = document.getElementById('mappingAreaSelect');
                     var bridgeIpEl = document.getElementById('mappingBridgeIp');
                     var appKeyEl = document.getElementById('mappingAppKey');
@@ -745,10 +756,7 @@
                     selectEl.disabled = true;
 
                     console.log("Fetching entertainment areas from bridge:", bridgeIp);
-                    ApiClient.getJSON(ApiClient.getUrl("HueSync/EntertainmentAreas", {
-                        ip: bridgeIp,
-                        appKey: appKey
-                    })).then(function (areas) {
+                    HueConfigurationPage.fetchEntertainmentAreas(bridgeIp, appKey).then(function (areas) {
                         console.log("Entertainment areas response:", areas);
                         selectEl.innerHTML = '<option value="">Select an area...</option>';
                         areas = Array.isArray(areas) ? areas : [];
@@ -764,6 +772,26 @@
                         manualOption.value = "manual";
                         manualOption.textContent = "Enter ID manually";
                         selectEl.appendChild(manualOption);
+
+                        if (selectedAreaId) {
+                            var found = false;
+                            for (var optionIndex = 0; optionIndex < selectEl.options.length; optionIndex++) {
+                                if (selectEl.options[optionIndex].value === selectedAreaId) {
+                                    selectEl.selectedIndex = optionIndex;
+                                    found = true;
+                                    break;
+                                }
+                            }
+
+                            if (found) {
+                                HueConfigurationPage.toggleMappingManualArea(false);
+                            } else {
+                                selectEl.value = "manual";
+                                var manualAreaEl = document.getElementById('mappingAreaManual');
+                                if (manualAreaEl) manualAreaEl.value = selectedAreaId;
+                                HueConfigurationPage.toggleMappingManualArea(true);
+                            }
+                        }
                     }).catch(function (err) {
                         console.error("Failed to load areas for mapping:", err);
                         selectEl.innerHTML = '<option value="">Failed to load areas</option><option value="manual">Enter ID manually</option>';
@@ -780,6 +808,7 @@
                 },
 
                 addUserMapping: function () {
+                    var page = document.querySelector('.pluginConfigurationPage');
                     var userSelect = document.getElementById('mappingUserSelect');
                     var areaSelect = document.getElementById('mappingAreaSelect');
                     var bridgeIpEl = document.getElementById('mappingBridgeIp');
@@ -814,7 +843,7 @@
                         return;
                     }
                     if (!bridgeIp || !appKey || !clientKey) {
-                        Dashboard.alert("Please enter bridge IP and credentials (use Link Bridge or enter manually).");
+                        Dashboard.alert("Please enter a bridge address and credentials (use Link Bridge or enter manually).");
                         return;
                     }
                     if (!areaId) {
@@ -838,27 +867,117 @@
                         data: JSON.stringify(mapping),
                         contentType: "application/json"
                     }).then(function () {
-                        Dashboard.alert("User mapping saved successfully!");
-                        // Reload mappings list - find page element for loadUserMappings
-                        var pageEl = document.querySelector('.pluginConfigurationPage');
-                        if (pageEl) {
-                            HueConfigurationPage.loadUserMappings(pageEl);
-                        }
-                        // Clear the form
-                        if (userSelect) userSelect.value = "";
-                        if (bridgeIpEl) bridgeIpEl.value = "";
-                        if (appKeyEl) appKeyEl.value = "";
-                        if (clientKeyEl) clientKeyEl.value = "";
-                        if (areaSelect) areaSelect.innerHTML = '<option value="">Enter credentials first</option><option value="manual">Enter ID manually</option>';
-                        var statusEl = document.getElementById('mappingBridgeStatus');
-                        if (statusEl) {
-                            statusEl.textContent = "Enter bridge IP, then link.";
-                            statusEl.style.background = "#3f51b5";
+                        var wasEditing = !!HueConfigurationPage.mappingEditingUserId;
+                        Dashboard.alert(wasEditing ? "User mapping updated successfully!" : "User mapping saved successfully!");
+                        if (page) {
+                            HueConfigurationPage.loadUserMappings(page);
+                            HueConfigurationPage.resetMappingForm(page);
                         }
                     }).catch(function (err) {
                         console.error("Failed to save user mapping:", err);
                         Dashboard.alert("Failed to save user mapping: " + (err.message || err));
                     });
+                },
+
+                resetMappingForm: function (page) {
+                    var userSelect = page.querySelector('#mappingUserSelect');
+                    var bridgeIpEl = page.querySelector('#mappingBridgeIp');
+                    var appKeyEl = page.querySelector('#mappingAppKey');
+                    var clientKeyEl = page.querySelector('#mappingClientKey');
+                    var areaSelect = page.querySelector('#mappingAreaSelect');
+                    var manualAreaEl = page.querySelector('#mappingAreaManual');
+                    var legend = page.querySelector('#mappingFormLegend');
+                    var saveButton = page.querySelector('#addMappingBtn');
+                    var cancelButton = page.querySelector('#cancelMappingEditBtn');
+                    var statusEl = page.querySelector('#mappingBridgeStatus');
+
+                    HueConfigurationPage.mappingEditingUserId = "";
+                    if (userSelect) {
+                        userSelect.value = "";
+                        userSelect.disabled = false;
+                    }
+                    if (bridgeIpEl) bridgeIpEl.value = "";
+                    if (appKeyEl) appKeyEl.value = "";
+                    if (clientKeyEl) clientKeyEl.value = "";
+                    if (areaSelect) areaSelect.innerHTML = '<option value="">Enter credentials first</option><option value="manual">Enter ID manually</option>';
+                    if (manualAreaEl) manualAreaEl.value = "";
+                    if (legend) legend.textContent = "Add New User Mapping";
+                    if (saveButton) saveButton.querySelector('span').textContent = "Add User Mapping";
+                    if (cancelButton) cancelButton.style.display = "none";
+                    if (statusEl) {
+                        statusEl.textContent = "Enter bridge address, then link.";
+                        statusEl.style.background = "#3f51b5";
+                    }
+                    HueConfigurationPage.toggleMappingManualArea(false);
+                },
+
+                editUserMapping: function (page, userId) {
+                    Dashboard.showLoadingMsg();
+
+                    ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings")).then(function (mappings) {
+                        mappings = Array.isArray(mappings) ? mappings : [];
+                        var mapping = null;
+                        mappings.forEach(function (candidate) {
+                            var candidateId = candidate.UserId || candidate.userId || "";
+                            if (!mapping && String(candidateId).toLowerCase() === String(userId).toLowerCase()) {
+                                mapping = candidate;
+                            }
+                        });
+
+                        if (!mapping) {
+                            throw new Error("Mapping not found.");
+                        }
+
+                        var mappingUserId = mapping.UserId || mapping.userId || userId;
+                        var mappingUserName = mapping.UserName || mapping.userName || "";
+                        var bridgeIp = mapping.HueBridgeIp || mapping.hueBridgeIp || "";
+                        var appKey = mapping.HueAppKey || mapping.hueAppKey || "";
+                        var clientKey = mapping.HueClientKey || mapping.hueClientKey || "";
+                        var areaId = mapping.EntertainmentAreaId || mapping.entertainmentAreaId || "";
+
+                        var userSelect = page.querySelector('#mappingUserSelect');
+                        if (userSelect) {
+                            var hasUserOption = false;
+                            var selectedUserValue = mappingUserId;
+                            for (var optionIndex = 0; optionIndex < userSelect.options.length; optionIndex++) {
+                                if (String(userSelect.options[optionIndex].value).toLowerCase() === String(mappingUserId).toLowerCase()) {
+                                    hasUserOption = true;
+                                    selectedUserValue = userSelect.options[optionIndex].value;
+                                    break;
+                                }
+                            }
+                            if (!hasUserOption) {
+                                var userOption = document.createElement('option');
+                                userOption.value = mappingUserId;
+                                userOption.textContent = mappingUserName || mappingUserId;
+                                userOption.dataset.userName = userOption.textContent;
+                                userSelect.appendChild(userOption);
+                            }
+                            userSelect.value = selectedUserValue;
+                            userSelect.disabled = true;
+                        }
+
+                        page.querySelector('#mappingBridgeIp').value = bridgeIp;
+                        page.querySelector('#mappingAppKey').value = appKey;
+                        page.querySelector('#mappingClientKey').value = clientKey;
+                        page.querySelector('#mappingAreaManual').value = "";
+                        page.querySelector('#mappingFormLegend').textContent = "Edit User Mapping";
+                        page.querySelector('#addMappingBtn').querySelector('span').textContent = "Update User Mapping";
+                        page.querySelector('#cancelMappingEditBtn').style.display = "";
+                        page.querySelector('#mappingBridgeStatus').textContent = "Editing " + (mappingUserName || mappingUserId) + ".";
+                        page.querySelector('#mappingBridgeStatus').style.background = "#3f51b5";
+                        HueConfigurationPage.mappingEditingUserId = mappingUserId;
+                        HueConfigurationPage.loadMappingAreas(areaId);
+                    }).catch(function (err) {
+                        console.error("Failed to load user mapping:", err);
+                        Dashboard.alert("Unable to edit mapping: " + (err.message || err));
+                    }).finally(function () {
+                        Dashboard.hideLoadingMsg();
+                    });
+                },
+
+                cancelMappingEdit: function (page) {
+                    HueConfigurationPage.resetMappingForm(page);
                 },
 
                 deleteUserMapping: function (page, userId) {
@@ -870,6 +989,9 @@
                             }).then(function () {
                                 Dashboard.alert("User mapping deleted.");
                                 HueConfigurationPage.loadUserMappings(page);
+                                if (String(HueConfigurationPage.mappingEditingUserId || '').toLowerCase() === String(userId).toLowerCase()) {
+                                    HueConfigurationPage.resetMappingForm(page);
+                                }
                             }).catch(function (err) {
                                 console.error("Failed to delete user mapping:", err);
                                 Dashboard.alert("Failed to delete user mapping: " + (err.message || err));
@@ -919,6 +1041,10 @@
 
             document.querySelector('#addMappingBtn').addEventListener('click', function () {
                 HueConfigurationPage.addUserMapping();
+            });
+
+            document.querySelector('#cancelMappingEditBtn').addEventListener('click', function () {
+                HueConfigurationPage.cancelMappingEdit(this.closest('.page'));
             });
 
             document.querySelector('#mappingAreaSelect').addEventListener('change', function () {

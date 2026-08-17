@@ -73,6 +73,20 @@ To configure per-user mappings:
 6. Click **Add User Mapping**
 
 Users without a mapping will use the default bridge settings configured above.
+Existing mappings can be updated with **Edit** or removed with **Delete**. Editing keeps the
+selected Jellyfin user fixed while allowing the bridge address, credentials, and area to change.
+
+### Admin API
+
+The configuration page uses authenticated administrator endpoints under `/HueSync`:
+
+| Endpoint | Purpose |
+| :--- | :--- |
+| `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
+| `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
+| `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
+| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings. |
+| `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 
 ### Generating Hue Credentials (Manual Fallback)
 If the **Link Bridge** button doesn't work for you, you can generate keys manually:
@@ -221,7 +235,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.4 (Current)
+### Version 1.5.5 (Current)
+- **Mapping management**: Explicit Edit and Cancel controls for per-user bridge mappings
+- **Credential-safe area loading**: The configuration UI sends app keys in the request body instead of URLs
+
+### Version 1.5.4
 - **Bridge discovery**: Authenticated `/HueSync/DiscoverBridge` endpoint and one-click discovery for default and per-user mappings
 
 ### Version 1.5.3

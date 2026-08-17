@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] - 2026-08-17
+
+### Added
+- Explicit Edit and Cancel controls for per-user bridge mappings
+- Body-based `POST /HueSync/EntertainmentAreas` API for secure area loading
+- Regression coverage for secure area requests and missing credentials
+
+### Changed
+- Configuration UI now uses the body-based area endpoint so app keys do not appear in URLs
+- Existing `GET /HueSync/EntertainmentAreas` clients remain supported
+
 ## [1.5.4] - 2026-08-17
 
 ### Added

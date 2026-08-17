@@ -10,9 +10,9 @@
     <!-- Plugin metadata -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>CS1591</NoWarn>
-    <AssemblyVersion>1.5.4.0</AssemblyVersion>
-    <FileVersion>1.5.4.0</FileVersion>
-    <Version>1.5.4.0</Version>
+    <AssemblyVersion>1.5.5.0</AssemblyVersion>
+    <FileVersion>1.5.5.0</FileVersion>
+    <Version>1.5.5.0</Version>
     <Authors>MCP Capital LLC</Authors>
     <Company>MCP Capital LLC</Company>
     <Description>Synchronize Philips Hue lights with your media playback in real-time.</Description>

@@ -67,9 +67,35 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("EntertainmentAreas")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
         public async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> GetEntertainmentAreas(
             [FromQuery(Name = "ip")] string? bridgeIp,
             [FromQuery(Name = "appKey")] string? appKey)
+        {
+            return await LoadEntertainmentAreas(bridgeIp, appKey);
+        }
+
+        /// <summary>
+        /// Loads entertainment areas using a request body so app keys do not appear in URLs or access logs.
+        /// </summary>
+        [HttpPost("EntertainmentAreas")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        public async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> PostEntertainmentAreas(
+            [FromBody] HueEntertainmentAreasRequest? request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.IpAddress) || string.IsNullOrWhiteSpace(request.AppKey))
+            {
+                return BadRequest("Bridge IP and app key are required before loading entertainment areas.");
+            }
+
+            return await LoadEntertainmentAreas(request.IpAddress, request.AppKey);
+        }
+
+        private async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> LoadEntertainmentAreas(
+            string? bridgeIp,
+            string? appKey)
         {
             bridgeIp ??= Plugin.Instance?.Configuration?.HueBridgeIp;
             appKey ??= Plugin.Instance?.Configuration?.HueAppKey;
@@ -200,6 +226,15 @@ namespace Jellyfin.Plugin.Hue.Api
     public class HueRegistrationRequest
     {
         public string IpAddress { get; set; } = string.Empty;
+    }
+
+    public class HueEntertainmentAreasRequest
+    {
+        [JsonPropertyName("ipAddress")]
+        public string IpAddress { get; set; } = string.Empty;
+
+        [JsonPropertyName("appKey")]
+        public string AppKey { get; set; } = string.Empty;
     }
 
     public class HueRegistrationResult

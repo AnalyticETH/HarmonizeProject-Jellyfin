@@ -50,6 +50,53 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(StatusCodes.Status502BadGateway, response.StatusCode);
     }
 
+    [Fact]
+    public async Task PostEntertainmentAreas_UsesRequestBodyAndReturnsAreas()
+    {
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentAreas(new HueEntertainmentAreasRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var areas = Assert.IsAssignableFrom<IEnumerable<HueClient.EntertainmentArea>>(response.Value);
+        var area = Assert.Single(areas);
+        Assert.Equal("area-1", area.Id);
+        Assert.Equal("Living Room", area.Name);
+        Assert.NotNull(capturedRequest);
+        Assert.Empty(capturedRequest!.RequestUri!.Query);
+        Assert.Equal("app-key", capturedRequest.Headers.GetValues("hue-application-key").Single());
+    }
+
+    [Fact]
+    public async Task PostEntertainmentAreas_WithoutCredentials_ReturnsBadRequest()
+    {
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentAreas(new HueEntertainmentAreasRequest());
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+    }
+
     private HueApiController CreateController()
     {
         var client = new HueClient(_httpClient, _loggerMock.Object);
