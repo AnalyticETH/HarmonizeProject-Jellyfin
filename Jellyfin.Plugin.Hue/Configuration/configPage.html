@@ -116,6 +116,12 @@
                             <div class="fieldDescription">Size of the neighborhood sampled around each Hue channel's screen position (1-50%, default: 15%). Smaller values follow fine detail; larger values reduce noise.</div>
                         </div>
 
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="colorSmoothingPercent">Temporal Color Smoothing (%)</label>
+                            <input id="colorSmoothingPercent" name="colorSmoothingPercent" type="number" min="0" max="90" is="emby-input" />
+                            <div class="fieldDescription">Blend the previous frame into new colors to reduce flicker (0-90%, default: 0). Higher values create smoother but slower transitions.</div>
+                        </div>
+
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label>
                                 <input is="emby-checkbox" type="checkbox" id="useGpu" name="useGpu" />
@@ -322,6 +328,7 @@
                         HueConfigurationPage.selectedAreaId = getConfigValue('EntertainmentAreaId', '');
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#samplingBreadthPercent').value = getConfigValue('SamplingBreadthPercent', 15);
+                        page.querySelector('#colorSmoothingPercent').value = getConfigValue('ColorSmoothingPercent', 0);
                         page.querySelector('#customFfmpegFlags').value = getConfigValue('CustomFfmpegFlags', '');
                         page.querySelector('#ffmpegStallTimeoutSeconds').value = getConfigValue('FfmpegStallTimeoutSeconds', 5);
                         page.querySelector('#useGpu').checked = getConfigValue('UseGpu', true);
@@ -356,6 +363,7 @@
                         EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         SamplingBreadthPercent: parseNumberOrDefault('#samplingBreadthPercent', 15),
+                        ColorSmoothingPercent: parseNumberOrDefault('#colorSmoothingPercent', 0),
                         CustomFfmpegFlags: page.querySelector('#customFfmpegFlags').value,
                         FfmpegStallTimeoutSeconds: parseNumberOrDefault('#ffmpegStallTimeoutSeconds', 5),
                         UseGpu: page.querySelector('#useGpu').checked,

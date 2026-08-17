@@ -486,6 +486,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int BrightnessDimLevel { get; set; } = 30;
         public int TargetFps { get; set; } = 20;
         public int SamplingBreadthPercent { get; set; } = 15;
+        public int ColorSmoothingPercent { get; set; } = 0;
         public bool UseGpu { get; set; } = true;
         public string CustomFfmpegFlags { get; set; } = string.Empty;
         public int FfmpegStallTimeoutSeconds { get; set; } = 5;
@@ -509,6 +510,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 BrightnessDimLevel = config.BrightnessDimLevel,
                 TargetFps = config.TargetFps,
                 SamplingBreadthPercent = config.SamplingBreadthPercent,
+                ColorSmoothingPercent = config.ColorSmoothingPercent,
                 UseGpu = config.UseGpu,
                 CustomFfmpegFlags = config.CustomFfmpegFlags,
                 FfmpegStallTimeoutSeconds = config.FfmpegStallTimeoutSeconds,
@@ -532,6 +534,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.BrightnessDimLevel = BrightnessDimLevel;
             config.TargetFps = TargetFps;
             config.SamplingBreadthPercent = SamplingBreadthPercent;
+            config.ColorSmoothingPercent = ColorSmoothingPercent;
             config.UseGpu = UseGpu;
             config.CustomFfmpegFlags = CustomFfmpegFlags ?? string.Empty;
             config.FfmpegStallTimeoutSeconds = FfmpegStallTimeoutSeconds;

@@ -420,6 +420,7 @@ public class PluginConfigurationTests
         Assert.Equal(30, config.BrightnessDimLevel);
         Assert.Equal(20, config.TargetFps);
         Assert.Equal(15, config.SamplingBreadthPercent);
+        Assert.Equal(0, config.ColorSmoothingPercent);
         Assert.True(config.UseGpu);
         Assert.Equal(100, config.BrightnessBoost);
         Assert.Equal(100, config.ColorSaturation);
@@ -469,6 +470,47 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         Assert.DoesNotContain("Sampling breadth must be between 1 and 50 percent", errors);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(91)]
+    public void Validate_WhenColorSmoothingIsOutOfRange_ReturnsError(int colorSmoothingPercent)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            ColorSmoothingPercent = colorSmoothingPercent
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Color smoothing must be between 0 and 90 percent", errors);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(45)]
+    [InlineData(90)]
+    public void Validate_WhenColorSmoothingIsValid_ReturnsNoSmoothingError(int colorSmoothingPercent)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            ColorSmoothingPercent = colorSmoothingPercent
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("Color smoothing must be between 0 and 90 percent", errors);
     }
 
     [Fact]

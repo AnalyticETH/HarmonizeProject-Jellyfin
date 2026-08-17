@@ -27,6 +27,8 @@ namespace Jellyfin.Plugin.Hue.Service
         private const int DefaultSamplingBreadthPercent = 15;
         private const int MinSamplingBreadthPercent = 1;
         private const int MaxSamplingBreadthPercent = 50;
+        private const int MinColorSmoothingPercent = 0;
+        private const int MaxColorSmoothingPercent = 90;
 
         // Timing constants
         private const int CinemaModeDimmingDelayMs = 500;
@@ -787,6 +789,59 @@ namespace Jellyfin.Plugin.Hue.Service
             return Math.Max(1, (int)(normalizedPercent / 100.0 * averageFrameSize));
         }
 
+        internal static Dictionary<int, byte[]> ApplyTemporalSmoothing(
+            IReadOnlyDictionary<int, byte[]> currentColors,
+            IReadOnlyDictionary<int, byte[]> previousColors,
+            int smoothingPercent)
+        {
+            var normalizedPercent = Math.Clamp(
+                smoothingPercent,
+                MinColorSmoothingPercent,
+                MaxColorSmoothingPercent);
+            var previousWeight = normalizedPercent / 100.0;
+            var currentWeight = 1.0 - previousWeight;
+            var smoothedColors = new Dictionary<int, byte[]>(currentColors.Count);
+
+            foreach (var kvp in currentColors)
+            {
+                var current = kvp.Value;
+                if (current.Length < 3)
+                {
+                    smoothedColors[kvp.Key] = current;
+                    continue;
+                }
+
+                if (normalizedPercent == 0 ||
+                    !previousColors.TryGetValue(kvp.Key, out var previous) ||
+                    previous.Length < 3)
+                {
+                    smoothedColors[kvp.Key] = new[] { current[0], current[1], current[2] };
+                    continue;
+                }
+
+                smoothedColors[kvp.Key] = new[]
+                {
+                    BlendColorChannel(current[0], previous[0], currentWeight, previousWeight),
+                    BlendColorChannel(current[1], previous[1], currentWeight, previousWeight),
+                    BlendColorChannel(current[2], previous[2], currentWeight, previousWeight)
+                };
+            }
+
+            return smoothedColors;
+        }
+
+        private static byte BlendColorChannel(
+            byte current,
+            byte previous,
+            double currentWeight,
+            double previousWeight)
+        {
+            var blended = Math.Round(
+                current * currentWeight + previous * previousWeight,
+                MidpointRounding.AwayFromZero);
+            return (byte)Math.Clamp((int)blended, 0, byte.MaxValue);
+        }
+
         private static async Task<(int BytesRead, bool TimedOut)> ReadFrameAsync(
             Stream videoStream,
             byte[] buffer,
@@ -854,6 +909,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var streamEnded = false;
             var streamFailed = false;
             var consecutiveSendFailures = 0;
+            var previousChannelColors = new Dictionary<int, byte[]>();
 
             // Pre-calculate bounds for each light based on position
             // Following HarmonizeProject logic: use x (horizontal) and z (vertical) for 2D screen plane
@@ -945,36 +1001,52 @@ namespace Jellyfin.Plugin.Hue.Service
                     var config = Plugin.Instance?.Configuration;
                     if (config != null)
                     {
-                        // Check blackout threshold - send dark colors if frame is mostly black
-                        if (config.BlackoutThreshold > 0)
-                        {
-                            var avgBrightness = channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0);
-                            if (avgBrightness < config.BlackoutThreshold)
-                            {
-                                // Send black to all channels so lights actually dim during dark scenes
-                                var blackColors = new Dictionary<int, byte[]>();
-                                foreach (var kvp in channelColors)
-                                {
-                                    blackColors[kvp.Key] = new byte[] { 0, 0, 0, 0, 0, 0 };
-                                }
-                                var blackoutSent = await _hueStreamer!.SendColors(areaId, blackColors, config.ColorChangeThreshold);
-                                if (!HandleDtlsSendResult(blackoutSent, token, ref consecutiveSendFailures))
-                                {
-                                    streamFailed = true;
-                                    break;
-                                }
+                        var isBlackout = config.BlackoutThreshold > 0 &&
+                            channelColors.Count > 0 &&
+                            channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0) < config.BlackoutThreshold;
 
-                                var elapsedBlackout = loopTimer.ElapsedMilliseconds;
-                                if (targetFrameDurationMs > 0)
-                                {
-                                    var remainingBlackout = targetFrameDurationMs - (int)Math.Min(int.MaxValue, elapsedBlackout);
-                                    if (remainingBlackout > 0)
-                                    {
-                                        await Task.Delay(remainingBlackout, token);
-                                    }
-                                }
-                                continue;
+                        // Check blackout threshold - send dark colors if frame is mostly black
+                        if (isBlackout)
+                        {
+                            // Send black to all channels so lights actually dim during dark scenes.
+                            // Clear temporal history so a later bright scene starts immediately
+                            // instead of blending with a stale pre-blackout frame.
+                            previousChannelColors.Clear();
+                            var blackColors = new Dictionary<int, byte[]>();
+                            foreach (var kvp in channelColors)
+                            {
+                                blackColors[kvp.Key] = new byte[] { 0, 0, 0, 0, 0, 0 };
                             }
+                            var blackoutSent = await _hueStreamer!.SendColors(areaId, blackColors, config.ColorChangeThreshold);
+                            if (!HandleDtlsSendResult(blackoutSent, token, ref consecutiveSendFailures))
+                            {
+                                streamFailed = true;
+                                break;
+                            }
+
+                            var elapsedBlackout = loopTimer.ElapsedMilliseconds;
+                            if (targetFrameDurationMs > 0)
+                            {
+                                var remainingBlackout = targetFrameDurationMs - (int)Math.Min(int.MaxValue, elapsedBlackout);
+                                if (remainingBlackout > 0)
+                                {
+                                    await Task.Delay(remainingBlackout, token);
+                                }
+                            }
+                            continue;
+                        }
+
+                        if (config.ColorSmoothingPercent > 0)
+                        {
+                            channelColors = ApplyTemporalSmoothing(
+                                channelColors,
+                                previousChannelColors,
+                                config.ColorSmoothingPercent);
+                            previousChannelColors = channelColors;
+                        }
+                        else
+                        {
+                            previousChannelColors.Clear();
                         }
 
                         // Apply brightness boost and color saturation adjustments
@@ -1022,6 +1094,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     }
                     else
                     {
+                        previousChannelColors.Clear();
                         // Fallback without advanced processing
                         var simpleColors = new Dictionary<int, byte[]>();
                         foreach (var kvp in channelColors)

@@ -42,6 +42,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private const int MaxFfmpegStallTimeoutSeconds = 60;
         private const int MinSamplingBreadthPercent = 1;
         private const int MaxSamplingBreadthPercent = 50;
+        private const int MinColorSmoothingPercent = 0;
+        private const int MaxColorSmoothingPercent = 90;
 
         public bool SyncEnabled { get; set; } = false;
 
@@ -58,6 +60,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int BrightnessDimLevel { get; set; } = 30;
         public int TargetFps { get; set; } = 20;
         public int SamplingBreadthPercent { get; set; } = 15;
+        public int ColorSmoothingPercent { get; set; } = 0;
         public bool UseGpu { get; set; } = true;
         public string CustomFfmpegFlags { get; set; } = string.Empty; // e.g. -hwaccel auto
         public int FfmpegStallTimeoutSeconds { get; set; } = 5;
@@ -135,6 +138,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 if (SamplingBreadthPercent < MinSamplingBreadthPercent ||
                     SamplingBreadthPercent > MaxSamplingBreadthPercent)
                     errors.Add("Sampling breadth must be between 1 and 50 percent");
+
+                if (ColorSmoothingPercent < MinColorSmoothingPercent ||
+                    ColorSmoothingPercent > MaxColorSmoothingPercent)
+                    errors.Add("Color smoothing must be between 0 and 90 percent");
 
                 if (BrightnessDimLevel < MinBrightnessDimLevel || BrightnessDimLevel > MaxBrightnessDimLevel)
                     errors.Add("Brightness dim level must be between 0 and 100");

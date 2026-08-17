@@ -56,6 +56,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Entertainment Area ID** | UUID of the specific area to sync. |
 | **Target FPS** | Frames per second to process (Default: 20). Lower = less CPU. |
 | **Color Sampling Breadth** | Size of the neighborhood sampled around each Hue channel's screen position (1-50%, default: 15%). Smaller values follow fine detail; larger values reduce noise. |
+| **Temporal Color Smoothing** | Blend the previous frame into new colors to reduce flicker (0-90%, default: 0%). Higher values create smoother but slower transitions. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
 | **Enable Real-time Sync** | Master toggle for the sync feature. |
@@ -259,7 +260,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.17 (Current)
+### Version 1.5.18 (Current)
+- **Temporal color smoothing**: Optionally blend up to 90% of the previous frame into new colors to reduce flicker while preserving immediate blackout transitions
+
+### Version 1.5.17
 - **Configurable color sampling**: Tune the neighborhood sampled around each Hue channel from 1-50% to balance fine detail against visual stability; the default remains 15%
 
 ### Version 1.5.16

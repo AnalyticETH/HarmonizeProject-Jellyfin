@@ -309,6 +309,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "default-app-key",
             HueClientKey = "default-client-key",
             SamplingBreadthPercent = 25,
+            ColorSmoothingPercent = 65,
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -326,6 +327,7 @@ public sealed class HueApiControllerTests : IDisposable
         var settings = Assert.IsType<HuePluginConfigurationSettings>(response.Value);
         Assert.Equal("default-app-key", settings.HueAppKey);
         Assert.Equal(25, settings.SamplingBreadthPercent);
+        Assert.Equal(65, settings.ColorSmoothingPercent);
         var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("UserMappings", serialized, StringComparison.OrdinalIgnoreCase);
@@ -351,12 +353,14 @@ public sealed class HueApiControllerTests : IDisposable
         {
             SyncEnabled = false,
             TargetFps = 30,
-            SamplingBreadthPercent = 25
+            SamplingBreadthPercent = 25,
+            ColorSmoothingPercent = 40
         });
 
         Assert.IsType<OkObjectResult>(action.Result);
         Assert.Equal(30, configuration.TargetFps);
         Assert.Equal(25, configuration.SamplingBreadthPercent);
+        Assert.Equal(40, configuration.ColorSmoothingPercent);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
