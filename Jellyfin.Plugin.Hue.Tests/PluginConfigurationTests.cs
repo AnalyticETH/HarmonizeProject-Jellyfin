@@ -293,6 +293,26 @@ public class PluginConfigurationTests
     }
 
     [Theory]
+    [InlineData(-181)]
+    [InlineData(181)]
+    public void Validate_WhenHueShiftIsOutOfRange_ReturnsError(int hueShiftDegrees)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            HueShiftDegrees = hueShiftDegrees
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Hue shift must be between -180 and 180 degrees", errors);
+    }
+
+    [Theory]
     [InlineData(-1)]
     [InlineData(256)]
     public void Validate_WhenBlackoutThresholdOutOfRange_ReturnsError(int threshold)
@@ -448,6 +468,7 @@ public class PluginConfigurationTests
         Assert.True(config.UseGpu);
         Assert.Equal(100, config.BrightnessBoost);
         Assert.Equal(100, config.ColorSaturation);
+        Assert.Equal(0, config.HueShiftDegrees);
         Assert.Equal(100, config.OutputBrightnessPercent);
         Assert.Equal(15, config.BlackoutThreshold);
         Assert.Equal(10, config.ColorChangeThreshold);

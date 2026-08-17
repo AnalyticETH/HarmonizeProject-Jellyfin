@@ -91,6 +91,30 @@ public class ColorProcessingTests : IDisposable
     }
 
     [Theory]
+    [InlineData(1.0, 0.0, 0.0, 120, 0.0, 1.0, 0.0)]
+    [InlineData(1.0, 0.0, 0.0, -120, 0.0, 0.0, 1.0)]
+    public void HueShift_RotatesChromaticColorsWithoutChangingLightness(
+        double r,
+        double g,
+        double b,
+        int hueShiftDegrees,
+        double expectedR,
+        double expectedG,
+        double expectedB)
+    {
+        var (h, s, l) = _service.RgbToHsl(r, g, b);
+        var shiftedHue = HueSyncService.ApplyHueShift(h, hueShiftDegrees);
+
+        var (shiftedR, shiftedG, shiftedB) = _service.HslToRgb(shiftedHue, s, l);
+        var (_, _, shiftedLightness) = _service.RgbToHsl(shiftedR, shiftedG, shiftedB);
+
+        Assert.InRange(shiftedR, expectedR - 0.01, expectedR + 0.01);
+        Assert.InRange(shiftedG, expectedG - 0.01, expectedG + 0.01);
+        Assert.InRange(shiftedB, expectedB - 0.01, expectedB + 0.01);
+        Assert.Equal(l, shiftedLightness, precision: 6);
+    }
+
+    [Theory]
     [InlineData(0.2, 0.8, 0.1, 0.56)] // t < 1/6: p + (q-p)*6*t = 0.2 + 0.6*0.6 = 0.56
     [InlineData(0.2, 0.8, 0.4, 0.8)] // t < 1/2: returns q
     [InlineData(0.2, 0.8, 0.6, 0.44)] // t < 2/3: p + (q-p)*(2/3-t)*6 = 0.2 + 0.6*0.067*6 = 0.44

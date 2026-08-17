@@ -49,6 +49,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private const int MaxBrightnessBoost = 200;
         private const int MinColorSaturation = 0;
         private const int MaxColorSaturation = 200;
+        private const int MinHueShiftDegrees = -180;
+        private const int MaxHueShiftDegrees = 180;
         private const int MinOutputBrightnessPercent = 0;
         private const int MaxOutputBrightnessPercent = 100;
         private const int MinByteSetting = 0;
@@ -91,6 +93,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool RestoreLightState { get; set; } = true; // Save and restore light state before sync
         public int BrightnessBoost { get; set; } = 100; // Brightness multiplier (50-200%)
         public int ColorSaturation { get; set; } = 100; // Color saturation adjustment (0-200%)
+        public int HueShiftDegrees { get; set; } = 0; // Global hue rotation (-180 to 180 degrees)
         public int OutputBrightnessPercent { get; set; } = 100; // Final output brightness ceiling (0-100%)
         public int BlackoutThreshold { get; set; } = 15; // Average brightness below which lights are set to black (0-255)
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
@@ -214,6 +217,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (ColorSaturation < MinColorSaturation || ColorSaturation > MaxColorSaturation)
                     errors.Add("Color saturation must be between 0 and 200");
+
+                if (HueShiftDegrees < MinHueShiftDegrees || HueShiftDegrees > MaxHueShiftDegrees)
+                    errors.Add("Hue shift must be between -180 and 180 degrees");
 
                 if (OutputBrightnessPercent < MinOutputBrightnessPercent ||
                     OutputBrightnessPercent > MaxOutputBrightnessPercent)

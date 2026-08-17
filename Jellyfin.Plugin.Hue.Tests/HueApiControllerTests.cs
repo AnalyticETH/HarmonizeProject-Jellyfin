@@ -314,6 +314,7 @@ public sealed class HueApiControllerTests : IDisposable
             SamplingBreadthPercent = 25,
             SamplingMode = PluginConfiguration.SamplingModeCenterWeighted,
             ColorSmoothingPercent = 65,
+            HueShiftDegrees = 45,
             OutputBrightnessPercent = 75,
             NetworkRetryAttempts = 6,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
@@ -339,6 +340,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(25, settings.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, settings.SamplingMode);
         Assert.Equal(65, settings.ColorSmoothingPercent);
+        Assert.Equal(45, settings.HueShiftDegrees);
         Assert.Equal(75, settings.OutputBrightnessPercent);
         Assert.Equal(6, settings.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, settings.PauseBehavior);
@@ -373,6 +375,7 @@ public sealed class HueApiControllerTests : IDisposable
             SamplingBreadthPercent = 25,
             SamplingMode = PluginConfiguration.SamplingModeCenterPixel,
             ColorSmoothingPercent = 40,
+            HueShiftDegrees = -30,
             OutputBrightnessPercent = 60,
             NetworkRetryAttempts = 4,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState
@@ -386,6 +389,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(25, configuration.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeCenterPixel, configuration.SamplingMode);
         Assert.Equal(40, configuration.ColorSmoothingPercent);
+        Assert.Equal(-30, configuration.HueShiftDegrees);
         Assert.Equal(60, configuration.OutputBrightnessPercent);
         Assert.Equal(4, configuration.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, configuration.PauseBehavior);

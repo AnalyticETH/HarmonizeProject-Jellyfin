@@ -91,7 +91,7 @@ public class ColorProcessingBenchmarks
 
     #endregion
 
-    #region Brightness and Saturation Adjustment Benchmarks
+    #region Brightness, Saturation, and Hue Adjustment Benchmarks
 
     [Benchmark(Description = "Apply Brightness Boost")]
     public (byte R, byte G, byte B) ApplyBrightnessBoost()
@@ -105,7 +105,14 @@ public class ColorProcessingBenchmarks
         return ApplySaturation(100, 80, 60, 1.3);
     }
 
-    [Benchmark(Description = "Full Color Pipeline (Sample + Brightness + Saturation)")]
+    [Benchmark(Description = "Apply Hue Shift")]
+    public (byte R, byte G, byte B) ApplyHueShift()
+    {
+        var (h, s, l) = RgbToHsl(100, 80, 60);
+        return HslToRgb(NormalizeHue(h + 45.0 / 360.0), s, l);
+    }
+
+    [Benchmark(Description = "Full Color Pipeline (Sample + Brightness + Saturation + Hue)")]
     public (byte R, byte G, byte B) FullColorPipeline()
     {
         // Sample
@@ -116,6 +123,10 @@ public class ColorProcessingBenchmarks
 
         // Saturation boost
         (r, g, b) = ApplySaturation(r, g, b, 1.2);
+
+        // Hue shift
+        var (h, s, l) = RgbToHsl(r, g, b);
+        (r, g, b) = HslToRgb(NormalizeHue(h + 45.0 / 360.0), s, l);
 
         return (r, g, b);
     }
@@ -251,6 +262,12 @@ public class ColorProcessingBenchmarks
         var (h, s, l) = RgbToHsl(r, g, b);
         s = Math.Min(1.0, s * factor);
         return HslToRgb(h, s, l);
+    }
+
+    private static double NormalizeHue(double hue)
+    {
+        hue %= 1.0;
+        return hue < 0 ? hue + 1.0 : hue;
     }
 
     private static bool HasSignificantColorChange(byte[] current, byte[] previous, int channelCount, int threshold)

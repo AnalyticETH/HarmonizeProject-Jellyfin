@@ -498,6 +498,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool RestoreLightState { get; set; } = true;
         public int BrightnessBoost { get; set; } = 100;
         public int ColorSaturation { get; set; } = 100;
+        public int HueShiftDegrees { get; set; } = 0;
         public int OutputBrightnessPercent { get; set; } = 100;
         public int BlackoutThreshold { get; set; } = 15;
         public int ColorChangeThreshold { get; set; } = 10;
@@ -528,6 +529,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 RestoreLightState = config.RestoreLightState,
                 BrightnessBoost = config.BrightnessBoost,
                 ColorSaturation = config.ColorSaturation,
+                HueShiftDegrees = config.HueShiftDegrees,
                 OutputBrightnessPercent = config.OutputBrightnessPercent,
                 BlackoutThreshold = config.BlackoutThreshold,
                 ColorChangeThreshold = config.ColorChangeThreshold,
@@ -558,6 +560,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.RestoreLightState = RestoreLightState;
             config.BrightnessBoost = BrightnessBoost;
             config.ColorSaturation = ColorSaturation;
+            config.HueShiftDegrees = HueShiftDegrees;
             config.OutputBrightnessPercent = OutputBrightnessPercent;
             config.BlackoutThreshold = BlackoutThreshold;
             config.ColorChangeThreshold = ColorChangeThreshold;

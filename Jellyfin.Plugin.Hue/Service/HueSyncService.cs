@@ -992,6 +992,15 @@ namespace Jellyfin.Plugin.Hue.Service
             return Math.Clamp(channel * normalizedPercent, 0, 255);
         }
 
+        /// <summary>
+        /// Rotates a normalized HSL hue and wraps the result into the [0, 1) range.
+        /// </summary>
+        internal static double ApplyHueShift(double hue, int hueShiftDegrees)
+        {
+            var shiftedHue = (hue + hueShiftDegrees / 360.0) % 1.0;
+            return shiftedHue < 0 ? shiftedHue + 1.0 : shiftedHue;
+        }
+
         private static byte BlendColorChannel(
             byte current,
             byte previous,
@@ -1211,12 +1220,13 @@ namespace Jellyfin.Plugin.Hue.Service
                                 b = Math.Min(255, b * multiplier);
                             }
 
-                            // Apply color saturation adjustment
-                            if (config.ColorSaturation != 100)
+                            // Apply color saturation and hue shift adjustments together in HSL
+                            if (config.ColorSaturation != 100 || config.HueShiftDegrees != 0)
                             {
-                                // Convert to HSL, adjust saturation, convert back to RGB
+                                // Convert to HSL, adjust saturation/hue, convert back to RGB
                                 var (hue, sat, lightness) = RgbToHsl(r / 255.0, g / 255.0, b / 255.0);
                                 sat = Math.Clamp(sat * (config.ColorSaturation / 100.0), 0, 1);
+                                hue = ApplyHueShift(hue, config.HueShiftDegrees);
                                 var (r2, g2, b2) = HslToRgb(hue, sat, lightness);
                                 r = r2 * 255;
                                 g = g2 * 255;

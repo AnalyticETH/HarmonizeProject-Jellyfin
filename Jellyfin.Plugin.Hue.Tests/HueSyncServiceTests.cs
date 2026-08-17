@@ -234,4 +234,20 @@ public sealed class HueSyncServiceTests
             HueSyncService.ApplyOutputBrightness(channel, outputBrightnessPercent),
             precision: 6);
     }
+
+    [Theory]
+    [InlineData(0, 90, 0.25)]
+    [InlineData(0.9, 90, 0.15)]
+    [InlineData(0.1, -90, 0.85)]
+    [InlineData(0.5, 180, 0)]
+    public void ApplyHueShift_RotatesAndWrapsNormalizedHue(
+        double hue,
+        int hueShiftDegrees,
+        double expected)
+    {
+        Assert.Equal(
+            expected,
+            HueSyncService.ApplyHueShift(hue, hueShiftDegrees),
+            precision: 6);
+    }
 }

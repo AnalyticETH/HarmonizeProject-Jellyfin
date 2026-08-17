@@ -61,7 +61,8 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Color Sampling Breadth** | Size of the neighborhood sampled around each Hue channel's screen position (1-50%, default: 15%). Smaller values follow fine detail; larger values reduce noise. |
 | **Color Sampling Mode** | Average (default), center-weighted, or center-pixel sampling for balancing ambient stability against detail. |
 | **Temporal Color Smoothing** | Blend the previous frame into new colors to reduce flicker (0-90%, default: 0%). Higher values create smoother but slower transitions. |
-| **Output Brightness** | Final 0-100% brightness scale applied after boost and saturation (default: 100%). Use it to cap room brightness without changing color balance. |
+| **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
+| **Output Brightness** | Final 0-100% brightness scale applied after boost, saturation, and hue shift (default: 100%). Use it to cap room brightness without changing color balance. |
 | **When Playback Is Paused** | Keep the last synced colors (default) or restore the original light state captured at playback start. Sync resumes automatically. Restoring uses the **Restore Light State After Sync** setting. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
@@ -261,13 +262,16 @@ dotnet run -c Release -- --packet  # Packet building benchmarks
 Benchmarks measure:
 - RGB ↔ HSL color conversion (single and batch)
 - Region sampling for light positions
-- Brightness and saturation adjustments
+- Brightness, saturation, hue-shift, and output-brightness adjustments
 - HueStream packet construction
 - Color change detection
 
 ## Recent Changes
 
-### Version 1.5.26 (Current)
+### Version 1.5.27 (Current)
+- **Global hue shift**: Rotate synced colors -180° to 180° for room-specific correction or creative palettes while preserving lightness
+
+### Version 1.5.26
 - **Output brightness control**: Cap synced light brightness from 0-100% after boost/saturation while preserving color balance
 
 ### Version 1.5.25
@@ -360,7 +364,7 @@ Benchmarks measure:
 
 ### Version 1.3.0
 - **Scene Restoration**: Automatically saves and restores original light states
-- **Advanced Color Processing**: Brightness boost, saturation control, and blackout detection
+- **Advanced Color Processing**: Brightness boost, saturation, hue shift, output brightness, and blackout detection
 - **Network Resilience**: Retry logic with exponential backoff for HTTP operations
 - **Status API**: New `/HueSync/Status` endpoint for monitoring sync state
 - **Cinema Mode**: Automatic light dimming during playback

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.27] - 2026-08-17
+
+### Added
+- Configurable -180 to 180 degree global hue shift for room-specific color correction or creative palettes
+- Regression coverage for hue wrapping, chromatic color rotation, validation, persistence, and UI/API wiring
+
+### Changed
+- Hue rotation is applied in HSL alongside saturation before final output brightness scaling
+
 ## [1.5.26] - 2026-08-17
 
 ### Added
