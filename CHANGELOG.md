@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Light-state restoration now sends either `color_temperature`, `color`, or neither according to the state captured before playback
 
+## [1.5.16] - 2026-08-17
+
+### Added
+- Redacted per-user mapping responses that report whether stored App/Client Keys exist without returning their values
+- Scoped `/HueSync/Configuration` read/write endpoints that keep `UserMappings` out of the configuration-page settings flow
+- Regression coverage for credential redaction, safe blank-key edits, and preservation of mappings during default-setting updates
+
+### Changed
+- Editing a per-user mapping now leaves key fields blank and preserves stored credentials unless replacement values are entered
+- Default configuration saves no longer fetch and round-trip the full plugin configuration (including per-user mappings) through the browser
+
 ## [1.5.14] - 2026-08-17
 
 ### Added

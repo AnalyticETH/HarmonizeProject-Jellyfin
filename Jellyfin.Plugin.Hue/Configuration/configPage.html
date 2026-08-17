@@ -301,24 +301,32 @@
                 pluginId: "4e078f02-ec43-473e-85f1-98e86eb9a761",
                 loadConfiguration: function (page) {
                     Dashboard.showLoadingMsg();
-                    return ApiClient.getPluginConfiguration(HueConfigurationPage.pluginId).then(function (config) {
-                        page.querySelector('#hueBridgeIp').value = config.HueBridgeIp || "";
-                        page.querySelector('#hueAppKey').value = config.HueAppKey || "";
-                        page.querySelector('#hueClientKey').value = config.HueClientKey || "";
-                        HueConfigurationPage.selectedAreaId = config.EntertainmentAreaId || "";
-                        page.querySelector('#targetFps').value = config.TargetFps != null ? config.TargetFps : 20;
-                        page.querySelector('#customFfmpegFlags').value = config.CustomFfmpegFlags || "";
-                        page.querySelector('#ffmpegStallTimeoutSeconds').value = config.FfmpegStallTimeoutSeconds != null ? config.FfmpegStallTimeoutSeconds : 5;
-                        page.querySelector('#useGpu').checked = config.UseGpu !== false;
-                        page.querySelector('#syncEnabled').checked = config.SyncEnabled;
-                        page.querySelector('#useCinemaMode').checked = config.UseCinemaMode !== false;
-                        page.querySelector('#brightnessDimLevel').value = config.BrightnessDimLevel != null ? config.BrightnessDimLevel : 30;
-                        page.querySelector('#restoreLightState').checked = config.RestoreLightState !== false;
-                        page.querySelector('#brightnessBoost').value = config.BrightnessBoost != null ? config.BrightnessBoost : 100;
-                        page.querySelector('#colorSaturation').value = config.ColorSaturation != null ? config.ColorSaturation : 100;
-                        page.querySelector('#blackoutThreshold').value = config.BlackoutThreshold != null ? config.BlackoutThreshold : 15;
-                        page.querySelector('#colorChangeThreshold').value = config.ColorChangeThreshold != null ? config.ColorChangeThreshold : 10;
-                        page.querySelector('#networkRetryAttempts').value = config.NetworkRetryAttempts != null ? config.NetworkRetryAttempts : 3;
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/Configuration")).then(function (config) {
+                        config = config || {};
+                        var getConfigValue = function (name, fallback) {
+                            var value = config[name];
+                            if (typeof value === 'undefined') {
+                                value = config[name.charAt(0).toLowerCase() + name.slice(1)];
+                            }
+                            return value == null ? fallback : value;
+                        };
+                        page.querySelector('#hueBridgeIp').value = getConfigValue('HueBridgeIp', '');
+                        page.querySelector('#hueAppKey').value = getConfigValue('HueAppKey', '');
+                        page.querySelector('#hueClientKey').value = getConfigValue('HueClientKey', '');
+                        HueConfigurationPage.selectedAreaId = getConfigValue('EntertainmentAreaId', '');
+                        page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
+                        page.querySelector('#customFfmpegFlags').value = getConfigValue('CustomFfmpegFlags', '');
+                        page.querySelector('#ffmpegStallTimeoutSeconds').value = getConfigValue('FfmpegStallTimeoutSeconds', 5);
+                        page.querySelector('#useGpu').checked = getConfigValue('UseGpu', true);
+                        page.querySelector('#syncEnabled').checked = getConfigValue('SyncEnabled', false);
+                        page.querySelector('#useCinemaMode').checked = getConfigValue('UseCinemaMode', true);
+                        page.querySelector('#brightnessDimLevel').value = getConfigValue('BrightnessDimLevel', 30);
+                        page.querySelector('#restoreLightState').checked = getConfigValue('RestoreLightState', true);
+                        page.querySelector('#brightnessBoost').value = getConfigValue('BrightnessBoost', 100);
+                        page.querySelector('#colorSaturation').value = getConfigValue('ColorSaturation', 100);
+                        page.querySelector('#blackoutThreshold').value = getConfigValue('BlackoutThreshold', 15);
+                        page.querySelector('#colorChangeThreshold').value = getConfigValue('ColorChangeThreshold', 10);
+                        page.querySelector('#networkRetryAttempts').value = getConfigValue('NetworkRetryAttempts', 3);
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                     }).catch(function (err) {
                         console.error("Failed to load Hue configuration:", err);
@@ -334,33 +342,33 @@
                         return isNaN(value) ? fallback : value;
                     };
 
-                    // First get current config to preserve UserMappings
-                    return ApiClient.getPluginConfiguration(HueConfigurationPage.pluginId).then(function (currentConfig) {
-                        currentConfig = currentConfig || {};
-                        var config = {
-                            HueBridgeIp: page.querySelector('#hueBridgeIp').value,
-                            HueAppKey: page.querySelector('#hueAppKey').value,
-                            HueClientKey: page.querySelector('#hueClientKey').value,
-                            EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
-                            TargetFps: parseNumberOrDefault('#targetFps', 20),
-                            CustomFfmpegFlags: page.querySelector('#customFfmpegFlags').value,
-                            FfmpegStallTimeoutSeconds: parseNumberOrDefault('#ffmpegStallTimeoutSeconds', 5),
-                            UseGpu: page.querySelector('#useGpu').checked,
-                            SyncEnabled: page.querySelector('#syncEnabled').checked,
-                            UseCinemaMode: page.querySelector('#useCinemaMode').checked,
-                            BrightnessDimLevel: parseNumberOrDefault('#brightnessDimLevel', 30),
-                            RestoreLightState: page.querySelector('#restoreLightState').checked,
-                            BrightnessBoost: parseNumberOrDefault('#brightnessBoost', 100),
-                            ColorSaturation: parseNumberOrDefault('#colorSaturation', 100),
-                            BlackoutThreshold: parseNumberOrDefault('#blackoutThreshold', 15),
-                            ColorChangeThreshold: parseNumberOrDefault('#colorChangeThreshold', 10),
-                            NetworkRetryAttempts: parseNumberOrDefault('#networkRetryAttempts', 3),
-                            // Preserve existing UserMappings
-                            UserMappings: currentConfig.UserMappings || []
-                        };
-                        return ApiClient.updatePluginConfiguration(HueConfigurationPage.pluginId, config);
-                    }).then(function (result) {
-                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    var config = {
+                        HueBridgeIp: page.querySelector('#hueBridgeIp').value,
+                        HueAppKey: page.querySelector('#hueAppKey').value,
+                        HueClientKey: page.querySelector('#hueClientKey').value,
+                        EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
+                        TargetFps: parseNumberOrDefault('#targetFps', 20),
+                        CustomFfmpegFlags: page.querySelector('#customFfmpegFlags').value,
+                        FfmpegStallTimeoutSeconds: parseNumberOrDefault('#ffmpegStallTimeoutSeconds', 5),
+                        UseGpu: page.querySelector('#useGpu').checked,
+                        SyncEnabled: page.querySelector('#syncEnabled').checked,
+                        UseCinemaMode: page.querySelector('#useCinemaMode').checked,
+                        BrightnessDimLevel: parseNumberOrDefault('#brightnessDimLevel', 30),
+                        RestoreLightState: page.querySelector('#restoreLightState').checked,
+                        BrightnessBoost: parseNumberOrDefault('#brightnessBoost', 100),
+                        ColorSaturation: parseNumberOrDefault('#colorSaturation', 100),
+                        BlackoutThreshold: parseNumberOrDefault('#blackoutThreshold', 15),
+                        ColorChangeThreshold: parseNumberOrDefault('#colorChangeThreshold', 10),
+                        NetworkRetryAttempts: parseNumberOrDefault('#networkRetryAttempts', 3)
+                    };
+
+                    return ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/Configuration"),
+                        data: JSON.stringify(config),
+                        contentType: "application/json",
+                        dataType: "json"
+                    }).then(function () {
                         HueConfigurationPage.refreshStatus(page, "Configuration saved.", "success");
                     }).catch(function (err) {
                         console.error("Failed to save Hue configuration:", err);
@@ -846,6 +854,7 @@
                         html += '<th style="text-align: left; padding: 8px;">Sync</th>';
                         html += '<th style="text-align: left; padding: 8px;">Bridge Address</th>';
                         html += '<th style="text-align: left; padding: 8px;">Entertainment Area</th>';
+                        html += '<th style="text-align: left; padding: 8px;">Credentials</th>';
                         html += '<th style="text-align: right; padding: 8px;">Actions</th>';
                         html += '</tr></thead><tbody>';
 
@@ -854,11 +863,15 @@
                             var syncEnabled = typeof mapping.SyncEnabled !== 'undefined'
                                 ? mapping.SyncEnabled !== false
                                 : mapping.syncEnabled !== false;
+                            var hasAppKey = typeof mapping.HasAppKey !== 'undefined' ? mapping.HasAppKey === true : mapping.hasAppKey === true;
+                            var hasClientKey = typeof mapping.HasClientKey !== 'undefined' ? mapping.HasClientKey === true : mapping.hasClientKey === true;
+                            var credentialState = !syncEnabled ? 'Not required' : (hasAppKey && hasClientKey ? 'Stored' : 'Incomplete');
                             html += '<tr style="border-bottom: 1px solid #333;">';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.UserName || mapping.userName || userId || 'Unknown') + '</td>';
                             html += '<td style="padding: 8px;">' + (syncEnabled ? 'Enabled' : 'Disabled') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.HueBridgeIp || mapping.hueBridgeIp || '') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.EntertainmentAreaName || mapping.entertainmentAreaName || mapping.EntertainmentAreaId || mapping.entertainmentAreaId || '') + '</td>';
+                            html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid)">Edit</button> ';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid)">Delete</button>';
@@ -1078,7 +1091,12 @@
 
                     if (!bridgeIp || !appKey) {
                         console.log("Missing credentials, showing placeholder");
-                        if (selectEl) {
+                        var currentOption = selectEl && selectEl.selectedOptions && selectEl.selectedOptions[0];
+                        var currentAreaId = selectedAreaId || (currentOption && currentOption.value !== "manual" ? currentOption.value : "");
+                        var currentAreaName = currentOption && currentOption.dataset ? currentOption.dataset.areaName : "";
+                        if (currentAreaId) {
+                            HueConfigurationPage.showStoredMappingArea(currentAreaId, currentAreaName);
+                        } else if (selectEl) {
                             selectEl.innerHTML = '<option value="">Enter credentials first</option><option value="manual">Enter ID manually</option>';
                         }
                         return;
@@ -1139,6 +1157,31 @@
                     }
                 },
 
+                showStoredMappingArea: function (areaId, areaName) {
+                    var selectEl = document.getElementById('mappingAreaSelect');
+                    if (!selectEl) return;
+
+                    selectEl.innerHTML = '';
+                    if (areaId) {
+                        var storedOption = document.createElement('option');
+                        storedOption.value = areaId;
+                        storedOption.textContent = (areaName || areaId) + " (stored; enter credentials to refresh)";
+                        storedOption.dataset.areaName = areaName || areaId;
+                        selectEl.appendChild(storedOption);
+                    } else {
+                        var emptyOption = document.createElement('option');
+                        emptyOption.value = '';
+                        emptyOption.textContent = 'Enter credentials first';
+                        selectEl.appendChild(emptyOption);
+                    }
+
+                    var manualOption = document.createElement('option');
+                    manualOption.value = 'manual';
+                    manualOption.textContent = 'Enter ID manually';
+                    selectEl.appendChild(manualOption);
+                    selectEl.disabled = false;
+                },
+
                 addUserMapping: function () {
                     var page = document.querySelector('.pluginConfigurationPage');
                     var userSelect = document.getElementById('mappingUserSelect');
@@ -1176,7 +1219,9 @@
                         Dashboard.alert("Please select a user.");
                         return;
                     }
-                    if (syncEnabled && (!bridgeIp || !appKey || !clientKey)) {
+                    var canPreserveAppKey = !!HueConfigurationPage.mappingEditingHasAppKey;
+                    var canPreserveClientKey = !!HueConfigurationPage.mappingEditingHasClientKey;
+                    if (syncEnabled && (!bridgeIp || (!appKey && !canPreserveAppKey) || (!clientKey && !canPreserveClientKey))) {
                         Dashboard.alert("Please enter a bridge address and credentials (use Link Bridge or enter manually).");
                         return;
                     }
@@ -1228,13 +1273,21 @@
                     var statusEl = page.querySelector('#mappingBridgeStatus');
 
                     HueConfigurationPage.mappingEditingUserId = "";
+                    HueConfigurationPage.mappingEditingHasAppKey = false;
+                    HueConfigurationPage.mappingEditingHasClientKey = false;
                     if (userSelect) {
                         userSelect.value = "";
                         userSelect.disabled = false;
                     }
                     if (bridgeIpEl) bridgeIpEl.value = "";
-                    if (appKeyEl) appKeyEl.value = "";
-                    if (clientKeyEl) clientKeyEl.value = "";
+                    if (appKeyEl) {
+                        appKeyEl.value = "";
+                        appKeyEl.placeholder = "Enter Hue App Key";
+                    }
+                    if (clientKeyEl) {
+                        clientKeyEl.value = "";
+                        clientKeyEl.placeholder = "Enter Hue Client Key";
+                    }
                     if (syncEnabledEl) syncEnabledEl.checked = true;
                     if (areaSelect) areaSelect.innerHTML = '<option value="">Enter credentials first</option><option value="manual">Enter ID manually</option>';
                     if (manualAreaEl) manualAreaEl.value = "";
@@ -1272,9 +1325,10 @@
                             ? mapping.SyncEnabled !== false
                             : mapping.syncEnabled !== false;
                         var bridgeIp = mapping.HueBridgeIp || mapping.hueBridgeIp || "";
-                        var appKey = mapping.HueAppKey || mapping.hueAppKey || "";
-                        var clientKey = mapping.HueClientKey || mapping.hueClientKey || "";
                         var areaId = mapping.EntertainmentAreaId || mapping.entertainmentAreaId || "";
+                        var areaName = mapping.EntertainmentAreaName || mapping.entertainmentAreaName || areaId;
+                        var hasAppKey = typeof mapping.HasAppKey !== 'undefined' ? mapping.HasAppKey === true : mapping.hasAppKey === true;
+                        var hasClientKey = typeof mapping.HasClientKey !== 'undefined' ? mapping.HasClientKey === true : mapping.hasClientKey === true;
 
                         var userSelect = page.querySelector('#mappingUserSelect');
                         if (userSelect) {
@@ -1299,19 +1353,24 @@
                         }
 
                         page.querySelector('#mappingBridgeIp').value = bridgeIp;
-                        page.querySelector('#mappingAppKey').value = appKey;
-                        page.querySelector('#mappingClientKey').value = clientKey;
+                        page.querySelector('#mappingAppKey').value = "";
+                        page.querySelector('#mappingAppKey').placeholder = hasAppKey ? "Stored securely; leave blank to keep" : "Enter Hue App Key";
+                        page.querySelector('#mappingClientKey').value = "";
+                        page.querySelector('#mappingClientKey').placeholder = hasClientKey ? "Stored securely; leave blank to keep" : "Enter Hue Client Key";
                         page.querySelector('#mappingSyncEnabled').checked = syncEnabled;
                         page.querySelector('#mappingAreaManual').value = "";
                         page.querySelector('#mappingFormLegend').textContent = "Edit User Mapping";
                         page.querySelector('#addMappingBtn').querySelector('span').textContent = "Update User Mapping";
                         page.querySelector('#cancelMappingEditBtn').style.display = "";
-                        page.querySelector('#mappingBridgeStatus').textContent = "Editing " + (mappingUserName || mappingUserId) + ".";
+                        page.querySelector('#mappingBridgeStatus').textContent = "Editing " + (mappingUserName || mappingUserId) + ". Stored credentials are preserved when key fields are blank.";
                         page.querySelector('#mappingBridgeStatus').style.background = "#3f51b5";
                         HueConfigurationPage.mappingEditingUserId = mappingUserId;
+                        HueConfigurationPage.mappingEditingHasAppKey = hasAppKey;
+                        HueConfigurationPage.mappingEditingHasClientKey = hasClientKey;
                         HueConfigurationPage.toggleMappingSyncFields(page);
                         if (syncEnabled) {
-                            HueConfigurationPage.loadMappingAreas(areaId);
+                            HueConfigurationPage.showStoredMappingArea(areaId, areaName);
+                            HueConfigurationPage.toggleMappingManualArea(false);
                         } else {
                             page.querySelector('#mappingAreaSelect').innerHTML = '<option value="">Sync disabled for this user</option>';
                             HueConfigurationPage.toggleMappingManualArea(false);

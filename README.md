@@ -81,6 +81,11 @@ To leave a user's playback unchanged, edit or create that mapping and uncheck **
 for this user**; bridge credentials are not required for a disabled mapping. Users without a
 mapping continue to use the default bridge settings.
 
+When editing an enabled mapping, the existing App Key and Client Key are kept securely on the
+server and are not displayed in the browser. Leave those fields blank to keep the stored keys, or
+enter replacement keys to rotate them. The mapping list reports credential presence without
+revealing the key values.
+
 ### Admin API
 
 The configuration page uses authenticated administrator endpoints under `/HueSync`:
@@ -92,8 +97,9 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration. |
 | `GET /HueSync/Status` | Read sanitized runtime state, active target, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
+| `GET/POST /HueSync/Configuration` | Read or update default plugin settings without serializing per-user mappings to the configuration page. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
-| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, including the per-user sync enable flag. |
+| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, including the per-user sync enable flag; GET responses redact stored credentials. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 
 ### Generating Hue Credentials (Manual Fallback)
@@ -252,7 +258,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.15 (Current)
+### Version 1.5.16 (Current)
+- **Credential-safe mapping edits**: Per-user mapping reads report credential presence without exposing App/Client Keys, and blank key fields preserve existing credentials during edits
+- **Scoped configuration flow**: Default settings load/save through `/HueSync/Configuration` without round-tripping per-user mappings through the browser
+
+### Version 1.5.15
 - **Mode-aware scene restoration**: Color-temperature lights return to their saved mirek state, while lights without color resources are restored without an invalid XY payload
 
 ### Version 1.5.14

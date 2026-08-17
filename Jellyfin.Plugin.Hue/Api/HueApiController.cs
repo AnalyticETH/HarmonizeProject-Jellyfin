@@ -286,14 +286,76 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Gets all user-to-bridge mappings
+        /// Gets the settings used by the configuration page without serializing the
+        /// per-user mappings. Mapping credentials are managed only through the
+        /// dedicated mapping endpoints below.
+        /// </summary>
+        [HttpGet("Configuration")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HuePluginConfigurationSettings> GetConfiguration()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+            {
+                return NotFound("Plugin configuration not available.");
+            }
+
+            return Ok(HuePluginConfigurationSettings.From(config));
+        }
+
+        /// <summary>
+        /// Updates the settings used by the configuration page while leaving
+        /// per-user mappings (and their stored credentials) untouched.
+        /// </summary>
+        [HttpPost("Configuration")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HuePluginConfigurationSettings> SaveConfiguration(
+            [FromBody] HuePluginConfigurationSettings? settings)
+        {
+            if (settings == null)
+            {
+                return BadRequest("Configuration is required.");
+            }
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+            {
+                return NotFound("Plugin configuration not available.");
+            }
+
+            var previousSettings = HuePluginConfigurationSettings.From(config);
+            settings.ApplyTo(config);
+            var validationErrors = config.Validate();
+            if (validationErrors.Count > 0)
+            {
+                previousSettings.ApplyTo(config);
+                return BadRequest(new
+                {
+                    message = "Configuration is invalid.",
+                    errors = validationErrors
+                });
+            }
+
+            plugin.SaveConfiguration();
+            return Ok(HuePluginConfigurationSettings.From(config));
+        }
+
+        /// <summary>
+        /// Gets all user-to-bridge mappings without returning stored credentials.
         /// </summary>
         [HttpGet("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public ActionResult<IEnumerable<UserBridgeMapping>> GetUserMappings()
+        public ActionResult<IEnumerable<UserBridgeMappingSummary>> GetUserMappings()
         {
             var config = Plugin.Instance?.Configuration;
-            return Ok(config?.UserMappings ?? new List<UserBridgeMapping>());
+            var mappings = config?.UserMappings?
+                .Select(UserBridgeMappingSummary.From)
+                ?? Enumerable.Empty<UserBridgeMappingSummary>();
+            return Ok(mappings);
         }
 
         /// <summary>
@@ -313,6 +375,32 @@ namespace Jellyfin.Plugin.Hue.Api
             if (string.IsNullOrWhiteSpace(mapping.UserId))
             {
                 return BadRequest("User ID is required.");
+            }
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+            {
+                return BadRequest("Plugin configuration not available.");
+            }
+
+            config.UserMappings ??= new List<UserBridgeMapping>();
+            var existingMapping = config.UserMappings.FirstOrDefault(existing =>
+                string.Equals(existing.UserId, mapping.UserId, StringComparison.OrdinalIgnoreCase));
+
+            // The edit form deliberately leaves secret fields blank. Preserve an
+            // existing credential unless the caller supplied a replacement value.
+            if (mapping.SyncEnabled && existingMapping != null)
+            {
+                if (string.IsNullOrWhiteSpace(mapping.HueAppKey))
+                {
+                    mapping.HueAppKey = existingMapping.HueAppKey;
+                }
+
+                if (string.IsNullOrWhiteSpace(mapping.HueClientKey))
+                {
+                    mapping.HueClientKey = existingMapping.HueClientKey;
+                }
             }
 
             if (mapping.SyncEnabled && !HueBridgeCertificateValidation.IsValidBridgeAddress(mapping.HueBridgeIp))
@@ -339,20 +427,13 @@ namespace Jellyfin.Plugin.Hue.Api
                 mapping.EntertainmentAreaName = string.Empty;
             }
 
-            var config = Plugin.Instance?.Configuration;
-            if (config == null)
-            {
-                return BadRequest("Plugin configuration not available.");
-            }
-
             // Remove existing mapping for this user if exists
-            config.UserMappings ??= new List<UserBridgeMapping>();
             config.UserMappings.RemoveAll(m => string.Equals(m.UserId, mapping.UserId, StringComparison.OrdinalIgnoreCase));
 
             // Add the new/updated mapping
             config.UserMappings.Add(mapping);
 
-            Plugin.Instance?.SaveConfiguration();
+            plugin.SaveConfiguration();
 
             return Ok(new { message = "Mapping saved successfully." });
         }
@@ -388,6 +469,106 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(new { message = "Mapping deleted successfully." });
         }
 
+    }
+
+    /// <summary>
+    /// Configuration-page settings. This intentionally excludes PluginConfiguration.UserMappings
+    /// so the generic settings flow cannot round-trip per-user bridge credentials through a browser.
+    /// </summary>
+    public sealed class HuePluginConfigurationSettings
+    {
+        public bool SyncEnabled { get; set; }
+        public string HueBridgeIp { get; set; } = string.Empty;
+        public string HueAppKey { get; set; } = string.Empty;
+        public string HueClientKey { get; set; } = string.Empty;
+        public string EntertainmentAreaId { get; set; } = string.Empty;
+        public bool UseCinemaMode { get; set; } = true;
+        public int BrightnessDimLevel { get; set; } = 30;
+        public int TargetFps { get; set; } = 20;
+        public bool UseGpu { get; set; } = true;
+        public string CustomFfmpegFlags { get; set; } = string.Empty;
+        public int FfmpegStallTimeoutSeconds { get; set; } = 5;
+        public bool RestoreLightState { get; set; } = true;
+        public int BrightnessBoost { get; set; } = 100;
+        public int ColorSaturation { get; set; } = 100;
+        public int BlackoutThreshold { get; set; } = 15;
+        public int ColorChangeThreshold { get; set; } = 10;
+        public int NetworkRetryAttempts { get; set; } = 3;
+
+        public static HuePluginConfigurationSettings From(PluginConfiguration config)
+        {
+            return new HuePluginConfigurationSettings
+            {
+                SyncEnabled = config.SyncEnabled,
+                HueBridgeIp = config.HueBridgeIp,
+                HueAppKey = config.HueAppKey,
+                HueClientKey = config.HueClientKey,
+                EntertainmentAreaId = config.EntertainmentAreaId,
+                UseCinemaMode = config.UseCinemaMode,
+                BrightnessDimLevel = config.BrightnessDimLevel,
+                TargetFps = config.TargetFps,
+                UseGpu = config.UseGpu,
+                CustomFfmpegFlags = config.CustomFfmpegFlags,
+                FfmpegStallTimeoutSeconds = config.FfmpegStallTimeoutSeconds,
+                RestoreLightState = config.RestoreLightState,
+                BrightnessBoost = config.BrightnessBoost,
+                ColorSaturation = config.ColorSaturation,
+                BlackoutThreshold = config.BlackoutThreshold,
+                ColorChangeThreshold = config.ColorChangeThreshold,
+                NetworkRetryAttempts = config.NetworkRetryAttempts
+            };
+        }
+
+        public void ApplyTo(PluginConfiguration config)
+        {
+            config.SyncEnabled = SyncEnabled;
+            config.HueBridgeIp = HueBridgeIp?.Trim() ?? string.Empty;
+            config.HueAppKey = HueAppKey?.Trim() ?? string.Empty;
+            config.HueClientKey = HueClientKey?.Trim() ?? string.Empty;
+            config.EntertainmentAreaId = EntertainmentAreaId?.Trim() ?? string.Empty;
+            config.UseCinemaMode = UseCinemaMode;
+            config.BrightnessDimLevel = BrightnessDimLevel;
+            config.TargetFps = TargetFps;
+            config.UseGpu = UseGpu;
+            config.CustomFfmpegFlags = CustomFfmpegFlags ?? string.Empty;
+            config.FfmpegStallTimeoutSeconds = FfmpegStallTimeoutSeconds;
+            config.RestoreLightState = RestoreLightState;
+            config.BrightnessBoost = BrightnessBoost;
+            config.ColorSaturation = ColorSaturation;
+            config.BlackoutThreshold = BlackoutThreshold;
+            config.ColorChangeThreshold = ColorChangeThreshold;
+            config.NetworkRetryAttempts = NetworkRetryAttempts;
+        }
+    }
+
+    /// <summary>
+    /// Non-secret representation of a per-user bridge mapping.
+    /// </summary>
+    public sealed class UserBridgeMappingSummary
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string UserName { get; set; } = string.Empty;
+        public bool SyncEnabled { get; set; }
+        public string HueBridgeIp { get; set; } = string.Empty;
+        public string EntertainmentAreaId { get; set; } = string.Empty;
+        public string EntertainmentAreaName { get; set; } = string.Empty;
+        public bool HasAppKey { get; set; }
+        public bool HasClientKey { get; set; }
+
+        public static UserBridgeMappingSummary From(UserBridgeMapping mapping)
+        {
+            return new UserBridgeMappingSummary
+            {
+                UserId = mapping.UserId,
+                UserName = mapping.UserName,
+                SyncEnabled = mapping.SyncEnabled,
+                HueBridgeIp = mapping.HueBridgeIp,
+                EntertainmentAreaId = mapping.EntertainmentAreaId,
+                EntertainmentAreaName = mapping.EntertainmentAreaName,
+                HasAppKey = !string.IsNullOrWhiteSpace(mapping.HueAppKey),
+                HasClientKey = !string.IsNullOrWhiteSpace(mapping.HueClientKey)
+            };
+        }
     }
 
     public class HueRegistrationRequest

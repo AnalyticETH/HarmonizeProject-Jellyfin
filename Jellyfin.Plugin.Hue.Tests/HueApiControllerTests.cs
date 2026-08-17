@@ -1,8 +1,12 @@
 using System.Net;
+using System.Reflection;
 using System.Text;
 using Jellyfin.Plugin.Hue.Api;
+using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Service;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Model.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
@@ -261,10 +265,216 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
     }
 
+    [Fact]
+    public void GetUserMappings_RedactsStoredCredentialsAndReportsPresence()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Viewer",
+                    HueBridgeIp = "192.168.1.100",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "area-1",
+                    EntertainmentAreaName = "Living Room"
+                }
+            }
+        });
+
+        var action = CreateController().GetUserMappings();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var mapping = Assert.Single(Assert.IsAssignableFrom<IEnumerable<UserBridgeMappingSummary>>(response.Value));
+        Assert.Equal("user-1", mapping.UserId);
+        Assert.True(mapping.HasAppKey);
+        Assert.True(mapping.HasClientKey);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(mapping);
+        Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("mapping-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("HueAppKey", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HueClientKey", serialized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GetConfiguration_ExcludesPerUserMappings()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-key",
+            HueClientKey = "default-client-key",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret"
+                }
+            }
+        });
+
+        var action = CreateController().GetConfiguration();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var settings = Assert.IsType<HuePluginConfigurationSettings>(response.Value);
+        Assert.Equal("default-app-key", settings.HueAppKey);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
+        Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("UserMappings", serialized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SaveConfiguration_UpdatesSettingsWithoutReplacingUserMappings()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret"
+                }
+            }
+        });
+
+        var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            SyncEnabled = false,
+            TargetFps = 30
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Equal(30, configuration.TargetFps);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Equal("mapping-app-secret", mapping.HueAppKey);
+        Assert.Equal("mapping-client-secret", mapping.HueClientKey);
+    }
+
+    [Fact]
+    public void SaveUserMapping_BlankSecretsPreserveExistingCredentials()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.100",
+                    HueAppKey = "old-app-secret",
+                    HueClientKey = "old-client-secret",
+                    EntertainmentAreaId = "old-area",
+                    EntertainmentAreaName = "Old Room"
+                }
+            }
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "user-1",
+            UserName = "Viewer",
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.101",
+            EntertainmentAreaId = "new-area",
+            EntertainmentAreaName = "New Room"
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Equal("old-app-secret", mapping.HueAppKey);
+        Assert.Equal("old-client-secret", mapping.HueClientKey);
+        Assert.Equal("192.168.1.101", mapping.HueBridgeIp);
+        Assert.Equal("new-area", mapping.EntertainmentAreaId);
+    }
+
+    [Fact]
+    public void SaveUserMapping_NewEnabledMappingStillRequiresCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration());
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "new-user",
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public void SaveUserMapping_DisabledMappingClearsStoredCredentials()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.100",
+                    HueAppKey = "old-app-secret",
+                    HueClientKey = "old-client-secret",
+                    EntertainmentAreaId = "area-1"
+                }
+            }
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "user-1",
+            SyncEnabled = false
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Empty(mapping.HueAppKey);
+        Assert.Empty(mapping.HueClientKey);
+        Assert.Empty(mapping.HueBridgeIp);
+        Assert.Empty(mapping.EntertainmentAreaId);
+    }
+
     private HueApiController CreateController(IHueStreamTester? streamTester = null)
     {
         var client = new HueClient(_httpClient, _loggerMock.Object);
         return new HueApiController(client, Array.Empty<IHostedService>(), streamTester);
+    }
+
+    private static PluginConfiguration InstallConfiguration(PluginConfiguration configuration)
+    {
+        var pluginDataPath = Path.Combine(Path.GetTempPath(), "jellyfin-hue-api-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(pluginDataPath);
+        var applicationPaths = new Mock<IApplicationPaths>();
+        applicationPaths.SetupGet(paths => paths.ProgramDataPath).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.WebPath).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.ProgramSystemPath).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.DataPath).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.ImageCachePath).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.PluginsPath).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.PluginConfigurationsPath).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.LogDirectoryPath).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.ConfigurationDirectoryPath).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.SystemConfigurationFilePath).Returns(Path.Combine(pluginDataPath, "system.xml"));
+        applicationPaths.SetupGet(paths => paths.CachePath).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.TempDirectory).Returns(pluginDataPath);
+        applicationPaths.SetupGet(paths => paths.VirtualDataPath).Returns(pluginDataPath);
+
+        var plugin = new Plugin(applicationPaths.Object, Mock.Of<IXmlSerializer>());
+        var configurationField = plugin.GetType().BaseType!.GetField("_configuration", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        configurationField.SetValue(plugin, configuration);
+        return plugin.Configuration;
     }
 
     private void SetupHttpResponse(HttpStatusCode statusCode, string body)
