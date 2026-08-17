@@ -292,6 +292,9 @@ public sealed class HueSyncServiceLifecycleTests
 
         var summary = service.GetRuntimeStatus().LastSession;
         Assert.NotNull(summary);
+        var history = service.GetSessionHistory();
+        Assert.Single(history);
+        Assert.Same(summary, history[0]);
         Assert.Equal("Stopped", summary!.Outcome);
         Assert.Equal("Feature film", summary.Item);
         Assert.Equal("Living Room Viewer", summary.UserName);
@@ -308,6 +311,9 @@ public sealed class HueSyncServiceLifecycleTests
         var summaryJson = System.Text.Json.JsonSerializer.Serialize(summary);
         Assert.DoesNotContain("secret-app-key", summaryJson, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-client-key", summaryJson, StringComparison.Ordinal);
+        var historyJson = System.Text.Json.JsonSerializer.Serialize(history);
+        Assert.DoesNotContain("secret-app-key", historyJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-client-key", historyJson, StringComparison.Ordinal);
 
         await service.StopAsync(CancellationToken.None);
     }

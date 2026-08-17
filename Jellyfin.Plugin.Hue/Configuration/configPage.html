@@ -50,6 +50,17 @@
                     <div id="runtimeCleanupWarning" style="display: none; color: #ffd27f; margin-top: 0.5em;"></div>
                     <div class="fieldDescription" style="margin-top: 0.75em;">Updates automatically while this page is open. Stop Current Sync restores the lights and leaves playback running; bridge credentials are never included in status responses.</div>
                 </fieldset>
+                <fieldset class="verticalSection" id="sessionHistorySection">
+                    <legend>Recent Hue Sessions</legend>
+                    <div class="fieldDescription" style="margin-bottom: 0.75em;">Review the most recent completed sync sessions, including outcomes, target labels, and aggregate quality telemetry. History is bounded in memory and contains no bridge credentials or playback tokens.</div>
+                    <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
+                        <button is="emby-button" type="button" class="raised" id="refreshSessionHistoryBtn">
+                            <span>Refresh Session History</span>
+                        </button>
+                    </div>
+                    <div id="sessionHistoryStatus" class="fieldDescription" style="margin-top: 0.75em;">Loading recent sessions...</div>
+                    <div id="runtimeSessionHistory" style="margin-top: 0.5em; overflow-x: auto;"></div>
+                </fieldset>
                 <fieldset class="verticalSection" id="environmentDiagnosticsSection">
                     <legend>System Diagnostics</legend>
                     <div class="fieldDescription" style="margin-bottom: 0.75em;">Check local playback prerequisites and bridge lifecycle contention without changing bridge state.</div>
@@ -1789,6 +1800,86 @@
                         if (refreshButton) refreshButton.disabled = false;
                     });
                 },
+                loadSessionHistory: function (page) {
+                    if (!page || page._hueSessionHistoryLoading) {
+                        return Promise.resolve();
+                    }
+
+                    page._hueSessionHistoryLoading = true;
+                    var button = page.querySelector('#refreshSessionHistoryBtn');
+                    var statusElement = page.querySelector('#sessionHistoryStatus');
+                    var container = page.querySelector('#runtimeSessionHistory');
+                    if (button) button.disabled = true;
+
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/History?limit=20")).then(function (response) {
+                        var sessions = HueConfigurationPage.readStatusField(response, "Sessions", []);
+                        if (!Array.isArray(sessions)) sessions = [];
+                        if (container) container.textContent = "";
+                        if (sessions.length === 0) {
+                            if (container) container.textContent = "No completed Hue sessions have been recorded since the service started.";
+                            if (statusElement) statusElement.textContent = "No session history";
+                            return;
+                        }
+
+                        if (statusElement) {
+                            statusElement.textContent = sessions.length + " recent session" + (sessions.length === 1 ? "" : "s") + " · newest first";
+                        }
+                        if (!container) return;
+
+                        var table = document.createElement('table');
+                        table.style.width = '100%';
+                        table.style.borderCollapse = 'collapse';
+                        var headerRow = document.createElement('tr');
+                        ["Ended", "Item", "User", "Outcome", "Target", "Duration", "Effective FPS", "Packets", "Warnings"].forEach(function (heading) {
+                            var header = document.createElement('th');
+                            header.textContent = heading;
+                            header.style.textAlign = 'left';
+                            header.style.padding = '6px 8px';
+                            header.style.borderBottom = '1px solid rgba(255,255,255,.2)';
+                            headerRow.appendChild(header);
+                        });
+                        var head = document.createElement('thead');
+                        head.appendChild(headerRow);
+                        table.appendChild(head);
+
+                        var body = document.createElement('tbody');
+                        sessions.forEach(function (session) {
+                            var row = document.createElement('tr');
+                            var endedAt = HueConfigurationPage.readStatusField(session, "EndedAtUtc", null);
+                            var endedText = endedAt ? new Date(endedAt).toLocaleString() : "—";
+                            var item = HueConfigurationPage.readStatusField(session, "Item", "Playback");
+                            var user = HueConfigurationPage.readStatusField(session, "UserName", "—") || "—";
+                            var outcome = HueConfigurationPage.readStatusField(session, "Outcome", "Stopped");
+                            var bridge = HueConfigurationPage.readStatusField(session, "BridgeIp", "");
+                            var area = HueConfigurationPage.readStatusField(session, "EntertainmentAreaId", "");
+                            var target = bridge && area ? bridge + " / " + area : (bridge || area || "—");
+                            var duration = HueConfigurationPage.formatRuntimeDuration(HueConfigurationPage.readStatusField(session, "DurationSeconds", null));
+                            var fps = HueConfigurationPage.readStatusField(session, "EffectiveFps", null);
+                            var fpsText = fps == null ? "—" : Number(fps).toFixed(1);
+                            var packets = HueConfigurationPage.readStatusField(session, "PacketsSent", 0);
+                            var error = HueConfigurationPage.readStatusField(session, "Error", "");
+                            var warning = HueConfigurationPage.readStatusField(session, "CleanupWarning", "");
+                            var warningText = error || warning ? (error ? "Error" : "Cleanup warning") : "—";
+                            [endedText, item, user, outcome, target, duration, fpsText, String(packets || 0), warningText].forEach(function (value) {
+                                var cell = document.createElement('td');
+                                cell.textContent = value == null ? "—" : String(value);
+                                cell.style.padding = '6px 8px';
+                                cell.style.borderBottom = '1px solid rgba(255,255,255,.1)';
+                                row.appendChild(cell);
+                            });
+                            body.appendChild(row);
+                        });
+                        table.appendChild(body);
+                        container.appendChild(table);
+                    }).catch(function (err) {
+                        console.error("Failed to load Hue session history:", err);
+                        if (statusElement) statusElement.textContent = "Unable to read session history. Check the server log for details.";
+                        if (container) container.textContent = "—";
+                    }).finally(function () {
+                        page._hueSessionHistoryLoading = false;
+                        if (button) button.disabled = false;
+                    });
+                },
                 formatToolDiagnostics: function (status) {
                     var available = HueConfigurationPage.readStatusField(status, "Available", false);
                     var version = HueConfigurationPage.readStatusField(status, "Version", "");
@@ -3249,6 +3340,10 @@
                 HueConfigurationPage.loadRuntimeStatus(this.closest('.page'));
             });
 
+            document.querySelector('#refreshSessionHistoryBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadSessionHistory(this.closest('.page'));
+            });
+
             document.querySelector('#refreshDiagnosticsBtn').addEventListener('click', function () {
                 HueConfigurationPage.loadEnvironmentDiagnostics(this.closest('.page'));
             });
@@ -3332,6 +3427,7 @@
                     HueConfigurationPage.loadUsers(e.target);
                     HueConfigurationPage.loadUserMappings(e.target);
                     HueConfigurationPage.startRuntimeStatusPolling(e.target);
+                    HueConfigurationPage.loadSessionHistory(e.target);
                     HueConfigurationPage.loadEnvironmentDiagnostics(e.target);
                 }
             });

@@ -890,6 +890,26 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Returns a bounded, newest-first history of completed Hue playback sessions.
+        /// Summaries contain aggregate telemetry and target labels only; bridge keys and
+        /// Jellyfin playback tokens are never retained or serialized.
+        /// </summary>
+        [HttpGet("History")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<HueSessionHistoryResult> GetSessionHistory(
+            [FromQuery(Name = "limit")] int limit = 20)
+        {
+            var boundedLimit = Math.Clamp(limit, 1, HueSyncService.MaxSessionHistoryCount);
+            return Ok(new HueSessionHistoryResult
+            {
+                ServiceAvailable = _syncService != null,
+                Limit = boundedLimit,
+                GeneratedAtUtc = DateTime.UtcNow,
+                Sessions = _syncService?.GetSessionHistory(boundedLimit) ?? Array.Empty<HueSessionSummary>()
+            });
+        }
+
+        /// <summary>
         /// Reports local playback prerequisites and sanitized bridge lifecycle state without
         /// contacting or mutating a Hue bridge.
         /// </summary>
@@ -2369,6 +2389,17 @@ namespace Jellyfin.Plugin.Hue.Api
         /// describe the primary session for backward compatibility.
         /// </summary>
         public IReadOnlyList<HueRuntimeStatus> Sessions { get; set; } = Array.Empty<HueRuntimeStatus>();
+    }
+
+    /// <summary>
+    /// Bounded administrator-facing history response for completed playback sessions.
+    /// </summary>
+    public sealed class HueSessionHistoryResult
+    {
+        public bool ServiceAvailable { get; init; }
+        public int Limit { get; init; }
+        public DateTime GeneratedAtUtc { get; init; }
+        public IReadOnlyList<HueSessionSummary> Sessions { get; init; } = Array.Empty<HueSessionSummary>();
     }
 
     /// <summary>

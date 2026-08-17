@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.67] - 2026-08-17
+
+### Added
+- **Completed-session history**: retain the 25 most recent sanitized Hue playback summaries in memory, aggregate concurrent worker sessions, expose them through `GET /HueSync/History`, and render a refreshable Recent Hue Sessions table in the administrator configuration page
+
+### Security
+- Session history contains aggregate playback telemetry and target labels only; bridge credentials and Jellyfin playback tokens are never retained, exported, or serialized
+
 ## [1.5.66] - 2026-08-17
 
 ### Added

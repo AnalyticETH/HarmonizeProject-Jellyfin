@@ -129,6 +129,15 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _lastError;
         private string? _lastCleanupWarning;
         private HueSessionSummary? _lastSessionSummary;
+        private readonly List<HueSessionSummary> _sessionHistory = new();
+        private readonly Action<HueSessionSummary>? _sessionSummarySink;
+
+        /// <summary>
+        /// Maximum number of sanitized in-memory session summaries retained for the
+        /// administrator history endpoint. History is intentionally bounded and is not
+        /// persisted with bridge credentials or plugin configuration.
+        /// </summary>
+        public const int MaxSessionHistoryCount = 25;
 
         // Public property to track sync state
         public bool IsSyncing
@@ -213,7 +222,8 @@ namespace Jellyfin.Plugin.Hue.Service
             HueClient hueClient,
             IMediaEncoder mediaEncoder,
             HueBridgeLifecycleGate bridgeLifecycleGate,
-            bool managesPlaybackEvents)
+            bool managesPlaybackEvents,
+            Action<HueSessionSummary>? sessionSummarySink = null)
         {
             _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -222,6 +232,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _mediaEncoder = mediaEncoder ?? throw new ArgumentNullException(nameof(mediaEncoder));
             _bridgeLifecycleGate = bridgeLifecycleGate ?? throw new ArgumentNullException(nameof(bridgeLifecycleGate));
             _managesPlaybackEvents = managesPlaybackEvents;
+            _sessionSummarySink = sessionSummarySink;
         }
 
         private HueSyncService CreateConcurrentPlaybackWorker()
@@ -233,7 +244,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 _hueClient.CreatePlaybackClient(),
                 _mediaEncoder,
                 _bridgeLifecycleGate,
-                managesPlaybackEvents: false);
+                managesPlaybackEvents: false,
+                sessionSummarySink: AddConcurrentSessionSummary);
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -677,6 +689,19 @@ namespace Jellyfin.Plugin.Hue.Service
             status.IsSyncing ||
             status.CurrentItem != null ||
             status.State is "Starting" or "Syncing" or "Resyncing" or "Paused" or "Stopping");
+
+        /// <summary>
+        /// Returns the most recently completed sanitized playback summaries. The list is
+        /// bounded, newest first, and contains no bridge credentials or playback tokens.
+        /// </summary>
+        public IReadOnlyList<HueSessionSummary> GetSessionHistory(int limit = MaxSessionHistoryCount)
+        {
+            var boundedLimit = Math.Clamp(limit, 1, MaxSessionHistoryCount);
+            lock (_syncLock)
+            {
+                return _sessionHistory.Take(boundedLimit).ToArray();
+            }
+        }
 
         private void SetRuntimeStatus(string state, string message, bool clearError = false)
         {
@@ -3358,9 +3383,11 @@ namespace Jellyfin.Plugin.Hue.Service
 
         private void RecordSessionSummary(SessionSummarySeed seed, string? cleanupWarning)
         {
+            HueSessionSummary summary;
+            Action<HueSessionSummary>? sessionSummarySink;
             lock (_syncLock)
             {
-                _lastSessionSummary = new HueSessionSummary
+                summary = new HueSessionSummary
                 {
                     Outcome = seed.Outcome,
                     Item = seed.Item,
@@ -3382,7 +3409,37 @@ namespace Jellyfin.Plugin.Hue.Service
                     Error = seed.Error,
                     CleanupWarning = cleanupWarning
                 };
+                _lastSessionSummary = summary;
+                AddSessionHistoryLocked(summary);
+                sessionSummarySink = _sessionSummarySink;
             }
+
+            if (sessionSummarySink != null)
+            {
+                try
+                {
+                    sessionSummarySink(summary);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not publish a completed Hue session summary to the parent service");
+                }
+            }
+        }
+
+        private void AddConcurrentSessionSummary(HueSessionSummary summary)
+        {
+            lock (_syncLock)
+            {
+                AddSessionHistoryLocked(summary);
+            }
+        }
+
+        private void AddSessionHistoryLocked(HueSessionSummary summary)
+        {
+            _sessionHistory.Insert(0, summary);
+            if (_sessionHistory.Count > MaxSessionHistoryCount)
+                _sessionHistory.RemoveRange(MaxSessionHistoryCount, _sessionHistory.Count - MaxSessionHistoryCount);
         }
 
         private void ReleasePlaybackLifecycleLease()

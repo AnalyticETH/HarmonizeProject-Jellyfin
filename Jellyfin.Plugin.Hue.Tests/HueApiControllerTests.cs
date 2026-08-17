@@ -1170,6 +1170,21 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetSessionHistory_WithoutHostedSyncServiceReturnsBoundedEmptyHistory()
+    {
+        var controller = CreateController();
+
+        var action = controller.GetSessionHistory(999);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var history = Assert.IsType<HueSessionHistoryResult>(response.Value);
+        Assert.False(history.ServiceAvailable);
+        Assert.Equal(HueSyncService.MaxSessionHistoryCount, history.Limit);
+        Assert.Empty(history.Sessions);
+        Assert.True(history.GeneratedAtUtc > DateTime.UtcNow.AddMinutes(-1));
+    }
+
+    [Fact]
     public async Task Diagnostics_ReturnsSanitizedPrerequisiteAndLifecycleState()
     {
         InstallConfiguration(new PluginConfiguration
