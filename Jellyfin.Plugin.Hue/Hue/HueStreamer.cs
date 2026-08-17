@@ -107,7 +107,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// Starts a DTLS streaming connection to the Hue Bridge using OpenSSL with explicit parameters.
         ///
         /// Uses DTLS 1.2 with PSK. The ClientKey from Hue must be provided as hex.
-        /// OpenSSL 3.x requires -pskcipher instead of -cipher for PSK suites.
+        /// OpenSSL 3.x accepts the PSK suite through the standard -cipher option.
         ///
         /// IMPORTANT: This method awaits DtlsHandshakeWaitMs to allow the DTLS handshake to complete
         /// before the caller starts writing packets.
@@ -127,6 +127,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
 
             _lastBridgeConfig = (bridgeIp, appKey, clientKey);
+            StopStream();
 
             try
             {
@@ -137,26 +138,52 @@ namespace Jellyfin.Plugin.Hue.Hue
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "openssl",
-                    Arguments = $"s_client -dtls1_2 -cipher PSK-AES128-GCM-SHA256 -psk_identity {appKey} -psk {clientKey} -connect {bridgeIp}:2100",
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
+                startInfo.ArgumentList.Add("s_client");
+                startInfo.ArgumentList.Add("-dtls1_2");
+                startInfo.ArgumentList.Add("-cipher");
+                startInfo.ArgumentList.Add("PSK-AES128-GCM-SHA256");
+                startInfo.ArgumentList.Add("-psk_identity");
+                startInfo.ArgumentList.Add(appKey);
+                startInfo.ArgumentList.Add("-psk");
+                startInfo.ArgumentList.Add(clientKey);
+                startInfo.ArgumentList.Add("-connect");
+                startInfo.ArgumentList.Add($"{bridgeIp}:2100");
 
-                _logger.LogInformation("Starting OpenSSL DTLS tunnel: openssl {0}", startInfo.Arguments);
+                _logger.LogInformation("Starting OpenSSL DTLS tunnel to {0}:2100", bridgeIp);
 
-                _opensslProcess = new Process { StartInfo = startInfo };
-                _opensslProcess.Start();
-                _stdin = _opensslProcess.StandardInput.BaseStream;
+                var process = new Process { StartInfo = startInfo };
+                process.Start();
+                _opensslProcess = process;
+                _stdin = process.StandardInput.BaseStream;
+
+                // OpenSSL writes handshake and application output to stdout. Drain it
+                // continuously so the redirected pipe cannot fill and block the tunnel.
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await process.StandardOutput.BaseStream.CopyToAsync(Stream.Null).ConfigureAwait(false);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                    }
+                    catch (IOException)
+                    {
+                    }
+                });
 
                 // Log stderr asynchronously for diagnostics
                 _ = Task.Run(() =>
                 {
                     try
                     {
-                        using var reader = _opensslProcess.StandardError;
+                        using var reader = process.StandardError;
                         while (!reader.EndOfStream)
                         {
                             var line = reader.ReadLine();
@@ -164,7 +191,12 @@ namespace Jellyfin.Plugin.Hue.Hue
                                 _logger.LogDebug("OpenSSL: {0}", line);
                         }
                     }
-                    catch { /* process ended */ }
+                    catch (ObjectDisposedException)
+                    {
+                    }
+                    catch (IOException)
+                    {
+                    }
                 });
 
                 // Wait for DTLS handshake to complete before returning.
@@ -174,10 +206,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                 // during the wait rather than blocking it.
                 await Task.Delay(DtlsHandshakeWaitMs).ConfigureAwait(false);
 
-                if (_opensslProcess.HasExited)
+                if (process.HasExited)
                 {
                     _logger.LogError("OpenSSL process exited immediately — check bridge IP, ClientKey hex, and that the entertainment area was activated (action=start) first.");
-                    _stdin = null;
+                    StopStream();
                     return;
                 }
 
@@ -187,6 +219,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start OpenSSL process. Ensure openssl is installed.");
+                StopStream();
                 throw;
             }
         }

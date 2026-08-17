@@ -269,6 +269,11 @@
                 },
                 saveConfiguration: function (page) {
                     Dashboard.showLoadingMsg();
+                    var parseNumberOrDefault = function (selector, fallback) {
+                        var value = parseInt(page.querySelector(selector).value, 10);
+                        return isNaN(value) ? fallback : value;
+                    };
+
                     // First get current config to preserve UserMappings
                     ApiClient.getPluginConfiguration(HueConfigurationPage.pluginId).then(function (currentConfig) {
                         var config = {
@@ -276,18 +281,18 @@
                             HueAppKey: page.querySelector('#hueAppKey').value,
                             HueClientKey: page.querySelector('#hueClientKey').value,
                             EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
-                            TargetFps: parseInt(page.querySelector('#targetFps').value) || 20,
+                            TargetFps: parseNumberOrDefault('#targetFps', 20),
                             CustomFfmpegFlags: page.querySelector('#customFfmpegFlags').value,
                             UseGpu: page.querySelector('#useGpu').checked,
                             SyncEnabled: page.querySelector('#syncEnabled').checked,
                             UseCinemaMode: page.querySelector('#useCinemaMode').checked,
-                            BrightnessDimLevel: parseInt(page.querySelector('#brightnessDimLevel').value) || 30,
+                            BrightnessDimLevel: parseNumberOrDefault('#brightnessDimLevel', 30),
                             RestoreLightState: page.querySelector('#restoreLightState').checked,
-                            BrightnessBoost: parseInt(page.querySelector('#brightnessBoost').value) || 100,
-                            ColorSaturation: parseInt(page.querySelector('#colorSaturation').value) || 100,
-                            BlackoutThreshold: parseInt(page.querySelector('#blackoutThreshold').value) || 15,
-                            ColorChangeThreshold: parseInt(page.querySelector('#colorChangeThreshold').value) || 10,
-                            NetworkRetryAttempts: parseInt(page.querySelector('#networkRetryAttempts').value) || 3,
+                            BrightnessBoost: parseNumberOrDefault('#brightnessBoost', 100),
+                            ColorSaturation: parseNumberOrDefault('#colorSaturation', 100),
+                            BlackoutThreshold: parseNumberOrDefault('#blackoutThreshold', 15),
+                            ColorChangeThreshold: parseNumberOrDefault('#colorChangeThreshold', 10),
+                            NetworkRetryAttempts: parseNumberOrDefault('#networkRetryAttempts', 3),
                             // Preserve existing UserMappings
                             UserMappings: currentConfig.UserMappings || []
                         };
