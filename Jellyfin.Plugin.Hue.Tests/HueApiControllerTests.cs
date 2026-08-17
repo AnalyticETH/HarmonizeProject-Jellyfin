@@ -670,6 +670,7 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var mapping = Assert.Single(Assert.IsAssignableFrom<IEnumerable<UserBridgeMappingSummary>>(response.Value));
         Assert.Equal("user-1", mapping.UserId);
+        Assert.False(mapping.InheritsDefaultBridge);
         Assert.True(mapping.HasAppKey);
         Assert.True(mapping.HasClientKey);
         Assert.Equal((bool?)false, mapping.UseCinemaModeOverride);
@@ -700,6 +701,36 @@ public sealed class HueApiControllerTests : IDisposable
         var serialized = System.Text.Json.JsonSerializer.Serialize(mapping);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("mapping-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("HueAppKey", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HueClientKey", serialized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GetUserMappings_ReportsDefaultBridgeInheritanceWithoutCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-default",
+                    UserName = "Viewer",
+                    SyncEnabled = true,
+                    BrightnessBoostOverride = 125
+                }
+            }
+        });
+
+        var action = CreateController().GetUserMappings();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var mapping = Assert.Single(Assert.IsAssignableFrom<IEnumerable<UserBridgeMappingSummary>>(response.Value));
+        Assert.True(mapping.InheritsDefaultBridge);
+        Assert.False(mapping.HasAppKey);
+        Assert.False(mapping.HasClientKey);
+        Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(mapping);
         Assert.DoesNotContain("HueAppKey", serialized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("HueClientKey", serialized, StringComparison.OrdinalIgnoreCase);
     }

@@ -1033,6 +1033,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string UserId { get; set; } = string.Empty;
         public string UserName { get; set; } = string.Empty;
         public bool SyncEnabled { get; set; }
+        public bool InheritsDefaultBridge { get; set; }
         public string HueBridgeIp { get; set; } = string.Empty;
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string EntertainmentAreaName { get; set; } = string.Empty;
@@ -1071,6 +1072,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 UserId = mapping.UserId,
                 UserName = mapping.UserName,
                 SyncEnabled = mapping.SyncEnabled,
+                InheritsDefaultBridge = string.IsNullOrWhiteSpace(mapping.HueBridgeIp),
                 HueBridgeIp = mapping.HueBridgeIp,
                 EntertainmentAreaId = mapping.EntertainmentAreaId,
                 EntertainmentAreaName = mapping.EntertainmentAreaName,

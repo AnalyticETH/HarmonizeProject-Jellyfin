@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.42] - 2026-08-17
+
+### Added
+- `InheritsDefaultBridge` in sanitized user-mapping summaries so administrators can distinguish global inheritance from incomplete custom credentials
+
+### Changed
+- Mapping lists now display inherited global bridge and area targets explicitly
+- Editing an inherited mapping loads the global entertainment areas and uses the global target for connection tests, previews, and channel discovery without copying target fields into the mapping
+- Troubleshooting guidance now documents the blank-target inheritance workflow
+
 ## [1.5.41] - 2026-08-17
 
 ### Changed

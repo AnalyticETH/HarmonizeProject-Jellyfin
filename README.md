@@ -147,7 +147,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, without serializing per-user mappings to the configuration page. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
-| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials. |
+| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 
 ### Generating Hue Credentials (Manual Fallback)
@@ -279,10 +279,10 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
   If FFmpeg remains running but stops producing complete frames, the configured FFmpeg Stall
   Timeout ends synchronization through the same cleanup path; increase it for slow storage or
   hardware decoding, or lower it to recover faster from a stuck pipeline.
-* **A mapping is ignored:** enabled mappings must include a valid bridge address, App Key,
-  Client Key, and Entertainment Area ID. A mapping with **Enable Hue Sync for this user**
-  unchecked intentionally leaves that user's playback unchanged; users without a mapping use
-  the default bridge.
+* **A mapping is ignored:** an enabled custom mapping must include a valid bridge address, App
+  Key, Client Key, and Entertainment Area ID. To use the global target, leave all mapping target
+  fields blank; the mapping list will show **Inherited from global**. A mapping with **Enable Hue
+  Sync for this user** unchecked intentionally leaves that user's playback unchanged.
 
 ### Performance Benchmarks
 
@@ -307,7 +307,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.40 (Current)
+### Version 1.5.42 (Current)
+- **Inherited-target visibility**: Per-user mapping lists now label global-bridge inheritance and show the global default target instead of presenting a valid inherited mapping as incomplete
+- **Inherited-target editing**: Editing a mapping that uses the global bridge loads the global entertainment areas and uses the global target for connection tests, previews, and channel discovery while keeping the saved mapping fields blank
+- **Mapping API diagnostics**: `GET /HueSync/UserMappings` reports `InheritsDefaultBridge` without exposing credentials
+
+### Version 1.5.41
+- **Default-bridge mapping inheritance**: Enabled per-user mappings can leave Bridge Address, App Key, Client Key, and Entertainment Area blank to inherit the global target; switching from a custom bridge clears stale credentials and area data
+
+### Version 1.5.40
 - **Reusable color scenes**: Save, apply, update, and delete up to 50 named solid-color presets from the preview controls; scenes are global, credential-free, and available for default or mapping previews
 - **Preset API**: Add authenticated CRUD endpoints with name uniqueness, value validation, and persistence regression coverage
 - **Preview reliability**: Re-activate the entertainment area before DTLS reconnects during probes and previews

@@ -543,7 +543,7 @@
                                     <span>Link Bridge</span>
                                 </button>
                                 <div id="mappingBridgeStatus" style="flex: 1 1 200px; color: #fff; padding: 6px 10px; border-radius: 6px; background: #3f51b5;">
-                                    Enter bridge address, then link.
+                                    Leave target fields blank to inherit global settings, or enter a bridge address, then link.
                                 </div>
                             </div>
 
@@ -1606,6 +1606,12 @@
                             var syncEnabled = typeof mapping.SyncEnabled !== 'undefined'
                                 ? mapping.SyncEnabled !== false
                                 : mapping.syncEnabled !== false;
+                            var bridgeIp = mapping.HueBridgeIp || mapping.hueBridgeIp || '';
+                            var inheritsDefaultBridge = typeof mapping.InheritsDefaultBridge !== 'undefined'
+                                ? mapping.InheritsDefaultBridge === true
+                                : typeof mapping.inheritsDefaultBridge !== 'undefined'
+                                    ? mapping.inheritsDefaultBridge === true
+                                    : !String(bridgeIp).trim();
                             var hasAppKey = typeof mapping.HasAppKey !== 'undefined' ? mapping.HasAppKey === true : mapping.hasAppKey === true;
                             var hasClientKey = typeof mapping.HasClientKey !== 'undefined' ? mapping.HasClientKey === true : mapping.hasClientKey === true;
                             var getMappingValue = function (pascalName, camelName) {
@@ -1653,12 +1659,26 @@
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
                             var hasProfile = hasColorProfile || hasPlaybackProfile || hasPerformanceProfile || hasExecutionProfile;
-                            var credentialState = !syncEnabled ? 'Not required' : (hasAppKey && hasClientKey ? 'Stored' : 'Incomplete');
+                            var credentialState = !syncEnabled
+                                ? 'Not required'
+                                : inheritsDefaultBridge
+                                    ? 'Inherited from global'
+                                    : (hasAppKey && hasClientKey ? 'Stored' : 'Incomplete');
+                            var bridgeDisplay = !syncEnabled
+                                ? 'Not used'
+                                : inheritsDefaultBridge
+                                    ? 'Global default'
+                                    : bridgeIp;
+                            var areaDisplay = !syncEnabled
+                                ? 'Not used'
+                                : inheritsDefaultBridge
+                                ? 'Global default'
+                                : (mapping.EntertainmentAreaName || mapping.entertainmentAreaName || mapping.EntertainmentAreaId || mapping.entertainmentAreaId || '');
                             html += '<tr style="border-bottom: 1px solid #333;">';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.UserName || mapping.userName || userId || 'Unknown') + '</td>';
                             html += '<td style="padding: 8px;">' + (syncEnabled ? 'Enabled' : 'Disabled') + '</td>';
-                            html += '<td style="padding: 8px;">' + escapeHtml(mapping.HueBridgeIp || mapping.hueBridgeIp || '') + '</td>';
-                            html += '<td style="padding: 8px;">' + escapeHtml(mapping.EntertainmentAreaName || mapping.entertainmentAreaName || mapping.EntertainmentAreaId || mapping.entertainmentAreaId || '') + '</td>';
+                            html += '<td style="padding: 8px;">' + escapeHtml(bridgeDisplay) + '</td>';
+                            html += '<td style="padding: 8px;">' + escapeHtml(areaDisplay) + '</td>';
                             html += '<td style="padding: 8px;">' + (hasProfile ? 'Custom' : 'Global') + '</td>';
                             html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
@@ -2372,7 +2392,7 @@
                     if (saveButton) saveButton.querySelector('span').textContent = "Add User Mapping";
                     if (cancelButton) cancelButton.style.display = "none";
                     if (statusEl) {
-                        statusEl.textContent = "Enter bridge address, then link.";
+                        statusEl.textContent = "Leave target fields blank to inherit global settings, or enter a bridge address, then link.";
                         statusEl.style.background = "#3f51b5";
                     }
                     var channelStatusEl = page.querySelector('#mappingChannelIdsStatus');
@@ -2498,14 +2518,21 @@
                         page.querySelector('#addMappingBtn').querySelector('span').textContent = "Update User Mapping";
                         page.querySelector('#cancelMappingEditBtn').style.display = "";
                         page.querySelector('#mappingBridgeStatus').textContent = "Editing " + (mappingUserName || mappingUserId) + ". Stored credentials are preserved when key fields are blank.";
+                        if (!bridgeIp && syncEnabled) {
+                            page.querySelector('#mappingBridgeStatus').textContent = "Editing " + (mappingUserName || mappingUserId) + ". This mapping inherits the global bridge; leave all target fields blank to keep that inheritance.";
+                        }
                         page.querySelector('#mappingBridgeStatus').style.background = "#3f51b5";
                         HueConfigurationPage.mappingEditingUserId = mappingUserId;
                         HueConfigurationPage.mappingEditingHasAppKey = hasAppKey;
                         HueConfigurationPage.mappingEditingHasClientKey = hasClientKey;
                         HueConfigurationPage.toggleMappingSyncFields(page);
                         if (syncEnabled) {
-                            HueConfigurationPage.showStoredMappingArea(areaId, areaName);
-                            HueConfigurationPage.toggleMappingManualArea(false);
+                            if (bridgeIp) {
+                                HueConfigurationPage.showStoredMappingArea(areaId, areaName);
+                                HueConfigurationPage.toggleMappingManualArea(false);
+                            } else {
+                                HueConfigurationPage.loadMappingAreas(areaId);
+                            }
                         } else {
                             page.querySelector('#mappingAreaSelect').innerHTML = '<option value="">Sync disabled for this user</option>';
                             HueConfigurationPage.toggleMappingManualArea(false);
