@@ -1107,18 +1107,23 @@ public class PluginConfigurationTests
                 {
                     UserId = userId.ToString().ToUpperInvariant(),
                     UseCinemaModeOverride = false,
-                    BrightnessDimLevelOverride = 10
+                    BrightnessDimLevelOverride = 10,
+                    PauseBehaviorOverride = PluginConfiguration.PauseBehaviorRestoreLightState
                 }
             }
         };
 
         var overrides = config.GetPlaybackOverridesForUser(userId);
+        var pauseBehaviorOverride = config.GetPauseBehaviorOverrideForUser(userId);
         var unmappedOverrides = config.GetPlaybackOverridesForUser(System.Guid.NewGuid());
+        var unmappedPauseBehaviorOverride = config.GetPauseBehaviorOverrideForUser(System.Guid.NewGuid());
 
         Assert.Equal((bool?)false, overrides.UseCinemaMode);
         Assert.Equal((int?)10, overrides.BrightnessDimLevel);
+        Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, pauseBehaviorOverride);
         Assert.Null(unmappedOverrides.UseCinemaMode);
         Assert.Null(unmappedOverrides.BrightnessDimLevel);
+        Assert.Null(unmappedPauseBehaviorOverride);
     }
 
     [Fact]
@@ -1167,7 +1172,8 @@ public class PluginConfigurationTests
                 new UserBridgeMapping
                 {
                     UserId = "user-1",
-                    BrightnessDimLevelOverride = 101
+                    BrightnessDimLevelOverride = 101,
+                    PauseBehaviorOverride = "InvalidPauseBehavior"
                 }
             }
         };
@@ -1175,5 +1181,6 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         Assert.Contains("User mapping 1 brightness dim level override must be between 0 and 100", errors);
+        Assert.Contains("User mapping 1 pause behavior override must be KeepLastColors or RestoreLightState", errors);
     }
 }

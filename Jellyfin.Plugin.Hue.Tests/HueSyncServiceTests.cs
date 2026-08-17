@@ -56,6 +56,30 @@ public sealed class HueSyncServiceTests
         Assert.Equal(40, fallback.BrightnessDimLevel);
     }
 
+    [Fact]
+    public void ResolvePauseBehavior_UsesPerUserOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            PauseBehavior = PluginConfiguration.PauseBehaviorKeepLastColors,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString(),
+                    PauseBehaviorOverride = PluginConfiguration.PauseBehaviorRestoreLightState
+                }
+            }
+        };
+
+        var effective = HueSyncService.ResolvePauseBehavior(configuration, userId);
+        var fallback = HueSyncService.ResolvePauseBehavior(configuration, System.Guid.NewGuid());
+
+        Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, effective);
+        Assert.Equal(PluginConfiguration.PauseBehaviorKeepLastColors, fallback);
+    }
+
     [Theory]
     [InlineData(0, 18)]
     [InlineData(1, 1)]

@@ -23,6 +23,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         // Optional per-user cinema-mode overrides. Null values inherit the global setting.
         public bool? UseCinemaModeOverride { get; set; }
         public int? BrightnessDimLevelOverride { get; set; }
+        public string? PauseBehaviorOverride { get; set; }
 
         // Optional per-user color profile overrides. Null values inherit the global setting.
         public int? BrightnessBoostOverride { get; set; }
@@ -149,6 +150,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Gets an optional per-user pause behavior override. A blank value means the global
+        /// plugin setting should be used.
+        /// </summary>
+        public string? GetPauseBehaviorOverrideForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var pauseBehavior = mapping?.PauseBehaviorOverride?.Trim();
+            return string.IsNullOrWhiteSpace(pauseBehavior) ? null : pauseBehavior;
+        }
+
+        /// <summary>
         /// Gets optional per-user color-processing overrides. Null values mean the global
         /// plugin setting should be used for that component.
         /// </summary>
@@ -216,6 +229,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.BrightnessDimLevelOverride.Value > MaxBrightnessDimLevel))
             {
                 errors.Add($"{label} brightness dim level override must be between 0 and 100");
+            }
+
+            var pauseBehaviorOverride = mapping.PauseBehaviorOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(pauseBehaviorOverride) &&
+                !string.Equals(pauseBehaviorOverride, PauseBehaviorKeepLastColors, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(pauseBehaviorOverride, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"{label} pause behavior override must be KeepLastColors or RestoreLightState");
             }
 
             return errors;

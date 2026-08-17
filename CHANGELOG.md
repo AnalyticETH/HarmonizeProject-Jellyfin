@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.30] - 2026-08-17
+
+### Added
+- Optional per-user pause behavior overrides for multi-room mappings
+- Blank pause behavior fields inherit the global keep-colors or restore-light-state setting
+- Regression coverage for pause profile resolution, validation, persistence, lifecycle cleanup, and UI/API wiring
+
+### Changed
+- Pause cleanup now uses the effective behavior captured for the active playback user
+
 ## [1.5.29] - 2026-08-17
 
 ### Added

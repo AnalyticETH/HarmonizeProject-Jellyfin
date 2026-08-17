@@ -536,7 +536,7 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
-    public async Task PlaybackPause_WithRestoreBehaviorRestoresSavedStateImmediately()
+    public async Task PlaybackPause_WithActiveRestoreBehaviorRestoresSavedStateImmediately()
     {
         var handler = new BlockingHueHandler();
         using var httpClient = new HttpClient(handler);
@@ -544,7 +544,8 @@ public sealed class HueSyncServiceLifecycleTests
         await service.StartAsync(CancellationToken.None);
 
         Plugin.Instance!.Configuration.RestoreLightState = true;
-        Plugin.Instance.Configuration.PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState;
+        Plugin.Instance.Configuration.PauseBehavior = PluginConfiguration.PauseBehaviorKeepLastColors;
+        SetPrivateField(service, "_activePauseBehavior", PluginConfiguration.PauseBehaviorRestoreLightState);
         SetPrivateField(service, "_savedLightStates", new List<HueClient.LightState>
         {
             new("light-id", true, 50, 0.1, 0.2)
@@ -570,6 +571,7 @@ public sealed class HueSyncServiceLifecycleTests
 
         Assert.Null(GetPrivateField(service, "_savedLightStates"));
         Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+        Assert.Null(GetPrivateField(service, "_activePauseBehavior"));
         Assert.Equal("Test item", service.GetRuntimeStatus().CurrentItem);
 
         await service.StopAsync(CancellationToken.None);

@@ -101,9 +101,9 @@ Saturation, Hue Shift, and Output Brightness. Leave any profile field blank to i
 global setting; populated overrides apply only to that user's playback, including when the mapping
 uses the default bridge.
 
-Mappings can also override Cinema Mode and its dim level. Choose **Inherit global setting** to keep
-the default behavior, or enable/disable cinema mode for that user and optionally set a separate
-0-100% dim level.
+Mappings can also override Cinema Mode, its dim level, and pause behavior. Choose **Inherit global
+setting** to keep the defaults, or enable/disable cinema mode, set a separate 0-100% dim level, and
+choose whether pausing that user's playback keeps the last colors or restores the captured light state.
 
 ### Admin API
 
@@ -277,7 +277,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.29 (Current)
+### Version 1.5.30 (Current)
+- **Per-user playback profiles**: Choose Cinema Mode, dim level, and pause behavior independently per mapping; blank fields inherit the global settings
+
+### Version 1.5.29
 - **Per-user cinema profiles**: Choose Cinema Mode independently per mapping and optionally set that user's dim level; blank fields inherit the global settings
 
 ### Version 1.5.28

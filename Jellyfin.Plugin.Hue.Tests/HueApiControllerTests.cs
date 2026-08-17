@@ -284,6 +284,7 @@ public sealed class HueApiControllerTests : IDisposable
                     EntertainmentAreaName = "Living Room",
                     UseCinemaModeOverride = false,
                     BrightnessDimLevelOverride = 10,
+                    PauseBehaviorOverride = PluginConfiguration.PauseBehaviorRestoreLightState,
                     BrightnessBoostOverride = 150,
                     ColorSaturationOverride = 0,
                     HueShiftDegreesOverride = -45,
@@ -301,6 +302,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(mapping.HasClientKey);
         Assert.Equal((bool?)false, mapping.UseCinemaModeOverride);
         Assert.Equal((int?)10, mapping.BrightnessDimLevelOverride);
+        Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, mapping.PauseBehaviorOverride);
         Assert.Equal((int?)150, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)0, mapping.ColorSaturationOverride);
         Assert.Equal((int?)-45, mapping.HueShiftDegreesOverride);
@@ -441,6 +443,7 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaName = "New Room",
             UseCinemaModeOverride = true,
             BrightnessDimLevelOverride = 20,
+            PauseBehaviorOverride = PluginConfiguration.PauseBehaviorKeepLastColors,
             BrightnessBoostOverride = 125,
             ColorSaturationOverride = 80,
             HueShiftDegreesOverride = 30,
@@ -455,6 +458,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("new-area", mapping.EntertainmentAreaId);
         Assert.Equal((bool?)true, mapping.UseCinemaModeOverride);
         Assert.Equal((int?)20, mapping.BrightnessDimLevelOverride);
+        Assert.Equal(PluginConfiguration.PauseBehaviorKeepLastColors, mapping.PauseBehaviorOverride);
         Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)80, mapping.ColorSaturationOverride);
         Assert.Equal((int?)30, mapping.HueShiftDegreesOverride);
@@ -487,7 +491,8 @@ public sealed class HueApiControllerTests : IDisposable
         {
             UserId = "new-user",
             SyncEnabled = false,
-            BrightnessDimLevelOverride = 101
+            BrightnessDimLevelOverride = 101,
+            PauseBehaviorOverride = "InvalidPauseBehavior"
         });
 
         var response = Assert.IsType<BadRequestObjectResult>(action);

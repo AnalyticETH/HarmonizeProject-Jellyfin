@@ -74,6 +74,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _currentVideoScalingMode;
         private string? _currentVideoDeinterlaceMode;
         private bool? _activeUseCinemaMode;
+        private string? _activePauseBehavior;
         private string? _manuallyStoppedPlaySessionId;
         private string _runtimeState = "Idle";
         private string _runtimeMessage = "Waiting for playback.";
@@ -221,6 +222,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     lock (_syncLock)
                     {
                         _activeUseCinemaMode = null;
+                        _activePauseBehavior = null;
                     }
 
                     _savedLightStates = null;
@@ -593,8 +595,15 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 }
 
+                var configuredPauseBehavior = Plugin.Instance?.Configuration?.PauseBehavior;
+                string? activePauseBehavior;
+                lock (_syncLock)
+                {
+                    activePauseBehavior = _activePauseBehavior;
+                }
+
                 var pauseRestoresLights = string.Equals(
-                    Plugin.Instance?.Configuration?.PauseBehavior,
+                    activePauseBehavior ?? configuredPauseBehavior,
                     PluginConfiguration.PauseBehaviorRestoreLightState,
                     StringComparison.OrdinalIgnoreCase);
                 _logger.LogInformation(
@@ -676,8 +685,14 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 var config = Plugin.Instance?.Configuration;
+                string? activePauseBehavior;
+                lock (_syncLock)
+                {
+                    activePauseBehavior = _activePauseBehavior;
+                }
+
                 var restoreOnPause = string.Equals(
-                    config?.PauseBehavior,
+                    activePauseBehavior ?? config?.PauseBehavior,
                     PluginConfiguration.PauseBehaviorRestoreLightState,
                     StringComparison.OrdinalIgnoreCase);
                 var bridgeConfig = _currentBridgeConfig;
@@ -857,6 +872,12 @@ namespace Jellyfin.Plugin.Hue.Service
             return (
                 overrides.UseCinemaMode ?? config.UseCinemaMode,
                 Math.Clamp(overrides.BrightnessDimLevel ?? config.BrightnessDimLevel, 0, 100));
+        }
+
+        internal static string ResolvePauseBehavior(PluginConfiguration config, Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            return config.GetPauseBehaviorOverrideForUser(userId) ?? config.PauseBehavior;
         }
 
         internal static int CalculateSamplingDistance(int samplingBreadthPercent)
@@ -1523,6 +1544,7 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             var (useCinemaMode, brightnessDimLevel) = ResolvePlaybackSettings(config, userId);
+            var pauseBehavior = ResolvePauseBehavior(config, userId);
 
             var videoPath = e.Item?.Path;
             if (string.IsNullOrWhiteSpace(videoPath))
@@ -1577,6 +1599,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentVideoScalingMode = videoScalingMode;
                     _currentVideoDeinterlaceMode = videoDeinterlaceMode;
                     _activeUseCinemaMode = useCinemaMode;
+                    _activePauseBehavior = pauseBehavior;
                     syncStatePublished = true;
                 }
             }
@@ -1825,6 +1848,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 lock (_syncLock)
                 {
                     _activeUseCinemaMode = null;
+                    _activePauseBehavior = null;
                 }
                 if (bridgeConfig != null)
                 {

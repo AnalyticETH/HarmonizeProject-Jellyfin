@@ -602,6 +602,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool HasClientKey { get; set; }
         public bool? UseCinemaModeOverride { get; set; }
         public int? BrightnessDimLevelOverride { get; set; }
+        public string? PauseBehaviorOverride { get; set; }
         public int? BrightnessBoostOverride { get; set; }
         public int? ColorSaturationOverride { get; set; }
         public int? HueShiftDegreesOverride { get; set; }
@@ -621,6 +622,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 HasClientKey = !string.IsNullOrWhiteSpace(mapping.HueClientKey),
                 UseCinemaModeOverride = mapping.UseCinemaModeOverride,
                 BrightnessDimLevelOverride = mapping.BrightnessDimLevelOverride,
+                PauseBehaviorOverride = mapping.PauseBehaviorOverride,
                 BrightnessBoostOverride = mapping.BrightnessBoostOverride,
                 ColorSaturationOverride = mapping.ColorSaturationOverride,
                 HueShiftDegreesOverride = mapping.HueShiftDegreesOverride,

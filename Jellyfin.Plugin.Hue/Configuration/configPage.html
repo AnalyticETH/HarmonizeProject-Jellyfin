@@ -245,7 +245,7 @@
 
                             <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
                                 <legend>Per-user Playback Profile (optional)</legend>
-                                <div class="fieldDescription" style="margin-bottom: 1em;">Leave these fields blank to inherit the global cinema-mode settings. Overrides apply only to this user's playback.</div>
+                                <div class="fieldDescription" style="margin-bottom: 1em;">Leave these fields blank to inherit the global playback settings. Overrides apply only to this user's playback.</div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="mappingUseCinemaModeOverride">Cinema Mode Override</label>
@@ -261,6 +261,16 @@
                                     <label class="inputLabel inputLabelUnfocused" for="mappingBrightnessDimLevelOverride">Cinema Dim Level Override (%)</label>
                                     <input id="mappingBrightnessDimLevelOverride" type="number" min="0" max="100" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user cinema dim level (0-100%).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingPauseBehaviorOverride">Pause Behavior Override</label>
+                                    <select id="mappingPauseBehaviorOverride" is="emby-select">
+                                        <option value="">Inherit global setting</option>
+                                        <option value="KeepLastColors">Keep last synced colors</option>
+                                        <option value="RestoreLightState">Restore original light state</option>
+                                    </select>
+                                    <div class="fieldDescription">Choose whether pausing this user's playback keeps the last Hue colors or restores the captured light state.</div>
                                 </div>
                             </fieldset>
 
@@ -1032,7 +1042,8 @@
                             });
                             var hasPlaybackProfile = [
                                 getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride'),
-                                getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride')
+                                getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride'),
+                                getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride')
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
@@ -1076,6 +1087,7 @@
                         '#mappingAreaManual',
                         '#mappingUseCinemaModeOverride',
                         '#mappingBrightnessDimLevelOverride',
+                        '#mappingPauseBehaviorOverride',
                         '#mappingBrightnessBoostOverride',
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
@@ -1380,6 +1392,11 @@
                         if (!element || element.value === '') return null;
                         return element.value === 'true';
                     };
+                    var readOptionalString = function (selector) {
+                        var element = document.getElementById(selector);
+                        if (!element || element.value.trim() === '') return null;
+                        return element.value.trim();
+                    };
 
                     var userId = userSelect ? userSelect.value : '';
                     var userName = userSelect && userSelect.selectedOptions[0] ? userSelect.selectedOptions[0].dataset.userName || '' : '';
@@ -1431,6 +1448,7 @@
                         EntertainmentAreaName: areaName,
                         UseCinemaModeOverride: readOptionalBoolean('mappingUseCinemaModeOverride'),
                         BrightnessDimLevelOverride: readOptionalNumber('mappingBrightnessDimLevelOverride'),
+                        PauseBehaviorOverride: readOptionalString('mappingPauseBehaviorOverride'),
                         BrightnessBoostOverride: readOptionalNumber('mappingBrightnessBoostOverride'),
                         ColorSaturationOverride: readOptionalNumber('mappingColorSaturationOverride'),
                         HueShiftDegreesOverride: readOptionalNumber('mappingHueShiftDegreesOverride'),
@@ -1488,6 +1506,7 @@
                     var profileSelectors = [
                         '#mappingUseCinemaModeOverride',
                         '#mappingBrightnessDimLevelOverride',
+                        '#mappingPauseBehaviorOverride',
                         '#mappingBrightnessBoostOverride',
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
@@ -1542,6 +1561,7 @@
                         };
                         var useCinemaModeOverride = getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride');
                         var brightnessDimLevelOverride = getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride');
+                        var pauseBehaviorOverride = getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride');
                         var brightnessBoostOverride = getMappingValue('BrightnessBoostOverride', 'brightnessBoostOverride');
                         var colorSaturationOverride = getMappingValue('ColorSaturationOverride', 'colorSaturationOverride');
                         var hueShiftDegreesOverride = getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride');
@@ -1577,6 +1597,7 @@
                         page.querySelector('#mappingSyncEnabled').checked = syncEnabled;
                         page.querySelector('#mappingUseCinemaModeOverride').value = useCinemaModeOverride == null ? "" : String(useCinemaModeOverride).toLowerCase();
                         page.querySelector('#mappingBrightnessDimLevelOverride').value = brightnessDimLevelOverride == null ? "" : brightnessDimLevelOverride;
+                        page.querySelector('#mappingPauseBehaviorOverride').value = pauseBehaviorOverride == null ? "" : pauseBehaviorOverride;
                         page.querySelector('#mappingBrightnessBoostOverride').value = brightnessBoostOverride == null ? "" : brightnessBoostOverride;
                         page.querySelector('#mappingColorSaturationOverride').value = colorSaturationOverride == null ? "" : colorSaturationOverride;
                         page.querySelector('#mappingHueShiftDegreesOverride').value = hueShiftDegreesOverride == null ? "" : hueShiftDegreesOverride;
