@@ -1083,7 +1083,9 @@ public class PluginConfigurationTests
                     BlueGainOverride = 110,
                     ColorSaturationOverride = 0,
                     HueShiftDegreesOverride = -45,
-                    OutputBrightnessPercentOverride = 75
+                    OutputBrightnessPercentOverride = 75,
+                    BlackoutThresholdOverride = 0,
+                    ColorChangeThresholdOverride = 255
                 }
             }
         };
@@ -1103,6 +1105,12 @@ public class PluginConfigurationTests
         Assert.Equal((int?)0, overrides.ColorSaturation);
         Assert.Equal((int?)-45, overrides.HueShiftDegrees);
         Assert.Equal((int?)75, overrides.OutputBrightnessPercent);
+        var thresholdOverrides = config.GetColorThresholdOverridesForUser(userId);
+        var unmappedThresholdOverrides = config.GetColorThresholdOverridesForUser(System.Guid.NewGuid());
+        Assert.Equal((int?)0, thresholdOverrides.BlackoutThreshold);
+        Assert.Equal((int?)255, thresholdOverrides.ColorChangeThreshold);
+        Assert.Null(unmappedThresholdOverrides.BlackoutThreshold);
+        Assert.Null(unmappedThresholdOverrides.ColorChangeThreshold);
         Assert.Null(unmappedOverrides.BrightnessBoost);
         Assert.Null(unmappedOverrides.ColorSaturation);
         Assert.Null(unmappedOverrides.HueShiftDegrees);
@@ -1205,7 +1213,9 @@ public class PluginConfigurationTests
                     BlueGainOverride = 0,
                     ColorSaturationOverride = 201,
                     HueShiftDegreesOverride = 181,
-                    OutputBrightnessPercentOverride = -1
+                    OutputBrightnessPercentOverride = -1,
+                    BlackoutThresholdOverride = -1,
+                    ColorChangeThresholdOverride = 256
                 }
             }
         };
@@ -1219,6 +1229,8 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 color saturation override must be between 0 and 200", errors);
         Assert.Contains("User mapping 1 hue shift override must be between -180 and 180 degrees", errors);
         Assert.Contains("User mapping 1 output brightness override must be between 0 and 100 percent", errors);
+        Assert.Contains("User mapping 1 blackout threshold override must be between 0 and 255", errors);
+        Assert.Contains("User mapping 1 color change threshold override must be between 0 and 255", errors);
     }
 
     [Fact]

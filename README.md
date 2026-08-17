@@ -66,6 +66,8 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
 | **RGB Channel Gains** | Independently scale red, green, and blue channels from 50-200% (default: 100%) for room-specific white-balance correction before saturation and hue processing. |
 | **Output Brightness** | Final 0-100% brightness scale applied after boost, saturation, and hue shift (default: 100%). Use it to cap room brightness without changing color balance. |
+| **Blackout Threshold** | Set all channels to black when the sampled frame's average brightness falls below 0-255 (default: 15). Set to 0 to disable blackout handling. |
+| **Color Change Threshold** | Suppress Hue packets until the RGB16 color delta reaches 0-255 (default: 10). Lower values follow subtle changes; higher values reduce network traffic. |
 | **When Playback Is Paused** | Keep the last synced colors (default) or restore the original light state captured at playback start. Sync resumes automatically. Restoring uses the **Restore Light State After Sync** setting. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
@@ -100,7 +102,8 @@ enter replacement keys to rotate them. The mapping list reports credential prese
 revealing the key values.
 
 Each mapping can also define optional per-user color, performance, and restoration profiles. Color fields cover
-Brightness Boost, RGB Channel Gains, Color Saturation, Hue Shift, and Output Brightness. Performance
+Brightness Boost, RGB Channel Gains, Color Saturation, Hue Shift, Output Brightness, Blackout Threshold, and
+Color Change Threshold. Performance
 fields cover Target FPS, Frame Resolution, Video Fit, Deinterlacing, Sampling Breadth/Mode, and
 Temporal Color Smoothing. The restoration profile chooses whether that user captures and restores
 the original per-light state or uses the cinema/default cleanup behavior. Leave any profile field
@@ -120,11 +123,11 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
 | `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration. |
-| `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/restoration profile, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
+| `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/color/restoration profile, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings without serializing per-user mappings to the configuration page. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
-| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color/performance/restoration-profile overrides; GET responses redact stored credentials. |
+| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/restoration-profile overrides; GET responses redact stored credentials. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 
 ### Generating Hue Credentials (Manual Fallback)
@@ -284,7 +287,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.33 (Current)
+### Version 1.5.34 (Current)
+- **Per-user color scene policies**: Override blackout and color-change thresholds per mapping while inheriting global defaults; the complete active color policy is captured at playback start and shown in Live Sync Status
+
+### Version 1.5.33
 - **Per-user light-state restoration**: Choose whether each mapped user captures/restores original light state or follows the cinema/default cleanup behavior; blank fields inherit the global setting and the active policy is reported in Live Sync Status
 
 ### Version 1.5.32

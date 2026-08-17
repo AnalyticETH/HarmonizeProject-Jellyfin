@@ -258,6 +258,15 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveSamplingBreadthPercent);
         Assert.Null(status.ActiveSamplingMode);
         Assert.Null(status.ActiveColorSmoothingPercent);
+        Assert.Null(status.ActiveBrightnessBoost);
+        Assert.Null(status.ActiveRedGain);
+        Assert.Null(status.ActiveGreenGain);
+        Assert.Null(status.ActiveBlueGain);
+        Assert.Null(status.ActiveColorSaturation);
+        Assert.Null(status.ActiveHueShiftDegrees);
+        Assert.Null(status.ActiveOutputBrightnessPercent);
+        Assert.Null(status.ActiveBlackoutThreshold);
+        Assert.Null(status.ActiveColorChangeThreshold);
         Assert.Null(status.ActiveRestoreLightState);
         Assert.Null(status.LastError);
         Assert.False(status.CanStopSync);
@@ -301,6 +310,8 @@ public sealed class HueApiControllerTests : IDisposable
                     ColorSaturationOverride = 0,
                     HueShiftDegreesOverride = -45,
                     OutputBrightnessPercentOverride = 75,
+                    BlackoutThresholdOverride = 30,
+                    ColorChangeThresholdOverride = 5,
                     TargetFpsOverride = 30,
                     FrameResolutionOverride = PluginConfiguration.FrameResolutionHigh,
                     VideoScalingModeOverride = PluginConfiguration.VideoScalingModeFit,
@@ -330,6 +341,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)0, mapping.ColorSaturationOverride);
         Assert.Equal((int?)-45, mapping.HueShiftDegreesOverride);
         Assert.Equal((int?)75, mapping.OutputBrightnessPercentOverride);
+        Assert.Equal((int?)30, mapping.BlackoutThresholdOverride);
+        Assert.Equal((int?)5, mapping.ColorChangeThresholdOverride);
         Assert.Equal((int?)30, mapping.TargetFpsOverride);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, mapping.FrameResolutionOverride);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, mapping.VideoScalingModeOverride);
@@ -494,6 +507,8 @@ public sealed class HueApiControllerTests : IDisposable
             ColorSaturationOverride = 80,
             HueShiftDegreesOverride = 30,
             OutputBrightnessPercentOverride = 65,
+            BlackoutThresholdOverride = 20,
+            ColorChangeThresholdOverride = 3,
             TargetFpsOverride = 30,
             FrameResolutionOverride = PluginConfiguration.FrameResolutionLow,
             VideoScalingModeOverride = PluginConfiguration.VideoScalingModeCrop,
@@ -520,6 +535,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)80, mapping.ColorSaturationOverride);
         Assert.Equal((int?)30, mapping.HueShiftDegreesOverride);
         Assert.Equal((int?)65, mapping.OutputBrightnessPercentOverride);
+        Assert.Equal((int?)20, mapping.BlackoutThresholdOverride);
+        Assert.Equal((int?)3, mapping.ColorChangeThresholdOverride);
         Assert.Equal((int?)30, mapping.TargetFpsOverride);
         Assert.Equal(PluginConfiguration.FrameResolutionLow, mapping.FrameResolutionOverride);
         Assert.Equal(PluginConfiguration.VideoScalingModeCrop, mapping.VideoScalingModeOverride);

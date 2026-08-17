@@ -38,6 +38,19 @@ public sealed class HueSyncServiceLifecycleTests
         SetPrivateField(service, "_currentSamplingBreadthPercent", 25);
         SetPrivateField(service, "_currentSamplingMode", PluginConfiguration.SamplingModeCenterWeighted);
         SetPrivateField(service, "_currentColorSmoothingPercent", 40);
+        SetPrivateField(
+            service,
+            "_activeColorProcessingSettings",
+            (
+                BrightnessBoost: 150,
+                RedGain: 120,
+                GreenGain: 90,
+                BlueGain: 110,
+                ColorSaturation: 125,
+                HueShiftDegrees: -30,
+                OutputBrightnessPercent: 75,
+                BlackoutThreshold: 30,
+                ColorChangeThreshold: 5));
         SetPrivateField(service, "_activeRestoreLightState", true);
         SetPrivateField(service, "_currentItemName", "Feature film");
         SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-3));
@@ -56,6 +69,15 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal(25, status.ActiveSamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, status.ActiveSamplingMode);
         Assert.Equal(40, status.ActiveColorSmoothingPercent);
+        Assert.Equal(150, status.ActiveBrightnessBoost);
+        Assert.Equal(120, status.ActiveRedGain);
+        Assert.Equal(90, status.ActiveGreenGain);
+        Assert.Equal(110, status.ActiveBlueGain);
+        Assert.Equal(125, status.ActiveColorSaturation);
+        Assert.Equal(-30, status.ActiveHueShiftDegrees);
+        Assert.Equal(75, status.ActiveOutputBrightnessPercent);
+        Assert.Equal(30, status.ActiveBlackoutThreshold);
+        Assert.Equal(5, status.ActiveColorChangeThreshold);
         Assert.Equal((bool?)true, status.ActiveRestoreLightState);
         Assert.Equal("192.168.1.100", status.ActiveBridgeIp);
         Assert.Equal("area-id", status.ActiveEntertainmentAreaId);

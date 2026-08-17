@@ -23,6 +23,7 @@
                             <div><strong>Deinterlace:</strong> <span id="runtimeDeinterlaceMode">—</span></div>
                             <div><strong>Capture profile:</strong> <span id="runtimeCaptureProfile">—</span></div>
                             <div><strong>Sampling:</strong> <span id="runtimeSamplingProfile">—</span></div>
+                            <div><strong>Color policy:</strong> <span id="runtimeColorProfile">—</span></div>
                             <div><strong>Restoration:</strong> <span id="runtimeRestorationProfile">—</span></div>
                         </div>
                         <div style="flex: 1 1 280px;">
@@ -331,6 +332,18 @@
                                     <label class="inputLabel inputLabelUnfocused" for="mappingOutputBrightnessPercentOverride">Output Brightness Override (%)</label>
                                     <input id="mappingOutputBrightnessPercentOverride" type="number" min="0" max="100" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user final brightness scale (0-100%).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingBlackoutThresholdOverride">Blackout Threshold Override</label>
+                                    <input id="mappingBlackoutThresholdOverride" type="number" min="0" max="255" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user average brightness threshold (0-255) below which all channels are sent black. Use 0 to disable blackout handling.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingColorChangeThresholdOverride">Color Change Threshold Override</label>
+                                    <input id="mappingColorChangeThresholdOverride" type="number" min="0" max="255" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user minimum RGB16 change (0-255) required before sending a new Hue packet.</div>
                                 </div>
                             </fieldset>
 
@@ -881,6 +894,15 @@
                         var samplingBreadth = HueConfigurationPage.readStatusField(status, "ActiveSamplingBreadthPercent", null);
                         var samplingMode = HueConfigurationPage.readStatusField(status, "ActiveSamplingMode", null);
                         var colorSmoothing = HueConfigurationPage.readStatusField(status, "ActiveColorSmoothingPercent", null);
+                        var brightnessBoost = HueConfigurationPage.readStatusField(status, "ActiveBrightnessBoost", null);
+                        var redGain = HueConfigurationPage.readStatusField(status, "ActiveRedGain", null);
+                        var greenGain = HueConfigurationPage.readStatusField(status, "ActiveGreenGain", null);
+                        var blueGain = HueConfigurationPage.readStatusField(status, "ActiveBlueGain", null);
+                        var colorSaturation = HueConfigurationPage.readStatusField(status, "ActiveColorSaturation", null);
+                        var hueShiftDegrees = HueConfigurationPage.readStatusField(status, "ActiveHueShiftDegrees", null);
+                        var outputBrightness = HueConfigurationPage.readStatusField(status, "ActiveOutputBrightnessPercent", null);
+                        var blackoutThreshold = HueConfigurationPage.readStatusField(status, "ActiveBlackoutThreshold", null);
+                        var colorChangeThreshold = HueConfigurationPage.readStatusField(status, "ActiveColorChangeThreshold", null);
                         var restoreLightState = HueConfigurationPage.readStatusField(status, "ActiveRestoreLightState", null);
                         var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
                         var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
@@ -907,6 +929,11 @@
                         page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
                             ? "—"
                             : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
+                        page.querySelector('#runtimeColorProfile').textContent = brightnessBoost == null
+                            ? "—"
+                            : String(brightnessBoost) + "% boost · RGB " + String(redGain) + "/" + String(greenGain) + "/" + String(blueGain) +
+                                " · sat " + String(colorSaturation) + "% · hue " + String(hueShiftDegrees) + "° · output " + String(outputBrightness) +
+                                "% · blackout < " + String(blackoutThreshold) + " · change ≥ " + String(colorChangeThreshold);
                         page.querySelector('#runtimeRestorationProfile').textContent = restoreLightState == null
                             ? "—"
                             : (restoreLightState ? "Saved light state" : "Cinema/default restoration");
@@ -1176,7 +1203,9 @@
                                 getMappingValue('BlueGainOverride', 'blueGainOverride'),
                                 getMappingValue('ColorSaturationOverride', 'colorSaturationOverride'),
                                 getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride'),
-                                getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride')
+                                getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride'),
+                                getMappingValue('BlackoutThresholdOverride', 'blackoutThresholdOverride'),
+                                getMappingValue('ColorChangeThresholdOverride', 'colorChangeThresholdOverride')
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
@@ -1248,6 +1277,8 @@
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
                         '#mappingOutputBrightnessPercentOverride',
+                        '#mappingBlackoutThresholdOverride',
+                        '#mappingColorChangeThresholdOverride',
                         '#mappingTargetFpsOverride',
                         '#mappingFrameResolutionOverride',
                         '#mappingVideoScalingModeOverride',
@@ -1620,6 +1651,8 @@
                         ColorSaturationOverride: readOptionalNumber('mappingColorSaturationOverride'),
                         HueShiftDegreesOverride: readOptionalNumber('mappingHueShiftDegreesOverride'),
                         OutputBrightnessPercentOverride: readOptionalNumber('mappingOutputBrightnessPercentOverride'),
+                        BlackoutThresholdOverride: readOptionalNumber('mappingBlackoutThresholdOverride'),
+                        ColorChangeThresholdOverride: readOptionalNumber('mappingColorChangeThresholdOverride'),
                         TargetFpsOverride: readOptionalNumber('mappingTargetFpsOverride'),
                         FrameResolutionOverride: readOptionalString('mappingFrameResolutionOverride'),
                         VideoScalingModeOverride: readOptionalString('mappingVideoScalingModeOverride'),
@@ -1689,6 +1722,8 @@
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
                         '#mappingOutputBrightnessPercentOverride',
+                        '#mappingBlackoutThresholdOverride',
+                        '#mappingColorChangeThresholdOverride',
                         '#mappingTargetFpsOverride',
                         '#mappingFrameResolutionOverride',
                         '#mappingVideoScalingModeOverride',
@@ -1755,6 +1790,8 @@
                         var colorSaturationOverride = getMappingValue('ColorSaturationOverride', 'colorSaturationOverride');
                         var hueShiftDegreesOverride = getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride');
                         var outputBrightnessPercentOverride = getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride');
+                        var blackoutThresholdOverride = getMappingValue('BlackoutThresholdOverride', 'blackoutThresholdOverride');
+                        var colorChangeThresholdOverride = getMappingValue('ColorChangeThresholdOverride', 'colorChangeThresholdOverride');
                         var targetFpsOverride = getMappingValue('TargetFpsOverride', 'targetFpsOverride');
                         var frameResolutionOverride = getMappingValue('FrameResolutionOverride', 'frameResolutionOverride');
                         var videoScalingModeOverride = getMappingValue('VideoScalingModeOverride', 'videoScalingModeOverride');
@@ -1802,6 +1839,8 @@
                         page.querySelector('#mappingColorSaturationOverride').value = colorSaturationOverride == null ? "" : colorSaturationOverride;
                         page.querySelector('#mappingHueShiftDegreesOverride').value = hueShiftDegreesOverride == null ? "" : hueShiftDegreesOverride;
                         page.querySelector('#mappingOutputBrightnessPercentOverride').value = outputBrightnessPercentOverride == null ? "" : outputBrightnessPercentOverride;
+                        page.querySelector('#mappingBlackoutThresholdOverride').value = blackoutThresholdOverride == null ? "" : blackoutThresholdOverride;
+                        page.querySelector('#mappingColorChangeThresholdOverride').value = colorChangeThresholdOverride == null ? "" : colorChangeThresholdOverride;
                         page.querySelector('#mappingTargetFpsOverride').value = targetFpsOverride == null ? "" : targetFpsOverride;
                         page.querySelector('#mappingFrameResolutionOverride').value = frameResolutionOverride == null ? "" : frameResolutionOverride;
                         page.querySelector('#mappingVideoScalingModeOverride').value = videoScalingModeOverride == null ? "" : videoScalingModeOverride;

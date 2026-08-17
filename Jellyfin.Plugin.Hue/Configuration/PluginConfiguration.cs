@@ -31,6 +31,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? ColorSaturationOverride { get; set; }
         public int? HueShiftDegreesOverride { get; set; }
         public int? OutputBrightnessPercentOverride { get; set; }
+        public int? BlackoutThresholdOverride { get; set; }
+        public int? ColorChangeThresholdOverride { get; set; }
         public int? RedGainOverride { get; set; }
         public int? GreenGainOverride { get; set; }
         public int? BlueGainOverride { get; set; }
@@ -214,6 +216,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Gets optional per-user scene threshold overrides. Null values mean the global
+        /// blackout or color-change threshold should be used.
+        /// </summary>
+        public (int? BlackoutThreshold, int? ColorChangeThreshold) GetColorThresholdOverridesForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return mapping == null
+                ? (null, null)
+                : (mapping.BlackoutThresholdOverride, mapping.ColorChangeThresholdOverride);
+        }
+
+        /// <summary>
         /// Gets optional per-user playback-performance overrides. Null values mean the global
         /// capture or processing setting should be used for that component.
         /// </summary>
@@ -276,6 +291,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.OutputBrightnessPercentOverride.Value > MaxOutputBrightnessPercent))
             {
                 errors.Add($"{label} output brightness override must be between 0 and 100 percent");
+            }
+
+            if (mapping.BlackoutThresholdOverride.HasValue &&
+                (mapping.BlackoutThresholdOverride.Value < MinByteSetting ||
+                 mapping.BlackoutThresholdOverride.Value > MaxByteSetting))
+            {
+                errors.Add($"{label} blackout threshold override must be between 0 and 255");
+            }
+
+            if (mapping.ColorChangeThresholdOverride.HasValue &&
+                (mapping.ColorChangeThresholdOverride.Value < MinByteSetting ||
+                 mapping.ColorChangeThresholdOverride.Value > MaxByteSetting))
+            {
+                errors.Add($"{label} color change threshold override must be between 0 and 255");
             }
 
             if (mapping.RedGainOverride.HasValue &&

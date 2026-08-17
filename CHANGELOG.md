@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.34] - 2026-08-17
+
+### Added
+- Optional per-user blackout and color-change thresholds with global inheritance
+- Complete active color-policy diagnostics covering boost, RGB gains, saturation, hue, output brightness, blackout, and packet-change thresholds
+- Regression coverage for threshold resolution, validation, persistence, status/API wiring, and session policy capture
+
+### Changed
+- Color processing settings are captured at playback startup so configuration edits cannot change an in-flight session's color behavior
+- Playback cleanup restores saved light state even if the global sync toggle is disabled after a session has started
+
 ## [1.5.33] - 2026-08-17
 
 ### Added

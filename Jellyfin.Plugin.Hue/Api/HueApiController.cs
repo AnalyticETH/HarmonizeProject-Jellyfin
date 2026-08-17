@@ -263,6 +263,15 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveSamplingBreadthPercent = runtime?.ActiveSamplingBreadthPercent,
                 ActiveSamplingMode = runtime?.ActiveSamplingMode,
                 ActiveColorSmoothingPercent = runtime?.ActiveColorSmoothingPercent,
+                ActiveBrightnessBoost = runtime?.ActiveBrightnessBoost,
+                ActiveRedGain = runtime?.ActiveRedGain,
+                ActiveGreenGain = runtime?.ActiveGreenGain,
+                ActiveBlueGain = runtime?.ActiveBlueGain,
+                ActiveColorSaturation = runtime?.ActiveColorSaturation,
+                ActiveHueShiftDegrees = runtime?.ActiveHueShiftDegrees,
+                ActiveOutputBrightnessPercent = runtime?.ActiveOutputBrightnessPercent,
+                ActiveBlackoutThreshold = runtime?.ActiveBlackoutThreshold,
+                ActiveColorChangeThreshold = runtime?.ActiveColorChangeThreshold,
                 ActiveRestoreLightState = runtime?.ActiveRestoreLightState,
                 FramesProcessed = runtime?.FramesProcessed ?? 0,
                 CanStopSync = runtime?.CanStopSync ?? false,
@@ -354,7 +363,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Gets all user-to-bridge mappings without returning stored credentials. Optional
-        /// per-user playback, color, performance, and restoration profile values are included because they are not secret.
+        /// per-user playback, color-threshold, performance, and restoration profile values are included because they are not secret.
         /// </summary>
         [HttpGet("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -369,7 +378,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
-        /// synchronization without storing bridge credentials and can override playback, color processing,
+        /// synchronization without storing bridge credentials and can override playback, color processing and scene thresholds,
         /// capture-performance, or light-restoration settings.
         /// </summary>
         [HttpPost("UserMappings")]
@@ -633,6 +642,8 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ColorSaturationOverride { get; set; }
         public int? HueShiftDegreesOverride { get; set; }
         public int? OutputBrightnessPercentOverride { get; set; }
+        public int? BlackoutThresholdOverride { get; set; }
+        public int? ColorChangeThresholdOverride { get; set; }
         public int? TargetFpsOverride { get; set; }
         public string? FrameResolutionOverride { get; set; }
         public string? VideoScalingModeOverride { get; set; }
@@ -664,6 +675,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 ColorSaturationOverride = mapping.ColorSaturationOverride,
                 HueShiftDegreesOverride = mapping.HueShiftDegreesOverride,
                 OutputBrightnessPercentOverride = mapping.OutputBrightnessPercentOverride,
+                BlackoutThresholdOverride = mapping.BlackoutThresholdOverride,
+                ColorChangeThresholdOverride = mapping.ColorChangeThresholdOverride,
                 TargetFpsOverride = mapping.TargetFpsOverride,
                 FrameResolutionOverride = mapping.FrameResolutionOverride,
                 VideoScalingModeOverride = mapping.VideoScalingModeOverride,
@@ -769,6 +782,15 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ActiveSamplingBreadthPercent { get; set; }
         public string? ActiveSamplingMode { get; set; }
         public int? ActiveColorSmoothingPercent { get; set; }
+        public int? ActiveBrightnessBoost { get; set; }
+        public int? ActiveRedGain { get; set; }
+        public int? ActiveGreenGain { get; set; }
+        public int? ActiveBlueGain { get; set; }
+        public int? ActiveColorSaturation { get; set; }
+        public int? ActiveHueShiftDegrees { get; set; }
+        public int? ActiveOutputBrightnessPercent { get; set; }
+        public int? ActiveBlackoutThreshold { get; set; }
+        public int? ActiveColorChangeThreshold { get; set; }
         public bool? ActiveRestoreLightState { get; set; }
         public long FramesProcessed { get; set; }
         public bool CanStopSync { get; set; }

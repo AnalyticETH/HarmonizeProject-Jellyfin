@@ -77,6 +77,16 @@ namespace Jellyfin.Plugin.Hue.Service
         private int? _currentSamplingBreadthPercent;
         private string? _currentSamplingMode;
         private int? _currentColorSmoothingPercent;
+        private (
+            int BrightnessBoost,
+            int RedGain,
+            int GreenGain,
+            int BlueGain,
+            int ColorSaturation,
+            int HueShiftDegrees,
+            int OutputBrightnessPercent,
+            int BlackoutThreshold,
+            int ColorChangeThreshold)? _activeColorProcessingSettings;
         private bool? _activeUseCinemaMode;
         private bool? _activeRestoreLightState;
         private string? _activePauseBehavior;
@@ -308,6 +318,16 @@ namespace Jellyfin.Plugin.Hue.Service
             int? currentSamplingBreadthPercent;
             string? currentSamplingMode;
             int? currentColorSmoothingPercent;
+            (
+                int BrightnessBoost,
+                int RedGain,
+                int GreenGain,
+                int BlueGain,
+                int ColorSaturation,
+                int HueShiftDegrees,
+                int OutputBrightnessPercent,
+                int BlackoutThreshold,
+                int ColorChangeThreshold)? activeColorProcessingSettings;
             bool? activeRestoreLightState;
             string state;
             string message;
@@ -327,6 +347,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentSamplingBreadthPercent = _currentSamplingBreadthPercent;
                 currentSamplingMode = _currentSamplingMode;
                 currentColorSmoothingPercent = _currentColorSmoothingPercent;
+                activeColorProcessingSettings = _activeColorProcessingSettings;
                 activeRestoreLightState = _activeRestoreLightState;
                 state = _runtimeState;
                 message = _runtimeMessage;
@@ -356,6 +377,15 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveSamplingBreadthPercent = isSyncing ? currentSamplingBreadthPercent : null,
                 ActiveSamplingMode = isSyncing ? currentSamplingMode : null,
                 ActiveColorSmoothingPercent = isSyncing ? currentColorSmoothingPercent : null,
+                ActiveBrightnessBoost = isSyncing ? activeColorProcessingSettings?.BrightnessBoost : null,
+                ActiveRedGain = isSyncing ? activeColorProcessingSettings?.RedGain : null,
+                ActiveGreenGain = isSyncing ? activeColorProcessingSettings?.GreenGain : null,
+                ActiveBlueGain = isSyncing ? activeColorProcessingSettings?.BlueGain : null,
+                ActiveColorSaturation = isSyncing ? activeColorProcessingSettings?.ColorSaturation : null,
+                ActiveHueShiftDegrees = isSyncing ? activeColorProcessingSettings?.HueShiftDegrees : null,
+                ActiveOutputBrightnessPercent = isSyncing ? activeColorProcessingSettings?.OutputBrightnessPercent : null,
+                ActiveBlackoutThreshold = isSyncing ? activeColorProcessingSettings?.BlackoutThreshold : null,
+                ActiveColorChangeThreshold = isSyncing ? activeColorProcessingSettings?.ColorChangeThreshold : null,
                 ActiveRestoreLightState = isSyncing ? activeRestoreLightState : null,
                 ActiveBridgeIp = isSyncing ? bridgeConfig?.BridgeIp : null,
                 ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
@@ -759,6 +789,11 @@ namespace Jellyfin.Plugin.Hue.Service
                     _bridgeAreaDeactivated = true;
                     SetRuntimeStatus("Paused", "Playback paused; waiting to resume.");
                 }
+
+                lock (_syncLock)
+                {
+                    _activeColorProcessingSettings = null;
+                }
             }
             finally
             {
@@ -948,6 +983,35 @@ namespace Jellyfin.Plugin.Hue.Service
                     overrides.ColorSmoothingPercent ?? config.ColorSmoothingPercent,
                     MinColorSmoothingPercent,
                     MaxColorSmoothingPercent));
+        }
+
+        internal static (
+            int BrightnessBoost,
+            int RedGain,
+            int GreenGain,
+            int BlueGain,
+            int ColorSaturation,
+            int HueShiftDegrees,
+            int OutputBrightnessPercent,
+            int BlackoutThreshold,
+            int ColorChangeThreshold) ResolveColorProcessingSettings(
+            PluginConfiguration config,
+            Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            var processingOverrides = config.GetColorProcessingOverridesForUser(userId);
+            var channelGainOverrides = config.GetColorChannelGainOverridesForUser(userId);
+            var thresholdOverrides = config.GetColorThresholdOverridesForUser(userId);
+            return (
+                Math.Clamp(processingOverrides.BrightnessBoost ?? config.BrightnessBoost, 50, 200),
+                Math.Clamp(channelGainOverrides.RedGain ?? config.RedGain, 50, 200),
+                Math.Clamp(channelGainOverrides.GreenGain ?? config.GreenGain, 50, 200),
+                Math.Clamp(channelGainOverrides.BlueGain ?? config.BlueGain, 50, 200),
+                Math.Clamp(processingOverrides.ColorSaturation ?? config.ColorSaturation, 0, 200),
+                Math.Clamp(processingOverrides.HueShiftDegrees ?? config.HueShiftDegrees, -180, 180),
+                Math.Clamp(processingOverrides.OutputBrightnessPercent ?? config.OutputBrightnessPercent, 0, 100),
+                Math.Clamp(thresholdOverrides.BlackoutThreshold ?? config.BlackoutThreshold, 0, 255),
+                Math.Clamp(thresholdOverrides.ColorChangeThreshold ?? config.ColorChangeThreshold, 0, 255));
         }
 
         private static string NormalizeFrameResolution(string? value)
@@ -1248,7 +1312,16 @@ namespace Jellyfin.Plugin.Hue.Service
                 PluginConfiguration.SamplingModeAverage,
                 PluginConfiguration.FrameResolutionStandard,
                 0,
-                Guid.Empty);
+                (
+                    BrightnessBoost: 100,
+                    RedGain: 100,
+                    GreenGain: 100,
+                    BlueGain: 100,
+                    ColorSaturation: 100,
+                    HueShiftDegrees: 0,
+                    OutputBrightnessPercent: 100,
+                    BlackoutThreshold: 15,
+                    ColorChangeThreshold: 10));
         }
 
         private async Task RunSyncLoopWithSampling(
@@ -1262,7 +1335,16 @@ namespace Jellyfin.Plugin.Hue.Service
             string samplingMode,
             string frameResolution,
             int colorSmoothingPercent,
-            Guid userId)
+            (
+                int BrightnessBoost,
+                int RedGain,
+                int GreenGain,
+                int BlueGain,
+                int ColorSaturation,
+                int HueShiftDegrees,
+                int OutputBrightnessPercent,
+                int BlackoutThreshold,
+                int ColorChangeThreshold) colorProcessingSettings)
         {
             var (frameWidth, frameHeight) = PluginConfiguration.GetFrameDimensions(frameResolution);
             int frameSize = frameWidth * frameHeight * BytesPerPixel;
@@ -1338,145 +1420,127 @@ namespace Jellyfin.Plugin.Hue.Service
                             frameHeight);
                     }
 
-                    // Get configuration for advanced color processing
-                    var config = Plugin.Instance?.Configuration;
-                    if (config != null)
+                    var isBlackout = colorProcessingSettings.BlackoutThreshold > 0 &&
+                        channelColors.Count > 0 &&
+                        channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0) < colorProcessingSettings.BlackoutThreshold;
+
+                    // Check blackout threshold - send dark colors if frame is mostly black.
+                    if (isBlackout)
                     {
-                        var colorOverrides = config.GetColorProcessingOverridesForUser(userId);
-                        var brightnessBoost = colorOverrides.BrightnessBoost ?? config.BrightnessBoost;
-                        var colorSaturation = colorOverrides.ColorSaturation ?? config.ColorSaturation;
-                        var hueShiftDegrees = colorOverrides.HueShiftDegrees ?? config.HueShiftDegrees;
-                        var outputBrightnessPercent = colorOverrides.OutputBrightnessPercent ?? config.OutputBrightnessPercent;
-                        var channelGainOverrides = config.GetColorChannelGainOverridesForUser(userId);
-                        var redGain = channelGainOverrides.RedGain ?? config.RedGain;
-                        var greenGain = channelGainOverrides.GreenGain ?? config.GreenGain;
-                        var blueGain = channelGainOverrides.BlueGain ?? config.BlueGain;
-                        var isBlackout = config.BlackoutThreshold > 0 &&
-                            channelColors.Count > 0 &&
-                            channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0) < config.BlackoutThreshold;
-
-                        // Check blackout threshold - send dark colors if frame is mostly black
-                        if (isBlackout)
-                        {
-                            // Send black to all channels so lights actually dim during dark scenes.
-                            // Clear temporal history so a later bright scene starts immediately
-                            // instead of blending with a stale pre-blackout frame.
-                            previousChannelColors.Clear();
-                            var blackColors = new Dictionary<int, byte[]>();
-                            foreach (var kvp in channelColors)
-                            {
-                                blackColors[kvp.Key] = new byte[] { 0, 0, 0, 0, 0, 0 };
-                            }
-                            var blackoutSent = await _hueStreamer!.SendColors(areaId, blackColors, config.ColorChangeThreshold);
-                            if (!HandleDtlsSendResult(blackoutSent, token, ref consecutiveSendFailures))
-                            {
-                                streamFailed = true;
-                                break;
-                            }
-
-                            var elapsedBlackout = loopTimer.ElapsedMilliseconds;
-                            if (targetFrameDurationMs > 0)
-                            {
-                                var remainingBlackout = targetFrameDurationMs - (int)Math.Min(int.MaxValue, elapsedBlackout);
-                                if (remainingBlackout > 0)
-                                {
-                                    await Task.Delay(remainingBlackout, token);
-                                }
-                            }
-                            continue;
-                        }
-
-                        if (colorSmoothingPercent > 0)
-                        {
-                            channelColors = ApplyTemporalSmoothing(
-                                channelColors,
-                                previousChannelColors,
-                                colorSmoothingPercent);
-                            previousChannelColors = channelColors;
-                        }
-                        else
-                        {
-                            previousChannelColors.Clear();
-                        }
-
-                        // Apply brightness boost and color saturation adjustments
-                        var processedColors = new Dictionary<int, byte[]>();
+                        // Send black to all channels so lights actually dim during dark scenes.
+                        // Clear temporal history so a later bright scene starts immediately
+                        // instead of blending with a stale pre-blackout frame.
+                        previousChannelColors.Clear();
+                        var blackColors = new Dictionary<int, byte[]>();
                         foreach (var kvp in channelColors)
                         {
-                            var rgb = kvp.Value;
-                            double r = rgb[0], g = rgb[1], b = rgb[2];
-
-                            // Apply brightness boost
-                            if (brightnessBoost != 100)
-                            {
-                                double multiplier = brightnessBoost / 100.0;
-                                r = Math.Min(255, r * multiplier);
-                                g = Math.Min(255, g * multiplier);
-                                b = Math.Min(255, b * multiplier);
-                            }
-
-                            if (redGain != 100 || greenGain != 100 || blueGain != 100)
-                            {
-                                var gainedRgb = ApplyColorChannelGains(r, g, b, redGain, greenGain, blueGain);
-                                r = gainedRgb.Red;
-                                g = gainedRgb.Green;
-                                b = gainedRgb.Blue;
-                            }
-
-                            // Apply color saturation and hue shift adjustments together in HSL
-                            if (colorSaturation != 100 || hueShiftDegrees != 0)
-                            {
-                                // Convert to HSL, adjust saturation/hue, convert back to RGB
-                                var (hue, sat, lightness) = RgbToHsl(r / 255.0, g / 255.0, b / 255.0);
-                                sat = Math.Clamp(sat * (colorSaturation / 100.0), 0, 1);
-                                hue = ApplyHueShift(hue, hueShiftDegrees);
-                                var (r2, g2, b2) = HslToRgb(hue, sat, lightness);
-                                r = r2 * 255;
-                                g = g2 * 255;
-                                b = b2 * 255;
-                            }
-
-                            // Apply the final output-brightness scale after color adjustments
-                            if (outputBrightnessPercent != 100)
-                            {
-                                r = ApplyOutputBrightness(r, outputBrightnessPercent);
-                                g = ApplyOutputBrightness(g, outputBrightnessPercent);
-                                b = ApplyOutputBrightness(b, outputBrightnessPercent);
-                            }
-
-                            // Format following HarmonizeProject: divide by 2 for 16-bit color compatibility
-                            byte r16 = (byte)(Math.Clamp(r, 0, 255) / ColorDivisor);
-                            byte g16 = (byte)(Math.Clamp(g, 0, 255) / ColorDivisor);
-                            byte b16 = (byte)(Math.Clamp(b, 0, 255) / ColorDivisor);
-
-                            processedColors[kvp.Key] = new byte[] { r16, r16, g16, g16, b16, b16 };
+                            blackColors[kvp.Key] = new byte[] { 0, 0, 0, 0, 0, 0 };
                         }
-
-                        var processedSent = await _hueStreamer!.SendColors(areaId, processedColors, config.ColorChangeThreshold);
-                        if (!HandleDtlsSendResult(processedSent, token, ref consecutiveSendFailures))
+                        var blackoutSent = await _hueStreamer!.SendColors(
+                            areaId,
+                            blackColors,
+                            colorProcessingSettings.ColorChangeThreshold);
+                        if (!HandleDtlsSendResult(blackoutSent, token, ref consecutiveSendFailures))
                         {
                             streamFailed = true;
                             break;
                         }
+
+                        var elapsedBlackout = loopTimer.ElapsedMilliseconds;
+                        if (targetFrameDurationMs > 0)
+                        {
+                            var remainingBlackout = targetFrameDurationMs - (int)Math.Min(int.MaxValue, elapsedBlackout);
+                            if (remainingBlackout > 0)
+                            {
+                                await Task.Delay(remainingBlackout, token);
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (colorSmoothingPercent > 0)
+                    {
+                        channelColors = ApplyTemporalSmoothing(
+                            channelColors,
+                            previousChannelColors,
+                            colorSmoothingPercent);
+                        previousChannelColors = channelColors;
                     }
                     else
                     {
                         previousChannelColors.Clear();
-                        // Fallback without advanced processing
-                        var simpleColors = new Dictionary<int, byte[]>();
-                        foreach (var kvp in channelColors)
+                    }
+
+                    // Apply the captured brightness, channel-gain, saturation, hue, and output policies.
+                    var processedColors = new Dictionary<int, byte[]>();
+                    foreach (var kvp in channelColors)
+                    {
+                        var rgb = kvp.Value;
+                        double r = rgb[0], g = rgb[1], b = rgb[2];
+
+                        if (colorProcessingSettings.BrightnessBoost != 100)
                         {
-                            byte r2 = (byte)(kvp.Value[0] / ColorDivisor);
-                            byte g2 = (byte)(kvp.Value[1] / ColorDivisor);
-                            byte b2 = (byte)(kvp.Value[2] / ColorDivisor);
-                            simpleColors[kvp.Key] = new byte[] { r2, r2, g2, g2, b2, b2 };
+                            double multiplier = colorProcessingSettings.BrightnessBoost / 100.0;
+                            r = Math.Min(255, r * multiplier);
+                            g = Math.Min(255, g * multiplier);
+                            b = Math.Min(255, b * multiplier);
                         }
-                        var simpleSent = await _hueStreamer!.SendColors(areaId, simpleColors);
-                        if (!HandleDtlsSendResult(simpleSent, token, ref consecutiveSendFailures))
+
+                        if (colorProcessingSettings.RedGain != 100 ||
+                            colorProcessingSettings.GreenGain != 100 ||
+                            colorProcessingSettings.BlueGain != 100)
                         {
-                            streamFailed = true;
-                            break;
+                            var gainedRgb = ApplyColorChannelGains(
+                                r,
+                                g,
+                                b,
+                                colorProcessingSettings.RedGain,
+                                colorProcessingSettings.GreenGain,
+                                colorProcessingSettings.BlueGain);
+                            r = gainedRgb.Red;
+                            g = gainedRgb.Green;
+                            b = gainedRgb.Blue;
                         }
+
+                        if (colorProcessingSettings.ColorSaturation != 100 ||
+                            colorProcessingSettings.HueShiftDegrees != 0)
+                        {
+                            // Convert to HSL, adjust saturation/hue, convert back to RGB.
+                            var (hue, sat, lightness) = RgbToHsl(r / 255.0, g / 255.0, b / 255.0);
+                            sat = Math.Clamp(
+                                sat * (colorProcessingSettings.ColorSaturation / 100.0),
+                                0,
+                                1);
+                            hue = ApplyHueShift(hue, colorProcessingSettings.HueShiftDegrees);
+                            var (r2, g2, b2) = HslToRgb(hue, sat, lightness);
+                            r = r2 * 255;
+                            g = g2 * 255;
+                            b = b2 * 255;
+                        }
+
+                        if (colorProcessingSettings.OutputBrightnessPercent != 100)
+                        {
+                            r = ApplyOutputBrightness(r, colorProcessingSettings.OutputBrightnessPercent);
+                            g = ApplyOutputBrightness(g, colorProcessingSettings.OutputBrightnessPercent);
+                            b = ApplyOutputBrightness(b, colorProcessingSettings.OutputBrightnessPercent);
+                        }
+
+                        // Format following HarmonizeProject: divide by 2 for 16-bit color compatibility.
+                        byte r16 = (byte)(Math.Clamp(r, 0, 255) / ColorDivisor);
+                        byte g16 = (byte)(Math.Clamp(g, 0, 255) / ColorDivisor);
+                        byte b16 = (byte)(Math.Clamp(b, 0, 255) / ColorDivisor);
+
+                        processedColors[kvp.Key] = new byte[] { r16, r16, g16, g16, b16, b16 };
+                    }
+
+                    var processedSent = await _hueStreamer!.SendColors(
+                        areaId,
+                        processedColors,
+                        colorProcessingSettings.ColorChangeThreshold);
+                    if (!HandleDtlsSendResult(processedSent, token, ref consecutiveSendFailures))
+                    {
+                        streamFailed = true;
+                        break;
                     }
 
                     var elapsedMs = loopTimer.ElapsedMilliseconds;
@@ -1702,6 +1766,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var (useCinemaMode, brightnessDimLevel, restoreLightState) = ResolvePlaybackSettings(config, userId);
             var pauseBehavior = ResolvePauseBehavior(config, userId);
             var performanceSettings = ResolvePerformanceSettings(config, userId);
+            var colorProcessingSettings = ResolveColorProcessingSettings(config, userId);
 
             var videoPath = e.Item?.Path;
             if (string.IsNullOrWhiteSpace(videoPath))
@@ -1760,6 +1825,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentSamplingBreadthPercent = performanceSettings.SamplingBreadthPercent;
                     _currentSamplingMode = performanceSettings.SamplingMode;
                     _currentColorSmoothingPercent = performanceSettings.ColorSmoothingPercent;
+                    _activeColorProcessingSettings = colorProcessingSettings;
                     _activeUseCinemaMode = useCinemaMode;
                     _activeRestoreLightState = restoreLightState;
                     _activePauseBehavior = pauseBehavior;
@@ -1915,7 +1981,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     samplingMode,
                     frameResolution,
                     performanceSettings.ColorSmoothingPercent,
-                    userId));
+                    colorProcessingSettings));
                 syncLoopStarted = true;
             }
             catch (Exception ex)
@@ -1972,7 +2038,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             try
             {
-                if (config != null && config.SyncEnabled && effectiveRestoreLightState && savedLightStates != null && bridgeConfig != null)
+                if (effectiveRestoreLightState && savedLightStates != null && bridgeConfig != null)
                 {
                     _logger.LogInformation("Restoring saved light states");
                     await _hueClient.RestoreLightStates(bridgeConfig.Value.BridgeIp, bridgeConfig.Value.AppKey, savedLightStates);
@@ -1982,7 +2048,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         _savedLightStatePlaySessionId = null;
                     }
                 }
-                else if (config != null && effectiveUseCinemaMode && config.SyncEnabled && bridgeConfig != null)
+                else if (effectiveUseCinemaMode && bridgeConfig != null)
                 {
                     _logger.LogInformation("Restoring lights after playback");
                     await RestoreLightsAfterPlayback(
@@ -2016,6 +2082,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _activeUseCinemaMode = null;
                     _activeRestoreLightState = null;
                     _activePauseBehavior = null;
+                    _activeColorProcessingSettings = null;
                 }
                 if (bridgeConfig != null)
                 {
@@ -2169,6 +2236,15 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveSamplingBreadthPercent { get; init; }
         public string? ActiveSamplingMode { get; init; }
         public int? ActiveColorSmoothingPercent { get; init; }
+        public int? ActiveBrightnessBoost { get; init; }
+        public int? ActiveRedGain { get; init; }
+        public int? ActiveGreenGain { get; init; }
+        public int? ActiveBlueGain { get; init; }
+        public int? ActiveColorSaturation { get; init; }
+        public int? ActiveHueShiftDegrees { get; init; }
+        public int? ActiveOutputBrightnessPercent { get; init; }
+        public int? ActiveBlackoutThreshold { get; init; }
+        public int? ActiveColorChangeThreshold { get; init; }
         public bool? ActiveRestoreLightState { get; init; }
         public string? ActiveBridgeIp { get; init; }
         public string? ActiveEntertainmentAreaId { get; init; }

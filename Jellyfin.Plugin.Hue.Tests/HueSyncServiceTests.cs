@@ -132,6 +132,62 @@ public sealed class HueSyncServiceTests
         Assert.Equal(0, fallback.ColorSmoothingPercent);
     }
 
+    [Fact]
+    public void ResolveColorProcessingSettings_UsesPerUserThresholdsAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            BrightnessBoost = 110,
+            RedGain = 95,
+            GreenGain = 105,
+            BlueGain = 115,
+            ColorSaturation = 90,
+            HueShiftDegrees = 20,
+            OutputBrightnessPercent = 80,
+            BlackoutThreshold = 15,
+            ColorChangeThreshold = 10,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString(),
+                    BrightnessBoostOverride = 150,
+                    RedGainOverride = 120,
+                    GreenGainOverride = 90,
+                    BlueGainOverride = 130,
+                    ColorSaturationOverride = 125,
+                    HueShiftDegreesOverride = -45,
+                    OutputBrightnessPercentOverride = 70,
+                    BlackoutThresholdOverride = 35,
+                    ColorChangeThresholdOverride = 4
+                }
+            }
+        };
+
+        var effective = HueSyncService.ResolveColorProcessingSettings(configuration, userId);
+        var fallback = HueSyncService.ResolveColorProcessingSettings(configuration, System.Guid.NewGuid());
+
+        Assert.Equal(150, effective.BrightnessBoost);
+        Assert.Equal(120, effective.RedGain);
+        Assert.Equal(90, effective.GreenGain);
+        Assert.Equal(130, effective.BlueGain);
+        Assert.Equal(125, effective.ColorSaturation);
+        Assert.Equal(-45, effective.HueShiftDegrees);
+        Assert.Equal(70, effective.OutputBrightnessPercent);
+        Assert.Equal(35, effective.BlackoutThreshold);
+        Assert.Equal(4, effective.ColorChangeThreshold);
+        Assert.Equal(110, fallback.BrightnessBoost);
+        Assert.Equal(95, fallback.RedGain);
+        Assert.Equal(105, fallback.GreenGain);
+        Assert.Equal(115, fallback.BlueGain);
+        Assert.Equal(90, fallback.ColorSaturation);
+        Assert.Equal(20, fallback.HueShiftDegrees);
+        Assert.Equal(80, fallback.OutputBrightnessPercent);
+        Assert.Equal(15, fallback.BlackoutThreshold);
+        Assert.Equal(10, fallback.ColorChangeThreshold);
+    }
+
     [Theory]
     [InlineData(0, 18)]
     [InlineData(1, 1)]
