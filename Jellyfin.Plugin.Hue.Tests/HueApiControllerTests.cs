@@ -1079,6 +1079,8 @@ public sealed class HueApiControllerTests : IDisposable
             TargetUserId = "user-1",
             TimeOfDay = "07:05",
             TimeZoneId = TimeZoneInfo.Utc.Id,
+            StartDate = " 2026-08-01 ",
+            EndDate = "2026-12-31",
             DaysOfWeekMask = 1 | 32,
             Enabled = true
         });
@@ -1089,6 +1091,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("Living Room", savedResult.TargetLabel);
         Assert.Equal("07:05", savedResult.TimeOfDay);
         Assert.Equal(TimeZoneInfo.Utc.Id, savedResult.TimeZoneId);
+        Assert.Equal("2026-08-01", savedResult.StartDate);
+        Assert.Equal("2026-12-31", savedResult.EndDate);
         Assert.Single(configuration.SceneSchedules);
 
         var updated = controller.SaveSceneSchedule(new HueSceneScheduleRequest

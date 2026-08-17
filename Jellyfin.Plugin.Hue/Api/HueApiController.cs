@@ -431,6 +431,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetLabel = targetLabel,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
+                StartDate = schedule.StartDate?.Trim() ?? string.Empty,
+                EndDate = schedule.EndDate?.Trim() ?? string.Empty,
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled
             };
@@ -446,6 +448,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = schedule.TargetUserId,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId,
+                StartDate = schedule.StartDate,
+                EndDate = schedule.EndDate,
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled
             };
@@ -1023,6 +1027,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 schedule.Id = Guid.NewGuid().ToString("N");
             if (PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalizedTime))
                 schedule.TimeOfDay = normalizedTime;
+            if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.StartDate, out var normalizedStartDate))
+                schedule.StartDate = normalizedStartDate;
+            if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.EndDate, out var normalizedEndDate))
+                schedule.EndDate = normalizedEndDate;
 
             var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
             var candidateSchedules = previousSchedules
@@ -1730,6 +1738,10 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.Id = Guid.NewGuid().ToString("N");
                 if (PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalizedTime))
                     schedule.TimeOfDay = normalizedTime;
+                if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.StartDate, out var normalizedStartDate))
+                    schedule.StartDate = normalizedStartDate;
+                if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.EndDate, out var normalizedEndDate))
+                    schedule.EndDate = normalizedEndDate;
 
                 var existingIndex = candidateSchedules.FindIndex(existing =>
                     string.Equals(existing.Id?.Trim(), schedule.Id.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -2751,6 +2763,12 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
 
+        [JsonPropertyName("startDate")]
+        public string StartDate { get; set; } = string.Empty;
+
+        [JsonPropertyName("endDate")]
+        public string EndDate { get; set; } = string.Empty;
+
         [JsonPropertyName("daysOfWeekMask")]
         public int DaysOfWeekMask { get; set; } = PluginConfiguration.AllSceneScheduleDaysMask;
 
@@ -2767,6 +2785,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = TargetUserId?.Trim() ?? string.Empty,
                 TimeOfDay = TimeOfDay?.Trim() ?? string.Empty,
                 TimeZoneId = TimeZoneId?.Trim() ?? string.Empty,
+                StartDate = StartDate?.Trim() ?? string.Empty,
+                EndDate = EndDate?.Trim() ?? string.Empty,
                 DaysOfWeekMask = DaysOfWeekMask,
                 Enabled = Enabled
             };
@@ -2798,6 +2818,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
+
+        [JsonPropertyName("startDate")]
+        public string StartDate { get; set; } = string.Empty;
+
+        [JsonPropertyName("endDate")]
+        public string EndDate { get; set; } = string.Empty;
 
         [JsonPropertyName("daysOfWeekMask")]
         public int DaysOfWeekMask { get; set; }

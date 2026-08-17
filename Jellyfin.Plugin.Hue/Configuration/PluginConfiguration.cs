@@ -88,6 +88,16 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// server-local behavior and is resolved from <see cref="TimeZoneInfo.Local"/>.
         /// </summary>
         public string TimeZoneId { get; set; } = string.Empty;
+        /// <summary>
+        /// Optional inclusive first calendar date in the cue's time zone, formatted as
+        /// yyyy-MM-dd. Blank means the cue has no lower date bound.
+        /// </summary>
+        public string StartDate { get; set; } = string.Empty;
+        /// <summary>
+        /// Optional inclusive last calendar date in the cue's time zone, formatted as
+        /// yyyy-MM-dd. Blank means the cue has no upper date bound.
+        /// </summary>
+        public string EndDate { get; set; } = string.Empty;
         public int DaysOfWeekMask { get; set; } = 127;
         public bool Enabled { get; set; } = true;
     }
@@ -812,6 +822,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (!TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
                 errors.Add($"{label} time zone is not available on this server");
 
+            if (!TryNormalizeSceneScheduleDate(schedule.StartDate, out var normalizedStartDate))
+                errors.Add($"{label} start date must use yyyy-MM-dd format");
+
+            if (!TryNormalizeSceneScheduleDate(schedule.EndDate, out var normalizedEndDate))
+                errors.Add($"{label} end date must use yyyy-MM-dd format");
+
+            if (!string.IsNullOrWhiteSpace(normalizedStartDate) &&
+                !string.IsNullOrWhiteSpace(normalizedEndDate) &&
+                string.CompareOrdinal(normalizedStartDate, normalizedEndDate) > 0)
+            {
+                errors.Add($"{label} end date must be on or after the start date");
+            }
+
             if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > AllSceneScheduleDaysMask)
                 errors.Add($"{label} must select at least one day of the week");
 
@@ -914,6 +937,31 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 timeZone = TimeZoneInfo.Local;
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Normalizes an optional inclusive schedule date to yyyy-MM-dd. Blank values
+        /// intentionally remain blank for backwards-compatible unbounded cues.
+        /// </summary>
+        public static bool TryNormalizeSceneScheduleDate(string? value, out string normalized)
+        {
+            normalized = string.Empty;
+            var trimmed = value?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmed))
+                return true;
+
+            if (!DateTime.TryParseExact(
+                    trimmed,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var parsed))
+            {
+                return false;
+            }
+
+            normalized = parsed.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            return true;
         }
 
         public PluginConfiguration()

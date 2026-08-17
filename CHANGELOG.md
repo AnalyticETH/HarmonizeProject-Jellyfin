@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.75] - 2026-08-17
+
+### Added
+- **Bounded scheduled cues**: optionally set inclusive start and end calendar dates for each recurring scene cue; blank dates preserve the existing ongoing behavior
+- **Date-window-aware runtime**: evaluate due checks, next runs, readiness, status, backup/restore, and API round-trips against calendar dates in the cue's selected time zone
+- **Administrator date controls**: add date inputs and visible date ranges to the scheduled-cue editor, selector, and runtime monitor
+
+### Security
+- Date-window metadata contains only calendar dates and schedule labels; bridge credentials, connection details, and playback tokens remain excluded from schedule/status responses
+
 ## [1.5.74] - 2026-08-17
 
 ### Added

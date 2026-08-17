@@ -173,6 +173,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 TimeZoneDisplayName = string.IsNullOrWhiteSpace(schedule.TimeZoneId)
                     ? $"Server local ({timeZone.DisplayName})"
                     : timeZone.DisplayName,
+                StartDate = schedule.StartDate?.Trim() ?? string.Empty,
+                EndDate = schedule.EndDate?.Trim() ?? string.Empty,
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled,
                 Ready = readiness.Ready,
@@ -251,11 +253,58 @@ public sealed class HueSceneAutomationService : BackgroundService
             !TryGetScheduleLocalNow(schedule, localNow, out var scheduleNow, out _))
             return false;
 
+        if (!IsScheduleDateAllowed(schedule, scheduleNow.Date))
+            return false;
+
         var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
         var dayBit = 1 << (int)scheduleNow.DayOfWeek;
         return (schedule.DaysOfWeekMask & dayBit) != 0 &&
                scheduleNow.Hour == expectedTime.Hours &&
                scheduleNow.Minute == expectedTime.Minutes;
+    }
+
+    private static bool IsScheduleDateAllowed(HueSceneSchedule schedule, DateTime scheduleDate)
+    {
+        if (!TryGetScheduleDateBounds(schedule, out var startDate, out var endDate))
+            return false;
+
+        var date = scheduleDate.Date;
+        return (!startDate.HasValue || date >= startDate.Value) &&
+               (!endDate.HasValue || date <= endDate.Value);
+    }
+
+    private static bool TryGetScheduleDateBounds(
+        HueSceneSchedule schedule,
+        out DateTime? startDate,
+        out DateTime? endDate)
+    {
+        startDate = null;
+        endDate = null;
+        if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule?.StartDate, out var normalizedStart) ||
+            !PluginConfiguration.TryNormalizeSceneScheduleDate(schedule?.EndDate, out var normalizedEnd))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedStart))
+            startDate = DateTime.ParseExact(normalizedStart, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        if (!string.IsNullOrWhiteSpace(normalizedEnd))
+            endDate = DateTime.ParseExact(normalizedEnd, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+        return !startDate.HasValue || !endDate.HasValue || startDate.Value <= endDate.Value;
+    }
+
+    private static bool TryParseScheduleDate(string? value, out DateTime date)
+    {
+        date = default;
+        if (!PluginConfiguration.TryNormalizeSceneScheduleDate(value, out var normalized) ||
+            string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        date = DateTime.ParseExact(normalized, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        return true;
     }
 
     private static DateTime? GetNextRun(
@@ -272,10 +321,19 @@ public sealed class HueSceneAutomationService : BackgroundService
             return null;
         }
 
+        if (!TryGetScheduleDateBounds(schedule, out var startDate, out var endDate))
+            return null;
+
         var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
+        var firstCandidateDate = scheduleNow.Date;
+        if (startDate.HasValue && firstCandidateDate < startDate.Value)
+            firstCandidateDate = startDate.Value;
+
         for (var dayOffset = 0; dayOffset <= 8; dayOffset++)
         {
-            var candidateDate = scheduleNow.Date.AddDays(dayOffset);
+            var candidateDate = firstCandidateDate.AddDays(dayOffset);
+            if (endDate.HasValue && candidateDate > endDate.Value)
+                break;
             var dayBit = 1 << (int)candidateDate.DayOfWeek;
             if ((schedule.DaysOfWeekMask & dayBit) == 0)
                 continue;
@@ -404,6 +462,19 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         if (!PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
             return new HueSceneScheduleReadiness(false, "The scheduled time zone is not available on this server.");
+
+        if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.StartDate, out _))
+            return new HueSceneScheduleReadiness(false, "The schedule start date is invalid.");
+
+        if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.EndDate, out _))
+            return new HueSceneScheduleReadiness(false, "The schedule end date is invalid.");
+
+        if (TryParseScheduleDate(schedule.StartDate, out var startDate) &&
+            TryParseScheduleDate(schedule.EndDate, out var endDate) &&
+            endDate < startDate)
+        {
+            return new HueSceneScheduleReadiness(false, "The schedule end date is before the start date.");
+        }
 
         if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > PluginConfiguration.AllSceneScheduleDaysMask)
             return new HueSceneScheduleReadiness(false, "At least one valid day must be selected.");
@@ -987,6 +1058,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserId = source.TargetUserId,
             TimeOfDay = source.TimeOfDay,
             TimeZoneId = source.TimeZoneId,
+            StartDate = source.StartDate,
+            EndDate = source.EndDate,
             DaysOfWeekMask = source.DaysOfWeekMask,
             Enabled = source.Enabled
         };
@@ -1119,6 +1192,12 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("timeZoneDisplayName")]
     public string TimeZoneDisplayName { get; init; } = string.Empty;
+
+    [JsonPropertyName("startDate")]
+    public string StartDate { get; init; } = string.Empty;
+
+    [JsonPropertyName("endDate")]
+    public string EndDate { get; init; } = string.Empty;
 
     [JsonPropertyName("daysOfWeekMask")]
     public int DaysOfWeekMask { get; init; }

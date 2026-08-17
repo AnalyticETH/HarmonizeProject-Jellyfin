@@ -263,7 +263,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Optional inclusive start and end dates bound when the cue can run; leave them blank for an ongoing cue. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -296,6 +296,14 @@
                                     <option value="">Server local time zone</option>
                                 </select>
                             </div>
+                            <div>
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleStartDate">Start date (optional)</label>
+                                <input id="sceneScheduleStartDate" type="date" is="emby-input" />
+                            </div>
+                            <div>
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleEndDate">End date (optional)</label>
+                                <input id="sceneScheduleEndDate" type="date" is="emby-input" />
+                            </div>
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTarget">Target</label>
                                 <select id="sceneScheduleTarget" is="emby-select" style="width: 100%;">
@@ -318,7 +326,7 @@
                                 <option value="32" selected>Friday</option>
                                 <option value="64" selected>Saturday</option>
                             </select>
-                            <div class="fieldDescription">Choose one or more days. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default.</div>
+                            <div class="fieldDescription">Choose one or more days. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default. Dates are calendar dates in the selected cue time zone and include both endpoints.</div>
                         </div>
                         <button is="emby-button" type="button" class="raised button-submit" id="saveSceneScheduleBtn" style="margin-top: 0.5em;"><span>Save Scheduled Cue</span></button>
                         <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule times, and target mapping IDs; bridge credentials remain server-side.</div>
@@ -1627,9 +1635,14 @@
                             var name = schedule && (schedule.name !== undefined ? schedule.name : schedule.Name);
                             if (!id || !name) return;
                             var time = schedule.timeOfDay !== undefined ? schedule.timeOfDay : schedule.TimeOfDay;
+                            var startDate = schedule.startDate !== undefined ? schedule.startDate : schedule.StartDate;
+                            var endDate = schedule.endDate !== undefined ? schedule.endDate : schedule.EndDate;
+                            var dateRange = startDate || endDate
+                                ? ' · ' + (startDate || '…') + '–' + (endDate || '…')
+                                : '';
                             var option = document.createElement('option');
                             option.value = id;
-                            option.textContent = name + (time ? ' · ' + time : '');
+                            option.textContent = name + (time ? ' · ' + time : '') + dateRange;
                             scheduleSelect.appendChild(option);
                         });
 
@@ -1739,6 +1752,8 @@
                             var target = HueConfigurationPage.readStatusField(schedule, "TargetLabel", "Default bridge target");
                             var time = HueConfigurationPage.readStatusField(schedule, "TimeOfDay", "—");
                             var timeZone = HueConfigurationPage.readStatusField(schedule, "TimeZoneDisplayName", "Server local");
+                            var startDate = HueConfigurationPage.readStatusField(schedule, "StartDate", "");
+                            var endDate = HueConfigurationPage.readStatusField(schedule, "EndDate", "");
                             var mask = HueConfigurationPage.readStatusField(schedule, "DaysOfWeekMask", 0);
                             var enabled = HueConfigurationPage.readStatusField(schedule, "Enabled", false);
                             var ready = HueConfigurationPage.readStatusField(schedule, "Ready", false);
@@ -1759,9 +1774,12 @@
                                 if (color) cell.style.color = color;
                                 row.appendChild(cell);
                             };
+                            var dateRange = startDate || endDate
+                                ? " · " + String(startDate || "…") + "–" + String(endDate || "…")
+                                : "";
                             addCell(String(name) + (enabled ? "" : " (disabled)"));
                             addCell(String(target));
-                            addCell(String(preset) + " · " + String(time) + " · " + String(timeZone) + " · " + daysForMask(mask));
+                            addCell(String(preset) + " · " + String(time) + " · " + String(timeZone) + dateRange + " · " + daysForMask(mask));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
                             addCell(enabled ? (formatScheduleLocal(nextRun) + " · " + String(timeZone)) : "Disabled");
@@ -1985,6 +2003,8 @@
                     page.querySelector('#sceneScheduleName').value = get('Name', 'name', '');
                     page.querySelector('#sceneSchedulePresetSelect').value = get('PresetName', 'presetName', '');
                     page.querySelector('#sceneScheduleTime').value = get('TimeOfDay', 'timeOfDay', '20:00');
+                    page.querySelector('#sceneScheduleStartDate').value = get('StartDate', 'startDate', '');
+                    page.querySelector('#sceneScheduleEndDate').value = get('EndDate', 'endDate', '');
                     var scheduleTimeZoneId = get('TimeZoneId', 'timeZoneId', '');
                     var scheduleTimeZoneSelect = page.querySelector('#sceneScheduleTimeZone');
                     scheduleTimeZoneSelect.value = scheduleTimeZoneId;
@@ -2008,6 +2028,8 @@
                     page.querySelector('#sceneSchedulePresetSelect').value = '';
                     page.querySelector('#sceneScheduleTime').value = '20:00';
                     page.querySelector('#sceneScheduleTimeZone').value = '';
+                    page.querySelector('#sceneScheduleStartDate').value = '';
+                    page.querySelector('#sceneScheduleEndDate').value = '';
                     page.querySelector('#sceneScheduleTarget').value = '';
                     page.querySelector('#sceneScheduleEnabled').checked = true;
                     HueConfigurationPage.setSceneScheduleDaysMask(page, 127);
@@ -2018,6 +2040,8 @@
                     var presetName = page.querySelector('#sceneSchedulePresetSelect').value;
                     var timeOfDay = page.querySelector('#sceneScheduleTime').value;
                     var timeZoneId = page.querySelector('#sceneScheduleTimeZone').value;
+                    var startDate = page.querySelector('#sceneScheduleStartDate').value;
+                    var endDate = page.querySelector('#sceneScheduleEndDate').value;
                     var daysOfWeekMask = HueConfigurationPage.getSceneScheduleDaysMask(page);
                     if (!name || !presetName || !timeOfDay || !daysOfWeekMask) {
                         Dashboard.alert("Enter a cue name, saved scene, time, and at least one day.");
@@ -2041,6 +2065,8 @@
                             targetUserId: page.querySelector('#sceneScheduleTarget').value || '',
                             timeOfDay: timeOfDay,
                             timeZoneId: timeZoneId,
+                            startDate: startDate,
+                            endDate: endDate,
                             daysOfWeekMask: daysOfWeekMask,
                             enabled: page.querySelector('#sceneScheduleEnabled').checked
                         }),

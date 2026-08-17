@@ -106,6 +106,71 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void DateWindow_ClampsNextRunAndRejectsOutsideDates()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            StartDate = "2026-08-24",
+            EndDate = "2026-08-31",
+            DaysOfWeekMask = 1 << (int)DayOfWeek.Monday
+        };
+
+        var beforeStartUtc = new DateTime(2026, 8, 17, 7, 5, 30, DateTimeKind.Utc);
+        var insideWindowUtc = new DateTime(2026, 8, 24, 7, 5, 30, DateTimeKind.Utc);
+        var afterEndUtc = new DateTime(2026, 9, 7, 7, 5, 30, DateTimeKind.Utc);
+
+        Assert.False(HueSceneAutomationService.IsDue(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(beforeStartUtc, TimeZoneInfo.Local)));
+        Assert.True(HueSceneAutomationService.IsDue(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(insideWindowUtc, TimeZoneInfo.Local)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(afterEndUtc, TimeZoneInfo.Local)));
+
+        var nextBeforeStart = HueSceneAutomationService.GetNextRunUtc(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(beforeStartUtc.AddMinutes(-1), TimeZoneInfo.Local));
+        Assert.Equal(new DateTime(2026, 8, 24, 7, 5, 0, DateTimeKind.Utc), nextBeforeStart);
+
+        var nextAfterEnd = HueSceneAutomationService.GetNextRunUtc(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 9, 1, 7, 0, 0, DateTimeKind.Utc), TimeZoneInfo.Local));
+        Assert.Null(nextAfterEnd);
+    }
+
+    [Fact]
+    public void EvaluateReadiness_RejectsInvalidDateWindowWithoutCredentials()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } }
+        };
+
+        var invalidStart = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule { Enabled = true, PresetName = "Evening", StartDate = "2026-02-30" });
+        var reversed = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule
+            {
+                Enabled = true,
+                PresetName = "Evening",
+                StartDate = "2026-09-01",
+                EndDate = "2026-08-01"
+            });
+
+        Assert.False(invalidStart.Ready);
+        Assert.Contains("start date", invalidStart.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(reversed.Ready);
+        Assert.Contains("before", reversed.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void EvaluateReadiness_ReportsDisabledAndMissingTargetWithoutCredentials()
     {
         var config = new PluginConfiguration

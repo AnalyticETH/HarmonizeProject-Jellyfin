@@ -88,6 +88,68 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsAndNormalizesInclusiveDateWindow()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-window",
+                    Name = "Limited welcome",
+                    PresetName = "Evening",
+                    TimeOfDay = "07:05",
+                    StartDate = " 2026-08-01 ",
+                    EndDate = "2026-08-31",
+                    DaysOfWeekMask = 127
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+        Assert.True(PluginConfiguration.TryNormalizeSceneScheduleDate(" 2026-08-01 ", out var normalizedStart));
+        Assert.Equal("2026-08-01", normalizedStart);
+        Assert.True(PluginConfiguration.TryNormalizeSceneScheduleDate(string.Empty, out var normalizedBlank));
+        Assert.Equal(string.Empty, normalizedBlank);
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsInvalidAndReversedDateWindows()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-invalid-date",
+                    Name = "Invalid date",
+                    PresetName = "Evening",
+                    StartDate = "2026-02-30",
+                    DaysOfWeekMask = 127
+                },
+                new()
+                {
+                    Id = "cue-reversed-date",
+                    Name = "Reversed date",
+                    PresetName = "Evening",
+                    StartDate = "2026-09-01",
+                    EndDate = "2026-08-01",
+                    DaysOfWeekMask = 127
+                }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+
+        Assert.Contains("Scene schedule 1 start date must use yyyy-MM-dd format", errors);
+        Assert.Contains("Scene schedule 2 end date must be on or after the start date", errors);
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsInvalidReferencesAndDuplicates()
     {
         var config = new PluginConfiguration
