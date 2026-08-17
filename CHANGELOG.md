@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.57] - 2026-08-17
+
+### Added
+- Bridge discovery now combines all valid cloud and local mDNS results, de-duplicates them, and exposes the complete candidate list to the global and per-user configuration controls
+- Added `GET /HueSync/DiscoverBridges`; the existing `DiscoverBridge` route now includes `ipAddresses` while preserving its first-result `ipAddress` field
+
+### Changed
+- Multi-room administrators can choose a discovered bridge from address suggestions instead of being limited to the first bridge returned by discovery
+
 ## [1.5.56] - 2026-08-17
 
 ### Added

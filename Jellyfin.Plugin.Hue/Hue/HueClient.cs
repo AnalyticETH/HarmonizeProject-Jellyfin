@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -120,15 +121,34 @@ namespace Jellyfin.Plugin.Hue.Hue
         }
 
         /// <summary>
-        /// Discovers the IP address of a Hue Bridge on the local network using the meethue.com discovery service
+        /// Discovers every private Hue Bridge visible to the server. Cloud discovery is
+        /// combined with local mDNS results so multi-room installations can choose a
+        /// bridge for each per-user mapping instead of losing every result after the first.
         /// </summary>
         /// <param name="cancellationToken">Cancels the discovery request.</param>
-        /// <returns>The IP address of the bridge, or empty string if not found</returns>
-        public async Task<string> DiscoverBridgeIp(CancellationToken cancellationToken = default)
+        /// <returns>Distinct private bridge addresses in discovery order.</returns>
+        public async Task<IReadOnlyList<string>> DiscoverBridgeIps(CancellationToken cancellationToken = default)
         {
+            var addresses = new List<string>();
+            var seenAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void AddAddress(string? addressText)
+            {
+                if (!IPAddress.TryParse(addressText, out var address) ||
+                    !Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(address.ToString()))
+                {
+                    return;
+                }
+
+                var normalized = address.ToString();
+                if (seenAddresses.Add(normalized))
+                    addresses.Add(normalized);
+            }
+
             // Prefer the official cloud discovery endpoint for the fastest result, then
-            // fall back to local mDNS when the server is offline from the Hue cloud or the
-            // bridge is not represented in the cloud response.
+            // supplement it with local mDNS. Cloud discovery can return only the bridges
+            // registered to the account, while local discovery can find bridges that are
+            // offline from the cloud or have not been published there yet.
             try
             {
                 var response = await _httpClient.GetStringAsync("https://discovery.meethue.com/", cancellationToken).ConfigureAwait(false);
@@ -143,12 +163,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                             continue;
                         }
 
-                        var addressText = addressProperty.GetString();
-                        if (IPAddress.TryParse(addressText, out var address) &&
-                            Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(address.ToString()))
-                        {
-                            return address.ToString();
-                        }
+                        AddAddress(addressProperty.GetString());
                     }
                 }
             }
@@ -167,13 +182,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 {
                     var localAddresses = await _localDiscovery.DiscoverAsync(cancellationToken).ConfigureAwait(false);
                     foreach (var localAddress in localAddresses)
-                    {
-                        if (IPAddress.TryParse(localAddress, out var address) &&
-                            Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(address.ToString()))
-                        {
-                            return address.ToString();
-                        }
-                    }
+                        AddAddress(localAddress);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -185,7 +194,18 @@ namespace Jellyfin.Plugin.Hue.Hue
                 }
             }
 
-            return "";
+            return addresses;
+        }
+
+        /// <summary>
+        /// Discovers a Hue Bridge and returns the first result for compatibility with
+        /// existing callers. Use <see cref="DiscoverBridgeIps"/> when all bridges are
+        /// needed for multi-room configuration.
+        /// </summary>
+        public async Task<string> DiscoverBridgeIp(CancellationToken cancellationToken = default)
+        {
+            var addresses = await DiscoverBridgeIps(cancellationToken).ConfigureAwait(false);
+            return addresses.FirstOrDefault() ?? string.Empty;
         }
 
         /// <summary>

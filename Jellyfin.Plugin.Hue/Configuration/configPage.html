@@ -73,8 +73,9 @@
                         <legend>Bridge connection</legend>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="hueBridgeIp">Hue Bridge Address</label>
-                            <input id="hueBridgeIp" name="hueBridgeIp" type="text" is="emby-input" />
-                            <div class="fieldDescription">A private/local IP address or <code>.local</code> host name. Use discovery below if you do not know the bridge address.
+                            <input id="hueBridgeIp" name="hueBridgeIp" type="text" is="emby-input" list="hueBridgeCandidates" autocomplete="off" />
+                            <datalist id="hueBridgeCandidates"></datalist>
+                            <div class="fieldDescription">A private/local IP address or <code>.local</code> host name. Use discovery below if you do not know the bridge address; when several bridges are found, choose one from the address suggestions.
                             </div>
                         </div>
 
@@ -549,7 +550,8 @@
 
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="mappingBridgeIp">Bridge Address</label>
-                                <input id="mappingBridgeIp" type="text" class="emby-input" placeholder="192.168.1.50 or bridge.local" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
+                                <input id="mappingBridgeIp" type="text" class="emby-input" list="mappingBridgeCandidates" autocomplete="off" placeholder="192.168.1.50 or bridge.local" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
+                                <datalist id="mappingBridgeCandidates"></datalist>
                                 <div class="fieldDescription">Leave blank to inherit the global bridge address, credentials, entertainment area, and channel profile. For a custom bridge, enter all bridge fields.</div>
                             </div>
 
@@ -715,6 +717,35 @@
                 isSameBridgeTarget: function (left, right) {
                     if (!left || !right) return false;
                     return left.trim().replace(/\.+$/, '').toLowerCase() === right.trim().replace(/\.+$/, '').toLowerCase();
+                },
+                getBridgeDiscoveryAddresses: function (response) {
+                    response = response || {};
+                    var values = response.ipAddresses || response.IpAddresses || response.addresses || response.Addresses;
+                    if (!Array.isArray(values)) values = [];
+                    var first = response.ipAddress || response.IpAddress || response.ip || response.Ip;
+                    if (first && values.indexOf(first) < 0) values.unshift(first);
+                    var seen = {};
+                    return values.map(function (value) {
+                        return String(value || '').trim();
+                    }).filter(function (value) {
+                        var key = value.toLowerCase();
+                        if (!value || seen[key]) return false;
+                        seen[key] = true;
+                        return true;
+                    });
+                },
+                populateBridgeCandidates: function (input, datalist, addresses) {
+                    if (!input) return;
+                    addresses = Array.isArray(addresses) ? addresses : [];
+                    if (datalist) {
+                        while (datalist.firstChild) datalist.removeChild(datalist.firstChild);
+                        addresses.forEach(function (address) {
+                            var option = document.createElement('option');
+                            option.value = address;
+                            datalist.appendChild(option);
+                        });
+                    }
+                    if (addresses.length > 0) input.value = addresses[0];
                 },
                 canUseStoredGlobalCredentials: function (page, bridgeIp, requireClientKey) {
                     page = page || document.querySelector('.pluginConfigurationPage');
@@ -1579,15 +1610,22 @@
                     HueConfigurationPage.refreshStatus(page, "Searching for a Hue Bridge...", "info");
                     Dashboard.showLoadingMsg();
 
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/DiscoverBridge"))
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/DiscoverBridges"))
                         .then(function (response) {
-                            var ipAddress = response && (response.ipAddress || response.IpAddress || response.ip || response.Ip);
+                            var addresses = HueConfigurationPage.getBridgeDiscoveryAddresses(response);
+                            var ipAddress = addresses[0];
                             if (!ipAddress) {
                                 throw new Error("No bridge address was returned.");
                             }
 
-                            ipInput.value = ipAddress;
-                            HueConfigurationPage.refreshStatus(page, "Bridge discovered at " + ipAddress + ".", "success");
+                            HueConfigurationPage.populateBridgeCandidates(
+                                ipInput,
+                                page.querySelector('#hueBridgeCandidates'),
+                                addresses);
+                            var discoveryMessage = addresses.length === 1
+                                ? "Bridge discovered at " + ipAddress + "."
+                                : "Found " + addresses.length + " bridges; selected " + ipAddress + ". Choose another from the address suggestions if needed.";
+                            HueConfigurationPage.refreshStatus(page, discoveryMessage, "success");
 
                             // If credentials are already present, immediately refresh the area list
                             // so discovery completes the whole setup flow in one click.
@@ -1921,16 +1959,22 @@
                     }
                     Dashboard.showLoadingMsg();
 
-                    ApiClient.getJSON(ApiClient.getUrl("HueSync/DiscoverBridge"))
+                    ApiClient.getJSON(ApiClient.getUrl("HueSync/DiscoverBridges"))
                         .then(function (response) {
-                            var ipAddress = response && (response.ipAddress || response.IpAddress || response.ip || response.Ip);
+                            var addresses = HueConfigurationPage.getBridgeDiscoveryAddresses(response);
+                            var ipAddress = addresses[0];
                             if (!ipAddress) {
                                 throw new Error("No bridge address was returned.");
                             }
 
-                            ipInput.value = ipAddress;
+                            HueConfigurationPage.populateBridgeCandidates(
+                                ipInput,
+                                document.getElementById('mappingBridgeCandidates'),
+                                addresses);
                             if (statusEl) {
-                                statusEl.textContent = "Bridge discovered at " + ipAddress + ". Link it or enter credentials manually.";
+                                statusEl.textContent = addresses.length === 1
+                                    ? "Bridge discovered at " + ipAddress + ". Link it or enter credentials manually."
+                                    : "Found " + addresses.length + " bridges; selected " + ipAddress + ". Choose another from the address suggestions, then link it.";
                                 statusEl.style.background = "#4caf50";
                             }
                         })

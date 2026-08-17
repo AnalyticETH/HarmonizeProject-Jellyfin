@@ -45,6 +45,22 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task DiscoverBridges_ReturnsEveryDiscoveredAddress()
+    {
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "[{\"internalipaddress\":\"192.168.1.100\"},{\"internalipaddress\":\"192.168.1.101\"}]");
+        var controller = CreateController();
+
+        var action = await controller.DiscoverBridges();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var discovery = Assert.IsType<HueBridgeDiscoveryResult>(response.Value);
+        Assert.Equal("192.168.1.100", discovery.IpAddress);
+        Assert.Equal(new[] { "192.168.1.100", "192.168.1.101" }, discovery.IpAddresses);
+    }
+
+    [Fact]
     public async Task DiscoverBridge_WhenServiceFindsNothing_ReturnsBadGateway()
     {
         SetupHttpResponse(HttpStatusCode.OK, "[]");

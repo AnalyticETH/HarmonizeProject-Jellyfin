@@ -176,6 +176,29 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task DiscoverBridgeIps_CombinesDistinctCloudAndLocalBridges()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, @"[
+            {""id"":""bridge1"",""internalipaddress"":""192.168.1.100""},
+            {""id"":""bridge2"",""internalipaddress"":""192.168.1.101""},
+            {""id"":""public"",""internalipaddress"":""8.8.8.8""},
+            {""id"":""duplicate"",""internalipaddress"":""192.168.1.100""}
+        ]");
+        var localDiscovery = new Mock<IHueBridgeLocalDiscovery>();
+        localDiscovery
+            .Setup(discovery => discovery.DiscoverAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<string> { "192.168.1.101", "192.168.1.102", "8.8.4.4" });
+        var client = new HueClient(_httpClient, _loggerMock.Object, localDiscovery.Object);
+
+        var result = await client.DiscoverBridgeIps();
+
+        Assert.Equal(
+            new[] { "192.168.1.100", "192.168.1.101", "192.168.1.102" },
+            result);
+        localDiscovery.Verify(discovery => discovery.DiscoverAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task DiscoverBridgeIp_SkipsMalformedEntries()
     {
         var responseJson = @"[

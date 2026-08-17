@@ -48,7 +48,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | Setting | Description |
 | :--- | :--- |
 | **Hue Bridge Address** | The private/local IP address of your bridge (or a .local mDNS host name). |
-| **Discover Bridge** | Ask the Hue discovery service first, then fall back to bounded local mDNS (`_hue._tcp.local`) when the bridge is not returned or cloud discovery is unavailable. |
+| **Discover Bridge** | Return every private bridge found by the Hue discovery service and bounded local mDNS (`_hue._tcp.local`); the address field offers all candidates so multi-room mappings can choose the correct bridge. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. Disconnecting or canceling the request stops the diagnostic lifecycle safely. |
 | **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, active bridge lifecycle contention, and playback/diagnostic readiness. |
@@ -137,7 +137,8 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 
 | Endpoint | Purpose |
 | :--- | :--- |
-| `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
+| `GET /HueSync/DiscoverBridge` | Discover private/local Hue Bridge addresses. `ipAddress` remains the first result for compatibility; `ipAddresses` contains every distinct candidate. |
+| `GET /HueSync/DiscoverBridges` | Discover every private/local Hue Bridge address in one pass. The configuration page uses this route for multi-room bridge selection. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "", "userId": "..." }` in the request body. A blank key may use the stored global key or the stored custom mapping key only when both the bridge target and user ID match. |
 | `POST /HueSync/EntertainmentChannels` | Load the selected area's channel IDs with `{ "ipAddress": "...", "appKey": "", "userId": "...", "entertainmentAreaId": "..." }`; stored credentials remain server-side when the target matches. |
 | `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration; supplying `channelIds` (comma-separated) validates and probes only that channel profile. `userId` enables matching redacted custom mapping credentials. |
@@ -318,7 +319,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.56 (Current)
+### Version 1.5.57 (Current)
+- **Complete multi-bridge discovery**: Cloud and local mDNS results are combined and de-duplicated; the configuration page offers every private bridge candidate for global or per-user mapping setup
+
+### Version 1.5.56
 - **Credential-safe custom mapping diagnostics**: Existing custom mappings can refresh areas and channels or run Test Connection/Preview without re-entering stored secrets; resolution requires the matching mapping user ID and bridge target
 
 ### Version 1.5.55

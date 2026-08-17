@@ -175,20 +175,45 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Discovers the first Hue Bridge reported on the local network.
+        /// Discovers Hue Bridges reported on the local network. The legacy singular
+        /// route remains first-result compatible while also returning every candidate.
         /// </summary>
         [HttpGet("DiscoverBridge")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         public async Task<ActionResult<HueBridgeDiscoveryResult>> DiscoverBridge(CancellationToken cancellationToken = default)
         {
-            var ipAddress = await _hueClient.DiscoverBridgeIp(cancellationToken);
-            if (string.IsNullOrWhiteSpace(ipAddress))
+            return await DiscoverBridgesCore(cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Discovers every private Hue Bridge visible to the Jellyfin server. This is
+        /// useful when different per-user mappings target different rooms or bridges.
+        /// </summary>
+        [HttpGet("DiscoverBridges")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        public async Task<ActionResult<HueBridgeDiscoveryResult>> DiscoverBridges(CancellationToken cancellationToken = default)
+        {
+            return await DiscoverBridgesCore(cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task<ActionResult<HueBridgeDiscoveryResult>> DiscoverBridgesCore(CancellationToken cancellationToken)
+        {
+            var ipAddresses = (await _hueClient.DiscoverBridgeIps(cancellationToken).ConfigureAwait(false))
+                .Where(address => !string.IsNullOrWhiteSpace(address))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (ipAddresses.Length == 0)
             {
                 return StatusCode(StatusCodes.Status502BadGateway, "No Hue Bridge was found on the local network.");
             }
 
-            return Ok(new HueBridgeDiscoveryResult { IpAddress = ipAddress });
+            return Ok(new HueBridgeDiscoveryResult
+            {
+                IpAddress = ipAddresses[0],
+                IpAddresses = ipAddresses
+            });
         }
 
         [HttpGet("EntertainmentAreas")]
@@ -1645,6 +1670,14 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonPropertyName("ipAddress")]
         public string IpAddress { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Every distinct private bridge address found during this discovery pass. The
+        /// singular <see cref="IpAddress"/> property remains the first result for older
+        /// configuration-page clients.
+        /// </summary>
+        [JsonPropertyName("ipAddresses")]
+        public IReadOnlyList<string> IpAddresses { get; set; } = Array.Empty<string>();
     }
 
     public class HueSyncStatus
