@@ -467,6 +467,9 @@ public class PluginConfigurationTests
         Assert.Equal(0, config.ColorSmoothingPercent);
         Assert.True(config.UseGpu);
         Assert.Equal(100, config.BrightnessBoost);
+        Assert.Equal(100, config.RedGain);
+        Assert.Equal(100, config.GreenGain);
+        Assert.Equal(100, config.BlueGain);
         Assert.Equal(100, config.ColorSaturation);
         Assert.Equal(0, config.HueShiftDegrees);
         Assert.Equal(100, config.OutputBrightnessPercent);
@@ -1075,6 +1078,9 @@ public class PluginConfigurationTests
                 {
                     UserId = userId.ToString().ToUpperInvariant(),
                     BrightnessBoostOverride = 150,
+                    RedGainOverride = 120,
+                    GreenGainOverride = 90,
+                    BlueGainOverride = 110,
                     ColorSaturationOverride = 0,
                     HueShiftDegreesOverride = -45,
                     OutputBrightnessPercentOverride = 75
@@ -1086,6 +1092,14 @@ public class PluginConfigurationTests
         var unmappedOverrides = config.GetColorProcessingOverridesForUser(System.Guid.NewGuid());
 
         Assert.Equal((int?)150, overrides.BrightnessBoost);
+        var channelGainOverrides = config.GetColorChannelGainOverridesForUser(userId);
+        var unmappedChannelGainOverrides = config.GetColorChannelGainOverridesForUser(System.Guid.NewGuid());
+        Assert.Equal((int?)120, channelGainOverrides.RedGain);
+        Assert.Equal((int?)90, channelGainOverrides.GreenGain);
+        Assert.Equal((int?)110, channelGainOverrides.BlueGain);
+        Assert.Null(unmappedChannelGainOverrides.RedGain);
+        Assert.Null(unmappedChannelGainOverrides.GreenGain);
+        Assert.Null(unmappedChannelGainOverrides.BlueGain);
         Assert.Equal((int?)0, overrides.ColorSaturation);
         Assert.Equal((int?)-45, overrides.HueShiftDegrees);
         Assert.Equal((int?)75, overrides.OutputBrightnessPercent);
@@ -1142,6 +1156,9 @@ public class PluginConfigurationTests
                 {
                     UserId = "user-1",
                     BrightnessBoostOverride = 49,
+                    RedGainOverride = 49,
+                    GreenGainOverride = 201,
+                    BlueGainOverride = 0,
                     ColorSaturationOverride = 201,
                     HueShiftDegreesOverride = 181,
                     OutputBrightnessPercentOverride = -1
@@ -1152,6 +1169,9 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         Assert.Contains("User mapping 1 brightness boost override must be between 50 and 200", errors);
+        Assert.Contains("User mapping 1 red gain override must be between 50 and 200", errors);
+        Assert.Contains("User mapping 1 green gain override must be between 50 and 200", errors);
+        Assert.Contains("User mapping 1 blue gain override must be between 50 and 200", errors);
         Assert.Contains("User mapping 1 color saturation override must be between 0 and 200", errors);
         Assert.Contains("User mapping 1 hue shift override must be between -180 and 180 degrees", errors);
         Assert.Contains("User mapping 1 output brightness override must be between 0 and 100 percent", errors);
@@ -1182,5 +1202,27 @@ public class PluginConfigurationTests
 
         Assert.Contains("User mapping 1 brightness dim level override must be between 0 and 100", errors);
         Assert.Contains("User mapping 1 pause behavior override must be KeepLastColors or RestoreLightState", errors);
+    }
+
+    [Fact]
+    public void Validate_WhenGlobalColorChannelGainsAreOutOfRange_ReturnsGainErrors()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-key",
+            HueClientKey = "default-client-key",
+            EntertainmentAreaId = "default-area",
+            RedGain = 49,
+            GreenGain = 201,
+            BlueGain = 0
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Red gain must be between 50 and 200", errors);
+        Assert.Contains("Green gain must be between 50 and 200", errors);
+        Assert.Contains("Blue gain must be between 50 and 200", errors);
     }
 }

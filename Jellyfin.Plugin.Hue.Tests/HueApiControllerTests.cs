@@ -286,6 +286,9 @@ public sealed class HueApiControllerTests : IDisposable
                     BrightnessDimLevelOverride = 10,
                     PauseBehaviorOverride = PluginConfiguration.PauseBehaviorRestoreLightState,
                     BrightnessBoostOverride = 150,
+                    RedGainOverride = 120,
+                    GreenGainOverride = 90,
+                    BlueGainOverride = 110,
                     ColorSaturationOverride = 0,
                     HueShiftDegreesOverride = -45,
                     OutputBrightnessPercentOverride = 75
@@ -304,6 +307,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)10, mapping.BrightnessDimLevelOverride);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, mapping.PauseBehaviorOverride);
         Assert.Equal((int?)150, mapping.BrightnessBoostOverride);
+        Assert.Equal((int?)120, mapping.RedGainOverride);
+        Assert.Equal((int?)90, mapping.GreenGainOverride);
+        Assert.Equal((int?)110, mapping.BlueGainOverride);
         Assert.Equal((int?)0, mapping.ColorSaturationOverride);
         Assert.Equal((int?)-45, mapping.HueShiftDegreesOverride);
         Assert.Equal((int?)75, mapping.OutputBrightnessPercentOverride);
@@ -330,6 +336,9 @@ public sealed class HueApiControllerTests : IDisposable
             ColorSmoothingPercent = 65,
             HueShiftDegrees = 45,
             OutputBrightnessPercent = 75,
+            RedGain = 120,
+            GreenGain = 90,
+            BlueGain = 110,
             NetworkRetryAttempts = 6,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
             UserMappings = new List<UserBridgeMapping>
@@ -356,6 +365,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(65, settings.ColorSmoothingPercent);
         Assert.Equal(45, settings.HueShiftDegrees);
         Assert.Equal(75, settings.OutputBrightnessPercent);
+        Assert.Equal(120, settings.RedGain);
+        Assert.Equal(90, settings.GreenGain);
+        Assert.Equal(110, settings.BlueGain);
         Assert.Equal(6, settings.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, settings.PauseBehavior);
         var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
@@ -391,6 +403,9 @@ public sealed class HueApiControllerTests : IDisposable
             ColorSmoothingPercent = 40,
             HueShiftDegrees = -30,
             OutputBrightnessPercent = 60,
+            RedGain = 115,
+            GreenGain = 95,
+            BlueGain = 105,
             NetworkRetryAttempts = 4,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState
         });
@@ -405,6 +420,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(40, configuration.ColorSmoothingPercent);
         Assert.Equal(-30, configuration.HueShiftDegrees);
         Assert.Equal(60, configuration.OutputBrightnessPercent);
+        Assert.Equal(115, configuration.RedGain);
+        Assert.Equal(95, configuration.GreenGain);
+        Assert.Equal(105, configuration.BlueGain);
         Assert.Equal(4, configuration.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, configuration.PauseBehavior);
         var mapping = Assert.Single(configuration.UserMappings);
@@ -445,6 +463,9 @@ public sealed class HueApiControllerTests : IDisposable
             BrightnessDimLevelOverride = 20,
             PauseBehaviorOverride = PluginConfiguration.PauseBehaviorKeepLastColors,
             BrightnessBoostOverride = 125,
+            RedGainOverride = 115,
+            GreenGainOverride = 95,
+            BlueGainOverride = 105,
             ColorSaturationOverride = 80,
             HueShiftDegreesOverride = 30,
             OutputBrightnessPercentOverride = 65
@@ -460,6 +481,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)20, mapping.BrightnessDimLevelOverride);
         Assert.Equal(PluginConfiguration.PauseBehaviorKeepLastColors, mapping.PauseBehaviorOverride);
         Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
+        Assert.Equal((int?)115, mapping.RedGainOverride);
+        Assert.Equal((int?)95, mapping.GreenGainOverride);
+        Assert.Equal((int?)105, mapping.BlueGainOverride);
         Assert.Equal((int?)80, mapping.ColorSaturationOverride);
         Assert.Equal((int?)30, mapping.HueShiftDegreesOverride);
         Assert.Equal((int?)65, mapping.OutputBrightnessPercentOverride);

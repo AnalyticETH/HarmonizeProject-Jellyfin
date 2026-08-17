@@ -1037,6 +1037,30 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
+        /// Applies independent RGB channel gains for room-specific white-balance correction.
+        /// Gains are clamped to the supported 50-200% range and output remains byte-safe.
+        /// </summary>
+        internal static (double Red, double Green, double Blue) ApplyColorChannelGains(
+            double red,
+            double green,
+            double blue,
+            int redGain,
+            int greenGain,
+            int blueGain)
+        {
+            return (
+                ApplyColorChannelGain(red, redGain),
+                ApplyColorChannelGain(green, greenGain),
+                ApplyColorChannelGain(blue, blueGain));
+        }
+
+        private static double ApplyColorChannelGain(double channel, int gain)
+        {
+            var normalizedGain = Math.Clamp(gain, 50, 200) / 100.0;
+            return Math.Clamp(channel * normalizedGain, 0, 255);
+        }
+
+        /// <summary>
         /// Rotates a normalized HSL hue and wraps the result into the [0, 1) range.
         /// </summary>
         internal static double ApplyHueShift(double hue, int hueShiftDegrees)
@@ -1207,6 +1231,10 @@ namespace Jellyfin.Plugin.Hue.Service
                         var colorSaturation = colorOverrides.ColorSaturation ?? config.ColorSaturation;
                         var hueShiftDegrees = colorOverrides.HueShiftDegrees ?? config.HueShiftDegrees;
                         var outputBrightnessPercent = colorOverrides.OutputBrightnessPercent ?? config.OutputBrightnessPercent;
+                        var channelGainOverrides = config.GetColorChannelGainOverridesForUser(userId);
+                        var redGain = channelGainOverrides.RedGain ?? config.RedGain;
+                        var greenGain = channelGainOverrides.GreenGain ?? config.GreenGain;
+                        var blueGain = channelGainOverrides.BlueGain ?? config.BlueGain;
                         var isBlackout = config.BlackoutThreshold > 0 &&
                             channelColors.Count > 0 &&
                             channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0) < config.BlackoutThreshold;
@@ -1269,6 +1297,14 @@ namespace Jellyfin.Plugin.Hue.Service
                                 r = Math.Min(255, r * multiplier);
                                 g = Math.Min(255, g * multiplier);
                                 b = Math.Min(255, b * multiplier);
+                            }
+
+                            if (redGain != 100 || greenGain != 100 || blueGain != 100)
+                            {
+                                var gainedRgb = ApplyColorChannelGains(r, g, b, redGain, greenGain, blueGain);
+                                r = gainedRgb.Red;
+                                g = gainedRgb.Green;
+                                b = gainedRgb.Blue;
                             }
 
                             // Apply color saturation and hue shift adjustments together in HSL

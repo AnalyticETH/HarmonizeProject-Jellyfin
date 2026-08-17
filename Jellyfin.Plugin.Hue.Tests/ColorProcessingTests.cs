@@ -114,6 +114,22 @@ public class ColorProcessingTests : IDisposable
         Assert.Equal(l, shiftedLightness, precision: 6);
     }
 
+    [Fact]
+    public void ColorChannelGains_ApplyIndependentWhiteBalanceAndClampOutput()
+    {
+        var (red, green, blue) = HueSyncService.ApplyColorChannelGains(
+            100,
+            100,
+            200,
+            150,
+            50,
+            200);
+
+        Assert.Equal(150, red);
+        Assert.Equal(50, green);
+        Assert.Equal(255, blue);
+    }
+
     [Theory]
     [InlineData(0.2, 0.8, 0.1, 0.56)] // t < 1/6: p + (q-p)*6*t = 0.2 + 0.6*0.6 = 0.56
     [InlineData(0.2, 0.8, 0.4, 0.8)] // t < 1/2: returns q

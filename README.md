@@ -62,6 +62,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Color Sampling Mode** | Average (default), center-weighted, or center-pixel sampling for balancing ambient stability against detail. |
 | **Temporal Color Smoothing** | Blend the previous frame into new colors to reduce flicker (0-90%, default: 0%). Higher values create smoother but slower transitions. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
+| **RGB Channel Gains** | Independently scale red, green, and blue channels from 50-200% (default: 100%) for room-specific white-balance correction before saturation and hue processing. |
 | **Output Brightness** | Final 0-100% brightness scale applied after boost, saturation, and hue shift (default: 100%). Use it to cap room brightness without changing color balance. |
 | **When Playback Is Paused** | Keep the last synced colors (default) or restore the original light state captured at playback start. Sync resumes automatically. Restoring uses the **Restore Light State After Sync** setting. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
@@ -96,10 +97,10 @@ server and are not displayed in the browser. Leave those fields blank to keep th
 enter replacement keys to rotate them. The mapping list reports credential presence without
 revealing the key values.
 
-Each mapping can also define an optional per-user color profile for Brightness Boost, Color
-Saturation, Hue Shift, and Output Brightness. Leave any profile field blank to inherit the current
-global setting; populated overrides apply only to that user's playback, including when the mapping
-uses the default bridge.
+Each mapping can also define an optional per-user color profile for Brightness Boost, RGB Channel
+Gains, Color Saturation, Hue Shift, and Output Brightness. Leave any profile field blank to inherit
+the current global setting; populated overrides apply only to that user's playback, including when
+the mapping uses the default bridge.
 
 Mappings can also override Cinema Mode, its dim level, and pause behavior. Choose **Inherit global
 setting** to keep the defaults, or enable/disable cinema mode, set a separate 0-100% dim level, and
@@ -277,7 +278,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.30 (Current)
+### Version 1.5.31 (Current)
+- **RGB white-balance calibration**: Adjust red, green, and blue channel gains globally or per mapping (50-200%, neutral 100%) before saturation and hue processing
+
+### Version 1.5.30
 - **Per-user playback profiles**: Choose Cinema Mode, dim level, and pause behavior independently per mapping; blank fields inherit the global settings
 
 ### Version 1.5.29

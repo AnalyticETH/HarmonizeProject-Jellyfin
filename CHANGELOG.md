@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.31] - 2026-08-17
+
+### Added
+- Global red, green, and blue channel gains for room-specific white-balance correction
+- Optional per-user RGB channel-gain overrides with global inheritance
+- Regression coverage for channel-gain application, validation, persistence, and UI/API wiring
+
+### Changed
+- RGB channel gains are applied before saturation and hue processing while preserving the neutral 100% defaults
+
 ## [1.5.30] - 2026-08-17
 
 ### Added

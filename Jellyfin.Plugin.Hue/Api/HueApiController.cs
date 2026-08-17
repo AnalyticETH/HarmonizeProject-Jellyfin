@@ -516,6 +516,9 @@ namespace Jellyfin.Plugin.Hue.Api
         public int FfmpegStallTimeoutSeconds { get; set; } = 5;
         public bool RestoreLightState { get; set; } = true;
         public int BrightnessBoost { get; set; } = 100;
+        public int RedGain { get; set; } = 100;
+        public int GreenGain { get; set; } = 100;
+        public int BlueGain { get; set; } = 100;
         public int ColorSaturation { get; set; } = 100;
         public int HueShiftDegrees { get; set; } = 0;
         public int OutputBrightnessPercent { get; set; } = 100;
@@ -547,6 +550,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 FfmpegStallTimeoutSeconds = config.FfmpegStallTimeoutSeconds,
                 RestoreLightState = config.RestoreLightState,
                 BrightnessBoost = config.BrightnessBoost,
+                RedGain = config.RedGain,
+                GreenGain = config.GreenGain,
+                BlueGain = config.BlueGain,
                 ColorSaturation = config.ColorSaturation,
                 HueShiftDegrees = config.HueShiftDegrees,
                 OutputBrightnessPercent = config.OutputBrightnessPercent,
@@ -578,6 +584,9 @@ namespace Jellyfin.Plugin.Hue.Api
             config.FfmpegStallTimeoutSeconds = FfmpegStallTimeoutSeconds;
             config.RestoreLightState = RestoreLightState;
             config.BrightnessBoost = BrightnessBoost;
+            config.RedGain = RedGain;
+            config.GreenGain = GreenGain;
+            config.BlueGain = BlueGain;
             config.ColorSaturation = ColorSaturation;
             config.HueShiftDegrees = HueShiftDegrees;
             config.OutputBrightnessPercent = OutputBrightnessPercent;
@@ -604,6 +613,9 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? BrightnessDimLevelOverride { get; set; }
         public string? PauseBehaviorOverride { get; set; }
         public int? BrightnessBoostOverride { get; set; }
+        public int? RedGainOverride { get; set; }
+        public int? GreenGainOverride { get; set; }
+        public int? BlueGainOverride { get; set; }
         public int? ColorSaturationOverride { get; set; }
         public int? HueShiftDegreesOverride { get; set; }
         public int? OutputBrightnessPercentOverride { get; set; }
@@ -624,6 +636,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 BrightnessDimLevelOverride = mapping.BrightnessDimLevelOverride,
                 PauseBehaviorOverride = mapping.PauseBehaviorOverride,
                 BrightnessBoostOverride = mapping.BrightnessBoostOverride,
+                RedGainOverride = mapping.RedGainOverride,
+                GreenGainOverride = mapping.GreenGainOverride,
+                BlueGainOverride = mapping.BlueGainOverride,
                 ColorSaturationOverride = mapping.ColorSaturationOverride,
                 HueShiftDegreesOverride = mapping.HueShiftDegreesOverride,
                 OutputBrightnessPercentOverride = mapping.OutputBrightnessPercentOverride

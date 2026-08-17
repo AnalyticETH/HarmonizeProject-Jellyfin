@@ -30,6 +30,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? ColorSaturationOverride { get; set; }
         public int? HueShiftDegreesOverride { get; set; }
         public int? OutputBrightnessPercentOverride { get; set; }
+        public int? RedGainOverride { get; set; }
+        public int? GreenGainOverride { get; set; }
+        public int? BlueGainOverride { get; set; }
     }
 
     /// <summary>
@@ -58,6 +61,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private const int MaxBrightnessDimLevel = 100;
         private const int MinBrightnessBoost = 50;
         private const int MaxBrightnessBoost = 200;
+        private const int MinColorChannelGain = 50;
+        private const int MaxColorChannelGain = 200;
         private const int MinColorSaturation = 0;
         private const int MaxColorSaturation = 200;
         private const int MinHueShiftDegrees = -180;
@@ -103,6 +108,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         // New advanced settings
         public bool RestoreLightState { get; set; } = true; // Save and restore light state before sync
         public int BrightnessBoost { get; set; } = 100; // Brightness multiplier (50-200%)
+        public int RedGain { get; set; } = 100; // Red channel white-balance gain (50-200%)
+        public int GreenGain { get; set; } = 100; // Green channel white-balance gain (50-200%)
+        public int BlueGain { get; set; } = 100; // Blue channel white-balance gain (50-200%)
         public int ColorSaturation { get; set; } = 100; // Color saturation adjustment (0-200%)
         public int HueShiftDegrees { get; set; } = 0; // Global hue rotation (-180 to 180 degrees)
         public int OutputBrightnessPercent { get; set; } = 100; // Final output brightness ceiling (0-100%)
@@ -180,6 +188,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Gets optional per-user RGB channel gains. Null values mean the global channel
+        /// gain should be used for that component.
+        /// </summary>
+        public (int? RedGain, int? GreenGain, int? BlueGain) GetColorChannelGainOverridesForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return mapping == null
+                ? (null, null, null)
+                : (mapping.RedGainOverride, mapping.GreenGainOverride, mapping.BlueGainOverride);
+        }
+
+        /// <summary>
         /// Validates optional per-user color profile overrides without exposing bridge credentials.
         /// </summary>
         public static List<string> ValidateColorOverrides(UserBridgeMapping mapping, string label = "User mapping")
@@ -212,6 +233,27 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.OutputBrightnessPercentOverride.Value > MaxOutputBrightnessPercent))
             {
                 errors.Add($"{label} output brightness override must be between 0 and 100 percent");
+            }
+
+            if (mapping.RedGainOverride.HasValue &&
+                (mapping.RedGainOverride.Value < MinColorChannelGain ||
+                 mapping.RedGainOverride.Value > MaxColorChannelGain))
+            {
+                errors.Add($"{label} red gain override must be between 50 and 200");
+            }
+
+            if (mapping.GreenGainOverride.HasValue &&
+                (mapping.GreenGainOverride.Value < MinColorChannelGain ||
+                 mapping.GreenGainOverride.Value > MaxColorChannelGain))
+            {
+                errors.Add($"{label} green gain override must be between 50 and 200");
+            }
+
+            if (mapping.BlueGainOverride.HasValue &&
+                (mapping.BlueGainOverride.Value < MinColorChannelGain ||
+                 mapping.BlueGainOverride.Value > MaxColorChannelGain))
+            {
+                errors.Add($"{label} blue gain override must be between 50 and 200");
             }
 
             return errors;
@@ -331,6 +373,15 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (BrightnessBoost < MinBrightnessBoost || BrightnessBoost > MaxBrightnessBoost)
                     errors.Add("Brightness boost must be between 50 and 200");
+
+                if (RedGain < MinColorChannelGain || RedGain > MaxColorChannelGain)
+                    errors.Add("Red gain must be between 50 and 200");
+
+                if (GreenGain < MinColorChannelGain || GreenGain > MaxColorChannelGain)
+                    errors.Add("Green gain must be between 50 and 200");
+
+                if (BlueGain < MinColorChannelGain || BlueGain > MaxColorChannelGain)
+                    errors.Add("Blue gain must be between 50 and 200");
 
                 if (ColorSaturation < MinColorSaturation || ColorSaturation > MaxColorSaturation)
                     errors.Add("Color saturation must be between 0 and 200");

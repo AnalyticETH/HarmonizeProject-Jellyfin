@@ -285,6 +285,24 @@
                                 </div>
 
                                 <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingRedGainOverride">Red Gain Override (%)</label>
+                                    <input id="mappingRedGainOverride" type="number" min="50" max="200" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user red channel gain (50-200%).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingGreenGainOverride">Green Gain Override (%)</label>
+                                    <input id="mappingGreenGainOverride" type="number" min="50" max="200" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user green channel gain (50-200%).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingBlueGainOverride">Blue Gain Override (%)</label>
+                                    <input id="mappingBlueGainOverride" type="number" min="50" max="200" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user blue channel gain (50-200%).</div>
+                                </div>
+
+                                <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="mappingColorSaturationOverride">Color Saturation Override (%)</label>
                                     <input id="mappingColorSaturationOverride" type="number" min="0" max="200" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user saturation adjustment (0-200%).</div>
@@ -378,6 +396,29 @@
                             <div class="fieldDescription">Brightness multiplier for synced colors (50-200%, default: 100).</div>
                         </div>
 
+                        <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
+                            <legend>White Balance / RGB Channel Gains</legend>
+                            <div class="fieldDescription" style="margin-bottom: 1em;">Adjust individual RGB channels to correct a room's color bias. 100% is neutral; gains apply before saturation and hue shift.</div>
+
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="redGain">Red Gain (%)</label>
+                                <input id="redGain" name="redGain" type="number" min="50" max="200" is="emby-input" />
+                                <div class="fieldDescription">Red channel multiplier (50-200%, default: 100).</div>
+                            </div>
+
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="greenGain">Green Gain (%)</label>
+                                <input id="greenGain" name="greenGain" type="number" min="50" max="200" is="emby-input" />
+                                <div class="fieldDescription">Green channel multiplier (50-200%, default: 100).</div>
+                            </div>
+
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="blueGain">Blue Gain (%)</label>
+                                <input id="blueGain" name="blueGain" type="number" min="50" max="200" is="emby-input" />
+                                <div class="fieldDescription">Blue channel multiplier (50-200%, default: 100).</div>
+                            </div>
+                        </fieldset>
+
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="colorSaturation">Color Saturation (%)</label>
                             <input id="colorSaturation" name="colorSaturation" type="number" min="0" max="200" is="emby-input" />
@@ -469,6 +510,9 @@
                         page.querySelector('#pauseBehavior').value = getConfigValue('PauseBehavior', 'KeepLastColors');
                         page.querySelector('#restoreLightState').checked = getConfigValue('RestoreLightState', true);
                         page.querySelector('#brightnessBoost').value = getConfigValue('BrightnessBoost', 100);
+                        page.querySelector('#redGain').value = getConfigValue('RedGain', 100);
+                        page.querySelector('#greenGain').value = getConfigValue('GreenGain', 100);
+                        page.querySelector('#blueGain').value = getConfigValue('BlueGain', 100);
                         page.querySelector('#colorSaturation').value = getConfigValue('ColorSaturation', 100);
                         page.querySelector('#hueShiftDegrees').value = getConfigValue('HueShiftDegrees', 0);
                         page.querySelector('#outputBrightnessPercent').value = getConfigValue('OutputBrightnessPercent', 100);
@@ -511,6 +555,9 @@
                         PauseBehavior: page.querySelector('#pauseBehavior').value,
                         RestoreLightState: page.querySelector('#restoreLightState').checked,
                         BrightnessBoost: parseNumberOrDefault('#brightnessBoost', 100),
+                        RedGain: parseNumberOrDefault('#redGain', 100),
+                        GreenGain: parseNumberOrDefault('#greenGain', 100),
+                        BlueGain: parseNumberOrDefault('#blueGain', 100),
                         ColorSaturation: parseNumberOrDefault('#colorSaturation', 100),
                         HueShiftDegrees: parseNumberOrDefault('#hueShiftDegrees', 0),
                         OutputBrightnessPercent: parseNumberOrDefault('#outputBrightnessPercent', 100),
@@ -1034,6 +1081,9 @@
                             };
                             var hasColorProfile = [
                                 getMappingValue('BrightnessBoostOverride', 'brightnessBoostOverride'),
+                                getMappingValue('RedGainOverride', 'redGainOverride'),
+                                getMappingValue('GreenGainOverride', 'greenGainOverride'),
+                                getMappingValue('BlueGainOverride', 'blueGainOverride'),
                                 getMappingValue('ColorSaturationOverride', 'colorSaturationOverride'),
                                 getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride'),
                                 getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride')
@@ -1089,6 +1139,9 @@
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingBrightnessBoostOverride',
+                        '#mappingRedGainOverride',
+                        '#mappingGreenGainOverride',
+                        '#mappingBlueGainOverride',
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
                         '#mappingOutputBrightnessPercentOverride'
@@ -1450,6 +1503,9 @@
                         BrightnessDimLevelOverride: readOptionalNumber('mappingBrightnessDimLevelOverride'),
                         PauseBehaviorOverride: readOptionalString('mappingPauseBehaviorOverride'),
                         BrightnessBoostOverride: readOptionalNumber('mappingBrightnessBoostOverride'),
+                        RedGainOverride: readOptionalNumber('mappingRedGainOverride'),
+                        GreenGainOverride: readOptionalNumber('mappingGreenGainOverride'),
+                        BlueGainOverride: readOptionalNumber('mappingBlueGainOverride'),
                         ColorSaturationOverride: readOptionalNumber('mappingColorSaturationOverride'),
                         HueShiftDegreesOverride: readOptionalNumber('mappingHueShiftDegreesOverride'),
                         OutputBrightnessPercentOverride: readOptionalNumber('mappingOutputBrightnessPercentOverride')
@@ -1508,6 +1564,9 @@
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingBrightnessBoostOverride',
+                        '#mappingRedGainOverride',
+                        '#mappingGreenGainOverride',
+                        '#mappingBlueGainOverride',
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
                         '#mappingOutputBrightnessPercentOverride'
@@ -1563,6 +1622,9 @@
                         var brightnessDimLevelOverride = getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride');
                         var pauseBehaviorOverride = getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride');
                         var brightnessBoostOverride = getMappingValue('BrightnessBoostOverride', 'brightnessBoostOverride');
+                        var redGainOverride = getMappingValue('RedGainOverride', 'redGainOverride');
+                        var greenGainOverride = getMappingValue('GreenGainOverride', 'greenGainOverride');
+                        var blueGainOverride = getMappingValue('BlueGainOverride', 'blueGainOverride');
                         var colorSaturationOverride = getMappingValue('ColorSaturationOverride', 'colorSaturationOverride');
                         var hueShiftDegreesOverride = getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride');
                         var outputBrightnessPercentOverride = getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride');
@@ -1599,6 +1661,9 @@
                         page.querySelector('#mappingBrightnessDimLevelOverride').value = brightnessDimLevelOverride == null ? "" : brightnessDimLevelOverride;
                         page.querySelector('#mappingPauseBehaviorOverride').value = pauseBehaviorOverride == null ? "" : pauseBehaviorOverride;
                         page.querySelector('#mappingBrightnessBoostOverride').value = brightnessBoostOverride == null ? "" : brightnessBoostOverride;
+                        page.querySelector('#mappingRedGainOverride').value = redGainOverride == null ? "" : redGainOverride;
+                        page.querySelector('#mappingGreenGainOverride').value = greenGainOverride == null ? "" : greenGainOverride;
+                        page.querySelector('#mappingBlueGainOverride').value = blueGainOverride == null ? "" : blueGainOverride;
                         page.querySelector('#mappingColorSaturationOverride').value = colorSaturationOverride == null ? "" : colorSaturationOverride;
                         page.querySelector('#mappingHueShiftDegreesOverride').value = hueShiftDegreesOverride == null ? "" : hueShiftDegreesOverride;
                         page.querySelector('#mappingOutputBrightnessPercentOverride').value = outputBrightnessPercentOverride == null ? "" : outputBrightnessPercentOverride;
