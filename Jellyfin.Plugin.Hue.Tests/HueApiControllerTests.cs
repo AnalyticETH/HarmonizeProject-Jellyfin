@@ -1215,6 +1215,122 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task TargetDiagnostics_ValidatesDefaultInheritedAndCustomTargetsWithoutSecrets()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "area-global",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-inherited",
+                    UserName = "Inherited Viewer",
+                    SyncEnabled = true
+                },
+                new()
+                {
+                    UserId = "user-custom",
+                    UserName = "Custom Viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "custom-app-secret",
+                    HueClientKey = "custom-client-secret",
+                    EntertainmentAreaId = "area-custom",
+                    EntertainmentAreaName = "Custom Room"
+                },
+                new()
+                {
+                    UserId = "user-disabled",
+                    UserName = "Disabled Viewer",
+                    SyncEnabled = false
+                }
+            }
+        });
+
+        var requestedPaths = new List<string>();
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                requestedPaths.Add(request.RequestUri!.AbsolutePath))
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+            {
+                var path = request.RequestUri!.AbsolutePath;
+                var body = path.Contains("entertainment_configuration/", StringComparison.Ordinal)
+                    ? "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}]}"
+                    : "{\"data\":[{\"id\":\"area-global\",\"metadata\":{\"name\":\"Global Room\"}},{\"id\":\"area-custom\",\"metadata\":{\"name\":\"Custom Room\"}}]}";
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body, Encoding.UTF8, "application/json")
+                };
+            });
+
+        var action = await CreateController().GetTargetDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueTargetDiagnosticsResult>(response.Value);
+        Assert.True(diagnostics.HasConfiguredTargets);
+        Assert.True(diagnostics.AllTargetsReady);
+        Assert.Equal(3, diagnostics.TargetCount);
+        Assert.Equal(3, diagnostics.ReadyTargetCount);
+        Assert.All(diagnostics.Targets, target => Assert.True(target.Ready));
+        var inherited = Assert.Single(diagnostics.Targets.Where(target => target.UserId == "user-inherited"));
+        Assert.True(inherited.InheritsDefaultBridge);
+        Assert.Equal("Global Room", inherited.EntertainmentAreaName);
+        var custom = Assert.Single(diagnostics.Targets.Where(target => target.UserId == "user-custom"));
+        Assert.False(custom.InheritsDefaultBridge);
+        Assert.Equal("Custom Room", custom.EntertainmentAreaName);
+        Assert.Equal(2, requestedPaths.Count(path => path.EndsWith("/entertainment_configuration", StringComparison.Ordinal)));
+        Assert.Equal(2, requestedPaths.Count(path => path.Contains("/entertainment_configuration/", StringComparison.Ordinal)));
+
+        var serialized = System.Text.Json.JsonSerializer.Serialize(diagnostics);
+        Assert.DoesNotContain("global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("global-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("custom-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("custom-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TargetDiagnostics_ReportsMissingCredentialsWithoutContactingBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-missing",
+                    UserName = "Missing Keys",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    EntertainmentAreaId = "area-1"
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var action = await controller.GetTargetDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueTargetDiagnosticsResult>(response.Value);
+        var target = Assert.Single(diagnostics.Targets);
+        Assert.False(target.Ready);
+        Assert.False(target.ConfigurationValid);
+        Assert.False(target.BridgeReachable);
+        Assert.Contains("App Key is missing", target.Status, StringComparison.Ordinal);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task StopSync_WithoutHostedServiceReturnsServiceUnavailable()
     {
         var controller = CreateController();

@@ -956,6 +956,231 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Validates every saved playback target without mutating the bridge. This is
+        /// intentionally separate from the local prerequisite report above: a server can
+        /// have working FFmpeg/OpenSSL binaries while one of several mapped bridges has
+        /// stale credentials, a missing area, or no controllable channels.
+        /// </summary>
+        [HttpGet("TargetDiagnostics")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<HueTargetDiagnosticsResult>> GetTargetDiagnostics(
+            CancellationToken cancellationToken = default)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+            {
+                return NotFound("Plugin configuration not available.");
+            }
+
+            var targets = EnumerateConfiguredTargets(config).ToArray();
+            var areaRequests = new Dictionary<string, Task<List<HueClient.EntertainmentArea>?>>(StringComparer.Ordinal);
+            var configurationRequests = new Dictionary<string, Task<System.Text.Json.JsonElement?>>(StringComparer.Ordinal);
+            var results = new List<HueTargetDiagnostic>(targets.Length);
+
+            foreach (var target in targets)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                results.Add(await ValidateTargetAsync(
+                    target,
+                    areaRequests,
+                    configurationRequests,
+                    cancellationToken).ConfigureAwait(false));
+            }
+
+            var readyCount = results.Count(result => result.Ready);
+            return Ok(new HueTargetDiagnosticsResult
+            {
+                HasConfiguredTargets = results.Count > 0,
+                AllTargetsReady = results.Count > 0 && readyCount == results.Count,
+                TargetCount = results.Count,
+                ReadyTargetCount = readyCount,
+                Targets = results,
+                CheckedAtUtc = DateTime.UtcNow
+            });
+        }
+
+        private async Task<HueTargetDiagnostic> ValidateTargetAsync(
+            HueTarget target,
+            IDictionary<string, Task<List<HueClient.EntertainmentArea>?>> areaRequests,
+            IDictionary<string, Task<System.Text.Json.JsonElement?>> configurationRequests,
+            CancellationToken cancellationToken)
+        {
+            var result = new HueTargetDiagnostic
+            {
+                Scope = target.Scope,
+                UserId = target.UserId,
+                UserName = target.UserName,
+                SyncEnabled = target.SyncEnabled,
+                InheritsDefaultBridge = target.InheritsDefaultBridge,
+                BridgeIp = target.BridgeIp,
+                EntertainmentAreaId = target.AreaId,
+                EntertainmentAreaName = target.AreaName,
+                HasAppKey = !string.IsNullOrWhiteSpace(target.AppKey),
+                HasClientKey = !string.IsNullOrWhiteSpace(target.ClientKey),
+                ConfigurationValid = true
+            };
+
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(target.BridgeIp))
+            {
+                return result with
+                {
+                    ConfigurationValid = false,
+                    Status = "Bridge address is missing or invalid."
+                };
+            }
+
+            if (string.IsNullOrWhiteSpace(target.AppKey))
+            {
+                return result with
+                {
+                    ConfigurationValid = false,
+                    Status = "App Key is missing."
+                };
+            }
+
+            if (string.IsNullOrWhiteSpace(target.AreaId))
+            {
+                return result with
+                {
+                    ConfigurationValid = false,
+                    Status = "Entertainment area is not selected."
+                };
+            }
+
+            var areaCacheKey = target.BridgeIp.Trim() + "\n" + target.AppKey.Trim();
+            if (!areaRequests.TryGetValue(areaCacheKey, out var areasTask))
+            {
+                areasTask = _hueClient.GetEntertainmentAreas(
+                    target.BridgeIp.Trim(),
+                    target.AppKey.Trim(),
+                    cancellationToken);
+                areaRequests[areaCacheKey] = areasTask;
+            }
+
+            var areas = await areasTask.ConfigureAwait(false);
+            if (areas == null)
+            {
+                return result with
+                {
+                    ConfigurationValid = !string.IsNullOrWhiteSpace(target.ClientKey),
+                    Status = "Bridge could not be reached with the saved App Key."
+                };
+            }
+
+            result = result with
+            {
+                BridgeReachable = true,
+                AreaCount = areas.Count
+            };
+
+            var selectedArea = areas.FirstOrDefault(area =>
+                string.Equals(area.Id, target.AreaId.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (selectedArea == null)
+            {
+                return result with
+                {
+                    ConfigurationValid = false,
+                    Status = string.IsNullOrWhiteSpace(target.ClientKey)
+                        ? "Bridge is reachable, but the selected area was not found and the Client Key is missing."
+                        : "Bridge is reachable, but the selected area was not found."
+                };
+            }
+
+            var configurationCacheKey = areaCacheKey + "\n" + target.AreaId.Trim();
+            if (!configurationRequests.TryGetValue(configurationCacheKey, out var configurationTask))
+            {
+                configurationTask = _hueClient.GetEntertainmentConfiguration(
+                    target.BridgeIp.Trim(),
+                    target.AppKey.Trim(),
+                    target.AreaId.Trim(),
+                    cancellationToken);
+                configurationRequests[configurationCacheKey] = configurationTask;
+            }
+
+            var areaConfiguration = await configurationTask.ConfigureAwait(false);
+            if (areaConfiguration == null)
+            {
+                return result with
+                {
+                    ConfigurationValid = false,
+                    AreaFound = true,
+                    EntertainmentAreaName = selectedArea.Name,
+                    Status = "Bridge is reachable, but the selected area configuration could not be loaded."
+                };
+            }
+
+            var channelCount = GetValidChannelIds(areaConfiguration.Value).Count;
+            var hasClientKey = !string.IsNullOrWhiteSpace(target.ClientKey);
+            return result with
+            {
+                ConfigurationValid = hasClientKey && channelCount > 0,
+                AreaFound = true,
+                EntertainmentAreaName = selectedArea.Name,
+                ChannelCount = channelCount,
+                Ready = hasClientKey && channelCount > 0,
+                Status = !hasClientKey
+                    ? "Bridge and area are reachable, but the Client Key is missing."
+                    : channelCount > 0
+                        ? "Ready for playback."
+                        : "The selected area has no controllable channels."
+            };
+        }
+
+        private static IEnumerable<HueTarget> EnumerateConfiguredTargets(PluginConfiguration config)
+        {
+            var hasGlobalTarget = !string.IsNullOrWhiteSpace(config.HueBridgeIp) ||
+                !string.IsNullOrWhiteSpace(config.HueAppKey) ||
+                !string.IsNullOrWhiteSpace(config.HueClientKey) ||
+                !string.IsNullOrWhiteSpace(config.EntertainmentAreaId);
+            if (hasGlobalTarget)
+            {
+                yield return new HueTarget(
+                    Scope: "Default",
+                    UserId: null,
+                    UserName: null,
+                    SyncEnabled: config.SyncEnabled,
+                    InheritsDefaultBridge: false,
+                    BridgeIp: config.HueBridgeIp?.Trim() ?? string.Empty,
+                    AppKey: config.HueAppKey?.Trim() ?? string.Empty,
+                    ClientKey: config.HueClientKey?.Trim() ?? string.Empty,
+                    AreaId: config.EntertainmentAreaId?.Trim() ?? string.Empty,
+                    AreaName: null);
+            }
+
+            foreach (var mapping in config.UserMappings ?? new List<UserBridgeMapping>())
+            {
+                if (mapping == null || !mapping.SyncEnabled)
+                    continue;
+
+                var inheritsDefaultBridge = string.IsNullOrWhiteSpace(mapping.HueBridgeIp);
+                yield return new HueTarget(
+                    Scope: "User",
+                    UserId: mapping.UserId?.Trim(),
+                    UserName: string.IsNullOrWhiteSpace(mapping.UserName) ? null : mapping.UserName.Trim(),
+                    SyncEnabled: true,
+                    InheritsDefaultBridge: inheritsDefaultBridge,
+                    BridgeIp: inheritsDefaultBridge ? config.HueBridgeIp?.Trim() ?? string.Empty : mapping.HueBridgeIp.Trim(),
+                    AppKey: inheritsDefaultBridge ? config.HueAppKey?.Trim() ?? string.Empty : mapping.HueAppKey?.Trim() ?? string.Empty,
+                    ClientKey: inheritsDefaultBridge ? config.HueClientKey?.Trim() ?? string.Empty : mapping.HueClientKey?.Trim() ?? string.Empty,
+                    AreaId: inheritsDefaultBridge ? config.EntertainmentAreaId?.Trim() ?? string.Empty : mapping.EntertainmentAreaId?.Trim() ?? string.Empty,
+                    AreaName: string.IsNullOrWhiteSpace(mapping.EntertainmentAreaName) ? null : mapping.EntertainmentAreaName.Trim());
+            }
+        }
+
+        private sealed record HueTarget(
+            string Scope,
+            string? UserId,
+            string? UserName,
+            bool SyncEnabled,
+            bool InheritsDefaultBridge,
+            string BridgeIp,
+            string AppKey,
+            string ClientKey,
+            string AreaId,
+            string? AreaName);
+
+        /// <summary>
         /// Stops Hue output for the current playback session without stopping Jellyfin playback.
         /// </summary>
         [HttpPost("Stop")]
@@ -1753,6 +1978,45 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? LastError { get; init; }
         public string? CleanupWarning { get; init; }
         public DateTime CheckedAtUtc { get; init; }
+    }
+
+    /// <summary>
+    /// Sanitized validation results for all configured default and per-user targets.
+    /// Bridge credentials are represented only by presence flags.
+    /// </summary>
+    public sealed class HueTargetDiagnosticsResult
+    {
+        public bool HasConfiguredTargets { get; init; }
+        public bool AllTargetsReady { get; init; }
+        public int TargetCount { get; init; }
+        public int ReadyTargetCount { get; init; }
+        public IReadOnlyList<HueTargetDiagnostic> Targets { get; init; } = Array.Empty<HueTargetDiagnostic>();
+        public DateTime CheckedAtUtc { get; init; }
+    }
+
+    /// <summary>
+    /// A single non-mutating bridge/area validation result. This type intentionally has
+    /// no App Key, Client Key, or other bridge secret fields.
+    /// </summary>
+    public sealed record HueTargetDiagnostic
+    {
+        public string Scope { get; init; } = string.Empty;
+        public string? UserId { get; init; }
+        public string? UserName { get; init; }
+        public bool SyncEnabled { get; init; }
+        public bool InheritsDefaultBridge { get; init; }
+        public string BridgeIp { get; init; } = string.Empty;
+        public string EntertainmentAreaId { get; init; } = string.Empty;
+        public string? EntertainmentAreaName { get; init; }
+        public bool HasAppKey { get; init; }
+        public bool HasClientKey { get; init; }
+        public bool ConfigurationValid { get; init; }
+        public bool BridgeReachable { get; init; }
+        public int AreaCount { get; init; }
+        public bool AreaFound { get; init; }
+        public int ChannelCount { get; init; }
+        public bool Ready { get; init; }
+        public string Status { get; init; } = string.Empty;
     }
 
 }

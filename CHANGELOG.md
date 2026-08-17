@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.59] - 2026-08-17
+
+### Added
+- **Saved-target diagnostics**: add a credential-safe `GET /HueSync/TargetDiagnostics` report and **Validate Saved Targets** administrator action that checks every enabled default, inherited, and custom bridge mapping for reachability, selected-area presence, and controllable channels without opening a DTLS stream
+- **Multi-room setup feedback**: report per-user target readiness, inherited-target status, credential presence, area names, and channel counts in the configuration page
+
+### Security
+- Target diagnostics expose only bridge address, user/area labels, and App/Client Key presence flags; stored credential values are never serialized
+
 ## [1.5.58] - 2026-08-17
 
 ### Added

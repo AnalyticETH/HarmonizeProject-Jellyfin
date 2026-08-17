@@ -65,9 +65,14 @@
                         <button is="emby-button" type="button" class="raised" id="refreshDiagnosticsBtn">
                             <span>Run Diagnostics</span>
                         </button>
+                        <button is="emby-button" type="button" class="raised" id="refreshTargetDiagnosticsBtn">
+                            <span>Validate Saved Targets</span>
+                        </button>
                     </div>
                     <div id="diagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Run diagnostics to verify FFmpeg, OpenSSL, and saved configuration.</div>
                     <div id="diagnosticsErrors" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
+                    <div id="targetDiagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Validate saved default and per-user bridge targets to confirm that each selected area still has controllable channels.</div>
+                    <div id="targetDiagnosticsTable" style="margin-top: 0.5em; overflow-x: auto;"></div>
                 </fieldset>
                 <form class="huePluginConfigurationForm">
                     <fieldset class="verticalSection">
@@ -1562,6 +1567,98 @@
                         if (button) button.disabled = false;
                     });
                 },
+                loadTargetDiagnostics: function (page) {
+                    if (!page || page._hueTargetDiagnosticsLoading) {
+                        return Promise.resolve();
+                    }
+
+                    page._hueTargetDiagnosticsLoading = true;
+                    var button = page.querySelector('#refreshTargetDiagnosticsBtn');
+                    var message = page.querySelector('#targetDiagnosticsMessage');
+                    var table = page.querySelector('#targetDiagnosticsTable');
+                    if (button) button.disabled = true;
+                    if (message) {
+                        message.textContent = "Validating saved bridge targets...";
+                        message.style.color = "";
+                    }
+
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/TargetDiagnostics")).then(function (diagnostics) {
+                        diagnostics = diagnostics || {};
+                        var targets = HueConfigurationPage.readStatusField(diagnostics, "Targets", []);
+                        targets = Array.isArray(targets) ? targets : [];
+                        var allReady = HueConfigurationPage.readStatusField(diagnostics, "AllTargetsReady", false);
+                        var readyCount = HueConfigurationPage.readStatusField(diagnostics, "ReadyTargetCount", 0);
+
+                        if (message) {
+                            if (targets.length === 0) {
+                                message.textContent = "No default or enabled per-user bridge targets are configured.";
+                                message.style.color = "#f0ad4e";
+                            } else {
+                                message.textContent = allReady
+                                    ? "All " + String(readyCount) + " saved target(s) are ready for playback."
+                                    : String(readyCount) + " of " + String(targets.length) + " saved target(s) are ready; review the results below.";
+                                message.style.color = allReady ? "#8bc34a" : "#f0ad4e";
+                            }
+                        }
+
+                        if (!table) return;
+                        if (targets.length === 0) {
+                            table.innerHTML = "";
+                            return;
+                        }
+
+                        var html = '<table style="width: 100%; border-collapse: collapse; min-width: 640px;">';
+                        html += '<thead><tr style="border-bottom: 1px solid #444;">';
+                        html += '<th style="text-align: left; padding: 8px;">Target</th>';
+                        html += '<th style="text-align: left; padding: 8px;">Bridge / area</th>';
+                        html += '<th style="text-align: left; padding: 8px;">Credentials</th>';
+                        html += '<th style="text-align: left; padding: 8px;">Bridge data</th>';
+                        html += '<th style="text-align: left; padding: 8px;">Result</th>';
+                        html += '</tr></thead><tbody>';
+
+                        targets.forEach(function (target) {
+                            var scope = HueConfigurationPage.readStatusField(target, "Scope", "Target");
+                            var userName = HueConfigurationPage.readStatusField(target, "UserName", "");
+                            var userId = HueConfigurationPage.readStatusField(target, "UserId", "");
+                            var label = scope === "User"
+                                ? (userName || userId || "User mapping")
+                                : "Default target";
+                            var bridgeIp = HueConfigurationPage.readStatusField(target, "BridgeIp", "—");
+                            var areaId = HueConfigurationPage.readStatusField(target, "EntertainmentAreaId", "");
+                            var areaName = HueConfigurationPage.readStatusField(target, "EntertainmentAreaName", "");
+                            var area = areaName ? areaName + " (" + areaId + ")" : (areaId || "No area selected");
+                            var hasAppKey = HueConfigurationPage.readStatusField(target, "HasAppKey", false);
+                            var hasClientKey = HueConfigurationPage.readStatusField(target, "HasClientKey", false);
+                            var reachable = HueConfigurationPage.readStatusField(target, "BridgeReachable", false);
+                            var areaFound = HueConfigurationPage.readStatusField(target, "AreaFound", false);
+                            var channelCount = HueConfigurationPage.readStatusField(target, "ChannelCount", 0);
+                            var ready = HueConfigurationPage.readStatusField(target, "Ready", false);
+                            var status = HueConfigurationPage.readStatusField(target, "Status", "Unable to validate target.");
+                            var inherited = HueConfigurationPage.readStatusField(target, "InheritsDefaultBridge", false);
+                            var resultColor = ready ? "#8bc34a" : "#f0ad4e";
+                            html += '<tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">';
+                            html += '<td style="padding: 8px;">' + escapeHtml(label) + (inherited ? '<div class="fieldDescription">inherits default</div>' : '') + '</td>';
+                            html += '<td style="padding: 8px;">' + escapeHtml(String(bridgeIp) + " / " + area) + '</td>';
+                            html += '<td style="padding: 8px;">App Key: ' + (hasAppKey ? 'present' : 'missing') + '<br />Client Key: ' + (hasClientKey ? 'present' : 'missing') + '</td>';
+                            html += '<td style="padding: 8px;">Bridge: ' + (reachable ? 'reachable' : 'unreachable') + '<br />Area: ' + (areaFound ? 'found' : 'not found') + '<br />Channels: ' + escapeHtml(String(channelCount)) + '</td>';
+                            html += '<td style="padding: 8px; color: ' + resultColor + ';">' + escapeHtml(status) + '</td>';
+                            html += '</tr>';
+                        });
+
+                        html += '</tbody></table>';
+                        table.innerHTML = html;
+                    }).catch(function (err) {
+                        console.error("Failed to validate Hue bridge targets:", err);
+                        if (message) {
+                            message.textContent = "Unable to validate saved targets. Check the server log and bridge access.";
+                            message.style.color = "#d9534f";
+                        }
+                        if (table) table.innerHTML = "";
+                    }).finally(function () {
+                        page._hueTargetDiagnosticsLoading = false;
+                        if (button) button.disabled = false;
+                    });
+                },
                 stopRuntimeSync: function (page) {
                     if (!page || page._hueRuntimeStopInFlight) return;
 
@@ -2840,6 +2937,10 @@
 
             document.querySelector('#refreshDiagnosticsBtn').addEventListener('click', function () {
                 HueConfigurationPage.loadEnvironmentDiagnostics(this.closest('.page'));
+            });
+
+            document.querySelector('#refreshTargetDiagnosticsBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadTargetDiagnostics(this.closest('.page'));
             });
 
             document.querySelector('#stopRuntimeSyncBtn').addEventListener('click', function () {
