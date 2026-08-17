@@ -1,0 +1,77 @@
+name: Security Scan
+
+# Free OSS secret + code scanning (report-only variant for solo repos).
+# gitleaks (secrets) + semgrep (SAST). Findings appear in the job summary and
+# downloadable artifacts; neither job fails the build. Dependency scanning stays
+# with free Dependabot alerts. Flip gitleaks to blocking by changing exit-code
+# handling in the "Scan git history" step.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        run: |
+          TAG=$(curl -sSfL -H "Authorization: Bearer ${{ github.token }}" \
+            https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/${TAG}/gitleaks_${TAG#v}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo install gitleaks /usr/local/bin/
+      - name: Scan git history
+        run: |
+          gitleaks detect --source . --redact --exit-code 0 \
+            --report-format json --report-path gitleaks.json
+          COUNT=$(jq 'length' gitleaks.json)
+          { echo "### Secret scan (gitleaks)"; echo "Leaks found: **$COUNT** (report-only)"; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "::warning::gitleaks found $COUNT potential secret(s); see the gitleaks-report artifact"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: gitleaks.json
+          if-no-files-found: ignore
+
+  semgrep:
+    name: Static analysis (semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install semgrep
+        run: pip install --disable-pip-version-check semgrep
+      - name: Scan (OSS rules)
+        env:
+          SEMGREP_SEND_METRICS: 'off'
+        run: |
+          semgrep scan --config auto --metrics off --json --output semgrep.json . || true
+          COUNT=$(jq '.results | length' semgrep.json 2>/dev/null || echo 0)
+          { echo "### Static analysis (semgrep)"; echo "Findings: **$COUNT** (informational)"; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-report
+          path: semgrep.json
+          if-no-files-found: ignore
