@@ -93,10 +93,33 @@ namespace Jellyfin.Plugin.Hue.Video
             => BuildVideoFilter(frameWidth, frameHeight, PluginConfiguration.VideoScalingModeStretch);
 
         internal static string BuildVideoFilter(int frameWidth, int frameHeight, string? scalingMode)
+            => BuildVideoFilter(
+                frameWidth,
+                frameHeight,
+                scalingMode,
+                PluginConfiguration.VideoDeinterlaceModeOff);
+
+        internal static string BuildVideoFilter(
+            int frameWidth,
+            int frameHeight,
+            string? scalingMode,
+            string? deinterlaceMode)
         {
             if (frameWidth <= 0 || frameHeight <= 0)
                 throw new ArgumentOutOfRangeException(nameof(frameWidth), "FFmpeg output dimensions must be positive.");
 
+            var scalingFilter = BuildScalingFilter(frameWidth, frameHeight, scalingMode);
+            if (string.Equals(deinterlaceMode, PluginConfiguration.VideoDeinterlaceModeOn, StringComparison.OrdinalIgnoreCase))
+                return $"yadif=mode=send_frame:deint=all,{scalingFilter}";
+
+            if (string.Equals(deinterlaceMode, PluginConfiguration.VideoDeinterlaceModeAuto, StringComparison.OrdinalIgnoreCase))
+                return $"yadif=mode=send_frame:deint=interlaced,{scalingFilter}";
+
+            return scalingFilter;
+        }
+
+        private static string BuildScalingFilter(int frameWidth, int frameHeight, string? scalingMode)
+        {
             if (string.Equals(scalingMode, PluginConfiguration.VideoScalingModeFit, StringComparison.OrdinalIgnoreCase))
             {
                 return $"scale={frameWidth}:{frameHeight}:force_original_aspect_ratio=decrease," +
@@ -167,6 +190,7 @@ namespace Jellyfin.Plugin.Hue.Video
         /// <param name="frameWidth">Output frame width in pixels (default: 160)</param>
         /// <param name="frameHeight">Output frame height in pixels (default: 90)</param>
         /// <param name="scalingMode">Video fit mode: Stretch, Fit, or Crop (default: Stretch)</param>
+        /// <param name="deinterlaceMode">Video deinterlacing: Off, Auto for flagged interlaced frames, or On (default: Off)</param>
         /// <returns>Stream of raw RGB24 frames, or null if failed</returns>
         public Stream? StartFfmpeg(
             string videoPath,
@@ -177,7 +201,8 @@ namespace Jellyfin.Plugin.Hue.Video
             double seekPositionSeconds = 0,
             int frameWidth = 160,
             int frameHeight = 90,
-            string scalingMode = PluginConfiguration.VideoScalingModeStretch)
+            string scalingMode = PluginConfiguration.VideoScalingModeStretch,
+            string deinterlaceMode = PluginConfiguration.VideoDeinterlaceModeOff)
         {
             if (string.IsNullOrWhiteSpace(videoPath))
             {
@@ -232,7 +257,7 @@ namespace Jellyfin.Plugin.Hue.Video
             var startInfo = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"{flags}{seekPrefix}-i \"{videoPath}\" -vf {BuildVideoFilter(frameWidth, frameHeight, scalingMode)} -r {fps} -f rawvideo -pix_fmt rgb24 pipe:1",
+                Arguments = $"{flags}{seekPrefix}-i \"{videoPath}\" -vf {BuildVideoFilter(frameWidth, frameHeight, scalingMode, deinterlaceMode)} -r {fps} -f rawvideo -pix_fmt rgb24 pipe:1",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,

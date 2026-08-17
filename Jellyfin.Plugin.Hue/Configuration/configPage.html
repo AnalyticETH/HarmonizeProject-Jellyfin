@@ -20,6 +20,7 @@
                             <div><strong>Active target:</strong> <span id="runtimeTarget">—</span></div>
                             <div><strong>Frame resolution:</strong> <span id="runtimeResolution">—</span></div>
                             <div><strong>Video fit:</strong> <span id="runtimeScalingMode">—</span></div>
+                            <div><strong>Deinterlace:</strong> <span id="runtimeDeinterlaceMode">—</span></div>
                         </div>
                         <div style="flex: 1 1 280px;">
                             <div><strong>Health:</strong> <span id="runtimeHealth">—</span></div>
@@ -130,6 +131,16 @@
                                 <option value="Crop">Crop to fill frame</option>
                             </select>
                             <div class="fieldDescription">Stretch fills the 16:9 sampler exactly. Fit preserves the source aspect ratio with bars; Crop preserves it while trimming the excess edges.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="videoDeinterlaceMode">Video Deinterlacing</label>
+                            <select id="videoDeinterlaceMode" name="videoDeinterlaceMode" is="emby-select">
+                                <option value="Off">Off (progressive video, default)</option>
+                                <option value="Auto">Auto (flagged interlaced frames)</option>
+                                <option value="On">Always deinterlace</option>
+                            </select>
+                            <div class="fieldDescription">Use Auto for television or DVD sources that carry interlaced frame flags. On forces deinterlacing for every frame and uses more CPU.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -373,6 +384,7 @@
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#frameResolution').value = getConfigValue('FrameResolution', '160x90');
                         page.querySelector('#videoScalingMode').value = getConfigValue('VideoScalingMode', 'Stretch');
+                        page.querySelector('#videoDeinterlaceMode').value = getConfigValue('VideoDeinterlaceMode', 'Off');
                         page.querySelector('#samplingBreadthPercent').value = getConfigValue('SamplingBreadthPercent', 15);
                         page.querySelector('#samplingMode').value = getConfigValue('SamplingMode', 'Average');
                         page.querySelector('#colorSmoothingPercent').value = getConfigValue('ColorSmoothingPercent', 0);
@@ -412,6 +424,7 @@
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         FrameResolution: page.querySelector('#frameResolution').value,
                         VideoScalingMode: page.querySelector('#videoScalingMode').value,
+                        VideoDeinterlaceMode: page.querySelector('#videoDeinterlaceMode').value,
                         SamplingBreadthPercent: parseNumberOrDefault('#samplingBreadthPercent', 15),
                         SamplingMode: page.querySelector('#samplingMode').value,
                         ColorSmoothingPercent: parseNumberOrDefault('#colorSmoothingPercent', 0),
@@ -664,6 +677,7 @@
                         var currentItem = HueConfigurationPage.readStatusField(status, "CurrentItem", "—");
                         var frameResolution = HueConfigurationPage.readStatusField(status, "ActiveFrameResolution", "—");
                         var scalingMode = HueConfigurationPage.readStatusField(status, "ActiveVideoScalingMode", "—");
+                        var deinterlaceMode = HueConfigurationPage.readStatusField(status, "ActiveVideoDeinterlaceMode", "—");
                         var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
                         var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
                         var frames = HueConfigurationPage.readStatusField(status, "FramesProcessed", 0);
@@ -682,6 +696,7 @@
                         page.querySelector('#runtimeItem').textContent = currentItem || "—";
                         page.querySelector('#runtimeResolution').textContent = frameResolution || "—";
                         page.querySelector('#runtimeScalingMode').textContent = scalingMode || "—";
+                        page.querySelector('#runtimeDeinterlaceMode').textContent = deinterlaceMode || "—";
                         page.querySelector('#runtimeTarget').textContent = activeBridge && activeArea && activeBridge !== "—"
                             ? activeBridge + " / " + activeArea
                             : "—";

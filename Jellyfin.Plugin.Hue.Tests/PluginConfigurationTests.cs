@@ -421,6 +421,7 @@ public class PluginConfigurationTests
         Assert.Equal(20, config.TargetFps);
         Assert.Equal(PluginConfiguration.FrameResolutionStandard, config.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeStretch, config.VideoScalingMode);
+        Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOff, config.VideoDeinterlaceMode);
         Assert.Equal(15, config.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeAverage, config.SamplingMode);
         Assert.Equal(0, config.ColorSmoothingPercent);
@@ -526,6 +527,48 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         Assert.DoesNotContain("Video scaling mode must be Stretch, Fit, or Crop", errors);
+    }
+
+    [Theory]
+    [InlineData("Unsupported")]
+    [InlineData("")]
+    public void Validate_WhenVideoDeinterlaceModeIsInvalid_ReturnsError(string videoDeinterlaceMode)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            VideoDeinterlaceMode = videoDeinterlaceMode
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Video deinterlace mode must be Off, Auto, or On", errors);
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.VideoDeinterlaceModeOff)]
+    [InlineData(PluginConfiguration.VideoDeinterlaceModeAuto)]
+    [InlineData(PluginConfiguration.VideoDeinterlaceModeOn)]
+    [InlineData("auto")]
+    public void Validate_WhenVideoDeinterlaceModeIsValid_ReturnsNoDeinterlaceError(string videoDeinterlaceMode)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            VideoDeinterlaceMode = videoDeinterlaceMode
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("Video deinterlace mode must be Off, Auto, or On", errors);
     }
 
     [Theory]

@@ -37,6 +37,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string VideoScalingModeStretch = "Stretch";
         public const string VideoScalingModeFit = "Fit";
         public const string VideoScalingModeCrop = "Crop";
+        public const string VideoDeinterlaceModeOff = "Off";
+        public const string VideoDeinterlaceModeAuto = "Auto";
+        public const string VideoDeinterlaceModeOn = "On";
 
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
@@ -74,6 +77,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = FrameResolutionStandard;
         public string VideoScalingMode { get; set; } = VideoScalingModeStretch;
+        public string VideoDeinterlaceMode { get; set; } = VideoDeinterlaceModeOff;
         public int SamplingBreadthPercent { get; set; } = 15;
         public string SamplingMode { get; set; } = SamplingModeAverage;
         public int ColorSmoothingPercent { get; set; } = 0;
@@ -176,6 +180,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     !string.Equals(VideoScalingMode, VideoScalingModeFit, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(VideoScalingMode, VideoScalingModeCrop, StringComparison.OrdinalIgnoreCase))
                     errors.Add("Video scaling mode must be Stretch, Fit, or Crop");
+
+                if (!string.Equals(VideoDeinterlaceMode, VideoDeinterlaceModeOff, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(VideoDeinterlaceMode, VideoDeinterlaceModeAuto, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(VideoDeinterlaceMode, VideoDeinterlaceModeOn, StringComparison.OrdinalIgnoreCase))
+                    errors.Add("Video deinterlace mode must be Off, Auto, or On");
 
                 if (!string.Equals(PauseBehavior, PauseBehaviorKeepLastColors, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(PauseBehavior, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase))

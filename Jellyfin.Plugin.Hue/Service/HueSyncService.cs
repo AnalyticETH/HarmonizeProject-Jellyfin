@@ -72,6 +72,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _currentItemName;
         private string? _currentFrameResolution;
         private string? _currentVideoScalingMode;
+        private string? _currentVideoDeinterlaceMode;
         private string? _manuallyStoppedPlaySessionId;
         private string _runtimeState = "Idle";
         private string _runtimeMessage = "Waiting for playback.";
@@ -205,6 +206,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentItemName = null;
                     _currentFrameResolution = null;
                     _currentVideoScalingMode = null;
+                    _currentVideoDeinterlaceMode = null;
 
                     if (bridgeConfig != null && (!areaAlreadyDeactivated || savedLightStates != null))
                     {
@@ -256,6 +258,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentBridgeConfig = null;
                 _currentFrameResolution = null;
                 _currentVideoScalingMode = null;
+                _currentVideoDeinterlaceMode = null;
 
                 await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
                 SetRuntimeStatus("Stopped", "Hue sync stopped by an administrator; playback continues.");
@@ -278,6 +281,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string? currentItem;
             string? currentFrameResolution;
             string? currentVideoScalingMode;
+            string? currentVideoDeinterlaceMode;
             string state;
             string message;
             string? lastError;
@@ -291,6 +295,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentItem = _currentItemName;
                 currentFrameResolution = _currentFrameResolution;
                 currentVideoScalingMode = _currentVideoScalingMode;
+                currentVideoDeinterlaceMode = _currentVideoDeinterlaceMode;
                 state = _runtimeState;
                 message = _runtimeMessage;
                 lastError = _lastError;
@@ -314,6 +319,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 CurrentItem = currentItem,
                 ActiveFrameResolution = isSyncing ? currentFrameResolution : null,
                 ActiveVideoScalingMode = isSyncing ? currentVideoScalingMode : null,
+                ActiveVideoDeinterlaceMode = isSyncing ? currentVideoDeinterlaceMode : null,
                 ActiveBridgeIp = isSyncing ? bridgeConfig?.BridgeIp : null,
                 ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
                 IsSyncing = isSyncing,
@@ -534,6 +540,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentBridgeConfig = null;
             _currentFrameResolution = null;
             _currentVideoScalingMode = null;
+            _currentVideoDeinterlaceMode = null;
 
             try
             {
@@ -676,6 +683,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentBridgeConfig = null;
                     _currentFrameResolution = null;
                     _currentVideoScalingMode = null;
+                    _currentVideoDeinterlaceMode = null;
                     await RestoreAndDeactivateAsync(
                         config,
                         bridgeConfig,
@@ -1302,6 +1310,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentBridgeConfig = null;
                 _currentFrameResolution = null;
                 _currentVideoScalingMode = null;
+                _currentVideoDeinterlaceMode = null;
 
                 try
                 {
@@ -1465,6 +1474,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             var frameResolution = config.FrameResolution;
             var videoScalingMode = config.VideoScalingMode;
+            var videoDeinterlaceMode = config.VideoDeinterlaceMode;
 
             // Get user-specific bridge configuration
             var (bridgeIp, appKey, clientKey, areaId) = config.GetBridgeConfigForUser(userId);
@@ -1505,6 +1515,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentItemName = e.Item?.Name;
                     _currentFrameResolution = frameResolution;
                     _currentVideoScalingMode = videoScalingMode;
+                    _currentVideoDeinterlaceMode = videoDeinterlaceMode;
                     syncStatePublished = true;
                 }
             }
@@ -1630,7 +1641,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     seekPositionSeconds: seekSeconds,
                     frameWidth: frameWidth,
                     frameHeight: frameHeight,
-                    scalingMode: videoScalingMode);
+                    scalingMode: videoScalingMode,
+                    deinterlaceMode: videoDeinterlaceMode);
                 if (videoStream == null)
                 {
                     _logger.LogWarning("FFmpeg stream could not be started for path {0}", videoPath);
@@ -1788,6 +1800,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentBridgeConfig = null;
             _currentFrameResolution = null;
             _currentVideoScalingMode = null;
+            _currentVideoDeinterlaceMode = null;
             await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
         }
 
@@ -1884,6 +1897,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public string? CurrentItem { get; init; }
         public string? ActiveFrameResolution { get; init; }
         public string? ActiveVideoScalingMode { get; init; }
+        public string? ActiveVideoDeinterlaceMode { get; init; }
         public string? ActiveBridgeIp { get; init; }
         public string? ActiveEntertainmentAreaId { get; init; }
         public bool IsSyncing { get; init; }

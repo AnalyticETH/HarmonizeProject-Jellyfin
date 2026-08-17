@@ -33,6 +33,7 @@ public sealed class HueSyncServiceLifecycleTests
             "192.168.1.100", "secret-app-key", "secret-client-key", "area-id"));
         SetPrivateField(service, "_currentFrameResolution", PluginConfiguration.FrameResolutionHigh);
         SetPrivateField(service, "_currentVideoScalingMode", PluginConfiguration.VideoScalingModeFit);
+        SetPrivateField(service, "_currentVideoDeinterlaceMode", PluginConfiguration.VideoDeinterlaceModeAuto);
         SetPrivateField(service, "_currentItemName", "Feature film");
         SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-3));
         SetPrivateField(service, "_runtimeState", "Syncing");
@@ -45,6 +46,7 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal("Feature film", status.CurrentItem);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, status.ActiveFrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, status.ActiveVideoScalingMode);
+        Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, status.ActiveVideoDeinterlaceMode);
         Assert.Equal("192.168.1.100", status.ActiveBridgeIp);
         Assert.Equal("area-id", status.ActiveEntertainmentAreaId);
         Assert.True(status.SyncDurationSeconds >= 2);

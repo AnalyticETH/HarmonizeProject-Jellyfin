@@ -30,6 +30,35 @@ public sealed class FfmpegStreamerTests
     }
 
     [Theory]
+    [InlineData("Off", "scale=160:90")]
+    [InlineData("Auto", "yadif=mode=send_frame:deint=interlaced,scale=160:90")]
+    [InlineData("On", "yadif=mode=send_frame:deint=all,scale=160:90")]
+    [InlineData("auto", "yadif=mode=send_frame:deint=interlaced,scale=160:90")]
+    [InlineData("Unsupported", "scale=160:90")]
+    public void BuildVideoFilter_UsesRequestedDeinterlaceMode(string deinterlaceMode, string expected)
+    {
+        Assert.Equal(
+            expected,
+            FfmpegStreamer.BuildVideoFilter(
+                160,
+                90,
+                PluginConfiguration.VideoScalingModeStretch,
+                deinterlaceMode));
+    }
+
+    [Fact]
+    public void BuildVideoFilter_ComposesDeinterlaceBeforeAspectPreservingScale()
+    {
+        Assert.Equal(
+            "yadif=mode=send_frame:deint=interlaced,scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2",
+            FfmpegStreamer.BuildVideoFilter(
+                160,
+                90,
+                PluginConfiguration.VideoScalingModeFit,
+                PluginConfiguration.VideoDeinterlaceModeAuto));
+    }
+
+    [Theory]
     [InlineData(0, 90)]
     [InlineData(160, 0)]
     public void BuildVideoFilter_RejectsNonPositiveDimensions(int frameWidth, int frameHeight)
