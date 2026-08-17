@@ -95,6 +95,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int NetworkRetryAttempts)? _activeExecutionSettings;
         private IReadOnlySet<int>? _activeChannelIds;
         private bool? _activeUseCinemaMode;
+        private bool? _activeCinemaModeAttempted;
         private bool? _activeRestoreLightState;
         private string? _activePauseBehavior;
         private string? _manuallyStoppedPlaySessionId;
@@ -249,6 +250,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     lock (_syncLock)
                     {
                         _activeUseCinemaMode = null;
+                        _activeCinemaModeAttempted = null;
                         _activeRestoreLightState = null;
                         _activePauseBehavior = null;
                         _activeColorProcessingSettings = null;
@@ -1970,6 +1972,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _activeExecutionSettings = executionSettings;
                     _activeChannelIds = selectedChannelIds;
                     _activeUseCinemaMode = useCinemaMode;
+                    _activeCinemaModeAttempted = false;
                     _activeRestoreLightState = restoreLightState;
                     _activePauseBehavior = pauseBehavior;
                     syncStatePublished = true;
@@ -2060,19 +2063,41 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (shouldCaptureLightState)
                 {
                     _logger.LogInformation("Saving current light states for restoration");
-                    var savedLightStates = await _hueClient.GetLightStates(
+                    var captureResult = await _hueClient.GetLightStatesWithResult(
                         bridgeIp,
                         appKey,
                         areaConfig.Value,
                         selectedChannelIds);
                     if (token.IsCancellationRequested)
                         return;
-                    _savedLightStates = savedLightStates;
+
+                    if (!captureResult.Succeeded || captureResult.AttemptedCount == 0)
+                    {
+                        _logger.LogError(
+                            "Could not capture a complete light-state snapshot: captured {0} of {1}, failed {2}",
+                            captureResult.CapturedCount,
+                            captureResult.AttemptedCount,
+                            captureResult.FailedCount);
+                        SetRuntimeError(
+                            captureResult.AttemptedCount == 0
+                                ? "Could not capture any light states for safe restoration."
+                                : $"Could not capture all light states for safe restoration ({captureResult.CapturedCount} of {captureResult.AttemptedCount} captured; {captureResult.FailedCount} failed).");
+                        return;
+                    }
+
+                    _savedLightStates = captureResult.States;
                     _savedLightStatePlaySessionId = e.PlaySessionId;
                 }
 
                 if (useCinemaMode)
                 {
+                    lock (_syncLock)
+                    {
+                        // Treat the attempt as a mutation even if the temporary stream
+                        // reports failure: a packet may have reached the bridge before
+                        // the failure was observed, so cleanup must still restore it.
+                        _activeCinemaModeAttempted = true;
+                    }
                     _logger.LogInformation("Cinema mode enabled, dimming lights to {0}%", brightnessDimLevel);
                     await ApplyCinemaMode(
                         bridgeIp,
@@ -2215,11 +2240,13 @@ namespace Jellyfin.Plugin.Hue.Service
             bool clearCurrentItem = true)
         {
             bool effectiveUseCinemaMode;
+            bool cinemaModeAttempted;
             bool effectiveRestoreLightState;
             IReadOnlySet<int>? activeChannelIds;
             lock (_syncLock)
             {
                 effectiveUseCinemaMode = _activeUseCinemaMode ?? config?.UseCinemaMode ?? false;
+                cinemaModeAttempted = _activeCinemaModeAttempted ?? effectiveUseCinemaMode;
                 effectiveRestoreLightState = _activeRestoreLightState ?? config?.RestoreLightState ?? true;
                 activeChannelIds = _activeChannelIds;
             }
@@ -2245,7 +2272,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         _savedLightStatePlaySessionId = null;
                     }
                 }
-                else if (effectiveUseCinemaMode && bridgeConfig != null)
+                else if (effectiveUseCinemaMode && cinemaModeAttempted && bridgeConfig != null)
                 {
                     _logger.LogInformation("Restoring lights after playback");
                     if (!await RestoreLightsAfterPlayback(
@@ -2282,6 +2309,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 lock (_syncLock)
                 {
                     _activeUseCinemaMode = null;
+                    _activeCinemaModeAttempted = null;
                     _activeRestoreLightState = null;
                     _activePauseBehavior = null;
                     _activeColorProcessingSettings = null;

@@ -339,6 +339,53 @@ public sealed class HueSyncServiceLifecycleTests
         await service.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task IncompleteLightCapture_DoesNotApplyCinemaModeDuringRollback()
+    {
+        var handler = new BlockingHueHandler
+        {
+            ConfigurationJson = "{\"data\":[{\"channels\":[{\"channel_id\":1,\"position\":{\"x\":0,\"z\":0},\"members\":[{\"service\":{\"rid\":\"light-id\"}}]}]}]}",
+            FailLightCaptureRequests = true
+        };
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+        Plugin.Instance!.Configuration.RestoreLightState = true;
+        Plugin.Instance.Configuration.UseCinemaMode = true;
+        Plugin.Instance.Configuration.NetworkRetryAttempts = 0;
+        ((HueClient)GetPrivateField(service, "_hueClient")!).RetryAttempts = 0;
+
+        var startMethod = typeof(HueSyncService).GetMethod("StartSyncForItemCore", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var startTask = Assert.IsAssignableFrom<Task>(startMethod.Invoke(service, new object?[]
+        {
+            CreateProgress("capture-failure-session"),
+            CancellationToken.None
+        }));
+
+        await handler.FirstConfigurationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseFirstConfiguration();
+        await handler.LightCaptureRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var cleanupSignal = await Task.WhenAny(
+            handler.StopRequest.Task,
+            handler.RestorationRequest.Task,
+            startTask).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(
+            ReferenceEquals(cleanupSignal, handler.StopRequest.Task),
+            $"Unexpected cleanup state: stop={handler.StopRequest.Task.IsCompleted}, restoration={handler.RestorationRequest.Task.IsCompleted}, start={startTask.IsCompleted}");
+
+        Assert.Equal(0, handler.StartAreaRequestCount);
+        Assert.Contains("capture", service.GetRuntimeStatus().LastError, StringComparison.OrdinalIgnoreCase);
+
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await startTask;
+        await WaitForSyncStateClearedAsync(service);
+
+        Assert.Equal(0, handler.StartAreaRequestCount);
+        Assert.Null(GetPrivateField(service, "_savedLightStates"));
+        await service.StopAsync(CancellationToken.None);
+    }
+
     private static async Task WaitForRuntimeStatusAsync(
         HueSyncService service,
         string expectedState,
@@ -914,6 +961,9 @@ public sealed class HueSyncServiceLifecycleTests
         public TaskCompletionSource<bool> StopRequestCompleted { get; } = NewSignal();
         public TaskCompletionSource<bool> RestorationRequest { get; } = NewSignal();
         public bool FailRestorationRequests { get; set; }
+        public bool FailLightCaptureRequests { get; set; }
+        public TaskCompletionSource<bool> LightCaptureRequest { get; } = NewSignal();
+        public int StartAreaRequestCount { get; private set; }
 
         private readonly TaskCompletionSource<bool> _firstConfigurationRelease = NewSignal();
         private readonly TaskCompletionSource<bool> _stopRelease = NewSignal();
@@ -940,9 +990,18 @@ public sealed class HueSyncServiceLifecycleTests
                 return ConfigurationResponse(ConfigurationJson);
             }
 
+            if (request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath.Contains("/light/", StringComparison.Ordinal) == true)
+            {
+                LightCaptureRequest.TrySetResult(true);
+                if (FailLightCaptureRequests)
+                    return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            }
+
             if (request.Method == HttpMethod.Put)
             {
                 var body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
+                if (body.Contains("\"start\"", StringComparison.Ordinal))
+                    StartAreaRequestCount++;
                 if (request.RequestUri?.AbsolutePath.Contains("/light/", StringComparison.Ordinal) == true)
                 {
                     RestorationRequest.TrySetResult(true);

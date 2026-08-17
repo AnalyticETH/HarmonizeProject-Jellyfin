@@ -498,6 +498,149 @@ public class HueClientTests : IDisposable
         Assert.Empty(result);
     }
 
+    [Fact]
+    public async Task GetLightStatesWithResult_RetriesTransientFailureAndReportsSuccess()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-1""}}] }
+            ]
+        }");
+        var requestCount = 0;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                requestCount++;
+                return requestCount == 1
+                    ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                    : new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(@"{
+                            ""data"": [{
+                                ""on"": {""on"": true},
+                                ""dimming"": {""brightness"": 50},
+                                ""color"": {""xy"": {""x"": 0.3, ""y"": 0.3}}
+                            }]
+                        }")
+                    };
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 1
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.AttemptedCount);
+        Assert.Equal(1, result.CapturedCount);
+        Assert.Equal(0, result.FailedCount);
+        Assert.Equal(2, requestCount);
+    }
+
+    [Fact]
+    public async Task GetLightStatesWithResult_ReportsPartialCaptureFailure()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-1""}}] },
+                { ""channel_id"": 1, ""members"": [{""service"": {""rid"": ""light-2""}}] }
+            ]
+        }");
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                request.RequestUri!.AbsolutePath.EndsWith("light-2", StringComparison.Ordinal)
+                    ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                    : new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(@"{
+                            ""data"": [{
+                                ""on"": {""on"": true},
+                                ""dimming"": {""brightness"": 50},
+                                ""color"": {""xy"": {""x"": 0.3, ""y"": 0.3}}
+                            }]
+                        }")
+                    });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(2, result.AttemptedCount);
+        Assert.Equal(1, result.CapturedCount);
+        Assert.Equal(1, result.FailedCount);
+        Assert.Single(result.States);
+        Assert.Equal("light-1", result.States[0].Id);
+    }
+
+    [Fact]
+    public async Task GetLightStatesWithResult_CapturesSharedLightOnlyOnce()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""shared-light""}}] },
+                { ""channel_id"": 1, ""members"": [{""service"": {""rid"": ""shared-light""}}] }
+            ]
+        }");
+        var requestedLightIds = new List<string>();
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+            {
+                requestedLightIds.Add(request.RequestUri!.Segments[^1].Trim('/'));
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(@"{
+                    ""data"": [{
+                        ""on"": {""on"": true},
+                        ""dimming"": {""brightness"": 50},
+                        ""color"": {""xy"": {""x"": 0.3, ""y"": 0.3}}
+                    }]
+                }")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.AttemptedCount);
+        Assert.Equal(1, result.CapturedCount);
+        Assert.Equal(new[] { "shared-light" }, requestedLightIds);
+    }
+
     #endregion
 
     #region RestoreLightStates Tests

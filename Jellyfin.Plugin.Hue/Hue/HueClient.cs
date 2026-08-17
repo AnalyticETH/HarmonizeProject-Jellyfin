@@ -429,6 +429,19 @@ namespace Jellyfin.Plugin.Hue.Hue
         }
 
         /// <summary>
+        /// Summarizes a light-state capture attempt without exposing bridge credentials
+        /// or individual light identifiers.
+        /// </summary>
+        public sealed class LightStateCaptureResult
+        {
+            public List<LightState> States { get; init; } = new();
+            public int AttemptedCount { get; init; }
+            public int FailedCount { get; init; }
+            public int CapturedCount => States.Count;
+            public bool Succeeded => FailedCount == 0;
+        }
+
+        /// <summary>
         /// Gets the current state of lights in an entertainment area for restoration later.
         /// When channelIds is supplied, only lights belonging to those channel IDs are read.
         /// </summary>
@@ -436,20 +449,43 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="appKey">The application key for authentication</param>
         /// <param name="areaConfig">The entertainment area configuration</param>
         /// <param name="channelIds">Optional entertainment channel IDs to capture.</param>
-        /// <returns>List of light states, or null if failed</returns>
-        public async Task<List<LightState>?> GetLightStates(
+        /// <returns>The light states that were captured. Use GetLightStatesWithResult when
+        /// the caller must distinguish a complete capture from a partial one.</returns>
+        public async Task<List<LightState>> GetLightStates(
             string bridgeIp,
             string appKey,
             JsonElement areaConfig,
             IReadOnlySet<int>? channelIds = null)
         {
-            return await ExecuteWithRetry(async () =>
+            var result = await GetLightStatesWithResult(
+                bridgeIp,
+                appKey,
+                areaConfig,
+                channelIds).ConfigureAwait(false);
+            return result.States;
+        }
+
+        /// <summary>
+        /// Gets the current state of each unique light in an entertainment area with the
+        /// configured retry policy and reports partial capture failures explicitly.
+        /// </summary>
+        /// <param name="bridgeIp">The IP address of the Hue Bridge</param>
+        /// <param name="appKey">The application key for authentication</param>
+        /// <param name="areaConfig">The entertainment area configuration</param>
+        /// <param name="channelIds">Optional entertainment channel IDs to capture.</param>
+        /// <returns>A capture summary. States can be partial when one or more light requests fail.</returns>
+        public async Task<LightStateCaptureResult> GetLightStatesWithResult(
+            string bridgeIp,
+            string appKey,
+            JsonElement areaConfig,
+            IReadOnlySet<int>? channelIds = null)
+        {
+            var lightIds = new List<string>();
+            var seenLightIds = new HashSet<string>(StringComparer.Ordinal);
+
+            if (areaConfig.TryGetProperty("channels", out var channels) &&
+                channels.ValueKind == JsonValueKind.Array)
             {
-                var states = new List<LightState>();
-
-                if (!areaConfig.TryGetProperty("channels", out var channels) || channels.ValueKind != JsonValueKind.Array)
-                    return states;
-
                 foreach (var channel in channels.EnumerateArray())
                 {
                     if (channelIds != null &&
@@ -470,77 +506,99 @@ namespace Jellyfin.Plugin.Hue.Hue
                             continue;
 
                         var lightId = ridProp.GetString();
-                        if (string.IsNullOrEmpty(lightId))
+                        if (string.IsNullOrWhiteSpace(lightId) || !seenLightIds.Add(lightId.Trim()))
                             continue;
 
-                        try
-                        {
-                            var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/light/{Uri.EscapeDataString(lightId)}");
-                            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-                            request.Headers.Add("hue-application-key", appKey);
-
-                            using var response = await _httpClient.SendAsync(request);
-                            response.EnsureSuccessStatusCode();
-
-                            var json = await response.Content.ReadAsStringAsync();
-                            using var doc = JsonDocument.Parse(json);
-
-                            if (doc.RootElement.TryGetProperty("data", out var data) &&
-                                data.ValueKind == JsonValueKind.Array &&
-                                data.GetArrayLength() > 0)
-                            {
-                                var light = data[0];
-                                if (!light.TryGetProperty("on", out var on) || !on.TryGetProperty("on", out var onValue) ||
-                                    !light.TryGetProperty("dimming", out var dimming) ||
-                                    !dimming.TryGetProperty("brightness", out var brightnessValue))
-                                {
-                                    continue;
-                                }
-
-                                var isOn = onValue.GetBoolean();
-                                var brightness = Math.Clamp((int)brightnessValue.GetDouble(), 0, 100);
-
-                                double x = 0, y = 0;
-                                var hasColor = false;
-                                if (light.TryGetProperty("color", out var color) &&
-                                    color.TryGetProperty("xy", out var xy))
-                                {
-                                    if (xy.TryGetProperty("x", out var xValue) &&
-                                        xy.TryGetProperty("y", out var yValue) &&
-                                        xValue.ValueKind == JsonValueKind.Number &&
-                                        yValue.ValueKind == JsonValueKind.Number)
-                                    {
-                                        x = xValue.GetDouble();
-                                        y = yValue.GetDouble();
-                                        hasColor = true;
-                                    }
-                                }
-
-                                int? mirek = null;
-                                if (light.TryGetProperty("color_temperature", out var colorTemperature) &&
-                                    colorTemperature.ValueKind == JsonValueKind.Object &&
-                                    colorTemperature.TryGetProperty("mirek", out var mirekValue) &&
-                                    mirekValue.ValueKind == JsonValueKind.Number &&
-                                    mirekValue.TryGetInt32(out var mirekNumber))
-                                {
-                                    var mirekIsValid = !colorTemperature.TryGetProperty("mirek_valid", out var validValue) ||
-                                                        (validValue.ValueKind == JsonValueKind.True && validValue.GetBoolean());
-                                    if (mirekIsValid)
-                                        mirek = mirekNumber;
-                                }
-
-                                states.Add(new LightState(lightId, isOn, brightness, x, y, mirek, hasColor));
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to get state for light {0}", lightId);
-                        }
+                        lightIds.Add(lightId.Trim());
                     }
                 }
+            }
 
-                return states;
-            }) ?? null;
+            var states = new List<LightState>();
+            var failedCount = 0;
+            foreach (var lightId in lightIds)
+            {
+                try
+                {
+                    var state = await ExecuteWithRetry(async () =>
+                    {
+                        var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/light/{Uri.EscapeDataString(lightId)}");
+                        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                        request.Headers.Add("hue-application-key", appKey);
+
+                        using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                        response.EnsureSuccessStatusCode();
+
+                        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        using var doc = JsonDocument.Parse(json);
+                        if (!doc.RootElement.TryGetProperty("data", out var data) ||
+                            data.ValueKind != JsonValueKind.Array ||
+                            data.GetArrayLength() == 0)
+                        {
+                            throw new InvalidOperationException("Hue light response did not contain state data.");
+                        }
+
+                        var light = data[0];
+                        if (!light.TryGetProperty("on", out var on) ||
+                            !on.TryGetProperty("on", out var onValue) ||
+                            !light.TryGetProperty("dimming", out var dimming) ||
+                            !dimming.TryGetProperty("brightness", out var brightnessValue))
+                        {
+                            throw new InvalidOperationException("Hue light response did not contain required state fields.");
+                        }
+
+                        var isOn = onValue.GetBoolean();
+                        var brightness = Math.Clamp((int)brightnessValue.GetDouble(), 0, 100);
+
+                        double x = 0;
+                        double y = 0;
+                        var hasColor = false;
+                        if (light.TryGetProperty("color", out var color) &&
+                            color.TryGetProperty("xy", out var xy) &&
+                            xy.TryGetProperty("x", out var xValue) &&
+                            xy.TryGetProperty("y", out var yValue) &&
+                            xValue.ValueKind == JsonValueKind.Number &&
+                            yValue.ValueKind == JsonValueKind.Number)
+                        {
+                            x = xValue.GetDouble();
+                            y = yValue.GetDouble();
+                            hasColor = true;
+                        }
+
+                        int? mirek = null;
+                        if (light.TryGetProperty("color_temperature", out var colorTemperature) &&
+                            colorTemperature.ValueKind == JsonValueKind.Object &&
+                            colorTemperature.TryGetProperty("mirek", out var mirekValue) &&
+                            mirekValue.ValueKind == JsonValueKind.Number &&
+                            mirekValue.TryGetInt32(out var mirekNumber))
+                        {
+                            var mirekIsValid = !colorTemperature.TryGetProperty("mirek_valid", out var validValue) ||
+                                                (validValue.ValueKind == JsonValueKind.True && validValue.GetBoolean());
+                            if (mirekIsValid)
+                                mirek = mirekNumber;
+                        }
+
+                        return new LightState(lightId, isOn, brightness, x, y, mirek, hasColor);
+                    }).ConfigureAwait(false);
+
+                    if (state != null)
+                        states.Add(state);
+                    else
+                        failedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get state for light {0}", lightId);
+                    failedCount++;
+                }
+            }
+
+            return new LightStateCaptureResult
+            {
+                States = states,
+                AttemptedCount = lightIds.Count,
+                FailedCount = failedCount
+            };
         }
 
         /// <summary>

@@ -91,24 +91,28 @@ public sealed class HueStreamTester : IHueStreamTester
                 : "The selected channel profile has no valid controllable channels in this entertainment area.");
         }
 
-        List<HueClient.LightState>? savedLightStates;
+        List<HueClient.LightState> savedLightStates;
         try
         {
-            savedLightStates = await _hueClient.GetLightStates(
+            var captureResult = await _hueClient.GetLightStatesWithResult(
                 bridgeIp,
                 appKey,
                 areaConfiguration,
                 channelIds).ConfigureAwait(false);
+            if (!captureResult.Succeeded || captureResult.AttemptedCount == 0)
+            {
+                return Failure(
+                    captureResult.AttemptedCount == 0
+                        ? "The probe could not capture any light state safely."
+                        : $"The probe could not capture all light states safely ({captureResult.CapturedCount} of {captureResult.AttemptedCount} captured; {captureResult.FailedCount} failed).");
+            }
+
+            savedLightStates = captureResult.States;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not save light state before Hue DTLS stream probe for area {0}", areaId);
             return Failure("The probe could not save the current light state safely.");
-        }
-
-        if (savedLightStates == null)
-        {
-            return Failure("The probe could not read the current light state safely.");
         }
 
         var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId).ConfigureAwait(false);
@@ -211,24 +215,28 @@ public sealed class HueStreamTester : IHueStreamTester
                 : "The selected channel profile has no valid controllable channels in this entertainment area or the preview color is invalid.");
         }
 
-        List<HueClient.LightState>? savedLightStates;
+        List<HueClient.LightState> savedLightStates;
         try
         {
-            savedLightStates = await _hueClient.GetLightStates(
+            var captureResult = await _hueClient.GetLightStatesWithResult(
                 bridgeIp,
                 appKey,
                 areaConfiguration,
                 channelIds).ConfigureAwait(false);
+            if (!captureResult.Succeeded || captureResult.AttemptedCount == 0)
+            {
+                return Failure(
+                    captureResult.AttemptedCount == 0
+                        ? "The preview could not capture any light state safely."
+                        : $"The preview could not capture all light states safely ({captureResult.CapturedCount} of {captureResult.AttemptedCount} captured; {captureResult.FailedCount} failed).");
+            }
+
+            savedLightStates = captureResult.States;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not save light state before Hue color preview for area {0}", areaId);
             return Failure("The preview could not save the current light state safely.");
-        }
-
-        if (savedLightStates == null)
-        {
-            return Failure("The preview could not read the current light state safely.");
         }
 
         var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId).ConfigureAwait(false);

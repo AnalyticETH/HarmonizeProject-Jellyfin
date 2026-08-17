@@ -50,7 +50,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Hue Bridge Address** | The private/local IP address of your bridge (or a .local mDNS host name). |
 | **Discover Bridge** | Ask the Hue discovery service for a bridge address and fill it into the form automatically. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
-| **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that saves and restores current light state. |
+| **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. |
 | **Hue App Key** | "Username" for the REST API (auto-filled). |
 | **Hue Client Key** | "ClientKey" for the streaming API (auto-filled). |
 | **Entertainment Area ID** | UUID of the specific area to sync. |
@@ -65,7 +65,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Execution Profile** | GPU acceleration, additional FFmpeg flags, FFmpeg stall timeout, and Hue REST/DTLS retry attempts can be overridden per user while blank fields inherit global settings; the effective policy is captured when playback starts. |
 | **Channel Profile** | Select a comma-separated subset of entertainment channel IDs globally; use **Load Channel IDs** after choosing an area to read available IDs, then edit the list. Blank global fields drive every channel. A populated per-user channel override takes precedence, while blank per-user fields inherit the global selection. The active selection is captured with the playback session. |
 | **Solid Color Preview** | Choose a color, brightness, and 1-30 second duration to preview the default target (or the current mapping target). The plugin captures and restores the selected lights automatically and refuses to overlap active playback. |
-| **Cleanup diagnostics** | Light restoration retries each light using the captured network policy. Partial restoration or failed entertainment-area deactivation remains visible as a sanitized warning in Live Sync Status and probe/preview results. |
+| **Cleanup diagnostics** | Light capture and restoration retry each light using the captured network policy. Playback, probes, and previews refuse to activate when the snapshot is incomplete; partial restoration or failed entertainment-area deactivation remains visible as a sanitized warning in Live Sync Status and probe/preview results. |
 | **Saved Color Scenes** | Save up to 50 named color, brightness, and duration presets. Apply a saved scene to the default target or the current mapping; presets contain no bridge credentials. |
 | **Restore Light State After Sync** | Save and restore each light's original state after playback. Per-user mappings can override this policy while blank fields inherit the global setting. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
@@ -277,6 +277,9 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
   restores saved lights—including color-temperature/mirek mode where applicable—and deactivates the area automatically. If repeated DTLS writes and
   reconnect attempts fail, synchronization also stops instead of leaving the lights frozen,
   restores/deactivates safely, and retains the failure diagnostic in the Live Sync Status panel.
+  Before any output mutation, playback also requires a complete light-state snapshot; a bridge
+  that cannot return every selected light is reported as a startup error instead of leaving a
+  partial restoration plan.
   Light restoration retries each light using the active Network Retry Attempts policy. If the
   bridge remains unavailable or area deactivation fails, Live Sync Status shows a cleanup warning
   with the restored/failed count so the remaining lights can be recovered manually.
@@ -311,7 +314,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.43 (Current)
+### Version 1.5.44 (Current)
+- **Safe state capture**: Capture each selected light with the configured retry policy, report attempted/captured/failed counts, and deduplicate shared light IDs
+- **Mutation guardrails**: Playback, Test Connection, and solid-color previews refuse to activate or dim the area unless every selected light has a restorable snapshot
+- **Startup rollback**: A failed capture cannot trigger cinema-mode output during cleanup, while existing sanitized restoration and deactivation warnings remain visible
+
+### Version 1.5.43
 - **Restoration reliability**: Retry each saved light independently using the active network policy, report aggregate restore counts, and preserve a sanitized cleanup warning when any light or the entertainment-area deactivation fails
 - **Probe and preview safety**: Test Connection and solid-color previews now report cleanup failures instead of claiming success after an incomplete restore
 - **Runtime diagnostics**: Surface cleanup warnings in Live Sync Status and `GET /HueSync/Status` without exposing bridge credentials

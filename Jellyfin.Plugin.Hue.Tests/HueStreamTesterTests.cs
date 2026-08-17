@@ -1,10 +1,12 @@
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Service;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Moq.Protected;
 using Xunit;
 
 namespace Jellyfin.Plugin.Hue.Tests;
@@ -139,5 +141,55 @@ public sealed class HueStreamTesterTests
         Assert.False(result.Succeeded);
         Assert.Contains("valid controllable channels", result.Message, StringComparison.OrdinalIgnoreCase);
         handler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task TestAsync_WithIncompleteLightCaptureDoesNotActivateBridge()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.Is<HttpRequestMessage>(request =>
+                    request.Method == HttpMethod.Get &&
+                    request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal)),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        using var httpClient = new HttpClient(handler.Object);
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
+        {
+            RetryAttempts = 0
+        };
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
+        var tester = new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>());
+        using var document = JsonDocument.Parse(
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+
+        var result = await tester.TestAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("capture", result.Message, StringComparison.OrdinalIgnoreCase);
+        handler.Protected().Verify(
+            "SendAsync",
+            Times.Once(),
+            ItExpr.Is<HttpRequestMessage>(request =>
+                request.Method == HttpMethod.Get &&
+                request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal)),
+            ItExpr.IsAny<CancellationToken>());
+        handler.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.Is<HttpRequestMessage>(request => request.Method == HttpMethod.Put),
+            ItExpr.IsAny<CancellationToken>());
     }
 }

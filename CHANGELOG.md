@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.44] - 2026-08-17
+
+### Added
+- Result-aware light-state capture with per-light retry handling, duplicate-light de-duplication, and captured/attempted/failed diagnostics
+
+### Changed
+- Playback now refuses to mutate Hue output when a complete restoration snapshot cannot be captured
+- Test Connection probes and solid-color previews fail safely before area activation when light-state capture is incomplete
+- Startup rollback no longer applies cinema-mode restoration when cinema output was never attempted
+
 ## [1.5.43] - 2026-08-17
 
 ### Added
