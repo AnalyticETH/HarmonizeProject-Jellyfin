@@ -1,9 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Hue.Hue
@@ -116,9 +116,22 @@ namespace Jellyfin.Plugin.Hue.Hue
             {
                 var response = await _httpClient.GetStringAsync("https://discovery.meethue.com/");
                 using var doc = JsonDocument.Parse(response);
-                if (doc.RootElement.GetArrayLength() > 0)
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
                 {
-                    return doc.RootElement[0].GetProperty("internalipaddress").GetString() ?? "";
+                    foreach (var bridge in doc.RootElement.EnumerateArray())
+                    {
+                        if (!bridge.TryGetProperty("internalipaddress", out var addressProperty) ||
+                            addressProperty.ValueKind != JsonValueKind.String)
+                        {
+                            continue;
+                        }
+
+                        var addressText = addressProperty.GetString();
+                        if (IPAddress.TryParse(addressText, out var address))
+                        {
+                            return address.ToString();
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -141,8 +154,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                 return await ExecuteWithRetry(async () =>
                 {
                     using var content = new StringContent("{\"devicetype\":\"jellyfin_hue#server\", \"generateclientkey\":true}", System.Text.Encoding.UTF8, "application/json");
-                    // The Hue v1 /api registration endpoint only supports HTTP, not HTTPS
-                    using var response = await _httpClient.PostAsync(BuildBridgeUrl("http", ip, "/api"), content).ConfigureAwait(false);
+                    // Hue bridge firmware now requires the local API to be accessed over TLS.
+                    // The bridge certificate is handled by PluginServiceRegistrator for local
+                    // bridge addresses only; public discovery traffic keeps normal validation.
+                    using var response = await _httpClient.PostAsync(BuildBridgeUrl("https", ip, "/api"), content).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
                         response.EnsureSuccessStatusCode();

@@ -1,7 +1,7 @@
+using System.Text;
 using Jellyfin.Plugin.Hue.Hue;
 using Microsoft.Extensions.Logging;
 using Moq;
-using System.Text;
 using Xunit;
 
 namespace Jellyfin.Plugin.Hue.Tests;
@@ -34,6 +34,14 @@ public class HueStreamerTests
     }
 
     #region Color Encoding Tests
+
+    [Theory]
+    [InlineData("192.168.1.100", "192.168.1.100:2100")]
+    [InlineData("2001:db8::10", "[2001:db8::10]:2100")]
+    public void FormatBridgeEndpoint_AddsPortAndBracketsIpv6(string address, string expected)
+    {
+        Assert.Equal(expected, HueStreamer.FormatBridgeEndpoint(address));
+    }
 
     [Theory]
     [InlineData(0, 0, 0, 0, 0, 0)]         // Black

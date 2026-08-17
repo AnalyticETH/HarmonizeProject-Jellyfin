@@ -234,7 +234,9 @@ namespace Jellyfin.Plugin.Hue.Video
             {
                 _logger.LogError(ex, "Failed to start FFmpeg process. Ensure ffmpeg is installed and in PATH.");
                 // Clean up partially-started process to prevent leaks
-                try { if (_ffmpegProcess != null && !_ffmpegProcess.HasExited) _ffmpegProcess.Kill(); } catch { }
+                try
+                { if (_ffmpegProcess != null && !_ffmpegProcess.HasExited) _ffmpegProcess.Kill(); }
+                catch { }
                 _ffmpegProcess?.Dispose();
                 _ffmpegProcess = null;
                 return null;

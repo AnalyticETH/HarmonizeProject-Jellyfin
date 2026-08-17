@@ -184,8 +184,8 @@ See `.github/workflows/dotnet-ci.yml` for the full CI/CD configuration.
 ### Troubleshooting
 
 * **Registration fails:** press the physical Link button immediately before clicking
-  **Link Bridge**. Hue registration uses the bridge's HTTP `/api` endpoint; the streaming
-  and v2 REST endpoints use HTTPS.
+  **Link Bridge**. Hue registration and all v2 REST requests use the bridge's HTTPS API;
+  current bridge firmware no longer supports the old HTTP endpoint.
 * **No areas are listed:** verify the bridge IP and App Key, then click **Refresh
   Entertainment Areas**. The selected area must contain color-capable lights.
 * **Lights stop updating:** check that `ffmpeg` and `openssl` are available to the Jellyfin
@@ -216,7 +216,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.0 (Current)
+### Version 1.5.1 (Current)
+- **Hue HTTPS compatibility**: Link-button registration uses the TLS-protected bridge API required by current firmware
+- **Scoped certificate handling**: Self-signed bridge certificates are accepted only for private/local bridge addresses; public discovery uses normal TLS validation
+
+### Version 1.5.0
 - **Playback lifecycle hardening**: Stop, pause, resume, and shutdown paths serialize cleanup and bridge deactivation safely
 - **Bridge resilience**: Transient HTTP/network failures are retried while authentication and input errors fail fast
 - **Process safety**: FFmpeg ownership/health checks and DTLS reconnects are safe across repeated starts and stops

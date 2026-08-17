@@ -115,11 +115,16 @@ jobs:
       run: dotnet restore
 
     - name: Run dotnet format check
-      run: dotnet format --verify-no-changes --verbosity diagnostic || true
+      run: dotnet format --verify-no-changes --verbosity diagnostic
 
     - name: Security scan with .NET tools
       run: |
-        dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerable-packages.txt || true
+        set -o pipefail
+        dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerable-packages.txt
+        if grep -q "has the following vulnerable packages" vulnerable-packages.txt; then
+          echo "Vulnerable packages detected; see vulnerable-packages.txt for details." >&2
+          exit 1
+        fi
 
     - name: Upload security scan results
       uses: actions/upload-artifact@v4

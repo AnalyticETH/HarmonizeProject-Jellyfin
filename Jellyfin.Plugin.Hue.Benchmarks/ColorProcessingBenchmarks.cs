@@ -195,11 +195,16 @@ public class ColorProcessingBenchmarks
 
     private static double HueToRgb(double p, double q, double t)
     {
-        if (t < 0) t += 1;
-        if (t > 1) t -= 1;
-        if (t < 1.0 / 6) return p + (q - p) * 6 * t;
-        if (t < 1.0 / 2) return q;
-        if (t < 2.0 / 3) return p + (q - p) * (2.0 / 3 - t) * 6;
+        if (t < 0)
+            t += 1;
+        if (t > 1)
+            t -= 1;
+        if (t < 1.0 / 6)
+            return p + (q - p) * 6 * t;
+        if (t < 1.0 / 2)
+            return q;
+        if (t < 2.0 / 3)
+            return p + (q - p) * (2.0 / 3 - t) * 6;
         return p;
     }
 
@@ -226,7 +231,8 @@ public class ColorProcessingBenchmarks
             }
         }
 
-        if (count == 0) return (0, 0, 0);
+        if (count == 0)
+            return (0, 0, 0);
 
         return ((byte)(sumR / count), (byte)(sumG / count), (byte)(sumB / count));
     }

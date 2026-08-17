@@ -32,10 +32,9 @@ public class HueClientEntertainmentAreaTests : IDisposable
     #region RegisterWithBridge URL Scheme Tests
 
     [Fact]
-    public async Task RegisterWithBridge_UsesHttpNotHttps()
+    public async Task RegisterWithBridge_UsesHttps()
     {
-        // Hue v1 /api registration only supports HTTP, not HTTPS.
-        // Using https:// results in a TLS handshake failure against the bridge.
+        // Current Hue firmware requires the local API to be accessed over TLS.
         HttpRequestMessage? capturedRequest = null;
         _httpHandlerMock.Protected()
             .Setup<Task<HttpResponseMessage>>("SendAsync",
@@ -52,7 +51,7 @@ public class HueClientEntertainmentAreaTests : IDisposable
         await client.RegisterWithBridge("192.168.1.100");
 
         Assert.NotNull(capturedRequest);
-        Assert.Equal("http", capturedRequest!.RequestUri!.Scheme);
+        Assert.Equal("https", capturedRequest!.RequestUri!.Scheme);
         Assert.Contains("/api", capturedRequest.RequestUri.AbsolutePath);
     }
 

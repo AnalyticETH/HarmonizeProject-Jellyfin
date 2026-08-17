@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -44,6 +45,18 @@ namespace Jellyfin.Plugin.Hue.Hue
         // The DTLS handshake typically takes 100-400ms on a local network
         private const int DtlsHandshakeWaitMs = 600;
         private const int EntertainmentAreaActivationDelayMs = 200;
+
+        internal static string FormatBridgeEndpoint(string bridgeIp)
+        {
+            var host = bridgeIp.Trim();
+            if (IPAddress.TryParse(host, out var address) &&
+                address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                return $"[{host}]:2100";
+            }
+
+            return $"{host}:2100";
+        }
 
         /// <summary>
         /// Optional callback invoked before each reconnection attempt.
@@ -162,7 +175,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 startInfo.ArgumentList.Add("-psk");
                 startInfo.ArgumentList.Add(clientKey);
                 startInfo.ArgumentList.Add("-connect");
-                startInfo.ArgumentList.Add($"{bridgeIp}:2100");
+                startInfo.ArgumentList.Add(FormatBridgeEndpoint(bridgeIp));
 
                 _logger.LogInformation("Starting OpenSSL DTLS tunnel to {0}:2100", bridgeIp);
 
@@ -217,7 +230,6 @@ namespace Jellyfin.Plugin.Hue.Hue
                 // Wait for DTLS handshake to complete before returning.
                 // Without this wait, the first SendColors call will fail because
                 // the UDP channel isn't established yet.
-                // Using await Task.Delay (not Thread.Sleep) so we yield the thread pool thread
                 // during the wait rather than blocking it.
                 await Task.Delay(DtlsHandshakeWaitMs).ConfigureAwait(false);
 
@@ -411,6 +423,8 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="colorChangeThreshold">Minimum per-channel color change to trigger update (0 to disable)</param>
         public async Task SendColors(string areaId, Dictionary<int, byte[]> channelColors, int colorChangeThreshold = 0)
         {
+            ArgumentNullException.ThrowIfNull(channelColors);
+
             // Skip if colors haven't changed significantly
             if (colorChangeThreshold > 0 && !HasSignificantColorChange(channelColors, colorChangeThreshold))
             {

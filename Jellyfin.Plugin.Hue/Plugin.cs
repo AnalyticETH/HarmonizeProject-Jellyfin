@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using Jellyfin.Plugin.Hue.Configuration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
-using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.Hue

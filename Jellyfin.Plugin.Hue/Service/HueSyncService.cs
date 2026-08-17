@@ -497,7 +497,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     while (bytesRead < frameSize)
                     {
                         int n = await videoStream.ReadAsync(buffer, bytesRead, frameSize - bytesRead, token);
-                        if (n == 0) break; // End of stream
+                        if (n == 0)
+                            break; // End of stream
                         bytesRead += n;
                     }
                     if (bytesRead < frameSize)
@@ -543,7 +544,8 @@ namespace Jellyfin.Plugin.Hue.Service
                             }
                         }
 
-                        if (count == 0) count = 1;
+                        if (count == 0)
+                            count = 1;
                         byte r = (byte)(rSum / count);
                         byte g = (byte)(gSum / count);
                         byte b = (byte)(bSum / count);
@@ -652,7 +654,9 @@ namespace Jellyfin.Plugin.Hue.Service
             }
             finally
             {
-                try { videoStream.Dispose(); } catch { }
+                try
+                { videoStream.Dispose(); }
+                catch { }
             }
         }
 
@@ -1095,11 +1099,16 @@ namespace Jellyfin.Plugin.Hue.Service
         /// </summary>
         internal double HueToRgb(double p, double q, double t)
         {
-            if (t < 0) t += 1;
-            if (t > 1) t -= 1;
-            if (t < 1.0 / 6.0) return p + (q - p) * 6 * t;
-            if (t < 1.0 / 2.0) return q;
-            if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6;
+            if (t < 0)
+                t += 1;
+            if (t > 1)
+                t -= 1;
+            if (t < 1.0 / 6.0)
+                return p + (q - p) * 6 * t;
+            if (t < 1.0 / 2.0)
+                return q;
+            if (t < 2.0 / 3.0)
+                return p + (q - p) * (2.0 / 3.0 - t) * 6;
             return p;
         }
     }

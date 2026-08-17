@@ -1,5 +1,5 @@
-using Jellyfin.Plugin.Hue.Service;
 using Jellyfin.Plugin.Hue.Hue;
+using Jellyfin.Plugin.Hue.Service;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Logging;
