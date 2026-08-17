@@ -48,6 +48,59 @@ namespace Jellyfin.Plugin.Hue.Api
             _environmentProbe = environmentProbe ?? new HueEnvironmentProbe();
         }
 
+        /// <summary>
+        /// Resolves credentials omitted by the configuration page only when the requested
+        /// bridge is the configured global target. This lets the page keep global keys out
+        /// of its JSON state without allowing a blank key to authorize an arbitrary host.
+        /// </summary>
+        private static bool TryResolveGlobalCredentials(
+            string? requestedBridgeIp,
+            string? requestedAppKey,
+            string? requestedClientKey,
+            bool allowStoredClientKey,
+            out string bridgeIp,
+            out string appKey,
+            out string clientKey)
+        {
+            var config = Plugin.Instance?.Configuration;
+            bridgeIp = requestedBridgeIp?.Trim() ?? string.Empty;
+            appKey = requestedAppKey?.Trim() ?? string.Empty;
+            clientKey = requestedClientKey?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(bridgeIp))
+                bridgeIp = config?.HueBridgeIp?.Trim() ?? string.Empty;
+
+            if (config == null || !IsSameBridgeTarget(bridgeIp, config.HueBridgeIp))
+                return !string.IsNullOrWhiteSpace(bridgeIp) && !string.IsNullOrWhiteSpace(appKey);
+
+            if (string.IsNullOrWhiteSpace(appKey))
+                appKey = config.HueAppKey?.Trim() ?? string.Empty;
+
+            if (allowStoredClientKey && string.IsNullOrWhiteSpace(clientKey))
+                clientKey = config.HueClientKey?.Trim() ?? string.Empty;
+
+            return !string.IsNullOrWhiteSpace(bridgeIp) && !string.IsNullOrWhiteSpace(appKey);
+        }
+
+        private static bool IsSameBridgeTarget(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+                return false;
+
+            var leftHost = left.Trim();
+            var rightHost = right.Trim();
+            if (IPAddress.TryParse(leftHost, out var leftAddress) &&
+                IPAddress.TryParse(rightHost, out var rightAddress))
+            {
+                return leftAddress.Equals(rightAddress);
+            }
+
+            return string.Equals(
+                leftHost.TrimEnd('.'),
+                rightHost.TrimEnd('.'),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
         [HttpPost("Register")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -109,7 +162,16 @@ namespace Jellyfin.Plugin.Hue.Api
             [FromBody] HueEntertainmentAreasRequest? request,
             CancellationToken cancellationToken = default)
         {
-            if (request == null || string.IsNullOrWhiteSpace(request.IpAddress) || string.IsNullOrWhiteSpace(request.AppKey))
+            if (request == null ||
+                !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
+                !TryResolveGlobalCredentials(
+                    request.IpAddress,
+                    request.AppKey,
+                    null,
+                    allowStoredClientKey: false,
+                    out _,
+                    out _,
+                    out _))
             {
                 return BadRequest("Bridge IP and app key are required before loading entertainment areas.");
             }
@@ -131,15 +193,26 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             if (request == null ||
                 !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
-                string.IsNullOrWhiteSpace(request.AppKey) ||
                 string.IsNullOrWhiteSpace(request.EntertainmentAreaId))
             {
                 return BadRequest("A valid bridge address, app key, and entertainment area ID are required.");
             }
 
+            if (!TryResolveGlobalCredentials(
+                    request.IpAddress,
+                    request.AppKey,
+                    null,
+                    allowStoredClientKey: false,
+                    out var bridgeIp,
+                    out var appKey,
+                    out _))
+            {
+                return BadRequest("A valid bridge address and app key are required.");
+            }
+
             var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
-                request.IpAddress.Trim(),
-                request.AppKey.Trim(),
+                bridgeIp,
+                appKey,
                 request.EntertainmentAreaId.Trim(),
                 cancellationToken);
             if (areaConfiguration == null)
@@ -183,15 +256,20 @@ namespace Jellyfin.Plugin.Hue.Api
             string? appKey,
             CancellationToken cancellationToken)
         {
-            bridgeIp ??= Plugin.Instance?.Configuration?.HueBridgeIp;
-            appKey ??= Plugin.Instance?.Configuration?.HueAppKey;
-
-            if (string.IsNullOrWhiteSpace(bridgeIp) || string.IsNullOrWhiteSpace(appKey))
+            if (!TryResolveGlobalCredentials(
+                    bridgeIp,
+                    appKey,
+                    null,
+                    allowStoredClientKey: false,
+                    out var resolvedBridgeIp,
+                    out var resolvedAppKey,
+                    out _)
+                || !HueBridgeCertificateValidation.IsValidBridgeAddress(resolvedBridgeIp))
             {
                 return BadRequest("Bridge IP and app key are required before loading entertainment areas.");
             }
 
-            var areas = await _hueClient.GetEntertainmentAreas(bridgeIp, appKey, cancellationToken);
+            var areas = await _hueClient.GetEntertainmentAreas(resolvedBridgeIp, resolvedAppKey, cancellationToken);
             if (areas == null)
             {
                 return StatusCode(StatusCodes.Status502BadGateway, "Could not contact the Hue bridge.");
@@ -250,8 +328,19 @@ namespace Jellyfin.Plugin.Hue.Api
             CancellationToken cancellationToken = default)
         {
             if (request == null ||
-                !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
-                string.IsNullOrWhiteSpace(request.AppKey))
+                !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress))
+            {
+                return BadRequest("A valid private bridge address and app key are required.");
+            }
+
+            if (!TryResolveGlobalCredentials(
+                    request.IpAddress,
+                    request.AppKey,
+                    request.ClientKey,
+                    allowStoredClientKey: string.IsNullOrWhiteSpace(request.AppKey),
+                    out var bridgeIp,
+                    out var appKey,
+                    out var clientKey))
             {
                 return BadRequest("A valid private bridge address and app key are required.");
             }
@@ -268,8 +357,6 @@ namespace Jellyfin.Plugin.Hue.Api
                 requestedChannelIds = parsedChannelIds;
             }
 
-            var bridgeIp = request.IpAddress.Trim();
-            var appKey = request.AppKey.Trim();
             var areas = await _hueClient.GetEntertainmentAreas(bridgeIp, appKey, cancellationToken);
             if (areas == null)
             {
@@ -343,7 +430,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     return Ok(result);
                 }
             }
-            if (!string.IsNullOrWhiteSpace(request.ClientKey) && _streamTester != null)
+            if (!string.IsNullOrWhiteSpace(clientKey) && _streamTester != null)
             {
                 if (_syncService?.IsSyncing == true)
                 {
@@ -360,7 +447,7 @@ namespace Jellyfin.Plugin.Hue.Api
                         streamProbe = await _streamTester.TestAsync(
                             bridgeIp,
                             appKey,
-                            request.ClientKey.Trim(),
+                            clientKey,
                             areaId,
                             areaConfiguration.Value,
                             selectedChannelIds,
@@ -410,9 +497,20 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             if (request == null ||
                 !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
-                string.IsNullOrWhiteSpace(request.AppKey) ||
-                string.IsNullOrWhiteSpace(request.ClientKey) ||
                 string.IsNullOrWhiteSpace(request.EntertainmentAreaId))
+            {
+                return BadRequest("A valid bridge address, app key, client key, and entertainment area ID are required.");
+            }
+
+            if (!TryResolveGlobalCredentials(
+                    request.IpAddress,
+                    request.AppKey,
+                    request.ClientKey,
+                    allowStoredClientKey: true,
+                    out var bridgeIp,
+                    out var appKey,
+                    out var clientKey)
+                || string.IsNullOrWhiteSpace(clientKey))
             {
                 return BadRequest("A valid bridge address, app key, client key, and entertainment area ID are required.");
             }
@@ -457,9 +555,6 @@ namespace Jellyfin.Plugin.Hue.Api
                 requestedChannelIds = parsedChannelIds;
             }
 
-            var bridgeIp = request.IpAddress.Trim();
-            var appKey = request.AppKey.Trim();
-            var clientKey = request.ClientKey.Trim();
             var areaId = request.EntertainmentAreaId.Trim();
             var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
                 bridgeIp,
@@ -833,11 +928,15 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var previousSettings = HuePluginConfigurationSettings.From(config);
+            var previousAppKey = config.HueAppKey;
+            var previousClientKey = config.HueClientKey;
             settings.ApplyTo(config);
             var validationErrors = config.Validate();
             if (validationErrors.Count > 0)
             {
                 previousSettings.ApplyTo(config);
+                config.HueAppKey = previousAppKey;
+                config.HueClientKey = previousClientKey;
                 return BadRequest(new
                 {
                     message = "Configuration is invalid.",
@@ -1034,7 +1133,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Configuration-page settings. This intentionally excludes PluginConfiguration.UserMappings
-    /// so the generic settings flow cannot round-trip per-user bridge credentials through a browser.
+    /// and the global bridge secrets so the generic settings flow cannot round-trip credentials
+    /// through a browser. Blank secret fields preserve the stored values; set ClearStoredCredentials
+    /// explicitly when both global credentials must be removed.
     /// </summary>
     public sealed class HuePluginConfigurationSettings
     {
@@ -1042,6 +1143,9 @@ namespace Jellyfin.Plugin.Hue.Api
         public string HueBridgeIp { get; set; } = string.Empty;
         public string HueAppKey { get; set; } = string.Empty;
         public string HueClientKey { get; set; } = string.Empty;
+        public bool HasAppKey { get; set; }
+        public bool HasClientKey { get; set; }
+        public bool ClearStoredCredentials { get; set; }
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string ChannelIds { get; set; } = string.Empty;
         public bool UseCinemaMode { get; set; } = true;
@@ -1075,8 +1179,10 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 SyncEnabled = config.SyncEnabled,
                 HueBridgeIp = config.HueBridgeIp,
-                HueAppKey = config.HueAppKey,
-                HueClientKey = config.HueClientKey,
+                HueAppKey = string.Empty,
+                HueClientKey = string.Empty,
+                HasAppKey = !string.IsNullOrWhiteSpace(config.HueAppKey),
+                HasClientKey = !string.IsNullOrWhiteSpace(config.HueClientKey),
                 EntertainmentAreaId = config.EntertainmentAreaId,
                 ChannelIds = config.ChannelIds,
                 UseCinemaMode = config.UseCinemaMode,
@@ -1110,8 +1216,18 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             config.SyncEnabled = SyncEnabled;
             config.HueBridgeIp = HueBridgeIp?.Trim() ?? string.Empty;
-            config.HueAppKey = HueAppKey?.Trim() ?? string.Empty;
-            config.HueClientKey = HueClientKey?.Trim() ?? string.Empty;
+            if (ClearStoredCredentials)
+            {
+                config.HueAppKey = string.Empty;
+                config.HueClientKey = string.Empty;
+            }
+            else
+            {
+                if (!string.IsNullOrWhiteSpace(HueAppKey))
+                    config.HueAppKey = HueAppKey.Trim();
+                if (!string.IsNullOrWhiteSpace(HueClientKey))
+                    config.HueClientKey = HueClientKey.Trim();
+            }
             config.EntertainmentAreaId = EntertainmentAreaId?.Trim() ?? string.Empty;
             config.ChannelIds = ChannelIds?.Trim() ?? string.Empty;
             config.UseCinemaMode = UseCinemaMode;

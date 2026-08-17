@@ -52,8 +52,8 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. Disconnecting or canceling the request stops the diagnostic lifecycle safely. |
 | **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, active bridge lifecycle contention, and playback/diagnostic readiness. |
-| **Hue App Key** | "Username" for the REST API (auto-filled). |
-| **Hue Client Key** | "ClientKey" for the streaming API (auto-filled). |
+| **Hue App Key** | "Username" for the REST API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it, or use Link Bridge to replace it. |
+| **Hue Client Key** | "ClientKey" for the streaming API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it, or use Link Bridge to replace it. |
 | **Entertainment Area ID** | UUID of the specific area to sync. |
 | **Target FPS** | Frames per second to process (Default: 20). Lower = less CPU. |
 | **Frame Sampling Resolution** | RGB frame size used for color extraction: 80×45 (lowest CPU), 160×90 (default), or 320×180 (more spatial detail). |
@@ -148,7 +148,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/color/execution/channel/restoration profile, frame count, FFmpeg/DTLS health, cleanup warnings, and whether the current sync can be stopped safely. |
 | `GET /HueSync/Diagnostics` | Run a non-mutating, cancellation-aware local prerequisite check for configuration validity, FFmpeg/OpenSSL versions, bridge lifecycle contention, and playback/diagnostic readiness. No bridge credentials are returned. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
-| `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, without serializing per-user mappings to the configuration page. |
+| `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
@@ -318,7 +318,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.54 (Current)
+### Version 1.5.55 (Current)
+- **Credential-safe global configuration**: Configuration responses expose only global credential presence flags; blank secret edits preserve stored keys, explicit clearing is supported, and implicit fallback is restricted to the configured bridge target
+- **Credential-safe administrator UI**: The browser keeps global App/Client Keys blank while still loading areas, channels, connection tests, and previews through the protected server-side fallback
+
+### Version 1.5.54
 - **Cancellation-safe DTLS lifecycle**: Playback and diagnostics cancel OpenSSL startup, color writes, delayed reconnects, and area reactivation; stopped streams cannot resurrect a background tunnel
 
 ### Version 1.5.53

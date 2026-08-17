@@ -93,6 +93,59 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PostEntertainmentAreas_BlankAppKeyUsesStoredGlobalCredentialForConfiguredBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-app-key"
+        });
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"data\":[]}", Encoding.UTF8, "application/json")
+            });
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentAreas(new HueEntertainmentAreasRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = ""
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("stored-app-key", capturedRequest!.Headers.GetValues("hue-application-key").Single());
+    }
+
+    [Fact]
+    public async Task PostEntertainmentAreas_BlankAppKeyCannotUseStoredCredentialForDifferentBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-app-key"
+        });
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentAreas(new HueEntertainmentAreasRequest
+        {
+            IpAddress = "192.168.1.101",
+            AppKey = ""
+        });
+
+        Assert.IsType<BadRequestObjectResult>(action.Result);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task PostEntertainmentAreas_ForwardsRequestCancellationToBridgeCall()
     {
         CancellationToken observedToken = default;
@@ -157,6 +210,43 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PostEntertainmentChannels_BlankAppKeyUsesStoredGlobalCredential()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-app-key"
+        });
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentChannels(new HueEntertainmentChannelsRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "",
+            EntertainmentAreaId = "area-1"
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("stored-app-key", capturedRequest!.Headers.GetValues("hue-application-key").Single());
+    }
+
+    [Fact]
     public async Task TestConnection_ReturnsReachabilityAndAreaCount()
     {
         SetupHttpResponse(
@@ -176,6 +266,44 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(1, result.AreaCount);
         Assert.Null(result.AreaFound);
         Assert.Contains("Found 1", result.Message);
+    }
+
+    [Fact]
+    public async Task TestConnection_BlankRedactedCredentialsUsesStoredGlobalKeys()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-app-key",
+            HueClientKey = "stored-client-key"
+        });
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var controller = CreateController();
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "",
+            ClientKey = ""
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("stored-app-key", capturedRequest!.Headers.GetValues("hue-application-key").Single());
     }
 
     [Fact]
@@ -466,6 +594,64 @@ public sealed class HueApiControllerTests : IDisposable
             32,
             75,
             4,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Preview_BlankRedactedCredentialsUsesStoredGlobalKeys()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-app-key",
+            HueClientKey = "stored-client-key"
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":1}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<System.Text.Json.JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Preview sent." });
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.Preview(new HuePreviewRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "",
+            ClientKey = "",
+            EntertainmentAreaId = "area-1",
+            Red = 20,
+            Green = 30,
+            Blue = 40,
+            DurationSeconds = 2
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        streamTester.Verify(tester => tester.PreviewAsync(
+            "192.168.1.100",
+            "stored-app-key",
+            "stored-client-key",
+            "area-1",
+            It.IsAny<System.Text.Json.JsonElement>(),
+            It.IsAny<IReadOnlySet<int>?>(),
+            20,
+            30,
+            40,
+            100,
+            2,
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -909,7 +1095,10 @@ public sealed class HueApiControllerTests : IDisposable
 
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var settings = Assert.IsType<HuePluginConfigurationSettings>(response.Value);
-        Assert.Equal("default-app-key", settings.HueAppKey);
+        Assert.Empty(settings.HueAppKey);
+        Assert.Empty(settings.HueClientKey);
+        Assert.True(settings.HasAppKey);
+        Assert.True(settings.HasClientKey);
         Assert.Equal("2, 9", settings.ChannelIds);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, settings.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, settings.VideoScalingMode);
@@ -925,6 +1114,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(6, settings.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, settings.PauseBehavior);
         var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
+        Assert.DoesNotContain("default-app-key", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("default-client-key", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("UserMappings", serialized, StringComparison.OrdinalIgnoreCase);
     }
@@ -987,6 +1178,44 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveConfiguration_BlankGlobalCredentialsPreserveStoredKeysAndExplicitClearRemovesThem()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-app-key",
+            HueClientKey = "stored-client-key"
+        });
+        var controller = CreateController();
+
+        var preserveAction = controller.SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "",
+            HueClientKey = ""
+        });
+
+        var preserveResponse = Assert.IsType<OkObjectResult>(preserveAction.Result);
+        var preservedSettings = Assert.IsType<HuePluginConfigurationSettings>(preserveResponse.Value);
+        Assert.Equal("stored-app-key", configuration.HueAppKey);
+        Assert.Equal("stored-client-key", configuration.HueClientKey);
+        Assert.True(preservedSettings.HasAppKey);
+        Assert.True(preservedSettings.HasClientKey);
+        Assert.Empty(preservedSettings.HueAppKey);
+        Assert.Empty(preservedSettings.HueClientKey);
+
+        var clearAction = controller.SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            HueBridgeIp = "192.168.1.100",
+            ClearStoredCredentials = true
+        });
+
+        Assert.IsType<OkObjectResult>(clearAction.Result);
+        Assert.Empty(configuration.HueAppKey);
+        Assert.Empty(configuration.HueClientKey);
+    }
+
+    [Fact]
     public void SaveConfiguration_InvalidGlobalChannelProfileReturnsBadRequestWithoutSaving()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -1012,6 +1241,8 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<BadRequestObjectResult>(action.Result);
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
         Assert.Equal("2, 9", configuration.ChannelIds);
+        Assert.Equal("app-key", configuration.HueAppKey);
+        Assert.Equal("client-key", configuration.HueClientKey);
     }
 
     [Fact]

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.55] - 2026-08-17
+
+### Security
+- Global App and Client Keys are redacted from `GET /HueSync/Configuration`; the response reports presence flags instead of secret values
+- Blank configuration-page secret fields preserve stored credentials, while an explicit clear operation removes both global keys
+- Server-side credential fallback is restricted to the configured global bridge target, including area loading, channel discovery, connection tests, and previews
+
+### Changed
+- The administrator UI keeps global credentials blank in browser state, explains stored-key behavior, and continues setup operations through the protected server-side fallback
+
 ## [1.5.54] - 2026-08-17
 
 ### Fixed
