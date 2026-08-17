@@ -110,6 +110,12 @@
                                 (Default: 20)</div>
                         </div>
 
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="samplingBreadthPercent">Color Sampling Breadth (%)</label>
+                            <input id="samplingBreadthPercent" name="samplingBreadthPercent" type="number" min="1" max="50" is="emby-input" />
+                            <div class="fieldDescription">Size of the neighborhood sampled around each Hue channel's screen position (1-50%, default: 15%). Smaller values follow fine detail; larger values reduce noise.</div>
+                        </div>
+
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label>
                                 <input is="emby-checkbox" type="checkbox" id="useGpu" name="useGpu" />
@@ -315,6 +321,7 @@
                         page.querySelector('#hueClientKey').value = getConfigValue('HueClientKey', '');
                         HueConfigurationPage.selectedAreaId = getConfigValue('EntertainmentAreaId', '');
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
+                        page.querySelector('#samplingBreadthPercent').value = getConfigValue('SamplingBreadthPercent', 15);
                         page.querySelector('#customFfmpegFlags').value = getConfigValue('CustomFfmpegFlags', '');
                         page.querySelector('#ffmpegStallTimeoutSeconds').value = getConfigValue('FfmpegStallTimeoutSeconds', 5);
                         page.querySelector('#useGpu').checked = getConfigValue('UseGpu', true);
@@ -348,6 +355,7 @@
                         HueClientKey: page.querySelector('#hueClientKey').value,
                         EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
+                        SamplingBreadthPercent: parseNumberOrDefault('#samplingBreadthPercent', 15),
                         CustomFfmpegFlags: page.querySelector('#customFfmpegFlags').value,
                         FfmpegStallTimeoutSeconds: parseNumberOrDefault('#ffmpegStallTimeoutSeconds', 5),
                         UseGpu: page.querySelector('#useGpu').checked,

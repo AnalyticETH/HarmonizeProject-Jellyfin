@@ -35,6 +35,7 @@ public class PluginConfigurationTests
             HueClientKey = "test-client-key",
             EntertainmentAreaId = "test-area-id",
             TargetFps = 20,
+            SamplingBreadthPercent = 15,
             BrightnessDimLevel = 30,
             BrightnessBoost = 100,
             ColorSaturation = 100,
@@ -418,6 +419,7 @@ public class PluginConfigurationTests
         Assert.True(config.RestoreLightState);
         Assert.Equal(30, config.BrightnessDimLevel);
         Assert.Equal(20, config.TargetFps);
+        Assert.Equal(15, config.SamplingBreadthPercent);
         Assert.True(config.UseGpu);
         Assert.Equal(100, config.BrightnessBoost);
         Assert.Equal(100, config.ColorSaturation);
@@ -426,6 +428,47 @@ public class PluginConfigurationTests
         Assert.Equal(3, config.NetworkRetryAttempts);
         Assert.Equal(5, config.FfmpegStallTimeoutSeconds);
         Assert.True(new UserBridgeMapping().SyncEnabled);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(51)]
+    public void Validate_WhenSamplingBreadthIsOutOfRange_ReturnsError(int samplingBreadthPercent)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            SamplingBreadthPercent = samplingBreadthPercent
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Sampling breadth must be between 1 and 50 percent", errors);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(15)]
+    [InlineData(50)]
+    public void Validate_WhenSamplingBreadthIsValid_ReturnsNoSamplingError(int samplingBreadthPercent)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            SamplingBreadthPercent = samplingBreadthPercent
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("Sampling breadth must be between 1 and 50 percent", errors);
     }
 
     [Fact]

@@ -55,6 +55,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Hue Client Key** | "ClientKey" for the streaming API (auto-filled). |
 | **Entertainment Area ID** | UUID of the specific area to sync. |
 | **Target FPS** | Frames per second to process (Default: 20). Lower = less CPU. |
+| **Color Sampling Breadth** | Size of the neighborhood sampled around each Hue channel's screen position (1-50%, default: 15%). Smaller values follow fine detail; larger values reduce noise. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
 | **Enable Real-time Sync** | Master toggle for the sync feature. |
@@ -258,7 +259,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.16 (Current)
+### Version 1.5.17 (Current)
+- **Configurable color sampling**: Tune the neighborhood sampled around each Hue channel from 1-50% to balance fine detail against visual stability; the default remains 15%
+
+### Version 1.5.16
 - **Credential-safe mapping edits**: Per-user mapping reads report credential presence without exposing App/Client Keys, and blank key fields preserve existing credentials during edits
 - **Scoped configuration flow**: Default settings load/save through `/HueSync/Configuration` without round-tripping per-user mappings through the browser
 

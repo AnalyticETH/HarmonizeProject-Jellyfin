@@ -5,15 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.15] - 2026-08-17
+## [1.5.17] - 2026-08-17
 
 ### Added
-- Mode-aware scene restoration for Hue color-temperature lights using their saved `mirek` value
-- Safe restoration for lights without a color resource, without sending an invented XY color
-- Regression coverage for valid, invalid, and absent color-temperature state
+- Configurable 1-50% color-sampling breadth around each Hue channel's screen position
+- Regression coverage for sampling-breadth validation, normalization, and scoped configuration persistence
 
 ### Changed
-- Light-state restoration now sends either `color_temperature`, `color`, or neither according to the state captured before playback
+- Sync now uses the configured sampling breadth while preserving the previous 15% default
 
 ## [1.5.16] - 2026-08-17
 
@@ -25,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Editing a per-user mapping now leaves key fields blank and preserves stored credentials unless replacement values are entered
 - Default configuration saves no longer fetch and round-trip the full plugin configuration (including per-user mappings) through the browser
+
+## [1.5.15] - 2026-08-17
+
+### Added
+- Mode-aware scene restoration for Hue color-temperature lights using their saved `mirek` value
+- Safe restoration for lights without a color resource, without sending an invented XY color
+- Regression coverage for valid, invalid, and absent color-temperature state
+
+### Changed
+- Light-state restoration now sends either `color_temperature`, `color`, or neither according to the state captured before playback
 
 ## [1.5.14] - 2026-08-17
 

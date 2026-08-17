@@ -24,7 +24,9 @@ namespace Jellyfin.Plugin.Hue.Service
         private const int FrameWidth = 160;
         private const int FrameHeight = 90;
         private const int BytesPerPixel = 3; // RGB24 format
-        private const double SamplingBreadth = 0.15; // 15% sampling area around each light position
+        private const int DefaultSamplingBreadthPercent = 15;
+        private const int MinSamplingBreadthPercent = 1;
+        private const int MaxSamplingBreadthPercent = 50;
 
         // Timing constants
         private const int CinemaModeDimmingDelayMs = 500;
@@ -776,6 +778,15 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
+        internal static int CalculateSamplingDistance(int samplingBreadthPercent)
+        {
+            var normalizedPercent = samplingBreadthPercent <= 0
+                ? DefaultSamplingBreadthPercent
+                : Math.Clamp(samplingBreadthPercent, MinSamplingBreadthPercent, MaxSamplingBreadthPercent);
+            var averageFrameSize = (FrameWidth + FrameHeight) / 2;
+            return Math.Max(1, (int)(normalizedPercent / 100.0 * averageFrameSize));
+        }
+
         private static async Task<(int BytesRead, bool TimedOut)> ReadFrameAsync(
             Stream videoStream,
             byte[] buffer,
@@ -816,7 +827,8 @@ namespace Jellyfin.Plugin.Hue.Service
             string areaId,
             int targetFrameDurationMs,
             CancellationTokenSource expectedSyncCts,
-            string playSessionId)
+            string playSessionId,
+            int samplingBreadthPercent)
         {
             int frameSize = FrameWidth * FrameHeight * BytesPerPixel;
             byte[] buffer = new byte[frameSize];
@@ -827,8 +839,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             // Pre-calculate bounds for each light based on position
             // Following HarmonizeProject logic: use x (horizontal) and z (vertical) for 2D screen plane
-            int avgSize = (FrameWidth + FrameHeight) / 2;
-            int dist = (int)(SamplingBreadth * avgSize);
+            int dist = CalculateSamplingDistance(samplingBreadthPercent);
 
             try
             {
@@ -1386,7 +1397,14 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 // Let RunSyncLoop own disposal even when cancellation wins before scheduling.
                 SetRuntimeStatus("Syncing", "Streaming video colors to Hue.");
-                _ = Task.Run(() => RunSyncLoop(videoStream!, lights, areaId, targetFrameDurationMs, syncCts, e.PlaySessionId));
+                _ = Task.Run(() => RunSyncLoop(
+                    videoStream!,
+                    lights,
+                    areaId,
+                    targetFrameDurationMs,
+                    syncCts,
+                    e.PlaySessionId,
+                    config.SamplingBreadthPercent));
                 syncLoopStarted = true;
             }
             catch (Exception ex)
