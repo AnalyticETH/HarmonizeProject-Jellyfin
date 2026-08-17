@@ -262,6 +262,63 @@
                     </fieldset>
 
                     <fieldset class="verticalSection">
+                        <legend>Scheduled Scene Cues</legend>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen server-local time. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
+                            <div style="flex: 1 1 220px;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
+                                <select id="sceneScheduleSelect" is="emby-select" style="width: 100%;">
+                                    <option value="">No scheduled cues</option>
+                                </select>
+                            </div>
+                            <button is="emby-button" type="button" class="raised" id="runSceneScheduleBtn" disabled><span>Run Now</span></button>
+                            <button is="emby-button" type="button" class="raised" id="deleteSceneScheduleBtn" disabled><span>Delete Cue</span></button>
+                            <button is="emby-button" type="button" class="raised" id="clearSceneScheduleBtn"><span>New Cue</span></button>
+                        </div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 0.75em;">
+                            <div style="flex: 1 1 220px;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleName">Cue Name</label>
+                                <input id="sceneScheduleName" type="text" maxlength="64" is="emby-input" placeholder="e.g. Evening welcome" />
+                            </div>
+                            <div style="flex: 1 1 180px;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneSchedulePresetSelect">Scene</label>
+                                <select id="sceneSchedulePresetSelect" is="emby-select" style="width: 100%;">
+                                    <option value="">Save a scene first</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTime">Server-local time</label>
+                                <input id="sceneScheduleTime" type="time" value="20:00" is="emby-input" />
+                            </div>
+                            <div style="flex: 1 1 220px;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTarget">Target</label>
+                                <select id="sceneScheduleTarget" is="emby-select" style="width: 100%;">
+                                    <option value="">Default bridge target</option>
+                                </select>
+                            </div>
+                            <label style="display: flex; align-items: center; gap: 0.5em; padding-bottom: 0.45em;">
+                                <input is="emby-checkbox" type="checkbox" id="sceneScheduleEnabled" checked />
+                                <span>Enabled</span>
+                            </label>
+                        </div>
+                        <div class="inputContainer" style="margin-top: 0.75em;">
+                            <label class="inputLabel inputLabelUnfocused" for="sceneScheduleDays">Days</label>
+                            <select id="sceneScheduleDays" is="emby-select" multiple size="7" style="max-width: 260px;">
+                                <option value="1" selected>Sunday</option>
+                                <option value="2" selected>Monday</option>
+                                <option value="4" selected>Tuesday</option>
+                                <option value="8" selected>Wednesday</option>
+                                <option value="16" selected>Thursday</option>
+                                <option value="32" selected>Friday</option>
+                                <option value="64" selected>Saturday</option>
+                            </select>
+                            <div class="fieldDescription">Choose one or more days. The scheduler checks every few seconds and runs each cue at most once per local minute.</div>
+                        </div>
+                        <button is="emby-button" type="button" class="raised button-submit" id="saveSceneScheduleBtn" style="margin-top: 0.5em;"><span>Save Scheduled Cue</span></button>
+                        <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule times, and target mapping IDs; bridge credentials remain server-side.</div>
+                    </fieldset>
+
+                    <fieldset class="verticalSection">
                         <legend>Sync performance</legend>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="targetFps">Target FPS</label>
@@ -888,6 +945,7 @@
                         page.querySelector('#persistSessionHistory').checked = !!getConfigValue('PersistSessionHistory', false);
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                         HueConfigurationPage.loadColorPresets(page);
+                        HueConfigurationPage.loadSceneSchedules(page);
                     }).catch(function (err) {
                         console.error("Failed to load Hue configuration:", err);
                         HueConfigurationPage.refreshStatus(page, "Unable to load plugin configuration.", "error");
@@ -1089,7 +1147,7 @@
                     if (!page || !importDocument) return;
                     if (!HueConfigurationPage.applyConfigurationImportCredentials(page)) return;
 
-                    Dashboard.confirm("Import this configuration? Existing settings, mappings, and saved scenes will be replaced. Stored matching bridge keys are preserved; any values entered above are sent once for this import and are never exported.", "Import Hue Configuration", function (confirmed) {
+                    Dashboard.confirm("Import this configuration? Existing settings, mappings, saved scenes, and scheduled cues will be replaced. Stored matching bridge keys are preserved; any values entered above are sent once for this import and are never exported.", "Import Hue Configuration", function (confirmed) {
                         if (!confirmed) return;
                         var button = page.querySelector('#importConfigurationBtn');
                         var applyButton = page.querySelector('#applyConfigurationImportBtn');
@@ -1425,7 +1483,11 @@
                             statusEl.textContent = "Scene '" + name + "' saved.";
                             statusEl.style.color = "#8bc34a";
                         }
-                        return HueConfigurationPage.loadColorPresets(page, name);
+                        var selectedSchedule = page.querySelector('#sceneScheduleSelect');
+                        var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
+                        return HueConfigurationPage.loadColorPresets(page, name).then(function () {
+                            return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                        });
                     }).catch(function (err) {
                         console.error("Failed to save color preset:", err);
                         if (statusEl) {
@@ -1458,7 +1520,11 @@
                                 statusEl.style.color = "#8bc34a";
                             }
                             page.querySelector('#previewPresetName').value = '';
-                            return HueConfigurationPage.loadColorPresets(page);
+                            var selectedSchedule = page.querySelector('#sceneScheduleSelect');
+                            var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
+                            return HueConfigurationPage.loadColorPresets(page).then(function () {
+                                return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                            });
                         }).catch(function (err) {
                             console.error("Failed to delete color preset:", err);
                             if (statusEl) {
@@ -1467,6 +1533,247 @@
                             }
                             HueConfigurationPage.updatePresetButtons(page);
                         });
+                    });
+                },
+                loadSceneSchedules: function (page, selectedId) {
+                    var scheduleSelect = page && page.querySelector('#sceneScheduleSelect');
+                    if (!scheduleSelect) return Promise.resolve();
+                    var statusEl = page.querySelector('#sceneScheduleStatus');
+                    scheduleSelect.disabled = true;
+                    return Promise.all([
+                        ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules")),
+                        ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets")),
+                        ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings"))
+                    ]).then(function (responses) {
+                        var schedules = Array.isArray(responses[0]) ? responses[0] : [];
+                        var presets = Array.isArray(responses[1]) ? responses[1] : [];
+                        var mappings = Array.isArray(responses[2]) ? responses[2] : [];
+                        page._hueSceneSchedules = schedules;
+
+                        var presetSelect = page.querySelector('#sceneSchedulePresetSelect');
+                        if (presetSelect) {
+                            presetSelect.innerHTML = '<option value="">Choose a saved scene...</option>';
+                            presets.forEach(function (preset) {
+                                var name = preset && (preset.name !== undefined ? preset.name : preset.Name);
+                                if (!name) return;
+                                var option = document.createElement('option');
+                                option.value = name;
+                                option.textContent = name;
+                                presetSelect.appendChild(option);
+                            });
+                        }
+
+                        var targetSelect = page.querySelector('#sceneScheduleTarget');
+                        if (targetSelect) {
+                            targetSelect.innerHTML = '<option value="">Default bridge target</option>';
+                            mappings.forEach(function (mapping) {
+                                var userId = mapping && (mapping.userId !== undefined ? mapping.userId : mapping.UserId);
+                                if (!userId) return;
+                                var userName = mapping.userName !== undefined ? mapping.userName : mapping.UserName;
+                                var label = userName || userId;
+                                var option = document.createElement('option');
+                                option.value = userId;
+                                option.textContent = label + (mapping.syncEnabled === false || mapping.SyncEnabled === false ? ' (disabled)' : '');
+                                targetSelect.appendChild(option);
+                            });
+                        }
+
+                        scheduleSelect.innerHTML = '<option value="">Choose a scheduled cue...</option>';
+                        schedules.forEach(function (schedule) {
+                            var id = schedule && (schedule.id !== undefined ? schedule.id : schedule.Id);
+                            var name = schedule && (schedule.name !== undefined ? schedule.name : schedule.Name);
+                            if (!id || !name) return;
+                            var time = schedule.timeOfDay !== undefined ? schedule.timeOfDay : schedule.TimeOfDay;
+                            var option = document.createElement('option');
+                            option.value = id;
+                            option.textContent = name + (time ? ' · ' + time : '');
+                            scheduleSelect.appendChild(option);
+                        });
+
+                        if (selectedId) scheduleSelect.value = selectedId;
+                        if (scheduleSelect.value) {
+                            HueConfigurationPage.applySceneSchedule(page, scheduleSelect.value);
+                        } else {
+                            HueConfigurationPage.clearSceneScheduleForm(page);
+                        }
+                        if (statusEl && schedules.length === 0) {
+                            statusEl.textContent = "No scheduled cues yet. Save one to run a scene automatically.";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to load scene schedules:", err);
+                        scheduleSelect.innerHTML = '<option value="">Unable to load scheduled cues</option>';
+                        if (statusEl) {
+                            statusEl.textContent = "Unable to load scheduled cues. Check the server log.";
+                            statusEl.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        scheduleSelect.disabled = false;
+                        HueConfigurationPage.updateSceneScheduleButtons(page);
+                    });
+                },
+                getSceneScheduleDaysMask: function (page) {
+                    var days = page && page.querySelector('#sceneScheduleDays');
+                    if (!days) return 0;
+                    var mask = 0;
+                    Array.prototype.forEach.call(days.options, function (option) {
+                        if (option.selected) mask |= Number(option.value) || 0;
+                    });
+                    return mask;
+                },
+                setSceneScheduleDaysMask: function (page, mask) {
+                    var days = page && page.querySelector('#sceneScheduleDays');
+                    if (!days) return;
+                    Array.prototype.forEach.call(days.options, function (option) {
+                        option.selected = (Number(mask) & (Number(option.value) || 0)) !== 0;
+                    });
+                },
+                updateSceneScheduleButtons: function (page) {
+                    var select = page && page.querySelector('#sceneScheduleSelect');
+                    var hasSelection = !!(select && select.value);
+                    var deleteButton = page && page.querySelector('#deleteSceneScheduleBtn');
+                    var runButton = page && page.querySelector('#runSceneScheduleBtn');
+                    if (deleteButton) deleteButton.disabled = !hasSelection;
+                    if (runButton) runButton.disabled = !hasSelection;
+                },
+                applySceneSchedule: function (page, scheduleId) {
+                    var schedule = (page._hueSceneSchedules || []).find(function (candidate) {
+                        var id = candidate && (candidate.id !== undefined ? candidate.id : candidate.Id);
+                        return String(id || '').toLowerCase() === String(scheduleId || '').toLowerCase();
+                    });
+                    if (!schedule) {
+                        HueConfigurationPage.clearSceneScheduleForm(page);
+                        return;
+                    }
+                    var get = function (pascal, camel, fallback) {
+                        return schedule[camel] !== undefined ? schedule[camel] : (schedule[pascal] !== undefined ? schedule[pascal] : fallback);
+                    };
+                    page.querySelector('#sceneScheduleName').value = get('Name', 'name', '');
+                    page.querySelector('#sceneSchedulePresetSelect').value = get('PresetName', 'presetName', '');
+                    page.querySelector('#sceneScheduleTime').value = get('TimeOfDay', 'timeOfDay', '20:00');
+                    page.querySelector('#sceneScheduleTarget').value = get('TargetUserId', 'targetUserId', '');
+                    page.querySelector('#sceneScheduleEnabled').checked = get('Enabled', 'enabled', true) !== false;
+                    HueConfigurationPage.setSceneScheduleDaysMask(page, get('DaysOfWeekMask', 'daysOfWeekMask', 127));
+                    HueConfigurationPage.updateSceneScheduleButtons(page);
+                },
+                clearSceneScheduleForm: function (page) {
+                    var select = page && page.querySelector('#sceneScheduleSelect');
+                    if (select) select.value = '';
+                    if (!page) return;
+                    page.querySelector('#sceneScheduleName').value = '';
+                    page.querySelector('#sceneSchedulePresetSelect').value = '';
+                    page.querySelector('#sceneScheduleTime').value = '20:00';
+                    page.querySelector('#sceneScheduleTarget').value = '';
+                    page.querySelector('#sceneScheduleEnabled').checked = true;
+                    HueConfigurationPage.setSceneScheduleDaysMask(page, 127);
+                    HueConfigurationPage.updateSceneScheduleButtons(page);
+                },
+                saveSceneSchedule: function (page) {
+                    var name = page.querySelector('#sceneScheduleName').value.trim();
+                    var presetName = page.querySelector('#sceneSchedulePresetSelect').value;
+                    var timeOfDay = page.querySelector('#sceneScheduleTime').value;
+                    var daysOfWeekMask = HueConfigurationPage.getSceneScheduleDaysMask(page);
+                    if (!name || !presetName || !timeOfDay || !daysOfWeekMask) {
+                        Dashboard.alert("Enter a cue name, saved scene, time, and at least one day.");
+                        return;
+                    }
+                    var select = page.querySelector('#sceneScheduleSelect');
+                    var button = page.querySelector('#saveSceneScheduleBtn');
+                    var statusEl = page.querySelector('#sceneScheduleStatus');
+                    button.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Saving scheduled cue...";
+                        statusEl.style.color = "";
+                    }
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/SceneSchedules"),
+                        data: JSON.stringify({
+                            id: select.value || '',
+                            name: name,
+                            presetName: presetName,
+                            targetUserId: page.querySelector('#sceneScheduleTarget').value || '',
+                            timeOfDay: timeOfDay,
+                            daysOfWeekMask: daysOfWeekMask,
+                            enabled: page.querySelector('#sceneScheduleEnabled').checked
+                        }),
+                        contentType: "application/json",
+                        dataType: "json"
+                    }).then(function (response) {
+                        var savedId = response && (response.id !== undefined ? response.id : response.Id);
+                        if (statusEl) {
+                            statusEl.textContent = "Scheduled cue '" + name + "' saved.";
+                            statusEl.style.color = "#8bc34a";
+                        }
+                        return HueConfigurationPage.loadSceneSchedules(page, savedId || select.value);
+                    }).catch(function (err) {
+                        console.error("Failed to save scene schedule:", err);
+                        if (statusEl) {
+                            statusEl.textContent = "Unable to save scheduled cue. Check the scene, target, and time.";
+                            statusEl.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        button.disabled = false;
+                    });
+                },
+                deleteSceneSchedule: function (page) {
+                    var select = page.querySelector('#sceneScheduleSelect');
+                    var scheduleId = select && select.value;
+                    var option = select && select.options[select.selectedIndex];
+                    if (!scheduleId) {
+                        Dashboard.alert("Choose a scheduled cue first.");
+                        return;
+                    }
+                    Dashboard.confirm("Delete the scheduled cue '" + (option ? option.textContent : scheduleId) + "'?", "Delete Cue", function (confirmed) {
+                        if (!confirmed) return;
+                        var statusEl = page.querySelector('#sceneScheduleStatus');
+                        ApiClient.ajax({
+                            type: "DELETE",
+                            url: ApiClient.getUrl("HueSync/SceneSchedules/" + encodeURIComponent(scheduleId))
+                        }).then(function () {
+                            if (statusEl) {
+                                statusEl.textContent = "Scheduled cue deleted.";
+                                statusEl.style.color = "#8bc34a";
+                            }
+                            return HueConfigurationPage.loadSceneSchedules(page);
+                        }).catch(function (err) {
+                            console.error("Failed to delete scene schedule:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "Unable to delete the scheduled cue.";
+                                statusEl.style.color = "#d9534f";
+                            }
+                        });
+                    });
+                },
+                runSceneSchedule: function (page) {
+                    var select = page.querySelector('#sceneScheduleSelect');
+                    var scheduleId = select && select.value;
+                    var statusEl = page.querySelector('#sceneScheduleStatus');
+                    if (!scheduleId) {
+                        Dashboard.alert("Choose a scheduled cue first.");
+                        return;
+                    }
+                    var button = page.querySelector('#runSceneScheduleBtn');
+                    button.disabled = true;
+                    if (statusEl) statusEl.textContent = "Running scheduled scene...";
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/SceneSchedules/" + encodeURIComponent(scheduleId) + "/Run"),
+                        dataType: "json"
+                    }).then(function (result) {
+                        var succeeded = result && (result.succeeded !== undefined ? result.succeeded : result.Succeeded);
+                        var message = result && (result.message || result.Message) || "Scene cue completed.";
+                        if (statusEl) {
+                            statusEl.textContent = message;
+                            statusEl.style.color = succeeded ? "#8bc34a" : "#d9534f";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to run scene schedule:", err);
+                        if (statusEl) {
+                            statusEl.textContent = "Unable to run scene. Stop active playback and verify the target configuration.";
+                            statusEl.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        button.disabled = false;
                     });
                 },
                 connectionTestMessage: function (response, areaId) {
@@ -3433,6 +3740,26 @@
 
             document.querySelector('#deletePreviewPresetBtn').addEventListener('click', function () {
                 HueConfigurationPage.deleteColorPreset(this.closest('.page'));
+            });
+
+            document.querySelector('#sceneScheduleSelect').addEventListener('change', function () {
+                HueConfigurationPage.applySceneSchedule(this.closest('.page'), this.value);
+            });
+
+            document.querySelector('#saveSceneScheduleBtn').addEventListener('click', function () {
+                HueConfigurationPage.saveSceneSchedule(this.closest('.page'));
+            });
+
+            document.querySelector('#deleteSceneScheduleBtn').addEventListener('click', function () {
+                HueConfigurationPage.deleteSceneSchedule(this.closest('.page'));
+            });
+
+            document.querySelector('#clearSceneScheduleBtn').addEventListener('click', function () {
+                HueConfigurationPage.clearSceneScheduleForm(this.closest('.page'));
+            });
+
+            document.querySelector('#runSceneScheduleBtn').addEventListener('click', function () {
+                HueConfigurationPage.runSceneSchedule(this.closest('.page'));
             });
 
             document.querySelector('#refreshRuntimeStatusBtn').addEventListener('click', function () {

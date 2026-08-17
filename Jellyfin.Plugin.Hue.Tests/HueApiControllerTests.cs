@@ -1057,6 +1057,122 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_CrudUsesSavedScenesAndNeverReturnsCredentials()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "secret-app-key",
+            HueClientKey = "secret-client-key",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening", Red = 12, Green = 34, Blue = 56 } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-1", UserName = "Living Room", SyncEnabled = true }
+            }
+        });
+        var controller = CreateController();
+
+        var saved = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = " Evening Cue ",
+            PresetName = "evening",
+            TargetUserId = "user-1",
+            TimeOfDay = "07:05",
+            DaysOfWeekMask = 1 | 32,
+            Enabled = true
+        });
+
+        var savedResponse = Assert.IsType<OkObjectResult>(saved.Result);
+        var savedResult = Assert.IsType<HueSceneScheduleResult>(savedResponse.Value);
+        Assert.False(string.IsNullOrWhiteSpace(savedResult.Id));
+        Assert.Equal("Living Room", savedResult.TargetLabel);
+        Assert.Equal("07:05", savedResult.TimeOfDay);
+        Assert.Single(configuration.SceneSchedules);
+
+        var updated = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = savedResult.Id,
+            Name = "Evening Cue Updated",
+            PresetName = "Evening",
+            TimeOfDay = "21:30",
+            DaysOfWeekMask = 127,
+            Enabled = false
+        });
+        Assert.IsType<OkObjectResult>(updated.Result);
+        Assert.Equal("Evening Cue Updated", Assert.Single(configuration.SceneSchedules).Name);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+
+        var list = controller.GetSceneSchedules();
+        var listResponse = Assert.IsType<OkObjectResult>(list.Result);
+        var listed = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleResult>>(listResponse.Value));
+        Assert.Equal("Evening Cue Updated", listed.Name);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(listed);
+        Assert.DoesNotContain("secret-app-key", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-client-key", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("HueAppKey", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HueClientKey", serialized, StringComparison.OrdinalIgnoreCase);
+
+        Assert.IsType<OkObjectResult>(controller.DeleteSceneSchedule(savedResult.Id));
+        Assert.Empty(configuration.SceneSchedules);
+    }
+
+    [Fact]
+    public void SceneSchedules_RejectMissingPresetAndInvalidTimeWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+
+        var action = CreateController().SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Broken cue",
+            PresetName = "Missing",
+            TimeOfDay = "25:00",
+            DaysOfWeekMask = 0
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Empty(configuration.SceneSchedules);
+    }
+
+    [Fact]
+    public void DeleteColorPreset_ProtectsScheduledCueReferences()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Accent" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "cue-1", Name = "Accent cue", PresetName = "Accent" }
+            }
+        });
+
+        var action = CreateController().DeleteColorPreset("accent");
+
+        var response = Assert.IsType<ConflictObjectResult>(action);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Single(configuration.ColorPresets);
+    }
+
+    [Fact]
+    public async Task RunSceneSchedule_WithoutHostedAutomationServiceReturnsUnavailable()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Cue" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "cue-1", Name = "Cue", PresetName = "Cue" }
+            }
+        });
+
+        var action = await CreateController().RunSceneSchedule("cue-1");
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
+        Assert.Single(configuration.SceneSchedules);
+    }
+
+    [Fact]
     public async Task TestConnection_WithClientKeyRunsDtlsProbe()
     {
         _httpHandlerMock
@@ -1589,6 +1705,10 @@ public sealed class HueApiControllerTests : IDisposable
             ColorPresets = new List<HueColorPreset>
             {
                 new() { Name = "Accent", Red = 12, Green = 34, Blue = 56 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "cue-1", Name = "Morning cue", PresetName = "Accent", TimeOfDay = "08:15", DaysOfWeekMask = 127 }
             }
         });
 
@@ -1607,6 +1727,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(mapping.HasClientKey);
         Assert.Equal(135, mapping.BrightnessBoostOverride);
         Assert.Single(document.ColorPresets);
+        Assert.Single(document.SceneSchedules);
+        Assert.Equal("Morning cue", document.SceneSchedules[0].Name);
         Assert.True(document.Configuration.PersistSessionHistory);
 
         var serialized = System.Text.Json.JsonSerializer.Serialize(document);
@@ -1617,6 +1739,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("Private title", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("Private viewer", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("PersistedSessionHistory", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secret-app", serialized, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1646,6 +1769,10 @@ public sealed class HueApiControllerTests : IDisposable
             ColorPresets = new List<HueColorPreset>
             {
                 new() { Name = "Old Scene", Red = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "old-cue", Name = "Old cue", PresetName = "Old Scene" }
             }
         });
         var exported = HueConfigurationExportDocument.From(configuration);
@@ -1669,6 +1796,10 @@ public sealed class HueApiControllerTests : IDisposable
             ColorPresets = new List<HueColorPresetRequest>
             {
                 new() { Name = "New Scene", Red = 20, Green = 30, Blue = 40 }
+            },
+            SceneSchedules = new List<HueSceneScheduleRequest>
+            {
+                new() { Id = "new-cue", Name = "New cue", PresetName = "New Scene", TimeOfDay = "22:10", DaysOfWeekMask = 127 }
             }
         });
 
@@ -1679,6 +1810,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(1, result.MappingCredentialPairsPreserved);
         Assert.Equal(1, result.MappingsImported);
         Assert.Equal(1, result.ColorPresetsImported);
+        Assert.Equal(1, result.SceneSchedulesImported);
         Assert.Equal("default-app-secret", configuration.HueAppKey);
         Assert.Equal("default-client-secret", configuration.HueClientKey);
         var mapping = Assert.Single(configuration.UserMappings);
@@ -1686,6 +1818,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
         Assert.Equal(150, mapping.BrightnessBoostOverride);
         Assert.Equal("New Scene", Assert.Single(configuration.ColorPresets).Name);
+        Assert.Equal("New cue", Assert.Single(configuration.SceneSchedules).Name);
     }
 
     [Fact]

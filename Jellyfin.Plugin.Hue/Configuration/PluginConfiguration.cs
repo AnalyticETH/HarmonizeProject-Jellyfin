@@ -72,6 +72,22 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
+    /// A recurring, credential-free cue that displays one saved color scene at a
+    /// selected local time. The target is resolved from the global bridge or a
+    /// persisted user mapping when the cue runs; credentials are never stored here.
+    /// </summary>
+    public sealed class HueSceneSchedule
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
+        public string Name { get; set; } = string.Empty;
+        public string PresetName { get; set; } = string.Empty;
+        public string TargetUserId { get; set; } = string.Empty;
+        public string TimeOfDay { get; set; } = "20:00";
+        public int DaysOfWeekMask { get; set; } = 127;
+        public bool Enabled { get; set; } = true;
+    }
+
+    /// <summary>
     /// Credential-free completed-session telemetry stored only when an administrator opts
     /// into retaining history across Jellyfin restarts. This shape deliberately contains no
     /// bridge keys or Jellyfin playback tokens.
@@ -147,6 +163,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxPreviewDurationSeconds = 30;
         public const int MaxColorPresets = 50;
         public const int MaxColorPresetNameLength = 64;
+        public const int MaxSceneSchedules = 50;
+        public const int MaxSceneScheduleNameLength = 64;
+        public const int AllSceneScheduleDaysMask = 127;
         public const int MaxSessionHistoryCount = 25;
 
         public bool SyncEnabled { get; set; } = false;
@@ -170,6 +189,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// Presets are global and do not contain bridge credentials or channel targets.
         /// </summary>
         public List<HueColorPreset> ColorPresets { get; set; } = new List<HueColorPreset>();
+
+        /// <summary>
+        /// Recurring visual cues that reference the credential-free color presets above.
+        /// Targets are resolved from the current global or per-user bridge mapping when
+        /// a cue runs, so this collection never contains bridge secrets.
+        /// </summary>
+        public List<HueSceneSchedule> SceneSchedules { get; set; } = new List<HueSceneSchedule>();
 
         /// <summary>
         /// Retains the bounded, sanitized completed-session history in plugin configuration.
@@ -702,6 +728,118 @@ namespace Jellyfin.Plugin.Hue.Configuration
             return errors;
         }
 
+        /// <summary>
+        /// Validates one recurring scene cue. Times use the Jellyfin server's local
+        /// clock and are stored in 24-hour HH:mm form; days use Sunday=1 through
+        /// Saturday=64 bit flags.
+        /// </summary>
+        public static List<string> ValidateSceneSchedule(
+            HueSceneSchedule? schedule,
+            PluginConfiguration? configuration = null,
+            string label = "Scene schedule")
+        {
+            var errors = new List<string>();
+            if (schedule == null)
+            {
+                errors.Add($"{label} is required");
+                return errors;
+            }
+
+            if (string.IsNullOrWhiteSpace(schedule.Id))
+                errors.Add($"{label} requires an ID");
+
+            var name = schedule.Name?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+                errors.Add($"{label} name is required");
+            else if (name.Length > MaxSceneScheduleNameLength)
+                errors.Add($"{label} name must be {MaxSceneScheduleNameLength} characters or fewer");
+            else if (name.Any(char.IsControl))
+                errors.Add($"{label} name must not contain control characters");
+            else if (name.IndexOfAny(new[] { '/', '\\', '?', '#' }) >= 0)
+                errors.Add($"{label} name must not contain path or URL separator characters");
+
+            if (string.IsNullOrWhiteSpace(schedule.PresetName))
+                errors.Add($"{label} requires a saved scene");
+            else if (configuration?.ColorPresets != null &&
+                     !configuration.ColorPresets.Any(preset =>
+                         preset != null &&
+                         string.Equals(preset.Name?.Trim(), schedule.PresetName.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                errors.Add($"{label} references a saved scene that does not exist");
+            }
+
+            if (!TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
+                errors.Add($"{label} time must use 24-hour HH:mm format");
+
+            if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > AllSceneScheduleDaysMask)
+                errors.Add($"{label} must select at least one day of the week");
+
+            if (!string.IsNullOrWhiteSpace(schedule.TargetUserId))
+            {
+                var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.UserId?.Trim(), schedule.TargetUserId.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (mapping == null)
+                    errors.Add($"{label} references a user mapping that does not exist");
+                else if (!mapping.SyncEnabled)
+                    errors.Add($"{label} references a disabled user mapping");
+            }
+
+            return errors;
+        }
+
+        /// <summary>
+        /// Validates the complete recurring scene-cue collection, including unique
+        /// IDs and names so the administrator page can address cues deterministically.
+        /// </summary>
+        public List<string> ValidateSceneSchedules()
+        {
+            var errors = new List<string>();
+            if (SceneSchedules == null)
+                return errors;
+
+            if (SceneSchedules.Count > MaxSceneSchedules)
+                errors.Add($"No more than {MaxSceneSchedules} scene schedules may be saved");
+
+            var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < SceneSchedules.Count; index++)
+            {
+                var label = $"Scene schedule {index + 1}";
+                var schedule = SceneSchedules[index];
+                errors.AddRange(ValidateSceneSchedule(schedule, this, label));
+                var id = schedule?.Id?.Trim();
+                if (!string.IsNullOrWhiteSpace(id) && !seenIds.Add(id))
+                    errors.Add($"{label} duplicates another scene schedule ID");
+                var name = schedule?.Name?.Trim();
+                if (!string.IsNullOrWhiteSpace(name) && !seenNames.Add(name))
+                    errors.Add($"{label} duplicates another scene schedule name");
+            }
+
+            return errors;
+        }
+
+        /// <summary>
+        /// Normalizes a schedule time to a stable 24-hour HH:mm representation.
+        /// </summary>
+        public static bool TryNormalizeSceneScheduleTime(string? value, out string normalized)
+        {
+            normalized = string.Empty;
+            if (!TimeSpan.TryParseExact(
+                    value?.Trim(),
+                    @"hh\:mm",
+                    CultureInfo.InvariantCulture,
+                    out var parsed) ||
+                parsed < TimeSpan.Zero ||
+                parsed >= TimeSpan.FromDays(1))
+            {
+                return false;
+            }
+
+            normalized = parsed.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
+            return true;
+        }
+
         public PluginConfiguration()
         {
             // Defaults
@@ -731,6 +869,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             var errors = new List<string>();
 
             errors.AddRange(ValidateColorPresets());
+            errors.AddRange(ValidateSceneSchedules());
 
             if (SyncEnabled)
             {

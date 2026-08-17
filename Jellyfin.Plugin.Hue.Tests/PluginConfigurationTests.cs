@@ -61,6 +61,73 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsSavedSceneAndNormalizesTime()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-1",
+                    Name = "Evening welcome",
+                    PresetName = " evening ",
+                    TimeOfDay = "07:05",
+                    DaysOfWeekMask = 1 | 32
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+        Assert.True(PluginConfiguration.TryNormalizeSceneScheduleTime("07:05", out var normalized));
+        Assert.Equal("07:05", normalized);
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsInvalidReferencesAndDuplicates()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "duplicate", Name = "Cue", PresetName = "Missing", TimeOfDay = "25:00", DaysOfWeekMask = 0 },
+                new() { Id = "duplicate", Name = " cue ", PresetName = "Evening", TimeOfDay = "20:00", DaysOfWeekMask = 127 }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+
+        Assert.Contains("Scene schedule 1 references a saved scene that does not exist", errors);
+        Assert.Contains("Scene schedule 1 time must use 24-hour HH:mm format", errors);
+        Assert.Contains("Scene schedule 1 must select at least one day of the week", errors);
+        Assert.Contains("Scene schedule 2 duplicates another scene schedule ID", errors);
+        Assert.Contains("Scene schedule 2 duplicates another scene schedule name", errors);
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsTooManyCues()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = Enumerable.Range(0, PluginConfiguration.MaxSceneSchedules + 1)
+                .Select(index => new HueColorPreset { Name = $"Scene {index}" })
+                .ToList(),
+            SceneSchedules = Enumerable.Range(0, PluginConfiguration.MaxSceneSchedules + 1)
+                .Select(index => new HueSceneSchedule
+                {
+                    Id = $"cue-{index}",
+                    Name = $"Cue {index}",
+                    PresetName = $"Scene {index}"
+                })
+                .ToList()
+        };
+
+        Assert.Contains($"No more than {PluginConfiguration.MaxSceneSchedules} scene schedules may be saved", config.ValidateSceneSchedules());
+    }
+
+    [Fact]
     public void Validate_WhenSyncDisabled_ReturnsNoErrors()
     {
         // Arrange

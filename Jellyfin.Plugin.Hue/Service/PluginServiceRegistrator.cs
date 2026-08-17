@@ -33,6 +33,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IHueEnvironmentProbe>(serviceProvider =>
             new HueEnvironmentProbe(mediaEncoder: serviceProvider.GetService<IMediaEncoder>()));
         serviceCollection.AddHostedService<HueSyncService>();
+        serviceCollection.AddHostedService<HueSceneAutomationService>();
     }
 }
 

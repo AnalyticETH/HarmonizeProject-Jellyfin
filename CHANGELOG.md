@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.70] - 2026-08-17
+
+### Added
+- **Scheduled scene cues**: run saved color scenes automatically on selected days and server-local times, with a one-click Run Now action for immediate testing
+- **Target-aware scene automation**: cues can address the global Hue target or any enabled user mapping while resolving current credentials only on the server at execution time
+- **Safe scheduler lifecycle**: scheduled cues reuse the serialized activate/DTLS/send/deactivate/restore preview lifecycle, skip duplicate polling within a minute, and yield to active playback or another diagnostic
+- **Portable automation configuration**: credential-safe configuration export/import now includes recurring scene cues without bridge keys or client tokens
+
+### Security
+- Scene schedules contain only names, saved-scene references, day/time flags, and target mapping IDs; bridge App Keys, Client Keys, and playback tokens are never stored or returned by the schedule API
+
 ## [1.5.69] - 2026-08-17
 
 ### Added

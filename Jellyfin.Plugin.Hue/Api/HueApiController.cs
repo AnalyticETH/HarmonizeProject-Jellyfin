@@ -25,6 +25,7 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         private readonly HueClient _hueClient;
         private readonly Service.HueSyncService? _syncService;
+        private readonly HueSceneAutomationService? _sceneAutomationService;
         private readonly IHueStreamTester? _streamTester;
         private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
         private readonly IHueEnvironmentProbe _environmentProbe;
@@ -46,6 +47,7 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             _hueClient = hueClient;
             _syncService = hostedServices.OfType<Service.HueSyncService>().FirstOrDefault();
+            _sceneAutomationService = hostedServices.OfType<HueSceneAutomationService>().FirstOrDefault();
             _streamTester = streamTester;
             _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
             _environmentProbe = environmentProbe ?? new HueEnvironmentProbe();
@@ -399,6 +401,51 @@ namespace Jellyfin.Plugin.Hue.Api
                 Blue = preset.Blue,
                 BrightnessPercent = preset.BrightnessPercent,
                 DurationSeconds = preset.DurationSeconds
+            };
+        }
+
+        internal static HueSceneScheduleResult ToSceneScheduleResult(
+            HueSceneSchedule schedule,
+            PluginConfiguration config)
+        {
+            var targetUserId = schedule.TargetUserId?.Trim() ?? string.Empty;
+            var mapping = string.IsNullOrWhiteSpace(targetUserId)
+                ? null
+                : config.UserMappings?.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
+            var targetLabel = string.IsNullOrWhiteSpace(targetUserId)
+                ? "Default bridge target"
+                : mapping == null
+                    ? "Missing user mapping"
+                    : string.IsNullOrWhiteSpace(mapping.UserName)
+                        ? $"User mapping {mapping.UserId.Trim()}"
+                        : mapping.UserName.Trim();
+
+            return new HueSceneScheduleResult
+            {
+                Id = schedule.Id,
+                Name = schedule.Name,
+                PresetName = schedule.PresetName,
+                TargetUserId = targetUserId,
+                TargetLabel = targetLabel,
+                TimeOfDay = schedule.TimeOfDay,
+                DaysOfWeekMask = schedule.DaysOfWeekMask,
+                Enabled = schedule.Enabled
+            };
+        }
+
+        private static HueSceneSchedule CloneSceneSchedule(HueSceneSchedule schedule)
+        {
+            return new HueSceneSchedule
+            {
+                Id = schedule.Id,
+                Name = schedule.Name,
+                PresetName = schedule.PresetName,
+                TargetUserId = schedule.TargetUserId,
+                TimeOfDay = schedule.TimeOfDay,
+                DaysOfWeekMask = schedule.DaysOfWeekMask,
+                Enabled = schedule.Enabled
             };
         }
 
@@ -804,6 +851,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpDelete("ColorPresets/{name}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult DeleteColorPreset(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -812,6 +860,14 @@ namespace Jellyfin.Plugin.Hue.Api
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 return NotFound("Plugin configuration not available.");
+
+            var referencedScheduleCount = config.SceneSchedules?.Count(schedule =>
+                schedule != null &&
+                string.Equals(schedule.PresetName?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase)) ?? 0;
+            if (referencedScheduleCount > 0)
+            {
+                return Conflict($"The saved scene is used by {referencedScheduleCount} scheduled cue(s). Delete or update those cues first.");
+            }
 
             config.ColorPresets ??= new List<HueColorPreset>();
             var removed = config.ColorPresets.RemoveAll(existing =>
@@ -822,6 +878,146 @@ namespace Jellyfin.Plugin.Hue.Api
 
             Plugin.Instance?.SaveConfiguration();
             return Ok(new { message = "Color preset deleted successfully." });
+        }
+
+        /// <summary>
+        /// Lists recurring scene cues without returning bridge credentials. Target user
+        /// IDs are retained so the configuration page can address a mapping, while the
+        /// human-readable target label is derived from the current mapping.
+        /// </summary>
+        [HttpGet("SceneSchedules")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<IEnumerable<HueSceneScheduleResult>> GetSceneSchedules()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            return Ok((config.SceneSchedules ?? new List<HueSceneSchedule>())
+                .Where(schedule => schedule != null)
+                .OrderBy(schedule => schedule.TimeOfDay, StringComparer.Ordinal)
+                .ThenBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(schedule => ToSceneScheduleResult(schedule, config)));
+        }
+
+        /// <summary>
+        /// Saves or updates a recurring scene cue. The cue references an existing saved
+        /// scene and a global or per-user target; it never accepts bridge credentials.
+        /// </summary>
+        [HttpPost("SceneSchedules")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HueSceneScheduleResult> SaveSceneSchedule(
+            [FromBody] HueSceneScheduleRequest? request)
+        {
+            if (request == null)
+                return BadRequest("Scene schedule is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var schedule = request.ToConfigurationSchedule();
+            if (string.IsNullOrWhiteSpace(schedule.Id))
+                schedule.Id = Guid.NewGuid().ToString("N");
+            if (PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalizedTime))
+                schedule.TimeOfDay = normalizedTime;
+
+            var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
+            var candidateSchedules = previousSchedules
+                .Where(existing => existing != null)
+                .Select(CloneSceneSchedule)
+                .ToList();
+            var existingIndex = candidateSchedules.FindIndex(existing =>
+                string.Equals(existing.Id?.Trim(), schedule.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (existingIndex >= 0)
+                candidateSchedules[existingIndex] = schedule;
+            else
+                candidateSchedules.Add(schedule);
+
+            config.SceneSchedules = candidateSchedules;
+            var validationErrors = config.ValidateSceneSchedules();
+            config.SceneSchedules = previousSchedules;
+            if (validationErrors.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = "Scene schedule is invalid.",
+                    errors = validationErrors
+                });
+            }
+
+            config.SceneSchedules = candidateSchedules;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch
+            {
+                config.SceneSchedules = previousSchedules;
+                throw;
+            }
+
+            return Ok(ToSceneScheduleResult(schedule, config));
+        }
+
+        /// <summary>
+        /// Deletes one recurring scene cue by its stable ID.
+        /// </summary>
+        [HttpDelete("SceneSchedules/{id}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult DeleteSceneSchedule(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                return NotFound("Scene schedule not found.");
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            config.SceneSchedules ??= new List<HueSceneSchedule>();
+            var removed = config.SceneSchedules.RemoveAll(schedule =>
+                schedule != null &&
+                string.Equals(schedule.Id?.Trim(), id.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (removed == 0)
+                return NotFound("Scene schedule not found.");
+
+            Plugin.Instance?.SaveConfiguration();
+            return Ok(new { message = "Scene schedule deleted successfully." });
+        }
+
+        /// <summary>
+        /// Runs a saved scene cue immediately through the same serialized, restorative
+        /// preview lifecycle used by the administrator preview button.
+        /// </summary>
+        [HttpPost("SceneSchedules/{id}/Run")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<HueSceneAutomationRunResult>> RunSceneSchedule(
+            string id,
+            CancellationToken cancellationToken = default)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var scheduleExists = config.SceneSchedules?.Any(schedule =>
+                schedule != null &&
+                string.Equals(schedule.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase)) == true;
+            if (!scheduleExists)
+            {
+                return NotFound("Scene schedule not found.");
+            }
+
+            if (_sceneAutomationService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+
+            return Ok(await _sceneAutomationService.RunScheduleAsync(id, cancellationToken).ConfigureAwait(false));
         }
 
         [HttpGet("Status")]
@@ -1311,7 +1507,8 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Imports global settings, per-user profiles, and color scenes atomically. Blank
+        /// Imports global settings, per-user profiles, color scenes, and recurring scene
+        /// cues atomically. Blank
         /// global or mapping keys preserve credentials already stored for the same target;
         /// secrets included explicitly in an import are accepted but never echoed back.
         /// </summary>
@@ -1348,8 +1545,13 @@ namespace Jellyfin.Plugin.Hue.Api
             var existingPresets = (config.ColorPresets ?? new List<HueColorPreset>())
                 .Where(preset => preset != null)
                 .ToList();
+            var existingSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+                .Where(schedule => schedule != null)
+                .Select(CloneSceneSchedule)
+                .ToList();
             var importedMappings = request.UserMappings ?? new List<UserBridgeMappingImport>();
             var importedPresets = request.ColorPresets ?? new List<HueColorPresetRequest>();
+            var importedSchedules = request.SceneSchedules ?? new List<HueSceneScheduleRequest>();
             var validationErrors = new List<string>();
             var seenUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var mappingCredentialPairsPreserved = 0;
@@ -1420,6 +1622,33 @@ namespace Jellyfin.Plugin.Hue.Api
                 validationErrors.Add($"No more than {PluginConfiguration.MaxColorPresets} color presets may be saved.");
             }
 
+            var candidateSchedules = request.ReplaceSceneSchedules
+                ? new List<HueSceneSchedule>()
+                : existingSchedules.Select(CloneSceneSchedule).ToList();
+            foreach (var scheduleRequest in importedSchedules)
+            {
+                var schedule = scheduleRequest?.ToConfigurationSchedule() ?? new HueSceneSchedule();
+                if (string.IsNullOrWhiteSpace(schedule.Id))
+                    schedule.Id = Guid.NewGuid().ToString("N");
+                if (PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalizedTime))
+                    schedule.TimeOfDay = normalizedTime;
+
+                var existingIndex = candidateSchedules.FindIndex(existing =>
+                    string.Equals(existing.Id?.Trim(), schedule.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (existingIndex >= 0)
+                    candidateSchedules[existingIndex] = schedule;
+                else
+                    candidateSchedules.Add(schedule);
+            }
+
+            var scheduleValidationConfiguration = new PluginConfiguration
+            {
+                ColorPresets = candidatePresets,
+                UserMappings = candidateMappings,
+                SceneSchedules = candidateSchedules
+            };
+            validationErrors.AddRange(scheduleValidationConfiguration.ValidateSceneSchedules());
+
             if (validationErrors.Count > 0)
                 return BadRequest(new { message = "Configuration import is invalid.", errors = validationErrors });
 
@@ -1428,6 +1657,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var previousClientKey = config.HueClientKey;
             var previousMappings = config.UserMappings ?? new List<UserBridgeMapping>();
             var previousPresets = config.ColorPresets ?? new List<HueColorPreset>();
+            var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
             var globalAppKeyPreserved = string.IsNullOrWhiteSpace(request.Configuration.HueAppKey) &&
                 !request.Configuration.ClearStoredCredentials &&
                 !string.IsNullOrWhiteSpace(previousAppKey);
@@ -1438,6 +1668,7 @@ namespace Jellyfin.Plugin.Hue.Api
             request.Configuration.ApplyTo(config);
             config.UserMappings = candidateMappings;
             config.ColorPresets = candidatePresets;
+            config.SceneSchedules = candidateSchedules;
             var completeValidationErrors = config.Validate();
             if (completeValidationErrors.Count > 0)
             {
@@ -1446,6 +1677,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 config.HueClientKey = previousClientKey;
                 config.UserMappings = previousMappings;
                 config.ColorPresets = previousPresets;
+                config.SceneSchedules = previousSchedules;
                 return BadRequest(new
                 {
                     message = "Configuration import is invalid.",
@@ -1465,6 +1697,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 config.HueClientKey = previousClientKey;
                 config.UserMappings = previousMappings;
                 config.ColorPresets = previousPresets;
+                config.SceneSchedules = previousSchedules;
                 // Keep the response credential-free while retaining the exception in the
                 // server log for the administrator's normal Jellyfin diagnostics.
                 _logger?.LogError(ex, "Could not persist imported Hue configuration");
@@ -1475,8 +1708,10 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 MappingsImported = importedMappingValues.Count,
                 ColorPresetsImported = importedPresets.Count,
+                SceneSchedulesImported = importedSchedules.Count,
                 TotalMappings = candidateMappings.Count,
                 TotalColorPresets = candidatePresets.Count,
+                TotalSceneSchedules = candidateSchedules.Count,
                 GlobalAppKeyPreserved = globalAppKeyPreserved,
                 GlobalClientKeyPreserved = globalClientKeyPreserved,
                 MappingCredentialPairsPreserved = mappingCredentialPairsPreserved,
@@ -1663,6 +1898,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpPost("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult SaveUserMapping([FromBody] UserBridgeMapping mapping)
         {
             if (mapping == null)
@@ -1710,6 +1946,14 @@ namespace Jellyfin.Plugin.Hue.Api
             if (plugin == null || config == null)
             {
                 return BadRequest("Plugin configuration not available.");
+            }
+
+            var scheduledCueCount = config.SceneSchedules?.Count(schedule =>
+                schedule != null &&
+                string.Equals(schedule.TargetUserId?.Trim(), mapping.UserId.Trim(), StringComparison.OrdinalIgnoreCase)) ?? 0;
+            if (scheduledCueCount > 0 && !mapping.SyncEnabled)
+            {
+                return Conflict($"This user mapping is used by {scheduledCueCount} scheduled cue(s). Delete or update those cues before disabling the mapping.");
             }
 
             config.UserMappings ??= new List<UserBridgeMapping>();
@@ -1796,6 +2040,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpDelete("UserMappings/{userId}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult DeleteUserMapping(string userId)
         {
             if (string.IsNullOrWhiteSpace(userId))
@@ -1807,6 +2052,14 @@ namespace Jellyfin.Plugin.Hue.Api
             if (config == null)
             {
                 return NotFound("Plugin configuration not available.");
+            }
+
+            var scheduledCueCount = config.SceneSchedules?.Count(schedule =>
+                schedule != null &&
+                string.Equals(schedule.TargetUserId?.Trim(), userId.Trim(), StringComparison.OrdinalIgnoreCase)) ?? 0;
+            if (scheduledCueCount > 0)
+            {
+                return Conflict($"This user mapping is used by {scheduledCueCount} scheduled cue(s). Delete or update those cues first.");
             }
 
             config.UserMappings ??= new List<UserBridgeMapping>();
@@ -2052,7 +2305,8 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Credential-safe backup document for settings, profiles, and color scenes.
+    /// Credential-safe backup document for settings, profiles, color scenes, and
+    /// recurring scene cues.
     /// </summary>
     public sealed class HueConfigurationExportDocument
     {
@@ -2066,6 +2320,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public HuePluginConfigurationSettings Configuration { get; set; } = new();
         public IReadOnlyList<UserBridgeMappingSummary> UserMappings { get; set; } = Array.Empty<UserBridgeMappingSummary>();
         public IReadOnlyList<HueColorPresetResult> ColorPresets { get; set; } = Array.Empty<HueColorPresetResult>();
+        public IReadOnlyList<HueSceneScheduleResult> SceneSchedules { get; set; } = Array.Empty<HueSceneScheduleResult>();
 
         public static HueConfigurationExportDocument From(PluginConfiguration config)
         {
@@ -2091,6 +2346,10 @@ namespace Jellyfin.Plugin.Hue.Api
                         BrightnessPercent = preset.BrightnessPercent,
                         DurationSeconds = preset.DurationSeconds
                     })
+                    .ToArray(),
+                SceneSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+                    .Where(schedule => schedule != null)
+                    .Select(schedule => HueApiController.ToSceneScheduleResult(schedule, config))
                     .ToArray()
             };
         }
@@ -2106,8 +2365,10 @@ namespace Jellyfin.Plugin.Hue.Api
         public HuePluginConfigurationSettings? Configuration { get; set; }
         public List<UserBridgeMappingImport> UserMappings { get; set; } = new();
         public List<HueColorPresetRequest> ColorPresets { get; set; } = new();
+        public List<HueSceneScheduleRequest> SceneSchedules { get; set; } = new();
         public bool ReplaceMappings { get; set; } = true;
         public bool ReplaceColorPresets { get; set; } = true;
+        public bool ReplaceSceneSchedules { get; set; } = true;
     }
 
     /// <summary>
@@ -2118,8 +2379,10 @@ namespace Jellyfin.Plugin.Hue.Api
         public string Message { get; set; } = string.Empty;
         public int MappingsImported { get; set; }
         public int ColorPresetsImported { get; set; }
+        public int SceneSchedulesImported { get; set; }
         public int TotalMappings { get; set; }
         public int TotalColorPresets { get; set; }
+        public int TotalSceneSchedules { get; set; }
         public bool GlobalAppKeyPreserved { get; set; }
         public bool GlobalClientKeyPreserved { get; set; }
         public int MappingCredentialPairsPreserved { get; set; }
@@ -2354,6 +2617,78 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
+    }
+
+    /// <summary>
+    /// Request shape for one recurring saved-scene cue. TargetUserId is blank for the
+    /// global bridge target; bridge credentials are intentionally not accepted here.
+    /// </summary>
+    public sealed class HueSceneScheduleRequest
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("presetName")]
+        public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("targetUserId")]
+        public string TargetUserId { get; set; } = string.Empty;
+
+        [JsonPropertyName("timeOfDay")]
+        public string TimeOfDay { get; set; } = "20:00";
+
+        [JsonPropertyName("daysOfWeekMask")]
+        public int DaysOfWeekMask { get; set; } = PluginConfiguration.AllSceneScheduleDaysMask;
+
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; } = true;
+
+        public HueSceneSchedule ToConfigurationSchedule()
+        {
+            return new HueSceneSchedule
+            {
+                Id = Id?.Trim() ?? string.Empty,
+                Name = Name?.Trim() ?? string.Empty,
+                PresetName = PresetName?.Trim() ?? string.Empty,
+                TargetUserId = TargetUserId?.Trim() ?? string.Empty,
+                TimeOfDay = TimeOfDay?.Trim() ?? string.Empty,
+                DaysOfWeekMask = DaysOfWeekMask,
+                Enabled = Enabled
+            };
+        }
+    }
+
+    /// <summary>
+    /// Credential-free recurring scene cue returned by the administrator API.
+    /// </summary>
+    public sealed class HueSceneScheduleResult
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("presetName")]
+        public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("targetUserId")]
+        public string TargetUserId { get; set; } = string.Empty;
+
+        [JsonPropertyName("targetLabel")]
+        public string TargetLabel { get; set; } = string.Empty;
+
+        [JsonPropertyName("timeOfDay")]
+        public string TimeOfDay { get; set; } = string.Empty;
+
+        [JsonPropertyName("daysOfWeekMask")]
+        public int DaysOfWeekMask { get; set; }
+
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; }
     }
 
     public class HueRegistrationResult
