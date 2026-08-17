@@ -246,7 +246,7 @@
                 pluginId: "4e078f02-ec43-473e-85f1-98e86eb9a761",
                 loadConfiguration: function (page) {
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(HueConfigurationPage.pluginId).then(function (config) {
+                    return ApiClient.getPluginConfiguration(HueConfigurationPage.pluginId).then(function (config) {
                         page.querySelector('#hueBridgeIp').value = config.HueBridgeIp || "";
                         page.querySelector('#hueAppKey').value = config.HueAppKey || "";
                         page.querySelector('#hueClientKey').value = config.HueClientKey || "";
@@ -264,6 +264,10 @@
                         page.querySelector('#colorChangeThreshold').value = config.ColorChangeThreshold != null ? config.ColorChangeThreshold : 10;
                         page.querySelector('#networkRetryAttempts').value = config.NetworkRetryAttempts != null ? config.NetworkRetryAttempts : 3;
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
+                    }).catch(function (err) {
+                        console.error("Failed to load Hue configuration:", err);
+                        HueConfigurationPage.refreshStatus(page, "Unable to load plugin configuration.", "error");
+                    }).finally(function () {
                         Dashboard.hideLoadingMsg();
                     });
                 },
@@ -275,7 +279,8 @@
                     };
 
                     // First get current config to preserve UserMappings
-                    ApiClient.getPluginConfiguration(HueConfigurationPage.pluginId).then(function (currentConfig) {
+                    return ApiClient.getPluginConfiguration(HueConfigurationPage.pluginId).then(function (currentConfig) {
+                        currentConfig = currentConfig || {};
                         var config = {
                             HueBridgeIp: page.querySelector('#hueBridgeIp').value,
                             HueAppKey: page.querySelector('#hueAppKey').value,
@@ -300,6 +305,12 @@
                     }).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                         HueConfigurationPage.refreshStatus(page, "Configuration saved.", "success");
+                    }).catch(function (err) {
+                        console.error("Failed to save Hue configuration:", err);
+                        HueConfigurationPage.refreshStatus(page, "Unable to save configuration. Check the server log for details.", "error");
+                        Dashboard.alert("Failed to save configuration: " + (err && err.message ? err.message : "unknown error"));
+                    }).finally(function () {
+                        Dashboard.hideLoadingMsg();
                     });
                 },
                 loadEntertainmentAreas: function (page, selectedId) {
@@ -386,7 +397,7 @@
                         HueConfigurationPage.syncSelectedArea(page, selectedId);
                     }).catch(function (err) {
                         console.error("Entertainment areas error:", err);
-                        statusEl.textContent = "Unable to load areas: " + err;
+                        statusEl.textContent = "Unable to load areas: " + (err && err.message ? err.message : "unknown error");
                         HueConfigurationPage.refreshStatus(page, "Could not reach bridge. Verify IP, app key, and network access.", "error");
                         HueConfigurationPage.syncSelectedArea(page, selectedId);
                     }).finally(function () {
@@ -506,18 +517,30 @@
 
                         // Handle Response object from fetch API
                         if (err && typeof err.text === 'function') {
-                            err.text().then(function(text) {
+                        err.text().then(function(text) {
                                 console.error("Error response body:", text);
                                 var cleanText = text.replace(/^"|"$/g, '');
-                                selectEl.innerHTML = '<option value="">Error: ' + cleanText + '</option>';
+                                selectEl.innerHTML = '';
+                                var errorOption = document.createElement('option');
+                                errorOption.value = "";
+                                errorOption.textContent = "Error: " + cleanText;
+                                selectEl.appendChild(errorOption);
                             }).catch(function() {
-                                selectEl.innerHTML = '<option value="">Error: ' + (err.status || 'Unknown') + ' ' + (err.statusText || '') + '</option>';
+                                selectEl.innerHTML = '';
+                                var errorOption = document.createElement('option');
+                                errorOption.value = "";
+                                errorOption.textContent = "Error: " + (err.status || 'Unknown') + ' ' + (err.statusText || '');
+                                selectEl.appendChild(errorOption);
                             });
                             return;
                         }
 
                         var errorMsg = err && err.message ? err.message : String(err);
-                        selectEl.innerHTML = '<option value="">Error: ' + errorMsg + '</option>';
+                        selectEl.innerHTML = '';
+                        var errorOption = document.createElement('option');
+                        errorOption.value = "";
+                        errorOption.textContent = "Error: " + errorMsg;
+                        selectEl.appendChild(errorOption);
                     });
                 },
 

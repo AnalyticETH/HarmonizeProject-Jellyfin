@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Mime;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -30,14 +31,14 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpPost("Register")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<ActionResult<HueRegistrationResult>> RegisterBridge([FromBody] HueRegistrationRequest request)
+        public async Task<ActionResult<HueRegistrationResult>> RegisterBridge([FromBody] HueRegistrationRequest? request)
         {
-            if (string.IsNullOrEmpty(request.IpAddress))
+            if (request == null || string.IsNullOrWhiteSpace(request.IpAddress) || !IsValidBridgeAddress(request.IpAddress))
             {
-                return BadRequest("IP Address is required.");
+                return BadRequest("A valid bridge IP address or host name is required.");
             }
 
-            var result = await _hueClient.RegisterWithBridge(request.IpAddress);
+            var result = await _hueClient.RegisterWithBridge(request.IpAddress.Trim());
             if (result == null)
             {
                 return BadRequest("Failed to register. Did you press the Link Button?");
@@ -106,9 +107,26 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public ActionResult SaveUserMapping([FromBody] UserBridgeMapping mapping)
         {
+            if (mapping == null)
+            {
+                return BadRequest("Mapping is required.");
+            }
+
             if (string.IsNullOrWhiteSpace(mapping.UserId))
             {
                 return BadRequest("User ID is required.");
+            }
+
+            if (!IsValidBridgeAddress(mapping.HueBridgeIp))
+            {
+                return BadRequest("A valid bridge IP address or host name is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(mapping.HueAppKey) ||
+                string.IsNullOrWhiteSpace(mapping.HueClientKey) ||
+                string.IsNullOrWhiteSpace(mapping.EntertainmentAreaId))
+            {
+                return BadRequest("Bridge credentials and entertainment area ID are required.");
             }
 
             var config = Plugin.Instance?.Configuration;
@@ -118,7 +136,8 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             // Remove existing mapping for this user if exists
-            config.UserMappings.RemoveAll(m => m.UserId == mapping.UserId);
+            config.UserMappings ??= new List<UserBridgeMapping>();
+            config.UserMappings.RemoveAll(m => string.Equals(m.UserId, mapping.UserId, StringComparison.OrdinalIgnoreCase));
 
             // Add the new/updated mapping
             config.UserMappings.Add(mapping);
@@ -136,13 +155,19 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public ActionResult DeleteUserMapping(string userId)
         {
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                return BadRequest("User ID is required.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
             {
                 return NotFound("Plugin configuration not available.");
             }
 
-            var removed = config.UserMappings.RemoveAll(m => m.UserId == userId);
+            config.UserMappings ??= new List<UserBridgeMapping>();
+            var removed = config.UserMappings.RemoveAll(m => string.Equals(m.UserId, userId, StringComparison.OrdinalIgnoreCase));
             if (removed == 0)
             {
                 return NotFound("Mapping not found for the specified user.");
@@ -151,6 +176,16 @@ namespace Jellyfin.Plugin.Hue.Api
             Plugin.Instance?.SaveConfiguration();
 
             return Ok(new { message = "Mapping deleted successfully." });
+        }
+
+        private static bool IsValidBridgeAddress(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            var host = value.Trim();
+            return host.IndexOfAny(new[] { '/', '\\', '?', '#' }) < 0 &&
+                   Uri.CheckHostName(host) != UriHostNameType.Unknown;
         }
     }
 

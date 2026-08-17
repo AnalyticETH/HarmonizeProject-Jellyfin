@@ -38,6 +38,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         private const int MaxReconnectAttempts = 3;
         private Dictionary<int, byte[]>? _lastSentColors;
         private byte _sequenceNumber = 0;
+        private readonly SemaphoreSlim _reconnectLock = new SemaphoreSlim(1, 1);
 
         // How long to wait after spawning OpenSSL before attempting to write
         // The DTLS handshake typically takes 100-400ms on a local network
@@ -89,7 +90,14 @@ namespace Jellyfin.Plugin.Hue.Hue
         {
             lock (_lock)
             {
-                return _opensslProcess != null && !_opensslProcess.HasExited && _stdin != null;
+                try
+                {
+                    return _opensslProcess != null && !_opensslProcess.HasExited && _stdin != null;
+                }
+                catch (InvalidOperationException)
+                {
+                    return false;
+                }
             }
         }
 
@@ -128,6 +136,7 @@ namespace Jellyfin.Plugin.Hue.Hue
 
             _lastBridgeConfig = (bridgeIp, appKey, clientKey);
             StopStream();
+            _lastSentColors = null;
 
             try
             {
@@ -159,8 +168,11 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                 var process = new Process { StartInfo = startInfo };
                 process.Start();
-                _opensslProcess = process;
-                _stdin = process.StandardInput.BaseStream;
+                lock (_lock)
+                {
+                    _opensslProcess = process;
+                    _stdin = process.StandardInput.BaseStream;
+                }
 
                 // OpenSSL writes handshake and application output to stdout. Drain it
                 // continuously so the redirected pipe cannot fill and block the tunnel.
@@ -174,6 +186,9 @@ namespace Jellyfin.Plugin.Hue.Hue
                     {
                     }
                     catch (IOException)
+                    {
+                    }
+                    catch (InvalidOperationException)
                     {
                     }
                 });
@@ -229,20 +244,27 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         private async Task<bool> TryReconnectAsync()
         {
-            if (_lastConfig == null && _lastBridgeConfig == null)
-                return false;
-
-            if (_reconnectAttempts >= MaxReconnectAttempts)
-                return false;
-
-            _reconnectAttempts++;
-            _logger.LogWarning("Attempting to reconnect DTLS stream (attempt {0}/{1})", _reconnectAttempts, MaxReconnectAttempts);
-
+            await _reconnectLock.WaitAsync().ConfigureAwait(false);
             try
             {
+                // A concurrent SendColors call may have repaired the stream while this
+                // caller was waiting for the reconnect gate.
+                if (IsHealthy())
+                    return true;
+
+                if (_lastConfig == null && _lastBridgeConfig == null)
+                    return false;
+
+                if (_reconnectAttempts >= MaxReconnectAttempts)
+                    return false;
+
+                _reconnectAttempts++;
+                var attempt = _reconnectAttempts;
+                _logger.LogWarning("Attempting to reconnect DTLS stream (attempt {0}/{1})", attempt, MaxReconnectAttempts);
+
                 StopStream();
                 // Exponential backoff — await so we don't block a thread pool thread
-                await Task.Delay(1000 * _reconnectAttempts).ConfigureAwait(false);
+                await Task.Delay(1000 * attempt).ConfigureAwait(false);
 
                 // Re-activate the entertainment area before reopening the DTLS tunnel.
                 // The bridge requires action=start or it silently drops all packets.
@@ -273,6 +295,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                 _logger.LogError(ex, "Reconnection attempt {0} failed", _reconnectAttempts);
                 return false;
             }
+            finally
+            {
+                _reconnectLock.Release();
+            }
         }
 
         public void StopStream()
@@ -293,6 +319,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     _opensslProcess?.Dispose();
                     _opensslProcess = null;
                     _stdin = null;
+                    _lastSentColors = null;
                 }
                 _logger.LogInformation("DTLS stream stopped");
             }
@@ -329,6 +356,8 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         public byte[] BuildHueStreamPacket(Dictionary<int, byte[]> channelColors)
         {
+            ArgumentNullException.ThrowIfNull(channelColors);
+
             using var ms = new MemoryStream(16 + channelColors.Count * 9);
 
             // Fixed 9-byte ASCII magic
@@ -356,6 +385,12 @@ namespace Jellyfin.Plugin.Hue.Hue
             {
                 int channelId = kvp.Key;
                 var rgb16 = kvp.Value; // [R_hi, R_lo, G_hi, G_lo, B_hi, B_lo]
+
+                if (channelId < 0 || channelId > ushort.MaxValue)
+                    throw new ArgumentOutOfRangeException(nameof(channelColors), channelId, "Hue channel IDs must fit in an unsigned 16-bit value.");
+
+                if (rgb16 == null || rgb16.Length != 6)
+                    throw new ArgumentException("Every channel color must contain exactly six RGB16 bytes.", nameof(channelColors));
 
                 ms.WriteByte(0x00);               // device type: light
                 ms.WriteByte((byte)(channelId >> 8));   // channel ID high byte

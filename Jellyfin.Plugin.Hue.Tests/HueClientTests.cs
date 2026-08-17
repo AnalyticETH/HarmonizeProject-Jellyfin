@@ -228,6 +228,74 @@ public class HueClientTests : IDisposable
         Assert.Equal(2, channels.GetArrayLength());
     }
 
+    [Theory]
+    [InlineData(@"{}")]
+    [InlineData(@"{""data"":[]}")]
+    [InlineData(@"{""data"":{}}")]
+    public async Task GetEntertainmentConfiguration_MissingArea_ReturnsNull(string responseJson)
+    {
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetEntertainmentConfiguration_InvalidJson_ReturnsNull()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "not valid json");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task StartEntertainmentArea_TransientServerError_RetriesAndSucceeds()
+    {
+        _httpHandlerMock.Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            {
+                Content = new StringContent("busy", Encoding.UTF8, "text/plain")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 1
+        };
+
+        var result = await client.StartEntertainmentArea("192.168.1.100", "test-app-key", "area-uuid");
+
+        Assert.True(result);
+        _httpHandlerMock.Protected().Verify(
+            "SendAsync",
+            Times.Exactly(2),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetEntertainmentAreas_InvalidJson_ReturnsNull()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "not valid json");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentAreas("192.168.1.100", "test-app-key");
+
+        Assert.Null(result);
+    }
+
     #endregion
 
     #region GetLightStates Tests

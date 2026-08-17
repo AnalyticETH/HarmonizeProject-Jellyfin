@@ -364,6 +364,28 @@ public class HueStreamerTests
         Assert.True(packetStr.Length < 30); // header(9) + fixed(7) + channel(9) = 25 bytes
     }
 
+    [Fact]
+    public void BuildHueStreamPacket_RejectsMalformedChannelColor()
+    {
+        var channelColors = new Dictionary<int, byte[]>
+        {
+            { 0, new byte[] { 1, 2, 3 } }
+        };
+
+        Assert.Throws<ArgumentException>(() => _streamer.BuildHueStreamPacket(channelColors));
+    }
+
+    [Fact]
+    public void BuildHueStreamPacket_RejectsOutOfRangeChannelId()
+    {
+        var channelColors = new Dictionary<int, byte[]>
+        {
+            { 65536, new byte[] { 1, 1, 2, 2, 3, 3 } }
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => _streamer.BuildHueStreamPacket(channelColors));
+    }
+
 
     #endregion
 

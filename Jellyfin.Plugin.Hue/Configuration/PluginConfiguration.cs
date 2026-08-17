@@ -23,6 +23,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// </summary>
     public class PluginConfiguration : BasePluginConfiguration
     {
+        private const int MinTargetFps = 1;
+        private const int MaxTargetFps = 60;
+        private const int MinBrightnessDimLevel = 0;
+        private const int MaxBrightnessDimLevel = 100;
+        private const int MinBrightnessBoost = 50;
+        private const int MaxBrightnessBoost = 200;
+        private const int MinColorSaturation = 0;
+        private const int MaxColorSaturation = 200;
+        private const int MinByteSetting = 0;
+        private const int MaxByteSetting = 255;
+        private const int MinNetworkRetryAttempts = 0;
+        private const int MaxNetworkRetryAttempts = 10;
+
         public bool SyncEnabled { get; set; } = false;
 
         // Default/fallback bridge settings (used when no user mapping exists)
@@ -53,7 +66,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public (string BridgeIp, string AppKey, string ClientKey, string AreaId) GetBridgeConfigForUser(Guid userId)
         {
-            var mapping = UserMappings.Find(m => m.UserId == userId.ToString());
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
             if (mapping != null && !string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
             {
                 return (mapping.HueBridgeIp, mapping.HueAppKey, mapping.HueClientKey, mapping.EntertainmentAreaId);
@@ -77,7 +91,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (SyncEnabled)
             {
                 // Default bridge fields are only required if no per-user mappings exist
-                bool hasUserMappings = UserMappings.Exists(m => !string.IsNullOrWhiteSpace(m.HueBridgeIp));
+                bool hasUserMappings = UserMappings?.Exists(m => !string.IsNullOrWhiteSpace(m.HueBridgeIp)) == true;
                 if (!hasUserMappings)
                 {
                     if (string.IsNullOrWhiteSpace(HueBridgeIp))
@@ -95,26 +109,28 @@ namespace Jellyfin.Plugin.Hue.Configuration
                         errors.Add("Entertainment Area ID is required. Select an area from the dropdown or enter manually");
                 }
 
-                if (TargetFps < 1 || TargetFps > 60)
+                if (TargetFps < MinTargetFps || TargetFps > MaxTargetFps)
                     errors.Add("Target FPS must be between 1 and 60");
 
-                if (BrightnessDimLevel < 0 || BrightnessDimLevel > 100)
+                if (BrightnessDimLevel < MinBrightnessDimLevel || BrightnessDimLevel > MaxBrightnessDimLevel)
                     errors.Add("Brightness dim level must be between 0 and 100");
 
-                if (BrightnessBoost < 50 || BrightnessBoost > 200)
+                if (BrightnessBoost < MinBrightnessBoost || BrightnessBoost > MaxBrightnessBoost)
                     errors.Add("Brightness boost must be between 50 and 200");
 
-                if (ColorSaturation < 0 || ColorSaturation > 200)
+                if (ColorSaturation < MinColorSaturation || ColorSaturation > MaxColorSaturation)
                     errors.Add("Color saturation must be between 0 and 200");
 
-                if (BlackoutThreshold < 0 || BlackoutThreshold > 255)
+                if (BlackoutThreshold < MinByteSetting || BlackoutThreshold > MaxByteSetting)
                     errors.Add("Blackout threshold must be between 0 and 255");
 
-                if (ColorChangeThreshold < 0 || ColorChangeThreshold > 255)
+                if (ColorChangeThreshold < MinByteSetting || ColorChangeThreshold > MaxByteSetting)
                     errors.Add("Color change threshold must be between 0 and 255");
 
-                if (NetworkRetryAttempts < 0 || NetworkRetryAttempts > 10)
+                if (NetworkRetryAttempts < MinNetworkRetryAttempts || NetworkRetryAttempts > MaxNetworkRetryAttempts)
                     errors.Add("Network retry attempts must be between 0 and 10");
+
+                ValidateUserMappings(errors);
             }
 
             return errors;
@@ -124,5 +140,47 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// Checks if the configuration is valid
         /// </summary>
         public bool IsValid() => Validate().Count == 0;
+
+        private void ValidateUserMappings(List<string> errors)
+        {
+            if (UserMappings == null)
+                return;
+
+            var seenUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < UserMappings.Count; index++)
+            {
+                var mapping = UserMappings[index];
+                var label = string.IsNullOrWhiteSpace(mapping.UserName)
+                    ? $"User mapping {index + 1}"
+                    : $"User mapping for '{mapping.UserName.Trim()}'";
+
+                if (string.IsNullOrWhiteSpace(mapping.UserId))
+                {
+                    errors.Add($"{label} requires a user ID");
+                }
+                else if (!seenUserIds.Add(mapping.UserId.Trim()))
+                {
+                    errors.Add($"{label} duplicates another user mapping");
+                }
+
+                // An empty bridge IP represents an intentionally incomplete mapping and
+                // falls back to the default bridge. If an IP is supplied, the remaining
+                // credentials must be complete and the address must be valid.
+                if (string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
+                    continue;
+
+                if (!System.Net.IPAddress.TryParse(mapping.HueBridgeIp.Trim(), out _))
+                    errors.Add($"{label} bridge IP must be a valid IP address");
+
+                if (string.IsNullOrWhiteSpace(mapping.HueAppKey))
+                    errors.Add($"{label} requires a Hue App Key");
+
+                if (string.IsNullOrWhiteSpace(mapping.HueClientKey))
+                    errors.Add($"{label} requires a Hue Client Key");
+
+                if (string.IsNullOrWhiteSpace(mapping.EntertainmentAreaId))
+                    errors.Add($"{label} requires an Entertainment Area ID");
+            }
+        }
     }
 }

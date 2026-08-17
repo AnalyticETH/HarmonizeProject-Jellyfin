@@ -482,6 +482,62 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetBridgeConfigForUser_MatchesMappingCaseInsensitively()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "10.0.0.1",
+            HueAppKey = "default-key",
+            HueClientKey = "default-client",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    HueBridgeIp = "192.168.1.200",
+                    HueAppKey = "user-key",
+                    HueClientKey = "user-client",
+                    EntertainmentAreaId = "user-area"
+                }
+            }
+        };
+
+        var result = config.GetBridgeConfigForUser(userId);
+
+        Assert.Equal("192.168.1.200", result.BridgeIp);
+        Assert.Equal("user-key", result.AppKey);
+    }
+
+    [Fact]
+    public void Validate_WhenUserMappingIsIncomplete_ReturnsMappingErrors()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    HueBridgeIp = "not-an-ip",
+                    HueAppKey = "",
+                    HueClientKey = "",
+                    EntertainmentAreaId = ""
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("User mapping 1 bridge IP must be a valid IP address", errors);
+        Assert.Contains("User mapping 1 requires a Hue App Key", errors);
+        Assert.Contains("User mapping 1 requires a Hue Client Key", errors);
+        Assert.Contains("User mapping 1 requires an Entertainment Area ID", errors);
+    }
+
+    [Fact]
     public void GetBridgeConfigForUser_WithNoMatchingMapping_ReturnsDefaultConfig()
     {
         // Arrange

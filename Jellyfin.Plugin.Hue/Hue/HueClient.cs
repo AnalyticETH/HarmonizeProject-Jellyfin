@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -34,18 +35,20 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         private async Task<T?> ExecuteWithRetry<T>(Func<Task<T>> operation, int? maxRetries = null)
         {
-            var retries = maxRetries ?? RetryAttempts;
+            ArgumentNullException.ThrowIfNull(operation);
+
+            var retries = Math.Max(0, maxRetries ?? RetryAttempts);
             for (int attempt = 0; attempt <= retries; attempt++)
             {
                 try
                 {
-                    return await operation();
+                    return await operation().ConfigureAwait(false);
                 }
                 catch (Exception ex) when (attempt < retries && IsRetriableException(ex))
                 {
                     var delay = RetryDelayMs * (int)Math.Pow(2, attempt);
                     _logger.LogWarning(ex, "Network operation failed (attempt {0}/{1}), retrying in {2}ms", attempt + 1, retries + 1, delay);
-                    await Task.Delay(delay);
+                    await Task.Delay(delay).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -61,7 +64,45 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         private bool IsRetriableException(Exception ex)
         {
-            return ex is HttpRequestException or TaskCanceledException or TimeoutException;
+            if (ex is TaskCanceledException or TimeoutException)
+                return true;
+
+            if (ex is HttpRequestException requestException)
+            {
+                // A missing status code means the request never reached the bridge
+                // (DNS, connection reset, TLS, etc.). HTTP client/server failures that
+                // are commonly transient should be retried; authentication and input
+                // errors should fail immediately.
+                if (!requestException.StatusCode.HasValue)
+                    return true;
+
+                var statusCode = (int)requestException.StatusCode.Value;
+                return statusCode == (int)HttpStatusCode.RequestTimeout ||
+                       statusCode == 429 ||
+                       statusCode >= 500;
+            }
+
+            return false;
+        }
+
+        private static string FormatBridgeHost(string bridgeIp)
+        {
+            var host = bridgeIp.Trim();
+            if (host.Length == 0 || host.IndexOfAny(new[] { '/', '\\', '?', '#' }) >= 0 ||
+                Uri.CheckHostName(host) == UriHostNameType.Unknown)
+            {
+                throw new ArgumentException("Bridge address must be a host name or IP address.", nameof(bridgeIp));
+            }
+
+            return IPAddress.TryParse(host, out var address) && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                ? $"[{host}]"
+                : host;
+        }
+
+        private static string BuildBridgeUrl(string scheme, string bridgeIp, string path)
+        {
+            var host = FormatBridgeHost(bridgeIp);
+            return $"{scheme}://{host}/{path.TrimStart('/')}";
         }
 
         /// <summary>
@@ -95,30 +136,51 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <remarks>The physical link button must be pressed on the bridge before calling this method</remarks>
         public async Task<Api.HueRegistrationResult?> RegisterWithBridge(string ip)
         {
-            return await ExecuteWithRetry(async () =>
+            try
             {
-                var content = new StringContent("{\"devicetype\":\"jellyfin_hue#server\", \"generateclientkey\":true}", System.Text.Encoding.UTF8, "application/json");
-                // The Hue v1 /api registration endpoint only supports HTTP, not HTTPS
-                var response = await _httpClient.PostAsync($"http://{ip}/api", content);
-                var json = await response.Content.ReadAsStringAsync();
-
-                // Response: [{"success":{"username":"...","clientkey":"..."}}] OR [{"error":...}]
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+                return await ExecuteWithRetry(async () =>
                 {
-                    var first = doc.RootElement[0];
-                    if (first.TryGetProperty("success", out var success))
+                    using var content = new StringContent("{\"devicetype\":\"jellyfin_hue#server\", \"generateclientkey\":true}", System.Text.Encoding.UTF8, "application/json");
+                    // The Hue v1 /api registration endpoint only supports HTTP, not HTTPS
+                    using var response = await _httpClient.PostAsync(BuildBridgeUrl("http", ip, "/api"), content).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
                     {
-                        return new Api.HueRegistrationResult
-                        {
-                            Username = success.GetProperty("username").GetString() ?? "",
-                            ClientKey = success.GetProperty("clientkey").GetString() ?? ""
-                        };
+                        response.EnsureSuccessStatusCode();
                     }
-                }
-                _logger.LogWarning("Registration failed: {0}", json);
+
+                    var json = await response.Content.ReadAsStringAsync();
+
+                    // Response: [{"success":{"username":"...","clientkey":"..."}}] OR [{"error":...}]
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+                    {
+                        var first = doc.RootElement[0];
+                        if (first.TryGetProperty("success", out var success) &&
+                            success.TryGetProperty("username", out var username) &&
+                            success.TryGetProperty("clientkey", out var clientKey))
+                        {
+                            var usernameValue = username.GetString() ?? string.Empty;
+                            var clientKeyValue = clientKey.GetString() ?? string.Empty;
+                            if (!string.IsNullOrWhiteSpace(usernameValue) && !string.IsNullOrWhiteSpace(clientKeyValue))
+                            {
+                                return new Api.HueRegistrationResult
+                                {
+                                    Username = usernameValue,
+                                    ClientKey = clientKeyValue
+                                };
+                            }
+                        }
+                    }
+
+                    _logger.LogWarning("Registration failed: {0}", json);
+                    return null;
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Exception registering with Hue bridge");
                 return null;
-            }) ?? null;
+            }
         }
 
         /// <summary>
@@ -130,21 +192,37 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <returns>JSON element containing the area configuration, or null if failed</returns>
         public async Task<JsonElement?> GetEntertainmentConfiguration(string bridgeIp, string appKey, string areaId)
         {
-            return await ExecuteWithRetry(async () =>
+            try
             {
-                var url = $"https://{bridgeIp}/clip/v2/resource/entertainment_configuration/{areaId}";
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("hue-application-key", appKey);
+                return await ExecuteWithRetry(async () =>
+                {
+                    var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/entertainment_configuration/{Uri.EscapeDataString(areaId)}");
+                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("hue-application-key", appKey);
 
-                using var response = await _httpClient.SendAsync(request);
-                response.EnsureSuccessStatusCode();
+                    using var response = await _httpClient.SendAsync(request);
+                    response.EnsureSuccessStatusCode();
 
-                var json = await response.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(json);
-                // Expected: { "data": [ { "channels": [ ... ] } ] }
-                // Clone the element so the JsonDocument can be safely disposed
-                return (JsonElement?)doc.RootElement.GetProperty("data")[0].Clone();
-            }) ?? null;
+                    var json = await response.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(json);
+                    // Expected: { "data": [ { "channels": [ ... ] } ] }
+                    if (!doc.RootElement.TryGetProperty("data", out var data) ||
+                        data.ValueKind != JsonValueKind.Array ||
+                        data.GetArrayLength() == 0)
+                    {
+                        _logger.LogWarning("Entertainment configuration response did not contain an area for {0}", areaId);
+                        return (JsonElement?)null;
+                    }
+
+                    // Clone the element so the JsonDocument can be safely disposed
+                    return (JsonElement?)data[0].Clone();
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to load entertainment configuration for area {0}", areaId);
+                return null;
+            }
         }
 
         /// <summary>
@@ -165,8 +243,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                 // Use retry for transient errors — a failure here aborts the entire sync session
                 var result = await ExecuteWithRetry(async () =>
                 {
-                    var url = $"https://{bridgeIp}/clip/v2/resource/entertainment_configuration/{areaId}";
-                    var request = new HttpRequestMessage(HttpMethod.Put, url);
+                    var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/entertainment_configuration/{Uri.EscapeDataString(areaId)}");
+                    using var request = new HttpRequestMessage(HttpMethod.Put, url);
                     request.Headers.Add("hue-application-key", appKey);
                     request.Content = new StringContent("{\"action\":\"start\"}", System.Text.Encoding.UTF8, "application/json");
 
@@ -174,6 +252,14 @@ namespace Jellyfin.Plugin.Hue.Hue
                     if (!response.IsSuccessStatusCode)
                     {
                         var body = await response.Content.ReadAsStringAsync();
+                        if (IsRetriableStatusCode(response.StatusCode))
+                        {
+                            throw new HttpRequestException(
+                                $"Hue bridge returned HTTP {(int)response.StatusCode} while starting area {areaId}: {body}",
+                                null,
+                                response.StatusCode);
+                        }
+
                         _logger.LogError("Failed to start entertainment area {0}: HTTP {1} — {2}", areaId, (int)response.StatusCode, body);
                         return false;
                     }
@@ -199,27 +285,43 @@ namespace Jellyfin.Plugin.Hue.Hue
         {
             try
             {
-                var url = $"https://{bridgeIp}/clip/v2/resource/entertainment_configuration/{areaId}";
-                var request = new HttpRequestMessage(HttpMethod.Put, url);
-                request.Headers.Add("hue-application-key", appKey);
-                var payload = "{\"action\":\"stop\"}";
-                request.Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
+                await ExecuteWithRetry(async () =>
+                {
+                    var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/entertainment_configuration/{Uri.EscapeDataString(areaId)}");
+                    using var request = new HttpRequestMessage(HttpMethod.Put, url);
+                    request.Headers.Add("hue-application-key", appKey);
+                    request.Content = new StringContent("{\"action\":\"stop\"}", System.Text.Encoding.UTF8, "application/json");
 
-                using var response = await _httpClient.SendAsync(request);
-                if (!response.IsSuccessStatusCode)
-                {
-                    var body = await response.Content.ReadAsStringAsync();
-                    _logger.LogWarning("Failed to stop entertainment area {0}: HTTP {1} — {2}", areaId, (int)response.StatusCode, body);
-                }
-                else
-                {
+                    using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (IsRetriableStatusCode(response.StatusCode))
+                        {
+                            throw new HttpRequestException(
+                                $"Hue bridge returned HTTP {(int)response.StatusCode} while stopping area {areaId}: {body}",
+                                null,
+                                response.StatusCode);
+                        }
+
+                        _logger.LogWarning("Failed to stop entertainment area {0}: HTTP {1} — {2}", areaId, (int)response.StatusCode, body);
+                        return false;
+                    }
+
                     _logger.LogInformation("Entertainment area {0} deactivated", areaId);
-                }
+                    return true;
+                }).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Exception deactivating entertainment area {0}", areaId);
             }
+        }
+
+        private static bool IsRetriableStatusCode(HttpStatusCode statusCode)
+        {
+            var code = (int)statusCode;
+            return code == (int)HttpStatusCode.RequestTimeout || code == 429 || code >= 500;
         }
 
         public record EntertainmentArea(
@@ -234,37 +336,48 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <returns>List of entertainment areas, or null if failed</returns>
         public async Task<List<EntertainmentArea>?> GetEntertainmentAreas(string bridgeIp, string appKey)
         {
-            return await ExecuteWithRetry(async () =>
+            try
             {
-                var url = $"https://{bridgeIp}/clip/v2/resource/entertainment_configuration";
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("hue-application-key", appKey);
-
-                using var response = await _httpClient.SendAsync(request);
-                response.EnsureSuccessStatusCode();
-
-                var json = await response.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(json);
-
-                var results = new List<EntertainmentArea>();
-                if (doc.RootElement.TryGetProperty("data", out var dataElement))
+                return await ExecuteWithRetry(async () =>
                 {
-                    foreach (var area in dataElement.EnumerateArray())
-                    {
-                        var id = area.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? string.Empty : string.Empty;
-                        var name = area.TryGetProperty("metadata", out var meta) && meta.TryGetProperty("name", out var nameProp)
-                            ? nameProp.GetString() ?? string.Empty
-                            : string.Empty;
+                    var url = BuildBridgeUrl("https", bridgeIp, "/clip/v2/resource/entertainment_configuration");
+                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("hue-application-key", appKey);
 
-                        if (!string.IsNullOrEmpty(id))
+                    using var response = await _httpClient.SendAsync(request);
+                    response.EnsureSuccessStatusCode();
+
+                    var json = await response.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(json);
+
+                    var results = new List<EntertainmentArea>();
+                    if (doc.RootElement.TryGetProperty("data", out var dataElement) && dataElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var area in dataElement.EnumerateArray())
                         {
-                            results.Add(new EntertainmentArea(id, string.IsNullOrEmpty(name) ? id : name));
+                            var id = area.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String
+                                ? idProp.GetString() ?? string.Empty
+                                : string.Empty;
+                            var name = area.TryGetProperty("metadata", out var meta) && meta.ValueKind == JsonValueKind.Object &&
+                                       meta.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == JsonValueKind.String
+                                ? nameProp.GetString() ?? string.Empty
+                                : string.Empty;
+
+                            if (!string.IsNullOrEmpty(id))
+                            {
+                                results.Add(new EntertainmentArea(id, string.IsNullOrEmpty(name) ? id : name));
+                            }
                         }
                     }
-                }
 
-                return results;
-            }) ?? null;
+                    return results;
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to load Hue entertainment areas");
+                return null;
+            }
         }
 
         public record LightState(string Id, bool IsOn, int Brightness, double X, double Y);
@@ -282,18 +395,18 @@ namespace Jellyfin.Plugin.Hue.Hue
             {
                 var states = new List<LightState>();
 
-                if (!areaConfig.TryGetProperty("channels", out var channels))
+                if (!areaConfig.TryGetProperty("channels", out var channels) || channels.ValueKind != JsonValueKind.Array)
                     return states;
 
                 foreach (var channel in channels.EnumerateArray())
                 {
-                    if (!channel.TryGetProperty("members", out var members))
+                    if (!channel.TryGetProperty("members", out var members) || members.ValueKind != JsonValueKind.Array)
                         continue;
 
                     foreach (var member in members.EnumerateArray())
                     {
-                        if (!member.TryGetProperty("service", out var service) ||
-                            !service.TryGetProperty("rid", out var ridProp))
+                        if (!member.TryGetProperty("service", out var service) || service.ValueKind != JsonValueKind.Object ||
+                            !service.TryGetProperty("rid", out var ridProp) || ridProp.ValueKind != JsonValueKind.String)
                             continue;
 
                         var lightId = ridProp.GetString();
@@ -302,8 +415,8 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                         try
                         {
-                            var url = $"https://{bridgeIp}/clip/v2/resource/light/{lightId}";
-                            var request = new HttpRequestMessage(HttpMethod.Get, url);
+                            var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/light/{Uri.EscapeDataString(lightId)}");
+                            using var request = new HttpRequestMessage(HttpMethod.Get, url);
                             request.Headers.Add("hue-application-key", appKey);
 
                             using var response = await _httpClient.SendAsync(request);
@@ -312,11 +425,20 @@ namespace Jellyfin.Plugin.Hue.Hue
                             var json = await response.Content.ReadAsStringAsync();
                             using var doc = JsonDocument.Parse(json);
 
-                            if (doc.RootElement.TryGetProperty("data", out var data) && data.GetArrayLength() > 0)
+                            if (doc.RootElement.TryGetProperty("data", out var data) &&
+                                data.ValueKind == JsonValueKind.Array &&
+                                data.GetArrayLength() > 0)
                             {
                                 var light = data[0];
-                                var isOn = light.GetProperty("on").GetProperty("on").GetBoolean();
-                                var brightness = light.GetProperty("dimming").GetProperty("brightness").GetDouble();
+                                if (!light.TryGetProperty("on", out var on) || !on.TryGetProperty("on", out var onValue) ||
+                                    !light.TryGetProperty("dimming", out var dimming) ||
+                                    !dimming.TryGetProperty("brightness", out var brightnessValue))
+                                {
+                                    continue;
+                                }
+
+                                var isOn = onValue.GetBoolean();
+                                var brightness = Math.Clamp((int)brightnessValue.GetDouble(), 0, 100);
 
                                 double x = 0, y = 0;
                                 if (light.TryGetProperty("color", out var color) &&
@@ -326,7 +448,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                                     y = xy.GetProperty("y").GetDouble();
                                 }
 
-                                states.Add(new LightState(lightId, isOn, (int)brightness, x, y));
+                                states.Add(new LightState(lightId, isOn, brightness, x, y));
                             }
                         }
                         catch (Exception ex)
@@ -348,6 +470,8 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="lightStates">The saved light states to restore</param>
         public async Task RestoreLightStates(string bridgeIp, string appKey, List<LightState> lightStates)
         {
+            ArgumentNullException.ThrowIfNull(lightStates);
+
             // Restore each light independently — failures on one light don't block others.
             // ExecuteWithRetry is intentionally not used here: the per-light try/catch means
             // no exception would ever escape to trigger a retry anyway.
@@ -355,8 +479,8 @@ namespace Jellyfin.Plugin.Hue.Hue
             {
                 try
                 {
-                    var url = $"https://{bridgeIp}/clip/v2/resource/light/{state.Id}";
-                    var request = new HttpRequestMessage(HttpMethod.Put, url);
+                    var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/light/{Uri.EscapeDataString(state.Id)}");
+                    using var request = new HttpRequestMessage(HttpMethod.Put, url);
                     request.Headers.Add("hue-application-key", appKey);
 
                     var payload = new
@@ -380,4 +504,3 @@ namespace Jellyfin.Plugin.Hue.Hue
         }
     }
 }
-

@@ -18,6 +18,7 @@ namespace Jellyfin.Plugin.Hue.Video
         private DateTime _startTime;          // When StartFfmpeg was called
         private long _framesProcessed = 0;
         private CancellationTokenSource? _monitorCts;
+        private readonly object _stateLock = new object();
 
         // FFmpeg typically takes 1-3 seconds to start producing frames (codec init, seek, etc.).
         // During this startup window IsHealthy() must not falsely report unhealthy.
@@ -33,30 +34,59 @@ namespace Jellyfin.Plugin.Hue.Video
         /// </summary>
         public bool IsHealthy()
         {
-            if (_ffmpegProcess == null || _ffmpegProcess.HasExited)
+            Process? process;
+            DateTime startTime;
+            DateTime lastFrameTime;
+            lock (_stateLock)
+            {
+                process = _ffmpegProcess;
+                startTime = _startTime;
+                lastFrameTime = _lastFrameTime;
+            }
+
+            return IsHealthy(process, startTime, lastFrameTime);
+        }
+
+        private static bool IsHealthy(Process? process, DateTime startTime, DateTime lastFrameTime)
+        {
+            if (process == null)
                 return false;
 
-            // During the startup grace period, trust that FFmpeg is starting up normally
-            if ((DateTime.UtcNow - _startTime).TotalSeconds < StartupGracePeriodSeconds)
-                return true;
+            try
+            {
+                if (process.HasExited)
+                    return false;
 
-            // After the grace period, require frames to have been received within 5 seconds
-            var timeSinceLastFrame = DateTime.UtcNow - _lastFrameTime;
-            return timeSinceLastFrame.TotalSeconds < 5;
+                // During the startup grace period, trust that FFmpeg is starting up normally
+                if ((DateTime.UtcNow - startTime).TotalSeconds < StartupGracePeriodSeconds)
+                    return true;
+
+                // After the grace period, require frames to have been received within 5 seconds
+                var timeSinceLastFrame = DateTime.UtcNow - lastFrameTime;
+                return timeSinceLastFrame.TotalSeconds < 5;
+            }
+            catch (InvalidOperationException)
+            {
+                // The process may be disposed concurrently by Stop().
+                return false;
+            }
         }
 
         /// <summary>
         /// Gets the number of frames processed
         /// </summary>
-        public long FramesProcessed => _framesProcessed;
+        public long FramesProcessed => Interlocked.Read(ref _framesProcessed);
 
         /// <summary>
         /// Marks that a frame was just read
         /// </summary>
         public void MarkFrameRead()
         {
-            _lastFrameTime = DateTime.UtcNow;
-            _framesProcessed++;
+            lock (_stateLock)
+            {
+                _lastFrameTime = DateTime.UtcNow;
+                Interlocked.Increment(ref _framesProcessed);
+            }
         }
 
         /// <summary>
@@ -82,6 +112,16 @@ namespace Jellyfin.Plugin.Hue.Video
                 _logger.LogError("Video file not found: {0}", videoPath);
                 return null;
             }
+
+            if (double.IsNaN(seekPositionSeconds) || double.IsInfinity(seekPositionSeconds) || seekPositionSeconds < 0)
+            {
+                _logger.LogWarning("Ignoring invalid FFmpeg seek position {0}", seekPositionSeconds);
+                seekPositionSeconds = 0;
+            }
+
+            // A streamer owns one FFmpeg process. Stop any previous process before
+            // replacing the field so repeated playback-start events cannot leak it.
+            Stop();
 
             // -vf scale=160:90 -f rawvideo -pix_fmt rgb24
             // Add -r {fps} and custom flags
@@ -124,9 +164,12 @@ namespace Jellyfin.Plugin.Hue.Video
 
                 _ffmpegProcess = new Process { StartInfo = startInfo };
                 _ffmpegProcess.Start();
-                _lastFrameTime = DateTime.UtcNow;
-                _startTime = DateTime.UtcNow;
-                _framesProcessed = 0;
+                lock (_stateLock)
+                {
+                    _lastFrameTime = DateTime.UtcNow;
+                    _startTime = DateTime.UtcNow;
+                    Interlocked.Exchange(ref _framesProcessed, 0);
+                }
                 _monitorCts = new CancellationTokenSource();
                 var monitorToken = _monitorCts.Token;
 
@@ -158,13 +201,30 @@ namespace Jellyfin.Plugin.Hue.Video
                 // Stop() sets _ffmpegProcess = null while this task is still running
                 _ = Task.Run(async () =>
                 {
-                    while (!capturedProcess.HasExited && !monitorToken.IsCancellationRequested)
+                    try
                     {
-                        await Task.Delay(10000, monitorToken).ConfigureAwait(false);
-                        if (!monitorToken.IsCancellationRequested && !IsHealthy())
+                        while (!capturedProcess.HasExited && !monitorToken.IsCancellationRequested)
                         {
-                            _logger.LogWarning("FFmpeg appears stalled — no frames in 5+ seconds. Processed {0} frames total.", _framesProcessed);
+                            await Task.Delay(10000, monitorToken).ConfigureAwait(false);
+                            DateTime startTime;
+                            DateTime lastFrameTime;
+                            lock (_stateLock)
+                            {
+                                startTime = _startTime;
+                                lastFrameTime = _lastFrameTime;
+                            }
+
+                            if (!monitorToken.IsCancellationRequested && !IsHealthy(capturedProcess, startTime, lastFrameTime))
+                            {
+                                _logger.LogWarning("FFmpeg appears stalled — no frames in 5+ seconds. Processed {0} frames total.", FramesProcessed);
+                            }
                         }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                    catch (InvalidOperationException)
+                    {
                     }
                 }, monitorToken);
 
