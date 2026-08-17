@@ -876,7 +876,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 IsFfmpegHealthy = runtime?.IsFfmpegHealthy ?? false,
                 IsDtlsHealthy = runtime?.IsDtlsHealthy ?? false,
                 SyncDurationSeconds = runtime?.SyncDurationSeconds,
-                SyncStartedAtUtc = runtime?.SyncStartedAtUtc
+                SyncStartedAtUtc = runtime?.SyncStartedAtUtc,
+                LastSession = runtime?.LastSession
             };
 
             return Ok(status);
@@ -1965,6 +1966,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool IsDtlsHealthy { get; set; }
         public double? SyncDurationSeconds { get; set; }
         public DateTime? SyncStartedAtUtc { get; set; }
+        public HueSessionSummary? LastSession { get; set; }
     }
 
     /// <summary>

@@ -1165,6 +1165,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.LastSeekPositionSeconds);
         Assert.Null(status.LastError);
         Assert.Null(status.CleanupWarning);
+        Assert.Null(status.LastSession);
         Assert.False(status.CanStopSync);
     }
 

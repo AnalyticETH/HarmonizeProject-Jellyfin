@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Video;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Session;
@@ -120,6 +121,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private string _runtimeMessage = "Waiting for playback.";
         private string? _lastError;
         private string? _lastCleanupWarning;
+        private HueSessionSummary? _lastSessionSummary;
 
         // Public property to track sync state
         public bool IsSyncing
@@ -254,9 +256,6 @@ namespace Jellyfin.Plugin.Hue.Service
                     var savedLightStates = _savedLightStates;
                     StopSync(deactivateArea: false);
                     _currentBridgeConfig = null;
-                    _currentItemName = null;
-                    _currentUserId = null;
-                    _currentUserName = null;
                     _currentFrameResolution = null;
                     _currentVideoScalingMode = null;
                     _currentVideoDeinterlaceMode = null;
@@ -271,11 +270,22 @@ namespace Jellyfin.Plugin.Hue.Service
                             config,
                             bridgeConfig,
                             savedLightStates,
-                            publishIdleStatus: false).ConfigureAwait(false);
+                            publishIdleStatus: false,
+                            sessionOutcome: "ServiceStopped").ConfigureAwait(false);
                     }
                     else
                     {
+                        var sessionSummarySeed = CaptureSessionSummarySeed(bridgeConfig, "ServiceStopped");
+                        if (sessionSummarySeed != null)
+                            RecordSessionSummary(sessionSummarySeed, null);
+
                         ReleasePlaybackLifecycleLease();
+                        CurrentItemName = null;
+                        lock (_syncLock)
+                        {
+                            _currentUserId = null;
+                            _currentUserName = null;
+                        }
                     }
 
                     lock (_syncLock)
@@ -336,7 +346,11 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentSamplingMode = null;
                 _currentColorSmoothingPercent = null;
 
-                await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
+                await RestoreAndDeactivateAsync(
+                    config,
+                    bridgeConfig,
+                    savedLightStates,
+                    sessionOutcome: "StoppedByAdministrator").ConfigureAwait(false);
                 SetRuntimeStatus("Stopped", "Hue sync stopped by an administrator; playback continues.");
                 return true;
             }
@@ -390,6 +404,7 @@ namespace Jellyfin.Plugin.Hue.Service
             bool canStopSync;
             int seekRestartCount;
             double? lastSeekPositionSeconds;
+            HueSessionSummary? lastSessionSummary;
 
             lock (_syncLock)
             {
@@ -417,6 +432,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 canStopSync = CanStopSync;
                 seekRestartCount = _seekRestartCount;
                 lastSeekPositionSeconds = _lastSeekPositionSeconds;
+                lastSessionSummary = _lastSessionSummary;
             }
 
             var isSyncing = syncCts != null && !syncCts.IsCancellationRequested;
@@ -481,7 +497,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         ?? DefaultFfmpegStallTimeoutSeconds) == true,
                 IsDtlsHealthy = isSyncing && hueStreamer?.IsHealthy() == true,
                 SyncDurationSeconds = syncDuration,
-                SyncStartedAtUtc = isSyncing && syncStartTime != default ? syncStartTime : null
+                SyncStartedAtUtc = isSyncing && syncStartTime != default ? syncStartTime : null,
+                LastSession = lastSessionSummary
             };
         }
 
@@ -526,6 +543,16 @@ namespace Jellyfin.Plugin.Hue.Service
                 _runtimeMessage = message;
                 _lastError = message;
             }
+        }
+
+        /// <summary>
+        /// Hue synchronization extracts video frames, so audio-only and other non-video
+        /// playback events must never enter the FFmpeg video lifecycle.
+        /// </summary>
+        internal static bool IsSupportedVideoPlaybackItem(BaseItem? item)
+        {
+            return item is MediaBrowser.Controller.Entities.Video ||
+                   item?.MediaType == Jellyfin.Data.Enums.MediaType.Video;
         }
 
         private bool IsPlaybackUserSyncEnabled(PlaybackProgressEventArgs e)
@@ -641,6 +668,22 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
+            if (!IsSupportedVideoPlaybackItem(e.Item))
+            {
+                _logger.LogDebug("Skipping non-video playback item {0}; Hue Sync supports video playback only", e.Item?.Name ?? "Unknown");
+                var publishUnsupportedStatus = false;
+                lock (_syncLock)
+                {
+                    publishUnsupportedStatus = _currentPlaySessionId == null &&
+                                               _startingPlaySessionId == null &&
+                                               _syncCts == null;
+                }
+
+                if (publishUnsupportedStatus)
+                    SetRuntimeStatus("Idle", "Hue Sync supports video playback only.");
+                return;
+            }
+
             // Skip duplicate notifications for the same session, but allow a new session
             // to queue while an earlier startup is being cancelled.
             lock (_syncLock)
@@ -679,6 +722,18 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             if (_isStopping)
                 return;
+
+            if (e.Item != null && !IsSupportedVideoPlaybackItem(e.Item))
+            {
+                lock (_syncLock)
+                {
+                    if (!string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal) &&
+                        !string.Equals(_startingPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+                }
+            }
 
             var manuallyStopped = false;
             var manualStopNotification = false;
@@ -765,7 +820,11 @@ namespace Jellyfin.Plugin.Hue.Service
 
             try
             {
-                await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates);
+                await RestoreAndDeactivateAsync(
+                    config,
+                    bridgeConfig,
+                    savedLightStates,
+                    sessionOutcome: "Stopped");
             }
             finally
             {
@@ -787,6 +846,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
 
             if (!IsPlaybackUserSyncEnabled(e))
+                return;
+
+            if (e.Item != null && !IsSupportedVideoPlaybackItem(e.Item))
                 return;
 
             lock (_syncLock)
@@ -988,7 +1050,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         bridgeConfig,
                         savedLightStates,
                         publishIdleStatus: false,
-                        clearCurrentItem: false).ConfigureAwait(false);
+                        clearCurrentItem: false,
+                        recordSessionSummary: false).ConfigureAwait(false);
                     SetRuntimeStatus(
                         "Paused",
                         GetRuntimeStatus().CleanupWarning == null
@@ -1944,7 +2007,11 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 try
                 {
-                    await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
+                    await RestoreAndDeactivateAsync(
+                        config,
+                        bridgeConfig,
+                        savedLightStates,
+                        sessionOutcome: streamEnded ? "Ended" : "Error").ConfigureAwait(false);
                     if (streamEnded)
                     {
                         SetRuntimeStatus(
@@ -2043,6 +2110,13 @@ namespace Jellyfin.Plugin.Hue.Service
             PlaybackProgressEventArgs e,
             bool preserveSessionMetadata)
         {
+            if (!IsSupportedVideoPlaybackItem(e.Item))
+            {
+                _logger.LogDebug("Skipping non-video playback item {0}; Hue Sync supports video playback only", e.Item?.Name ?? "Unknown");
+                SetRuntimeStatus("Idle", "Hue Sync supports video playback only.");
+                return;
+            }
+
             var startupCts = new CancellationTokenSource();
             lock (_syncLock)
             {
@@ -2545,8 +2619,13 @@ namespace Jellyfin.Plugin.Hue.Service
             (string BridgeIp, string AppKey, string ClientKey, string AreaId)? bridgeConfig,
             List<HueClient.LightState>? savedLightStates,
             bool publishIdleStatus = true,
-            bool clearCurrentItem = true)
+            bool clearCurrentItem = true,
+            string sessionOutcome = "Stopped",
+            bool recordSessionSummary = true)
         {
+            var sessionSummarySeed = recordSessionSummary
+                ? CaptureSessionSummarySeed(bridgeConfig, sessionOutcome)
+                : null;
             bool effectiveUseCinemaMode;
             bool cinemaModeAttempted;
             bool effectiveRestoreLightState;
@@ -2655,7 +2734,102 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 SetCleanupWarning(cleanupWarning);
+                if (sessionSummarySeed != null)
+                {
+                    RecordSessionSummary(sessionSummarySeed, cleanupWarning);
+                }
                 ReleasePlaybackLifecycleLease();
+            }
+        }
+
+        private SessionSummarySeed? CaptureSessionSummarySeed(
+            (string BridgeIp, string AppKey, string ClientKey, string AreaId)? bridgeConfig,
+            string outcome)
+        {
+            string? itemName;
+            Guid? userId;
+            string? userName;
+            DateTime startedAtUtc;
+            int seekRestartCount;
+            double? lastSeekPositionSeconds;
+            string? lastError;
+            lock (_syncLock)
+            {
+                if (_currentPlaySessionId == null &&
+                    _startingPlaySessionId == null &&
+                    string.IsNullOrWhiteSpace(_currentItemName))
+                {
+                    return null;
+                }
+
+                itemName = _currentItemName;
+                userId = _currentUserId;
+                userName = _currentUserName;
+                startedAtUtc = _syncStartTime;
+                seekRestartCount = _seekRestartCount;
+                lastSeekPositionSeconds = _lastSeekPositionSeconds;
+                lastError = _lastError;
+            }
+
+            var endedAtUtc = DateTime.UtcNow;
+            var durationSeconds = startedAtUtc == default
+                ? (double?)null
+                : Math.Max(0, (endedAtUtc - startedAtUtc).TotalSeconds);
+            var framesProcessed = _ffmpegStreamer?.FramesProcessed ?? 0;
+            var hueStreamer = _hueStreamer;
+            var effectiveFps = durationSeconds > 0 && framesProcessed > 0
+                ? framesProcessed / durationSeconds.Value
+                : (double?)null;
+
+            return new SessionSummarySeed
+            {
+                Outcome = string.IsNullOrWhiteSpace(outcome) ? "Stopped" : outcome,
+                Item = itemName,
+                UserId = userId == Guid.Empty ? null : userId?.ToString(),
+                UserName = string.IsNullOrWhiteSpace(userName) ? null : userName,
+                BridgeIp = bridgeConfig?.BridgeIp,
+                EntertainmentAreaId = bridgeConfig?.AreaId,
+                StartedAtUtc = startedAtUtc == default ? null : startedAtUtc,
+                EndedAtUtc = endedAtUtc,
+                DurationSeconds = durationSeconds,
+                EffectiveFps = effectiveFps,
+                FramesProcessed = framesProcessed,
+                PacketsSent = hueStreamer?.PacketsSent ?? 0,
+                PacketsSkippedByThreshold = hueStreamer?.PacketsSkippedByThreshold ?? 0,
+                PacketSendFailures = hueStreamer?.PacketSendFailures ?? 0,
+                ReconnectAttempts = hueStreamer?.ReconnectAttempts ?? 0,
+                SeekRestartCount = seekRestartCount,
+                LastSeekPositionSeconds = lastSeekPositionSeconds,
+                Error = lastError
+            };
+        }
+
+        private void RecordSessionSummary(SessionSummarySeed seed, string? cleanupWarning)
+        {
+            lock (_syncLock)
+            {
+                _lastSessionSummary = new HueSessionSummary
+                {
+                    Outcome = seed.Outcome,
+                    Item = seed.Item,
+                    UserId = seed.UserId,
+                    UserName = seed.UserName,
+                    BridgeIp = seed.BridgeIp,
+                    EntertainmentAreaId = seed.EntertainmentAreaId,
+                    StartedAtUtc = seed.StartedAtUtc,
+                    EndedAtUtc = seed.EndedAtUtc,
+                    DurationSeconds = seed.DurationSeconds,
+                    EffectiveFps = seed.EffectiveFps,
+                    FramesProcessed = seed.FramesProcessed,
+                    PacketsSent = seed.PacketsSent,
+                    PacketsSkippedByThreshold = seed.PacketsSkippedByThreshold,
+                    PacketSendFailures = seed.PacketSendFailures,
+                    ReconnectAttempts = seed.ReconnectAttempts,
+                    SeekRestartCount = seed.SeekRestartCount,
+                    LastSeekPositionSeconds = seed.LastSeekPositionSeconds,
+                    Error = seed.Error,
+                    CleanupWarning = cleanupWarning
+                };
             }
         }
 
@@ -2704,7 +2878,11 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
             _currentColorSmoothingPercent = null;
-            await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
+            await RestoreAndDeactivateAsync(
+                config,
+                bridgeConfig,
+                savedLightStates,
+                sessionOutcome: "StartupFailed").ConfigureAwait(false);
         }
 
         /// <summary>
@@ -2786,6 +2964,28 @@ namespace Jellyfin.Plugin.Hue.Service
                 return p + (q - p) * (2.0 / 3.0 - t) * 6;
             return p;
         }
+
+        private sealed class SessionSummarySeed
+        {
+            public string Outcome { get; init; } = "Stopped";
+            public string? Item { get; init; }
+            public string? UserId { get; init; }
+            public string? UserName { get; init; }
+            public string? BridgeIp { get; init; }
+            public string? EntertainmentAreaId { get; init; }
+            public DateTime? StartedAtUtc { get; init; }
+            public DateTime EndedAtUtc { get; init; }
+            public double? DurationSeconds { get; init; }
+            public double? EffectiveFps { get; init; }
+            public long FramesProcessed { get; init; }
+            public long PacketsSent { get; init; }
+            public long PacketsSkippedByThreshold { get; init; }
+            public long PacketSendFailures { get; init; }
+            public int ReconnectAttempts { get; init; }
+            public int SeekRestartCount { get; init; }
+            public double? LastSeekPositionSeconds { get; init; }
+            public string? Error { get; init; }
+        }
     }
 
     /// <summary>
@@ -2843,5 +3043,34 @@ namespace Jellyfin.Plugin.Hue.Service
         public bool IsDtlsHealthy { get; init; }
         public double? SyncDurationSeconds { get; init; }
         public DateTime? SyncStartedAtUtc { get; init; }
+        public HueSessionSummary? LastSession { get; init; }
+    }
+
+    /// <summary>
+    /// Sanitized summary of the most recently completed Hue playback session. It contains
+    /// playback and bridge target labels plus aggregate telemetry, but never credentials or
+    /// Jellyfin playback tokens.
+    /// </summary>
+    public sealed class HueSessionSummary
+    {
+        public string Outcome { get; init; } = "Stopped";
+        public string? Item { get; init; }
+        public string? UserId { get; init; }
+        public string? UserName { get; init; }
+        public string? BridgeIp { get; init; }
+        public string? EntertainmentAreaId { get; init; }
+        public DateTime? StartedAtUtc { get; init; }
+        public DateTime? EndedAtUtc { get; init; }
+        public double? DurationSeconds { get; init; }
+        public double? EffectiveFps { get; init; }
+        public long FramesProcessed { get; init; }
+        public long PacketsSent { get; init; }
+        public long PacketsSkippedByThreshold { get; init; }
+        public long PacketSendFailures { get; init; }
+        public int ReconnectAttempts { get; init; }
+        public int SeekRestartCount { get; init; }
+        public double? LastSeekPositionSeconds { get; init; }
+        public string? Error { get; init; }
+        public string? CleanupWarning { get; init; }
     }
 }

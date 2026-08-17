@@ -35,6 +35,7 @@
                             <div><strong>Stream quality:</strong> <span id="runtimeQuality">—</span></div>
                             <div><strong>Seek recovery:</strong> <span id="runtimeSeekRecovery">—</span></div>
                             <div><strong>Duration:</strong> <span id="runtimeDuration">—</span></div>
+                            <div><strong>Last session:</strong> <span id="runtimeLastSession">—</span></div>
                         </div>
                         <button is="emby-button" type="button" class="raised" id="refreshRuntimeStatusBtn">
                             <span>Refresh Status</span>
@@ -1439,6 +1440,7 @@
                         var ffmpegHealthy = HueConfigurationPage.readStatusField(status, "IsFfmpegHealthy", false);
                         var dtlsHealthy = HueConfigurationPage.readStatusField(status, "IsDtlsHealthy", false);
                         var duration = HueConfigurationPage.readStatusField(status, "SyncDurationSeconds", null);
+                        var lastSession = HueConfigurationPage.readStatusField(status, "LastSession", null);
                         var message = HueConfigurationPage.readStatusField(status, "StatusMessage", "");
                         var lastError = HueConfigurationPage.readStatusField(status, "LastError", "");
                         var cleanupWarning = HueConfigurationPage.readStatusField(status, "CleanupWarning", "");
@@ -1491,6 +1493,16 @@
                                 (lastSeekPosition == null ? "" : " · last at " + Number(lastSeekPosition).toFixed(1) + "s")
                             : "—";
                         page.querySelector('#runtimeDuration').textContent = HueConfigurationPage.formatRuntimeDuration(duration);
+                        var lastSessionText = "—";
+                        if (lastSession) {
+                            var lastSessionItem = HueConfigurationPage.readStatusField(lastSession, "Item", "Playback");
+                            var lastSessionOutcome = HueConfigurationPage.readStatusField(lastSession, "Outcome", "Completed");
+                            var lastSessionDuration = HueConfigurationPage.readStatusField(lastSession, "DurationSeconds", null);
+                            var lastSessionPackets = HueConfigurationPage.readStatusField(lastSession, "PacketsSent", 0);
+                            lastSessionText = lastSessionItem + " · " + lastSessionOutcome + " · " +
+                                HueConfigurationPage.formatRuntimeDuration(lastSessionDuration) + " · " + String(lastSessionPackets || 0) + " packets";
+                        }
+                        page.querySelector('#runtimeLastSession').textContent = lastSessionText;
                         page.querySelector('#runtimeStatusMessage').textContent = message || "No runtime message.";
                         if (stopButton) stopButton.disabled = !serviceAvailable || !canStop;
 

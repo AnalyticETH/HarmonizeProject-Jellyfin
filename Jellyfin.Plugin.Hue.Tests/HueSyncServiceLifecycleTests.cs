@@ -150,6 +150,71 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task Cleanup_PublishesLastSessionSummaryWithoutCredentials()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-summary");
+        SetPrivateField(service, "_currentItemName", "Feature film");
+        SetPrivateField(service, "_currentUserId", Guid.NewGuid());
+        SetPrivateField(service, "_currentUserName", "Living Room Viewer");
+        SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-4));
+        SetPrivateField(service, "_seekRestartCount", 2);
+        SetPrivateField(service, "_lastSeekPositionSeconds", 142.5);
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "secret-app-key", "secret-client-key", "area-id"));
+
+        var hueStreamer = Assert.IsType<HueStreamer>(GetPrivateField(service, "_hueStreamer"));
+        SetPrivateField(hueStreamer, "_packetsSent", 42L);
+        SetPrivateField(hueStreamer, "_packetsSkippedByThreshold", 7L);
+        SetPrivateField(hueStreamer, "_packetSendFailures", 2L);
+        SetPrivateField(hueStreamer, "_totalReconnectAttempts", 1);
+        var ffmpegStreamer = Assert.IsType<Jellyfin.Plugin.Hue.Video.FfmpegStreamer>(GetPrivateField(service, "_ffmpegStreamer"));
+        SetPrivateField(ffmpegStreamer, "_framesProcessed", 60L);
+
+        var restoreMethod = typeof(HueSyncService).GetMethod("RestoreAndDeactivateAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var restoreTask = Assert.IsAssignableFrom<Task>(restoreMethod.Invoke(service, new object?[]
+        {
+            Plugin.Instance!.Configuration,
+            new ValueTuple<string, string, string, string>("192.168.1.100", "secret-app-key", "secret-client-key", "area-id"),
+            null,
+            true,
+            true,
+            "Stopped",
+            true
+        }));
+
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await restoreTask;
+
+        var summary = service.GetRuntimeStatus().LastSession;
+        Assert.NotNull(summary);
+        Assert.Equal("Stopped", summary!.Outcome);
+        Assert.Equal("Feature film", summary.Item);
+        Assert.Equal("Living Room Viewer", summary.UserName);
+        Assert.Equal("192.168.1.100", summary.BridgeIp);
+        Assert.Equal("area-id", summary.EntertainmentAreaId);
+        Assert.Equal(60, summary.FramesProcessed);
+        Assert.Equal(42, summary.PacketsSent);
+        Assert.Equal(7, summary.PacketsSkippedByThreshold);
+        Assert.Equal(2, summary.PacketSendFailures);
+        Assert.Equal(1, summary.ReconnectAttempts);
+        Assert.Equal(2, summary.SeekRestartCount);
+        Assert.Equal(142.5, summary.LastSeekPositionSeconds);
+        Assert.True(summary.DurationSeconds >= 3);
+        var summaryJson = System.Text.Json.JsonSerializer.Serialize(summary);
+        Assert.DoesNotContain("secret-app-key", summaryJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-client-key", summaryJson, StringComparison.Ordinal);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task SyncLoopEnd_RestoresLightsAndClearsRuntimeState()
     {
         var handler = new BlockingHueHandler();

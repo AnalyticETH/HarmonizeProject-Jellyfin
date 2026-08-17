@@ -8,6 +8,14 @@ namespace Jellyfin.Plugin.Hue.Tests;
 public sealed class HueSyncServiceTests
 {
     [Fact]
+    public void IsSupportedVideoPlaybackItem_RejectsAudioAndAcceptsVideoMediaTypes()
+    {
+        Assert.True(HueSyncService.IsSupportedVideoPlaybackItem(new MediaBrowser.Controller.Entities.Video()));
+        Assert.False(HueSyncService.IsSupportedVideoPlaybackItem(new MediaBrowser.Controller.Entities.Folder()));
+        Assert.False(HueSyncService.IsSupportedVideoPlaybackItem(null));
+    }
+
+    [Fact]
     public void IsPlaybackSeek_RecognizesBackwardAndLargeForwardJumps()
     {
         var start = DateTime.UtcNow;

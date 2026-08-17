@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.62] - 2026-08-17
+
+### Added
+- **Completed-session telemetry**: Live Sync Status and `GET /HueSync/Status` retain a sanitized `lastSession` summary with the outcome, duration, frame/packet counters, effective FPS, reconnects, seek recoveries, and cleanup warnings from the most recent video playback
+
+### Fixed
+- **Video-only playback guard**: audio-only and other non-video Jellyfin playback events are ignored before Hue or FFmpeg lifecycle startup, with a clear idle status message when no sync is active
+
 ## [1.5.61] - 2026-08-17
 
 ### Added
