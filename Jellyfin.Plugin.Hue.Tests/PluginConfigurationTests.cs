@@ -1110,6 +1110,47 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetPerformanceOverridesForUser_UsesMatchingMappingAndLeavesBlankValuesForGlobalSettings()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    TargetFpsOverride = 30,
+                    FrameResolutionOverride = " 320x180 ",
+                    VideoScalingModeOverride = "fit",
+                    VideoDeinterlaceModeOverride = "Auto",
+                    SamplingBreadthPercentOverride = 25,
+                    SamplingModeOverride = "CenterWeighted",
+                    ColorSmoothingPercentOverride = 40
+                }
+            }
+        };
+
+        var overrides = config.GetPerformanceOverridesForUser(userId);
+        var unmapped = config.GetPerformanceOverridesForUser(System.Guid.NewGuid());
+
+        Assert.Equal((int?)30, overrides.TargetFps);
+        Assert.Equal("320x180", overrides.FrameResolution);
+        Assert.Equal("fit", overrides.VideoScalingMode);
+        Assert.Equal("Auto", overrides.VideoDeinterlaceMode);
+        Assert.Equal((int?)25, overrides.SamplingBreadthPercent);
+        Assert.Equal("CenterWeighted", overrides.SamplingMode);
+        Assert.Equal((int?)40, overrides.ColorSmoothingPercent);
+        Assert.Null(unmapped.TargetFps);
+        Assert.Null(unmapped.FrameResolution);
+        Assert.Null(unmapped.VideoScalingMode);
+        Assert.Null(unmapped.VideoDeinterlaceMode);
+        Assert.Null(unmapped.SamplingBreadthPercent);
+        Assert.Null(unmapped.SamplingMode);
+        Assert.Null(unmapped.ColorSmoothingPercent);
+    }
+
+    [Fact]
     public void GetPlaybackOverridesForUser_UsesMatchingMappingAndLeavesBlankValuesForGlobalSettings()
     {
         var userId = System.Guid.NewGuid();
@@ -1175,6 +1216,43 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 color saturation override must be between 0 and 200", errors);
         Assert.Contains("User mapping 1 hue shift override must be between -180 and 180 degrees", errors);
         Assert.Contains("User mapping 1 output brightness override must be between 0 and 100 percent", errors);
+    }
+
+    [Fact]
+    public void Validate_WhenUserPerformanceOverridesAreInvalid_ReturnsPerformanceErrors()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-key",
+            HueClientKey = "default-client-key",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    TargetFpsOverride = 0,
+                    FrameResolutionOverride = "640x360",
+                    VideoScalingModeOverride = "InvalidScaling",
+                    VideoDeinterlaceModeOverride = "InvalidDeinterlace",
+                    SamplingBreadthPercentOverride = 51,
+                    SamplingModeOverride = "InvalidSampling",
+                    ColorSmoothingPercentOverride = 91
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("User mapping 1 target FPS override must be between 1 and 60", errors);
+        Assert.Contains("User mapping 1 frame resolution override must be 80x45, 160x90, or 320x180", errors);
+        Assert.Contains("User mapping 1 video scaling override must be Stretch, Fit, or Crop", errors);
+        Assert.Contains("User mapping 1 video deinterlace override must be Off, Auto, or On", errors);
+        Assert.Contains("User mapping 1 sampling breadth override must be between 1 and 50 percent", errors);
+        Assert.Contains("User mapping 1 sampling mode override must be Average, CenterWeighted, or CenterPixel", errors);
+        Assert.Contains("User mapping 1 color smoothing override must be between 0 and 90 percent", errors);
     }
 
     [Fact]

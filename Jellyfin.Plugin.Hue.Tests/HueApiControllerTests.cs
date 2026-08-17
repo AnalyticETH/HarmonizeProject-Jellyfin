@@ -251,6 +251,13 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("Unavailable", status.State);
         Assert.Null(status.ActiveBridgeIp);
         Assert.Null(status.ActiveEntertainmentAreaId);
+        Assert.Null(status.ActiveTargetFps);
+        Assert.Null(status.ActiveFrameResolution);
+        Assert.Null(status.ActiveVideoScalingMode);
+        Assert.Null(status.ActiveVideoDeinterlaceMode);
+        Assert.Null(status.ActiveSamplingBreadthPercent);
+        Assert.Null(status.ActiveSamplingMode);
+        Assert.Null(status.ActiveColorSmoothingPercent);
         Assert.Null(status.LastError);
         Assert.False(status.CanStopSync);
     }
@@ -291,7 +298,14 @@ public sealed class HueApiControllerTests : IDisposable
                     BlueGainOverride = 110,
                     ColorSaturationOverride = 0,
                     HueShiftDegreesOverride = -45,
-                    OutputBrightnessPercentOverride = 75
+                    OutputBrightnessPercentOverride = 75,
+                    TargetFpsOverride = 30,
+                    FrameResolutionOverride = PluginConfiguration.FrameResolutionHigh,
+                    VideoScalingModeOverride = PluginConfiguration.VideoScalingModeFit,
+                    VideoDeinterlaceModeOverride = PluginConfiguration.VideoDeinterlaceModeAuto,
+                    SamplingBreadthPercentOverride = 25,
+                    SamplingModeOverride = PluginConfiguration.SamplingModeCenterWeighted,
+                    ColorSmoothingPercentOverride = 40
                 }
             }
         });
@@ -313,6 +327,13 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)0, mapping.ColorSaturationOverride);
         Assert.Equal((int?)-45, mapping.HueShiftDegreesOverride);
         Assert.Equal((int?)75, mapping.OutputBrightnessPercentOverride);
+        Assert.Equal((int?)30, mapping.TargetFpsOverride);
+        Assert.Equal(PluginConfiguration.FrameResolutionHigh, mapping.FrameResolutionOverride);
+        Assert.Equal(PluginConfiguration.VideoScalingModeFit, mapping.VideoScalingModeOverride);
+        Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, mapping.VideoDeinterlaceModeOverride);
+        Assert.Equal((int?)25, mapping.SamplingBreadthPercentOverride);
+        Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, mapping.SamplingModeOverride);
+        Assert.Equal((int?)40, mapping.ColorSmoothingPercentOverride);
         var serialized = System.Text.Json.JsonSerializer.Serialize(mapping);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("mapping-client-secret", serialized, StringComparison.Ordinal);
@@ -468,7 +489,14 @@ public sealed class HueApiControllerTests : IDisposable
             BlueGainOverride = 105,
             ColorSaturationOverride = 80,
             HueShiftDegreesOverride = 30,
-            OutputBrightnessPercentOverride = 65
+            OutputBrightnessPercentOverride = 65,
+            TargetFpsOverride = 30,
+            FrameResolutionOverride = PluginConfiguration.FrameResolutionLow,
+            VideoScalingModeOverride = PluginConfiguration.VideoScalingModeCrop,
+            VideoDeinterlaceModeOverride = PluginConfiguration.VideoDeinterlaceModeOn,
+            SamplingBreadthPercentOverride = 20,
+            SamplingModeOverride = PluginConfiguration.SamplingModeCenterPixel,
+            ColorSmoothingPercentOverride = 35
         });
 
         Assert.IsType<OkObjectResult>(action);
@@ -487,6 +515,13 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)80, mapping.ColorSaturationOverride);
         Assert.Equal((int?)30, mapping.HueShiftDegreesOverride);
         Assert.Equal((int?)65, mapping.OutputBrightnessPercentOverride);
+        Assert.Equal((int?)30, mapping.TargetFpsOverride);
+        Assert.Equal(PluginConfiguration.FrameResolutionLow, mapping.FrameResolutionOverride);
+        Assert.Equal(PluginConfiguration.VideoScalingModeCrop, mapping.VideoScalingModeOverride);
+        Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOn, mapping.VideoDeinterlaceModeOverride);
+        Assert.Equal((int?)20, mapping.SamplingBreadthPercentOverride);
+        Assert.Equal(PluginConfiguration.SamplingModeCenterPixel, mapping.SamplingModeOverride);
+        Assert.Equal((int?)35, mapping.ColorSmoothingPercentOverride);
     }
 
     [Fact]
@@ -516,11 +551,14 @@ public sealed class HueApiControllerTests : IDisposable
             UserId = "new-user",
             SyncEnabled = false,
             BrightnessDimLevelOverride = 101,
-            PauseBehaviorOverride = "InvalidPauseBehavior"
+            PauseBehaviorOverride = "InvalidPauseBehavior",
+            TargetFpsOverride = 0
         });
 
         var response = Assert.IsType<BadRequestObjectResult>(action);
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        var validationBody = System.Text.Json.JsonSerializer.Serialize(response.Value);
+        Assert.Contains("target FPS override must be between 1 and 60", validationBody, StringComparison.Ordinal);
         Assert.Empty(configuration.UserMappings);
     }
 

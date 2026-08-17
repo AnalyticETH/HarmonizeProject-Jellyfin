@@ -5,7 +5,7 @@ using MediaBrowser.Model.Plugins;
 namespace Jellyfin.Plugin.Hue.Configuration
 {
     /// <summary>
-    /// Per-user bridge, entertainment area, and optional playback/color profile mapping
+    /// Per-user bridge, entertainment area, and optional playback, color, and performance profile mapping
     /// </summary>
     public class UserBridgeMapping
     {
@@ -33,6 +33,15 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? RedGainOverride { get; set; }
         public int? GreenGainOverride { get; set; }
         public int? BlueGainOverride { get; set; }
+
+        // Optional per-user playback-performance overrides. Null values inherit the global setting.
+        public int? TargetFpsOverride { get; set; }
+        public string? FrameResolutionOverride { get; set; }
+        public string? VideoScalingModeOverride { get; set; }
+        public string? VideoDeinterlaceModeOverride { get; set; }
+        public int? SamplingBreadthPercentOverride { get; set; }
+        public string? SamplingModeOverride { get; set; }
+        public int? ColorSmoothingPercentOverride { get; set; }
     }
 
     /// <summary>
@@ -201,6 +210,36 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Gets optional per-user playback-performance overrides. Null values mean the global
+        /// capture or processing setting should be used for that component.
+        /// </summary>
+        public (
+            int? TargetFps,
+            string? FrameResolution,
+            string? VideoScalingMode,
+            string? VideoDeinterlaceMode,
+            int? SamplingBreadthPercent,
+            string? SamplingMode,
+            int? ColorSmoothingPercent) GetPerformanceOverridesForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return mapping == null
+                ? (null, null, null, null, null, null, null)
+                : (
+                    mapping.TargetFpsOverride,
+                    NormalizeOptionalOverride(mapping.FrameResolutionOverride),
+                    NormalizeOptionalOverride(mapping.VideoScalingModeOverride),
+                    NormalizeOptionalOverride(mapping.VideoDeinterlaceModeOverride),
+                    mapping.SamplingBreadthPercentOverride,
+                    NormalizeOptionalOverride(mapping.SamplingModeOverride),
+                    mapping.ColorSmoothingPercentOverride);
+        }
+
+        private static string? NormalizeOptionalOverride(string? value)
+            => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+        /// <summary>
         /// Validates optional per-user color profile overrides without exposing bridge credentials.
         /// </summary>
         public static List<string> ValidateColorOverrides(UserBridgeMapping mapping, string label = "User mapping")
@@ -279,6 +318,72 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 !string.Equals(pauseBehaviorOverride, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase))
             {
                 errors.Add($"{label} pause behavior override must be KeepLastColors or RestoreLightState");
+            }
+
+            return errors;
+        }
+
+        /// <summary>
+        /// Validates optional per-user playback-performance overrides.
+        /// </summary>
+        public static List<string> ValidatePerformanceOverrides(UserBridgeMapping mapping, string label = "User mapping")
+        {
+            var errors = new List<string>();
+
+            if (mapping.TargetFpsOverride.HasValue &&
+                (mapping.TargetFpsOverride.Value < MinTargetFps || mapping.TargetFpsOverride.Value > MaxTargetFps))
+            {
+                errors.Add($"{label} target FPS override must be between 1 and 60");
+            }
+
+            var frameResolution = mapping.FrameResolutionOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(frameResolution) &&
+                !string.Equals(frameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(frameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(frameResolution, FrameResolutionHigh, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"{label} frame resolution override must be 80x45, 160x90, or 320x180");
+            }
+
+            var scalingMode = mapping.VideoScalingModeOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(scalingMode) &&
+                !string.Equals(scalingMode, VideoScalingModeStretch, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(scalingMode, VideoScalingModeFit, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(scalingMode, VideoScalingModeCrop, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"{label} video scaling override must be Stretch, Fit, or Crop");
+            }
+
+            var deinterlaceMode = mapping.VideoDeinterlaceModeOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(deinterlaceMode) &&
+                !string.Equals(deinterlaceMode, VideoDeinterlaceModeOff, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(deinterlaceMode, VideoDeinterlaceModeAuto, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(deinterlaceMode, VideoDeinterlaceModeOn, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"{label} video deinterlace override must be Off, Auto, or On");
+            }
+
+            if (mapping.SamplingBreadthPercentOverride.HasValue &&
+                (mapping.SamplingBreadthPercentOverride.Value < MinSamplingBreadthPercent ||
+                 mapping.SamplingBreadthPercentOverride.Value > MaxSamplingBreadthPercent))
+            {
+                errors.Add($"{label} sampling breadth override must be between 1 and 50 percent");
+            }
+
+            var samplingMode = mapping.SamplingModeOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(samplingMode) &&
+                !string.Equals(samplingMode, SamplingModeAverage, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(samplingMode, SamplingModeCenterWeighted, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(samplingMode, SamplingModeCenterPixel, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"{label} sampling mode override must be Average, CenterWeighted, or CenterPixel");
+            }
+
+            if (mapping.ColorSmoothingPercentOverride.HasValue &&
+                (mapping.ColorSmoothingPercentOverride.Value < MinColorSmoothingPercent ||
+                 mapping.ColorSmoothingPercentOverride.Value > MaxColorSmoothingPercent))
+            {
+                errors.Add($"{label} color smoothing override must be between 0 and 90 percent");
             }
 
             return errors;
@@ -432,6 +537,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 errors.AddRange(ValidatePlaybackOverrides(mapping, label));
                 errors.AddRange(ValidateColorOverrides(mapping, label));
+                errors.AddRange(ValidatePerformanceOverrides(mapping, label));
 
                 if (string.IsNullOrWhiteSpace(mapping.UserId))
                 {

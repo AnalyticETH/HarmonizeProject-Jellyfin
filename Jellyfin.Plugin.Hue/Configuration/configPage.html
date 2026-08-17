@@ -21,6 +21,8 @@
                             <div><strong>Frame resolution:</strong> <span id="runtimeResolution">—</span></div>
                             <div><strong>Video fit:</strong> <span id="runtimeScalingMode">—</span></div>
                             <div><strong>Deinterlace:</strong> <span id="runtimeDeinterlaceMode">—</span></div>
+                            <div><strong>Capture profile:</strong> <span id="runtimeCaptureProfile">—</span></div>
+                            <div><strong>Sampling:</strong> <span id="runtimeSamplingProfile">—</span></div>
                         </div>
                         <div style="flex: 1 1 280px;">
                             <div><strong>Health:</strong> <span id="runtimeHealth">—</span></div>
@@ -318,6 +320,69 @@
                                     <label class="inputLabel inputLabelUnfocused" for="mappingOutputBrightnessPercentOverride">Output Brightness Override (%)</label>
                                     <input id="mappingOutputBrightnessPercentOverride" type="number" min="0" max="100" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user final brightness scale (0-100%).</div>
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
+                                <legend>Per-user Performance Profile (optional)</legend>
+                                <div class="fieldDescription" style="margin-bottom: 1em;">Leave any field blank to inherit the global capture and sampling setting. These controls let a mapped user trade CPU usage for spatial detail without changing other users.</div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingTargetFpsOverride">Target FPS Override</label>
+                                    <input id="mappingTargetFpsOverride" type="number" min="1" max="60" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user analysis rate (1-60 FPS).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingFrameResolutionOverride">Frame Resolution Override</label>
+                                    <select id="mappingFrameResolutionOverride" is="emby-select">
+                                        <option value="">Inherit global setting</option>
+                                        <option value="80x45">Low (80×45, lowest CPU)</option>
+                                        <option value="160x90">Standard (160×90)</option>
+                                        <option value="320x180">High (320×180, more spatial detail)</option>
+                                    </select>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingVideoScalingModeOverride">Video Fit Override</label>
+                                    <select id="mappingVideoScalingModeOverride" is="emby-select">
+                                        <option value="">Inherit global setting</option>
+                                        <option value="Stretch">Stretch to frame</option>
+                                        <option value="Fit">Fit with letterbox bars</option>
+                                        <option value="Crop">Crop to fill frame</option>
+                                    </select>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingVideoDeinterlaceModeOverride">Video Deinterlace Override</label>
+                                    <select id="mappingVideoDeinterlaceModeOverride" is="emby-select">
+                                        <option value="">Inherit global setting</option>
+                                        <option value="Off">Off</option>
+                                        <option value="Auto">Auto for flagged frames</option>
+                                        <option value="On">Always deinterlace</option>
+                                    </select>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingSamplingBreadthPercentOverride">Sampling Breadth Override (%)</label>
+                                    <input id="mappingSamplingBreadthPercentOverride" type="number" min="1" max="50" is="emby-input" />
+                                    <div class="fieldDescription">Optional sampling neighborhood (1-50%).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingSamplingModeOverride">Sampling Mode Override</label>
+                                    <select id="mappingSamplingModeOverride" is="emby-select">
+                                        <option value="">Inherit global setting</option>
+                                        <option value="Average">Average neighborhood</option>
+                                        <option value="CenterWeighted">Center-weighted neighborhood</option>
+                                        <option value="CenterPixel">Center pixel</option>
+                                    </select>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingColorSmoothingPercentOverride">Color Smoothing Override (%)</label>
+                                    <input id="mappingColorSmoothingPercentOverride" type="number" min="0" max="90" is="emby-input" />
+                                    <div class="fieldDescription">Optional temporal smoothing (0-90%).</div>
                                 </div>
                             </fieldset>
 
@@ -801,6 +866,10 @@
                         var frameResolution = HueConfigurationPage.readStatusField(status, "ActiveFrameResolution", "—");
                         var scalingMode = HueConfigurationPage.readStatusField(status, "ActiveVideoScalingMode", "—");
                         var deinterlaceMode = HueConfigurationPage.readStatusField(status, "ActiveVideoDeinterlaceMode", "—");
+                        var targetFps = HueConfigurationPage.readStatusField(status, "ActiveTargetFps", null);
+                        var samplingBreadth = HueConfigurationPage.readStatusField(status, "ActiveSamplingBreadthPercent", null);
+                        var samplingMode = HueConfigurationPage.readStatusField(status, "ActiveSamplingMode", null);
+                        var colorSmoothing = HueConfigurationPage.readStatusField(status, "ActiveColorSmoothingPercent", null);
                         var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
                         var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
                         var frames = HueConfigurationPage.readStatusField(status, "FramesProcessed", 0);
@@ -820,6 +889,12 @@
                         page.querySelector('#runtimeResolution').textContent = frameResolution || "—";
                         page.querySelector('#runtimeScalingMode').textContent = scalingMode || "—";
                         page.querySelector('#runtimeDeinterlaceMode').textContent = deinterlaceMode || "—";
+                        page.querySelector('#runtimeCaptureProfile').textContent = targetFps == null
+                            ? "—"
+                            : String(targetFps) + " FPS · " + (frameResolution || "—");
+                        page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
+                            ? "—"
+                            : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
                         page.querySelector('#runtimeTarget').textContent = activeBridge && activeArea && activeBridge !== "—"
                             ? activeBridge + " / " + activeArea
                             : "—";
@@ -1097,7 +1172,18 @@
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
-                            var hasProfile = hasColorProfile || hasPlaybackProfile;
+                            var hasPerformanceProfile = [
+                                getMappingValue('TargetFpsOverride', 'targetFpsOverride'),
+                                getMappingValue('FrameResolutionOverride', 'frameResolutionOverride'),
+                                getMappingValue('VideoScalingModeOverride', 'videoScalingModeOverride'),
+                                getMappingValue('VideoDeinterlaceModeOverride', 'videoDeinterlaceModeOverride'),
+                                getMappingValue('SamplingBreadthPercentOverride', 'samplingBreadthPercentOverride'),
+                                getMappingValue('SamplingModeOverride', 'samplingModeOverride'),
+                                getMappingValue('ColorSmoothingPercentOverride', 'colorSmoothingPercentOverride')
+                            ].some(function (value) {
+                                return value !== null && typeof value !== 'undefined' && value !== '';
+                            });
+                            var hasProfile = hasColorProfile || hasPlaybackProfile || hasPerformanceProfile;
                             var credentialState = !syncEnabled ? 'Not required' : (hasAppKey && hasClientKey ? 'Stored' : 'Incomplete');
                             html += '<tr style="border-bottom: 1px solid #333;">';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.UserName || mapping.userName || userId || 'Unknown') + '</td>';
@@ -1144,7 +1230,14 @@
                         '#mappingBlueGainOverride',
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
-                        '#mappingOutputBrightnessPercentOverride'
+                        '#mappingOutputBrightnessPercentOverride',
+                        '#mappingTargetFpsOverride',
+                        '#mappingFrameResolutionOverride',
+                        '#mappingVideoScalingModeOverride',
+                        '#mappingVideoDeinterlaceModeOverride',
+                        '#mappingSamplingBreadthPercentOverride',
+                        '#mappingSamplingModeOverride',
+                        '#mappingColorSmoothingPercentOverride'
                     ];
 
                     selectors.forEach(function (selector) {
@@ -1508,7 +1601,14 @@
                         BlueGainOverride: readOptionalNumber('mappingBlueGainOverride'),
                         ColorSaturationOverride: readOptionalNumber('mappingColorSaturationOverride'),
                         HueShiftDegreesOverride: readOptionalNumber('mappingHueShiftDegreesOverride'),
-                        OutputBrightnessPercentOverride: readOptionalNumber('mappingOutputBrightnessPercentOverride')
+                        OutputBrightnessPercentOverride: readOptionalNumber('mappingOutputBrightnessPercentOverride'),
+                        TargetFpsOverride: readOptionalNumber('mappingTargetFpsOverride'),
+                        FrameResolutionOverride: readOptionalString('mappingFrameResolutionOverride'),
+                        VideoScalingModeOverride: readOptionalString('mappingVideoScalingModeOverride'),
+                        VideoDeinterlaceModeOverride: readOptionalString('mappingVideoDeinterlaceModeOverride'),
+                        SamplingBreadthPercentOverride: readOptionalNumber('mappingSamplingBreadthPercentOverride'),
+                        SamplingModeOverride: readOptionalString('mappingSamplingModeOverride'),
+                        ColorSmoothingPercentOverride: readOptionalNumber('mappingColorSmoothingPercentOverride')
                     };
 
                     ApiClient.ajax({
@@ -1569,7 +1669,14 @@
                         '#mappingBlueGainOverride',
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
-                        '#mappingOutputBrightnessPercentOverride'
+                        '#mappingOutputBrightnessPercentOverride',
+                        '#mappingTargetFpsOverride',
+                        '#mappingFrameResolutionOverride',
+                        '#mappingVideoScalingModeOverride',
+                        '#mappingVideoDeinterlaceModeOverride',
+                        '#mappingSamplingBreadthPercentOverride',
+                        '#mappingSamplingModeOverride',
+                        '#mappingColorSmoothingPercentOverride'
                     ];
                     profileSelectors.forEach(function (selector) {
                         var element = page.querySelector(selector);
@@ -1628,6 +1735,13 @@
                         var colorSaturationOverride = getMappingValue('ColorSaturationOverride', 'colorSaturationOverride');
                         var hueShiftDegreesOverride = getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride');
                         var outputBrightnessPercentOverride = getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride');
+                        var targetFpsOverride = getMappingValue('TargetFpsOverride', 'targetFpsOverride');
+                        var frameResolutionOverride = getMappingValue('FrameResolutionOverride', 'frameResolutionOverride');
+                        var videoScalingModeOverride = getMappingValue('VideoScalingModeOverride', 'videoScalingModeOverride');
+                        var videoDeinterlaceModeOverride = getMappingValue('VideoDeinterlaceModeOverride', 'videoDeinterlaceModeOverride');
+                        var samplingBreadthPercentOverride = getMappingValue('SamplingBreadthPercentOverride', 'samplingBreadthPercentOverride');
+                        var samplingModeOverride = getMappingValue('SamplingModeOverride', 'samplingModeOverride');
+                        var colorSmoothingPercentOverride = getMappingValue('ColorSmoothingPercentOverride', 'colorSmoothingPercentOverride');
 
                         var userSelect = page.querySelector('#mappingUserSelect');
                         if (userSelect) {
@@ -1667,6 +1781,13 @@
                         page.querySelector('#mappingColorSaturationOverride').value = colorSaturationOverride == null ? "" : colorSaturationOverride;
                         page.querySelector('#mappingHueShiftDegreesOverride').value = hueShiftDegreesOverride == null ? "" : hueShiftDegreesOverride;
                         page.querySelector('#mappingOutputBrightnessPercentOverride').value = outputBrightnessPercentOverride == null ? "" : outputBrightnessPercentOverride;
+                        page.querySelector('#mappingTargetFpsOverride').value = targetFpsOverride == null ? "" : targetFpsOverride;
+                        page.querySelector('#mappingFrameResolutionOverride').value = frameResolutionOverride == null ? "" : frameResolutionOverride;
+                        page.querySelector('#mappingVideoScalingModeOverride').value = videoScalingModeOverride == null ? "" : videoScalingModeOverride;
+                        page.querySelector('#mappingVideoDeinterlaceModeOverride').value = videoDeinterlaceModeOverride == null ? "" : videoDeinterlaceModeOverride;
+                        page.querySelector('#mappingSamplingBreadthPercentOverride').value = samplingBreadthPercentOverride == null ? "" : samplingBreadthPercentOverride;
+                        page.querySelector('#mappingSamplingModeOverride').value = samplingModeOverride == null ? "" : samplingModeOverride;
+                        page.querySelector('#mappingColorSmoothingPercentOverride').value = colorSmoothingPercentOverride == null ? "" : colorSmoothingPercentOverride;
                         page.querySelector('#mappingAreaManual').value = "";
                         page.querySelector('#mappingFormLegend').textContent = "Edit User Mapping";
                         page.querySelector('#addMappingBtn').querySelector('span').textContent = "Update User Mapping";

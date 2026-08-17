@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.32] - 2026-08-17
+
+### Added
+- Optional per-user playback-performance profiles for target FPS, frame resolution, video fit, deinterlacing, sampling, and temporal color smoothing
+- Active performance-profile details in sanitized runtime status responses and the configuration page
+- Regression coverage for performance override inheritance, validation, persistence, runtime resolution, and status/API wiring
+
+### Changed
+- Per-user performance overrides are captured at playback startup so each session uses a consistent FFmpeg and sampling pipeline
+
 ## [1.5.31] - 2026-08-17
 
 ### Added

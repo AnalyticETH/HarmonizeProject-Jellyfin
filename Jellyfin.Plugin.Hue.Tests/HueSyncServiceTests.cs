@@ -80,6 +80,54 @@ public sealed class HueSyncServiceTests
         Assert.Equal(PluginConfiguration.PauseBehaviorKeepLastColors, fallback);
     }
 
+    [Fact]
+    public void ResolvePerformanceSettings_UsesPerUserOverridesAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            TargetFps = 20,
+            FrameResolution = PluginConfiguration.FrameResolutionStandard,
+            VideoScalingMode = PluginConfiguration.VideoScalingModeStretch,
+            VideoDeinterlaceMode = PluginConfiguration.VideoDeinterlaceModeOff,
+            SamplingBreadthPercent = 15,
+            SamplingMode = PluginConfiguration.SamplingModeAverage,
+            ColorSmoothingPercent = 0,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString(),
+                    TargetFpsOverride = 30,
+                    FrameResolutionOverride = PluginConfiguration.FrameResolutionHigh,
+                    VideoScalingModeOverride = PluginConfiguration.VideoScalingModeFit,
+                    VideoDeinterlaceModeOverride = PluginConfiguration.VideoDeinterlaceModeAuto,
+                    SamplingBreadthPercentOverride = 25,
+                    SamplingModeOverride = PluginConfiguration.SamplingModeCenterWeighted,
+                    ColorSmoothingPercentOverride = 40
+                }
+            }
+        };
+
+        var effective = HueSyncService.ResolvePerformanceSettings(configuration, userId);
+        var fallback = HueSyncService.ResolvePerformanceSettings(configuration, System.Guid.NewGuid());
+
+        Assert.Equal(30, effective.TargetFps);
+        Assert.Equal(PluginConfiguration.FrameResolutionHigh, effective.FrameResolution);
+        Assert.Equal(PluginConfiguration.VideoScalingModeFit, effective.VideoScalingMode);
+        Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, effective.VideoDeinterlaceMode);
+        Assert.Equal(25, effective.SamplingBreadthPercent);
+        Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, effective.SamplingMode);
+        Assert.Equal(40, effective.ColorSmoothingPercent);
+        Assert.Equal(20, fallback.TargetFps);
+        Assert.Equal(PluginConfiguration.FrameResolutionStandard, fallback.FrameResolution);
+        Assert.Equal(PluginConfiguration.VideoScalingModeStretch, fallback.VideoScalingMode);
+        Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOff, fallback.VideoDeinterlaceMode);
+        Assert.Equal(15, fallback.SamplingBreadthPercent);
+        Assert.Equal(PluginConfiguration.SamplingModeAverage, fallback.SamplingMode);
+        Assert.Equal(0, fallback.ColorSmoothingPercent);
+    }
+
     [Theory]
     [InlineData(0, 18)]
     [InlineData(1, 1)]

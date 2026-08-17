@@ -73,6 +73,10 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _currentFrameResolution;
         private string? _currentVideoScalingMode;
         private string? _currentVideoDeinterlaceMode;
+        private int? _currentTargetFps;
+        private int? _currentSamplingBreadthPercent;
+        private string? _currentSamplingMode;
+        private int? _currentColorSmoothingPercent;
         private bool? _activeUseCinemaMode;
         private string? _activePauseBehavior;
         private string? _manuallyStoppedPlaySessionId;
@@ -209,6 +213,10 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentFrameResolution = null;
                     _currentVideoScalingMode = null;
                     _currentVideoDeinterlaceMode = null;
+                    _currentTargetFps = null;
+                    _currentSamplingBreadthPercent = null;
+                    _currentSamplingMode = null;
+                    _currentColorSmoothingPercent = null;
 
                     if (bridgeConfig != null && (!areaAlreadyDeactivated || savedLightStates != null))
                     {
@@ -267,6 +275,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentFrameResolution = null;
                 _currentVideoScalingMode = null;
                 _currentVideoDeinterlaceMode = null;
+                _currentTargetFps = null;
+                _currentSamplingBreadthPercent = null;
+                _currentSamplingMode = null;
+                _currentColorSmoothingPercent = null;
 
                 await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
                 SetRuntimeStatus("Stopped", "Hue sync stopped by an administrator; playback continues.");
@@ -290,6 +302,10 @@ namespace Jellyfin.Plugin.Hue.Service
             string? currentFrameResolution;
             string? currentVideoScalingMode;
             string? currentVideoDeinterlaceMode;
+            int? currentTargetFps;
+            int? currentSamplingBreadthPercent;
+            string? currentSamplingMode;
+            int? currentColorSmoothingPercent;
             string state;
             string message;
             string? lastError;
@@ -304,6 +320,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentFrameResolution = _currentFrameResolution;
                 currentVideoScalingMode = _currentVideoScalingMode;
                 currentVideoDeinterlaceMode = _currentVideoDeinterlaceMode;
+                currentTargetFps = _currentTargetFps;
+                currentSamplingBreadthPercent = _currentSamplingBreadthPercent;
+                currentSamplingMode = _currentSamplingMode;
+                currentColorSmoothingPercent = _currentColorSmoothingPercent;
                 state = _runtimeState;
                 message = _runtimeMessage;
                 lastError = _lastError;
@@ -328,6 +348,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveFrameResolution = isSyncing ? currentFrameResolution : null,
                 ActiveVideoScalingMode = isSyncing ? currentVideoScalingMode : null,
                 ActiveVideoDeinterlaceMode = isSyncing ? currentVideoDeinterlaceMode : null,
+                ActiveTargetFps = isSyncing ? currentTargetFps : null,
+                ActiveSamplingBreadthPercent = isSyncing ? currentSamplingBreadthPercent : null,
+                ActiveSamplingMode = isSyncing ? currentSamplingMode : null,
+                ActiveColorSmoothingPercent = isSyncing ? currentColorSmoothingPercent : null,
                 ActiveBridgeIp = isSyncing ? bridgeConfig?.BridgeIp : null,
                 ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
                 IsSyncing = isSyncing,
@@ -549,6 +573,10 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentFrameResolution = null;
             _currentVideoScalingMode = null;
             _currentVideoDeinterlaceMode = null;
+            _currentTargetFps = null;
+            _currentSamplingBreadthPercent = null;
+            _currentSamplingMode = null;
+            _currentColorSmoothingPercent = null;
 
             try
             {
@@ -705,6 +733,10 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentFrameResolution = null;
                     _currentVideoScalingMode = null;
                     _currentVideoDeinterlaceMode = null;
+                    _currentTargetFps = null;
+                    _currentSamplingBreadthPercent = null;
+                    _currentSamplingMode = null;
+                    _currentColorSmoothingPercent = null;
                     await RestoreAndDeactivateAsync(
                         config,
                         bridgeConfig,
@@ -878,6 +910,79 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             ArgumentNullException.ThrowIfNull(config);
             return config.GetPauseBehaviorOverrideForUser(userId) ?? config.PauseBehavior;
+        }
+
+        internal static (
+            int TargetFps,
+            string FrameResolution,
+            string VideoScalingMode,
+            string VideoDeinterlaceMode,
+            int SamplingBreadthPercent,
+            string SamplingMode,
+            int ColorSmoothingPercent) ResolvePerformanceSettings(
+            PluginConfiguration config,
+            Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            var overrides = config.GetPerformanceOverridesForUser(userId);
+            return (
+                Math.Clamp(overrides.TargetFps ?? config.TargetFps, MinFps, MaxFps),
+                NormalizeFrameResolution(overrides.FrameResolution ?? config.FrameResolution),
+                NormalizeVideoScalingMode(overrides.VideoScalingMode ?? config.VideoScalingMode),
+                NormalizeVideoDeinterlaceMode(overrides.VideoDeinterlaceMode ?? config.VideoDeinterlaceMode),
+                Math.Clamp(
+                    overrides.SamplingBreadthPercent ?? config.SamplingBreadthPercent,
+                    MinSamplingBreadthPercent,
+                    MaxSamplingBreadthPercent),
+                NormalizeSamplingMode(overrides.SamplingMode ?? config.SamplingMode),
+                Math.Clamp(
+                    overrides.ColorSmoothingPercent ?? config.ColorSmoothingPercent,
+                    MinColorSmoothingPercent,
+                    MaxColorSmoothingPercent));
+        }
+
+        private static string NormalizeFrameResolution(string? value)
+        {
+            if (string.Equals(value?.Trim(), PluginConfiguration.FrameResolutionLow, StringComparison.OrdinalIgnoreCase))
+                return PluginConfiguration.FrameResolutionLow;
+
+            if (string.Equals(value?.Trim(), PluginConfiguration.FrameResolutionHigh, StringComparison.OrdinalIgnoreCase))
+                return PluginConfiguration.FrameResolutionHigh;
+
+            return PluginConfiguration.FrameResolutionStandard;
+        }
+
+        private static string NormalizeVideoScalingMode(string? value)
+        {
+            if (string.Equals(value?.Trim(), PluginConfiguration.VideoScalingModeFit, StringComparison.OrdinalIgnoreCase))
+                return PluginConfiguration.VideoScalingModeFit;
+
+            if (string.Equals(value?.Trim(), PluginConfiguration.VideoScalingModeCrop, StringComparison.OrdinalIgnoreCase))
+                return PluginConfiguration.VideoScalingModeCrop;
+
+            return PluginConfiguration.VideoScalingModeStretch;
+        }
+
+        private static string NormalizeVideoDeinterlaceMode(string? value)
+        {
+            if (string.Equals(value?.Trim(), PluginConfiguration.VideoDeinterlaceModeAuto, StringComparison.OrdinalIgnoreCase))
+                return PluginConfiguration.VideoDeinterlaceModeAuto;
+
+            if (string.Equals(value?.Trim(), PluginConfiguration.VideoDeinterlaceModeOn, StringComparison.OrdinalIgnoreCase))
+                return PluginConfiguration.VideoDeinterlaceModeOn;
+
+            return PluginConfiguration.VideoDeinterlaceModeOff;
+        }
+
+        private static string NormalizeSamplingMode(string? value)
+        {
+            if (string.Equals(value?.Trim(), PluginConfiguration.SamplingModeCenterWeighted, StringComparison.OrdinalIgnoreCase))
+                return PluginConfiguration.SamplingModeCenterWeighted;
+
+            if (string.Equals(value?.Trim(), PluginConfiguration.SamplingModeCenterPixel, StringComparison.OrdinalIgnoreCase))
+                return PluginConfiguration.SamplingModeCenterPixel;
+
+            return PluginConfiguration.SamplingModeAverage;
         }
 
         internal static int CalculateSamplingDistance(int samplingBreadthPercent)
@@ -1133,6 +1238,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 DefaultSamplingBreadthPercent,
                 PluginConfiguration.SamplingModeAverage,
                 PluginConfiguration.FrameResolutionStandard,
+                0,
                 Guid.Empty);
         }
 
@@ -1146,6 +1252,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int samplingBreadthPercent,
             string samplingMode,
             string frameResolution,
+            int colorSmoothingPercent,
             Guid userId)
         {
             var (frameWidth, frameHeight) = PluginConfiguration.GetFrameDimensions(frameResolution);
@@ -1270,12 +1377,12 @@ namespace Jellyfin.Plugin.Hue.Service
                             continue;
                         }
 
-                        if (config.ColorSmoothingPercent > 0)
+                        if (colorSmoothingPercent > 0)
                         {
                             channelColors = ApplyTemporalSmoothing(
                                 channelColors,
                                 previousChannelColors,
-                                config.ColorSmoothingPercent);
+                                colorSmoothingPercent);
                             previousChannelColors = channelColors;
                         }
                         else
@@ -1426,6 +1533,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentFrameResolution = null;
                 _currentVideoScalingMode = null;
                 _currentVideoDeinterlaceMode = null;
+                _currentTargetFps = null;
+                _currentSamplingBreadthPercent = null;
+                _currentSamplingMode = null;
+                _currentColorSmoothingPercent = null;
 
                 try
                 {
@@ -1581,6 +1692,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             var (useCinemaMode, brightnessDimLevel) = ResolvePlaybackSettings(config, userId);
             var pauseBehavior = ResolvePauseBehavior(config, userId);
+            var performanceSettings = ResolvePerformanceSettings(config, userId);
 
             var videoPath = e.Item?.Path;
             if (string.IsNullOrWhiteSpace(videoPath))
@@ -1590,9 +1702,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
-            var frameResolution = config.FrameResolution;
-            var videoScalingMode = config.VideoScalingMode;
-            var videoDeinterlaceMode = config.VideoDeinterlaceMode;
+            var targetFps = performanceSettings.TargetFps;
+            var frameResolution = performanceSettings.FrameResolution;
+            var videoScalingMode = performanceSettings.VideoScalingMode;
+            var videoDeinterlaceMode = performanceSettings.VideoDeinterlaceMode;
 
             // Get user-specific bridge configuration
             var (bridgeIp, appKey, clientKey, areaId) = config.GetBridgeConfigForUser(userId);
@@ -1634,6 +1747,10 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentFrameResolution = frameResolution;
                     _currentVideoScalingMode = videoScalingMode;
                     _currentVideoDeinterlaceMode = videoDeinterlaceMode;
+                    _currentTargetFps = targetFps;
+                    _currentSamplingBreadthPercent = performanceSettings.SamplingBreadthPercent;
+                    _currentSamplingMode = performanceSettings.SamplingMode;
+                    _currentColorSmoothingPercent = performanceSettings.ColorSmoothingPercent;
                     _activeUseCinemaMode = useCinemaMode;
                     _activePauseBehavior = pauseBehavior;
                     syncStatePublished = true;
@@ -1739,8 +1856,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 }
 
-                var targetFrameDurationMs = config.TargetFps > 0
-                    ? 1000 / Math.Clamp(config.TargetFps, MinFps, MaxFps)
+                var targetFrameDurationMs = targetFps > 0
+                    ? 1000 / Math.Clamp(targetFps, MinFps, MaxFps)
                     : DefaultFrameDurationMs;
                 var (frameWidth, frameHeight) = PluginConfiguration.GetFrameDimensions(frameResolution);
 
@@ -1754,7 +1871,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _ffmpegStreamer!.StallTimeoutSeconds = config.FfmpegStallTimeoutSeconds;
                 videoStream = _ffmpegStreamer!.StartFfmpeg(
                     videoPath,
-                    config.TargetFps,
+                    targetFps,
                     config.UseGpu,
                     config.CustomFfmpegFlags,
                     _mediaEncoder.EncoderPath,
@@ -1772,8 +1889,8 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 // Capture sampling settings with the playback session so an administrator
                 // changing configuration mid-playback does not alter an in-flight loop.
-                var samplingBreadthPercent = config.SamplingBreadthPercent;
-                var samplingMode = config.SamplingMode;
+                var samplingBreadthPercent = performanceSettings.SamplingBreadthPercent;
+                var samplingMode = performanceSettings.SamplingMode;
 
                 // Let RunSyncLoop own disposal even when cancellation wins before scheduling.
                 SetRuntimeStatus("Syncing", "Streaming video colors to Hue.");
@@ -1787,6 +1904,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     samplingBreadthPercent,
                     samplingMode,
                     frameResolution,
+                    performanceSettings.ColorSmoothingPercent,
                     userId));
                 syncLoopStarted = true;
             }
@@ -1933,6 +2051,10 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentFrameResolution = null;
             _currentVideoScalingMode = null;
             _currentVideoDeinterlaceMode = null;
+            _currentTargetFps = null;
+            _currentSamplingBreadthPercent = null;
+            _currentSamplingMode = null;
+            _currentColorSmoothingPercent = null;
             await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
         }
 
@@ -2030,6 +2152,10 @@ namespace Jellyfin.Plugin.Hue.Service
         public string? ActiveFrameResolution { get; init; }
         public string? ActiveVideoScalingMode { get; init; }
         public string? ActiveVideoDeinterlaceMode { get; init; }
+        public int? ActiveTargetFps { get; init; }
+        public int? ActiveSamplingBreadthPercent { get; init; }
+        public string? ActiveSamplingMode { get; init; }
+        public int? ActiveColorSmoothingPercent { get; init; }
         public string? ActiveBridgeIp { get; init; }
         public string? ActiveEntertainmentAreaId { get; init; }
         public bool IsSyncing { get; init; }

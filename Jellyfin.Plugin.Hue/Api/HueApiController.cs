@@ -256,6 +256,13 @@ namespace Jellyfin.Plugin.Hue.Api
                 LastError = runtime?.LastError,
                 ActiveBridgeIp = runtime?.ActiveBridgeIp,
                 ActiveEntertainmentAreaId = runtime?.ActiveEntertainmentAreaId,
+                ActiveTargetFps = runtime?.ActiveTargetFps,
+                ActiveFrameResolution = runtime?.ActiveFrameResolution,
+                ActiveVideoScalingMode = runtime?.ActiveVideoScalingMode,
+                ActiveVideoDeinterlaceMode = runtime?.ActiveVideoDeinterlaceMode,
+                ActiveSamplingBreadthPercent = runtime?.ActiveSamplingBreadthPercent,
+                ActiveSamplingMode = runtime?.ActiveSamplingMode,
+                ActiveColorSmoothingPercent = runtime?.ActiveColorSmoothingPercent,
                 FramesProcessed = runtime?.FramesProcessed ?? 0,
                 CanStopSync = runtime?.CanStopSync ?? false,
                 IsFfmpegHealthy = runtime?.IsFfmpegHealthy ?? false,
@@ -346,7 +353,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Gets all user-to-bridge mappings without returning stored credentials. Optional
-        /// per-user playback and color profile values are included because they are not secret.
+        /// per-user playback, color, and performance profile values are included because they are not secret.
         /// </summary>
         [HttpGet("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -361,7 +368,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
-        /// synchronization without storing bridge credentials and can override playback or color processing.
+        /// synchronization without storing bridge credentials and can override playback, color processing,
+        /// or capture-performance settings.
         /// </summary>
         [HttpPost("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -383,15 +391,19 @@ namespace Jellyfin.Plugin.Hue.Api
                 : $"User mapping for '{mapping.UserName.Trim()}'";
             var playbackOverrideErrors = PluginConfiguration.ValidatePlaybackOverrides(mapping, overrideLabel);
             var colorOverrideErrors = PluginConfiguration.ValidateColorOverrides(mapping, overrideLabel);
+            var performanceOverrideErrors = PluginConfiguration.ValidatePerformanceOverrides(mapping, overrideLabel);
             var overrideErrors = new List<string>(playbackOverrideErrors);
             overrideErrors.AddRange(colorOverrideErrors);
+            overrideErrors.AddRange(performanceOverrideErrors);
             if (overrideErrors.Count > 0)
             {
                 return BadRequest(new
                 {
-                    message = playbackOverrideErrors.Count > 0
-                        ? "User profile overrides are invalid."
-                        : "User color profile is invalid.",
+                    message = performanceOverrideErrors.Count > 0
+                        ? "User performance profile is invalid."
+                        : playbackOverrideErrors.Count > 0
+                            ? "User profile overrides are invalid."
+                            : "User color profile is invalid.",
                     errors = overrideErrors
                 });
             }
@@ -597,7 +609,7 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Non-secret representation of a per-user bridge mapping, playback profile, and color profile.
+    /// Non-secret representation of a per-user bridge mapping, playback, color, and performance profiles.
     /// </summary>
     public sealed class UserBridgeMappingSummary
     {
@@ -619,6 +631,13 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ColorSaturationOverride { get; set; }
         public int? HueShiftDegreesOverride { get; set; }
         public int? OutputBrightnessPercentOverride { get; set; }
+        public int? TargetFpsOverride { get; set; }
+        public string? FrameResolutionOverride { get; set; }
+        public string? VideoScalingModeOverride { get; set; }
+        public string? VideoDeinterlaceModeOverride { get; set; }
+        public int? SamplingBreadthPercentOverride { get; set; }
+        public string? SamplingModeOverride { get; set; }
+        public int? ColorSmoothingPercentOverride { get; set; }
 
         public static UserBridgeMappingSummary From(UserBridgeMapping mapping)
         {
@@ -641,7 +660,14 @@ namespace Jellyfin.Plugin.Hue.Api
                 BlueGainOverride = mapping.BlueGainOverride,
                 ColorSaturationOverride = mapping.ColorSaturationOverride,
                 HueShiftDegreesOverride = mapping.HueShiftDegreesOverride,
-                OutputBrightnessPercentOverride = mapping.OutputBrightnessPercentOverride
+                OutputBrightnessPercentOverride = mapping.OutputBrightnessPercentOverride,
+                TargetFpsOverride = mapping.TargetFpsOverride,
+                FrameResolutionOverride = mapping.FrameResolutionOverride,
+                VideoScalingModeOverride = mapping.VideoScalingModeOverride,
+                VideoDeinterlaceModeOverride = mapping.VideoDeinterlaceModeOverride,
+                SamplingBreadthPercentOverride = mapping.SamplingBreadthPercentOverride,
+                SamplingModeOverride = mapping.SamplingModeOverride,
+                ColorSmoothingPercentOverride = mapping.ColorSmoothingPercentOverride
             };
         }
     }
@@ -733,6 +759,13 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? LastError { get; set; }
         public string? ActiveBridgeIp { get; set; }
         public string? ActiveEntertainmentAreaId { get; set; }
+        public int? ActiveTargetFps { get; set; }
+        public string? ActiveFrameResolution { get; set; }
+        public string? ActiveVideoScalingMode { get; set; }
+        public string? ActiveVideoDeinterlaceMode { get; set; }
+        public int? ActiveSamplingBreadthPercent { get; set; }
+        public string? ActiveSamplingMode { get; set; }
+        public int? ActiveColorSmoothingPercent { get; set; }
         public long FramesProcessed { get; set; }
         public bool CanStopSync { get; set; }
         public bool IsFfmpegHealthy { get; set; }

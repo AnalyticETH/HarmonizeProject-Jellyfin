@@ -34,6 +34,10 @@ public sealed class HueSyncServiceLifecycleTests
         SetPrivateField(service, "_currentFrameResolution", PluginConfiguration.FrameResolutionHigh);
         SetPrivateField(service, "_currentVideoScalingMode", PluginConfiguration.VideoScalingModeFit);
         SetPrivateField(service, "_currentVideoDeinterlaceMode", PluginConfiguration.VideoDeinterlaceModeAuto);
+        SetPrivateField(service, "_currentTargetFps", 30);
+        SetPrivateField(service, "_currentSamplingBreadthPercent", 25);
+        SetPrivateField(service, "_currentSamplingMode", PluginConfiguration.SamplingModeCenterWeighted);
+        SetPrivateField(service, "_currentColorSmoothingPercent", 40);
         SetPrivateField(service, "_currentItemName", "Feature film");
         SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-3));
         SetPrivateField(service, "_runtimeState", "Syncing");
@@ -47,6 +51,10 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, status.ActiveFrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, status.ActiveVideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, status.ActiveVideoDeinterlaceMode);
+        Assert.Equal(30, status.ActiveTargetFps);
+        Assert.Equal(25, status.ActiveSamplingBreadthPercent);
+        Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, status.ActiveSamplingMode);
+        Assert.Equal(40, status.ActiveColorSmoothingPercent);
         Assert.Equal("192.168.1.100", status.ActiveBridgeIp);
         Assert.Equal("area-id", status.ActiveEntertainmentAreaId);
         Assert.True(status.SyncDurationSeconds >= 2);
