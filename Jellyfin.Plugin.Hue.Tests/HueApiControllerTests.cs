@@ -1527,6 +1527,163 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ExportConfiguration_IncludesProfilesAndScenesWithoutSecrets()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-secret",
+            HueClientKey = "default-client-secret",
+            EntertainmentAreaId = "area-1",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "area-2",
+                    BrightnessBoostOverride = 135
+                }
+            },
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Accent", Red = 12, Green = 34, Blue = 56 }
+            }
+        });
+
+        var action = CreateController().ExportConfiguration();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var document = Assert.IsType<HueConfigurationExportDocument>(response.Value);
+        Assert.Equal(HueConfigurationExportDocument.CurrentSchemaVersion, document.SchemaVersion);
+        Assert.False(document.CredentialsIncluded);
+        Assert.Empty(document.Configuration.HueAppKey);
+        Assert.Empty(document.Configuration.HueClientKey);
+        Assert.True(document.Configuration.HasAppKey);
+        Assert.True(document.Configuration.HasClientKey);
+        var mapping = Assert.Single(document.UserMappings);
+        Assert.True(mapping.HasAppKey);
+        Assert.True(mapping.HasClientKey);
+        Assert.Equal(135, mapping.BrightnessBoostOverride);
+        Assert.Single(document.ColorPresets);
+
+        var serialized = System.Text.Json.JsonSerializer.Serialize(document);
+        Assert.DoesNotContain("default-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("default-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("mapping-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ImportConfiguration_PreservesMatchingSecretsAndReplacesProfilesAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-secret",
+            HueClientKey = "default-client-secret",
+            EntertainmentAreaId = "area-1",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "area-2",
+                    BrightnessBoostOverride = 100
+                }
+            },
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Old Scene", Red = 1 }
+            }
+        });
+        var exported = HueConfigurationExportDocument.From(configuration);
+        var controller = CreateController();
+
+        var action = controller.ImportConfiguration(new HueConfigurationImportRequest
+        {
+            SchemaVersion = exported.SchemaVersion,
+            Configuration = exported.Configuration,
+            UserMappings = exported.UserMappings
+                .Select(summary => new UserBridgeMappingImport
+                {
+                    UserId = summary.UserId,
+                    UserName = summary.UserName,
+                    SyncEnabled = summary.SyncEnabled,
+                    HueBridgeIp = summary.HueBridgeIp,
+                    EntertainmentAreaId = summary.EntertainmentAreaId,
+                    BrightnessBoostOverride = 150
+                })
+                .ToList(),
+            ColorPresets = new List<HueColorPresetRequest>
+            {
+                new() { Name = "New Scene", Red = 20, Green = 30, Blue = 40 }
+            }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConfigurationImportResult>(response.Value);
+        Assert.True(result.GlobalAppKeyPreserved);
+        Assert.True(result.GlobalClientKeyPreserved);
+        Assert.Equal(1, result.MappingCredentialPairsPreserved);
+        Assert.Equal(1, result.MappingsImported);
+        Assert.Equal(1, result.ColorPresetsImported);
+        Assert.Equal("default-app-secret", configuration.HueAppKey);
+        Assert.Equal("default-client-secret", configuration.HueClientKey);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Equal("mapping-app-secret", mapping.HueAppKey);
+        Assert.Equal("mapping-client-secret", mapping.HueClientKey);
+        Assert.Equal(150, mapping.BrightnessBoostOverride);
+        Assert.Equal("New Scene", Assert.Single(configuration.ColorPresets).Name);
+    }
+
+    [Fact]
+    public void ImportConfiguration_RejectsIncompleteNewTargetWithoutChangingConfiguration()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-secret",
+            HueClientKey = "default-client-secret",
+            EntertainmentAreaId = "area-1"
+        });
+        var controller = CreateController();
+
+        var action = controller.ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            UserMappings = new List<UserBridgeMappingImport>
+            {
+                new()
+                {
+                    UserId = "new-user",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    EntertainmentAreaId = "area-2"
+                }
+            }
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Empty(configuration.UserMappings);
+        Assert.Equal("default-app-secret", configuration.HueAppKey);
+        Assert.Equal("default-client-secret", configuration.HueClientKey);
+    }
+
+    [Fact]
     public void SaveConfiguration_UpdatesSettingsWithoutReplacingUserMappings()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

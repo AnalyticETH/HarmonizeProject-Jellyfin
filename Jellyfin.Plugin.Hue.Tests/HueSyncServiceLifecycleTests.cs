@@ -21,6 +21,23 @@ namespace Jellyfin.Plugin.Hue.Tests;
 public sealed class HueSyncServiceLifecycleTests
 {
     [Fact]
+    public async Task HasActivePlaybackSessions_IgnoresTerminalSnapshots()
+    {
+        using var httpClient = new HttpClient(new BlockingHueHandler());
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        SetPrivateField(service, "_runtimeState", "Error");
+        SetPrivateField(service, "_runtimeMessage", "A previous playback session failed.");
+        Assert.False(service.HasActivePlaybackSessions);
+
+        SetPrivateField(service, "_runtimeState", "Starting");
+        Assert.True(service.HasActivePlaybackSessions);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task RuntimeStatus_ReportsActiveDiagnosticsWithoutCredentials()
     {
         var handler = new BlockingHueHandler();

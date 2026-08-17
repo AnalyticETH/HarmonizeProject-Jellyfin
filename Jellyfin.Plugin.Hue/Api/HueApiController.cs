@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Hue.Api
 {
@@ -27,9 +28,10 @@ namespace Jellyfin.Plugin.Hue.Api
         private readonly IHueStreamTester? _streamTester;
         private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
         private readonly IHueEnvironmentProbe _environmentProbe;
+        private readonly ILogger<HueApiController>? _logger;
 
         public HueApiController(HueClient hueClient, IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices)
-            : this(hueClient, hostedServices, null, null, null)
+            : this(hueClient, hostedServices, null, null, null, null)
         {
         }
 
@@ -39,13 +41,15 @@ namespace Jellyfin.Plugin.Hue.Api
             IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices,
             IHueStreamTester? streamTester,
             HueBridgeLifecycleGate? bridgeLifecycleGate = null,
-            IHueEnvironmentProbe? environmentProbe = null)
+            IHueEnvironmentProbe? environmentProbe = null,
+            ILogger<HueApiController>? logger = null)
         {
             _hueClient = hueClient;
             _syncService = hostedServices.OfType<Service.HueSyncService>().FirstOrDefault();
             _streamTester = streamTester;
             _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
             _environmentProbe = environmentProbe ?? new HueEnvironmentProbe();
+            _logger = logger;
         }
 
         /// <summary>
@@ -1233,6 +1237,307 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Exports a credential-safe configuration document. Global and per-user secrets
+        /// are represented only by presence flags; administrators can re-enter replacement
+        /// keys in an import document when moving the configuration to another server.
+        /// </summary>
+        [HttpGet("Configuration/Export")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HueConfigurationExportDocument> ExportConfiguration()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            return Ok(HueConfigurationExportDocument.From(config));
+        }
+
+        /// <summary>
+        /// Imports global settings, per-user profiles, and color scenes atomically. Blank
+        /// global or mapping keys preserve credentials already stored for the same target;
+        /// secrets included explicitly in an import are accepted but never echoed back.
+        /// </summary>
+        [HttpPost("Configuration/Import")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueConfigurationImportResult> ImportConfiguration(
+            [FromBody] HueConfigurationImportRequest? request)
+        {
+            if (request == null || request.Configuration == null)
+                return BadRequest("A configuration export document is required.");
+
+            if (request.SchemaVersion != HueConfigurationExportDocument.CurrentSchemaVersion)
+            {
+                return BadRequest($"Unsupported configuration schema version {request.SchemaVersion}. Expected {HueConfigurationExportDocument.CurrentSchemaVersion}.");
+            }
+
+            if (_syncService?.HasActivePlaybackSessions == true)
+            {
+                return Conflict("Stop all active Hue playback sessions before importing configuration.");
+            }
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var existingMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
+                .Where(mapping => mapping != null)
+                .ToList();
+            var existingPresets = (config.ColorPresets ?? new List<HueColorPreset>())
+                .Where(preset => preset != null)
+                .ToList();
+            var importedMappings = request.UserMappings ?? new List<UserBridgeMappingImport>();
+            var importedPresets = request.ColorPresets ?? new List<HueColorPresetRequest>();
+            var validationErrors = new List<string>();
+            var seenUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var mappingCredentialPairsPreserved = 0;
+
+            var importedMappingValues = new List<UserBridgeMapping>();
+            for (var index = 0; index < importedMappings.Count; index++)
+            {
+                var source = importedMappings[index];
+                if (source == null)
+                {
+                    validationErrors.Add($"User mapping {index + 1} is required.");
+                    continue;
+                }
+
+                var existing = existingMappings.FirstOrDefault(candidate =>
+                    string.Equals(candidate.UserId?.Trim(), source.UserId?.Trim(), StringComparison.OrdinalIgnoreCase));
+                var imported = ToImportedMapping(source, existing, out var preservedCredentialPair);
+                mappingCredentialPairsPreserved += preservedCredentialPair ? 1 : 0;
+                importedMappingValues.Add(imported);
+
+                var label = string.IsNullOrWhiteSpace(imported.UserName)
+                    ? $"User mapping {index + 1}"
+                    : $"User mapping for '{imported.UserName}'";
+                validationErrors.AddRange(ValidateImportedMapping(imported, label));
+                if (!string.IsNullOrWhiteSpace(imported.UserId) && !seenUserIds.Add(imported.UserId.Trim()))
+                    validationErrors.Add($"{label} duplicates another imported user mapping.");
+            }
+
+            var candidateMappings = request.ReplaceMappings
+                ? importedMappingValues
+                : MergeMappings(existingMappings, importedMappingValues);
+
+            var candidatePresets = request.ReplaceColorPresets
+                ? new List<HueColorPreset>()
+                : new List<HueColorPreset>(existingPresets);
+            var seenPresetNames = new HashSet<string>(
+                candidatePresets
+                    .Where(preset => preset != null && !string.IsNullOrWhiteSpace(preset.Name))
+                    .Select(preset => preset.Name.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var presetRequest in importedPresets)
+            {
+                var preset = presetRequest?.ToConfigurationPreset();
+                validationErrors.AddRange(PluginConfiguration.ValidateColorPreset(
+                    preset,
+                    string.IsNullOrWhiteSpace(preset?.Name) ? "Imported color preset" : $"Imported color preset '{preset.Name.Trim()}'"));
+                if (preset == null)
+                    continue;
+
+                var existingIndex = candidatePresets.FindIndex(existing =>
+                    string.Equals(existing?.Name?.Trim(), preset.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (existingIndex >= 0)
+                {
+                    candidatePresets[existingIndex] = preset;
+                }
+                else if (!seenPresetNames.Add(preset.Name.Trim()))
+                {
+                    validationErrors.Add($"Imported color preset '{preset.Name.Trim()}' duplicates another preset name.");
+                }
+                else
+                {
+                    candidatePresets.Add(preset);
+                }
+            }
+
+            if (candidatePresets.Count > PluginConfiguration.MaxColorPresets)
+            {
+                validationErrors.Add($"No more than {PluginConfiguration.MaxColorPresets} color presets may be saved.");
+            }
+
+            if (validationErrors.Count > 0)
+                return BadRequest(new { message = "Configuration import is invalid.", errors = validationErrors });
+
+            var previousSettings = HuePluginConfigurationSettings.From(config);
+            var previousAppKey = config.HueAppKey;
+            var previousClientKey = config.HueClientKey;
+            var previousMappings = config.UserMappings ?? new List<UserBridgeMapping>();
+            var previousPresets = config.ColorPresets ?? new List<HueColorPreset>();
+            var globalAppKeyPreserved = string.IsNullOrWhiteSpace(request.Configuration.HueAppKey) &&
+                !request.Configuration.ClearStoredCredentials &&
+                !string.IsNullOrWhiteSpace(previousAppKey);
+            var globalClientKeyPreserved = string.IsNullOrWhiteSpace(request.Configuration.HueClientKey) &&
+                !request.Configuration.ClearStoredCredentials &&
+                !string.IsNullOrWhiteSpace(previousClientKey);
+
+            request.Configuration.ApplyTo(config);
+            config.UserMappings = candidateMappings;
+            config.ColorPresets = candidatePresets;
+            var completeValidationErrors = config.Validate();
+            if (completeValidationErrors.Count > 0)
+            {
+                previousSettings.ApplyTo(config);
+                config.HueAppKey = previousAppKey;
+                config.HueClientKey = previousClientKey;
+                config.UserMappings = previousMappings;
+                config.ColorPresets = previousPresets;
+                return BadRequest(new
+                {
+                    message = "Configuration import is invalid.",
+                    errors = completeValidationErrors
+                });
+            }
+
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                previousSettings.ApplyTo(config);
+                config.HueAppKey = previousAppKey;
+                config.HueClientKey = previousClientKey;
+                config.UserMappings = previousMappings;
+                config.ColorPresets = previousPresets;
+                // Keep the response credential-free while retaining the exception in the
+                // server log for the administrator's normal Jellyfin diagnostics.
+                _logger?.LogError(ex, "Could not persist imported Hue configuration");
+                return StatusCode(StatusCodes.Status500InternalServerError, "Configuration could not be saved.");
+            }
+
+            return Ok(new HueConfigurationImportResult
+            {
+                MappingsImported = importedMappingValues.Count,
+                ColorPresetsImported = importedPresets.Count,
+                TotalMappings = candidateMappings.Count,
+                TotalColorPresets = candidatePresets.Count,
+                GlobalAppKeyPreserved = globalAppKeyPreserved,
+                GlobalClientKeyPreserved = globalClientKeyPreserved,
+                MappingCredentialPairsPreserved = mappingCredentialPairsPreserved,
+                Message = "Configuration imported. Stored credentials were preserved when the imported document omitted them."
+            });
+        }
+
+        private static List<UserBridgeMapping> MergeMappings(
+            IEnumerable<UserBridgeMapping> existingMappings,
+            IEnumerable<UserBridgeMapping> importedMappings)
+        {
+            var merged = new List<UserBridgeMapping>(existingMappings);
+            foreach (var imported in importedMappings)
+            {
+                merged.RemoveAll(existing =>
+                    string.Equals(existing.UserId?.Trim(), imported.UserId?.Trim(), StringComparison.OrdinalIgnoreCase));
+                merged.Add(imported);
+            }
+
+            return merged;
+        }
+
+        private static UserBridgeMapping ToImportedMapping(
+            UserBridgeMappingImport source,
+            UserBridgeMapping? existing,
+            out bool preservedCredentialPair)
+        {
+            var mapping = new UserBridgeMapping
+            {
+                UserId = source.UserId?.Trim() ?? string.Empty,
+                UserName = source.UserName?.Trim() ?? string.Empty,
+                SyncEnabled = source.SyncEnabled,
+                HueBridgeIp = source.HueBridgeIp?.Trim() ?? string.Empty,
+                HueAppKey = source.HueAppKey?.Trim() ?? string.Empty,
+                HueClientKey = source.HueClientKey?.Trim() ?? string.Empty,
+                EntertainmentAreaId = source.EntertainmentAreaId?.Trim() ?? string.Empty,
+                EntertainmentAreaName = source.EntertainmentAreaName?.Trim() ?? string.Empty,
+                UseCinemaModeOverride = source.UseCinemaModeOverride,
+                BrightnessDimLevelOverride = source.BrightnessDimLevelOverride,
+                PauseBehaviorOverride = source.PauseBehaviorOverride?.Trim(),
+                RestoreLightStateOverride = source.RestoreLightStateOverride,
+                BrightnessBoostOverride = source.BrightnessBoostOverride,
+                RedGainOverride = source.RedGainOverride,
+                GreenGainOverride = source.GreenGainOverride,
+                BlueGainOverride = source.BlueGainOverride,
+                ColorSaturationOverride = source.ColorSaturationOverride,
+                HueShiftDegreesOverride = source.HueShiftDegreesOverride,
+                OutputBrightnessPercentOverride = source.OutputBrightnessPercentOverride,
+                BlackoutThresholdOverride = source.BlackoutThresholdOverride,
+                ColorChangeThresholdOverride = source.ColorChangeThresholdOverride,
+                UseGpuOverride = source.UseGpuOverride,
+                CustomFfmpegFlagsOverride = source.CustomFfmpegFlagsOverride,
+                FfmpegStallTimeoutSecondsOverride = source.FfmpegStallTimeoutSecondsOverride,
+                NetworkRetryAttemptsOverride = source.NetworkRetryAttemptsOverride,
+                ChannelIdsOverride = source.ChannelIdsOverride,
+                TargetFpsOverride = source.TargetFpsOverride,
+                FrameResolutionOverride = source.FrameResolutionOverride,
+                VideoScalingModeOverride = source.VideoScalingModeOverride,
+                VideoDeinterlaceModeOverride = source.VideoDeinterlaceModeOverride,
+                SamplingBreadthPercentOverride = source.SamplingBreadthPercentOverride,
+                SamplingModeOverride = source.SamplingModeOverride,
+                ColorSmoothingPercentOverride = source.ColorSmoothingPercentOverride
+            };
+
+            preservedCredentialPair = false;
+            var customTargetMatchesExisting = existing != null &&
+                !string.IsNullOrWhiteSpace(mapping.HueBridgeIp) &&
+                IsSameBridgeTarget(mapping.HueBridgeIp, existing.HueBridgeIp);
+            if (mapping.SyncEnabled && customTargetMatchesExisting)
+            {
+                var existingMapping = existing!;
+                if (string.IsNullOrWhiteSpace(mapping.HueAppKey) && !string.IsNullOrWhiteSpace(existingMapping.HueAppKey))
+                    mapping.HueAppKey = existingMapping.HueAppKey;
+                if (string.IsNullOrWhiteSpace(mapping.HueClientKey) && !string.IsNullOrWhiteSpace(existingMapping.HueClientKey))
+                    mapping.HueClientKey = existingMapping.HueClientKey;
+                preservedCredentialPair = string.IsNullOrWhiteSpace(source.HueAppKey) &&
+                    string.IsNullOrWhiteSpace(source.HueClientKey) &&
+                    (!string.IsNullOrWhiteSpace(existingMapping.HueAppKey) || !string.IsNullOrWhiteSpace(existingMapping.HueClientKey));
+            }
+
+            if (!mapping.SyncEnabled || string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
+            {
+                mapping.HueBridgeIp = string.Empty;
+                mapping.HueAppKey = string.Empty;
+                mapping.HueClientKey = string.Empty;
+                mapping.EntertainmentAreaId = string.Empty;
+                mapping.EntertainmentAreaName = string.Empty;
+            }
+
+            return mapping;
+        }
+
+        private static List<string> ValidateImportedMapping(UserBridgeMapping mapping, string label)
+        {
+            var errors = new List<string>();
+            errors.AddRange(PluginConfiguration.ValidatePlaybackOverrides(mapping, label));
+            errors.AddRange(PluginConfiguration.ValidateColorOverrides(mapping, label));
+            errors.AddRange(PluginConfiguration.ValidatePerformanceOverrides(mapping, label));
+            errors.AddRange(PluginConfiguration.ValidateExecutionOverrides(mapping, label));
+            errors.AddRange(PluginConfiguration.ValidateChannelOverrides(mapping, label));
+
+            if (string.IsNullOrWhiteSpace(mapping.UserId))
+                errors.Add($"{label} requires a user ID.");
+            if (!mapping.SyncEnabled || string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
+                return errors;
+
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(mapping.HueBridgeIp))
+                errors.Add($"{label} bridge address must be a valid private IP address or .local host name.");
+            if (string.IsNullOrWhiteSpace(mapping.HueAppKey))
+                errors.Add($"{label} requires a Hue App Key. Provide it in the import document; matching stored credentials are preserved automatically.");
+            if (string.IsNullOrWhiteSpace(mapping.HueClientKey))
+                errors.Add($"{label} requires a Hue Client Key. Provide it in the import document; matching stored credentials are preserved automatically.");
+            if (string.IsNullOrWhiteSpace(mapping.EntertainmentAreaId))
+                errors.Add($"{label} requires an Entertainment Area ID.");
+
+            return errors;
+        }
+
+        /// <summary>
         /// Updates the settings used by the configuration page while leaving
         /// per-user mappings (and their stored credentials) untouched.
         /// </summary>
@@ -1589,7 +1894,7 @@ namespace Jellyfin.Plugin.Hue.Api
     /// Non-secret representation of a per-user bridge mapping, playback, color, performance,
     /// execution, channel, and restoration profiles.
     /// </summary>
-    public sealed class UserBridgeMappingSummary
+    public class UserBridgeMappingSummary
     {
         public string UserId { get; set; } = string.Empty;
         public string UserName { get; set; } = string.Empty;
@@ -1666,6 +1971,91 @@ namespace Jellyfin.Plugin.Hue.Api
                 ColorSmoothingPercentOverride = mapping.ColorSmoothingPercentOverride
             };
         }
+    }
+
+    /// <summary>
+    /// Import-only mapping shape. Export documents use <see cref="UserBridgeMappingSummary"/>
+    /// so stored credentials are never serialized, while an administrator may explicitly
+    /// provide replacement keys in an import request.
+    /// </summary>
+    public sealed class UserBridgeMappingImport : UserBridgeMappingSummary
+    {
+        public string HueAppKey { get; set; } = string.Empty;
+        public string HueClientKey { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Credential-safe backup document for settings, profiles, and color scenes.
+    /// </summary>
+    public sealed class HueConfigurationExportDocument
+    {
+        public const int CurrentSchemaVersion = 1;
+
+        public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+        public string PluginVersion { get; set; } = string.Empty;
+        public DateTime ExportedAtUtc { get; set; }
+        public bool CredentialsIncluded { get; set; }
+        public string CredentialNote { get; set; } = "Credential values are omitted. Re-enter replacement keys when importing to a new server; existing matching keys are preserved.";
+        public HuePluginConfigurationSettings Configuration { get; set; } = new();
+        public IReadOnlyList<UserBridgeMappingSummary> UserMappings { get; set; } = Array.Empty<UserBridgeMappingSummary>();
+        public IReadOnlyList<HueColorPresetResult> ColorPresets { get; set; } = Array.Empty<HueColorPresetResult>();
+
+        public static HueConfigurationExportDocument From(PluginConfiguration config)
+        {
+            return new HueConfigurationExportDocument
+            {
+                SchemaVersion = CurrentSchemaVersion,
+                PluginVersion = typeof(Plugin).Assembly.GetName().Version?.ToString() ?? string.Empty,
+                ExportedAtUtc = DateTime.UtcNow,
+                CredentialsIncluded = false,
+                Configuration = HuePluginConfigurationSettings.From(config),
+                UserMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
+                    .Where(mapping => mapping != null)
+                    .Select(UserBridgeMappingSummary.From)
+                    .ToArray(),
+                ColorPresets = (config.ColorPresets ?? new List<HueColorPreset>())
+                    .Where(preset => preset != null)
+                    .Select(preset => new HueColorPresetResult
+                    {
+                        Name = preset.Name,
+                        Red = preset.Red,
+                        Green = preset.Green,
+                        Blue = preset.Blue,
+                        BrightnessPercent = preset.BrightnessPercent,
+                        DurationSeconds = preset.DurationSeconds
+                    })
+                    .ToArray()
+            };
+        }
+    }
+
+    /// <summary>
+    /// Request shape accepted by the configuration import endpoint. It is intentionally
+    /// compatible with the export document while allowing explicit replacement keys.
+    /// </summary>
+    public sealed class HueConfigurationImportRequest
+    {
+        public int SchemaVersion { get; set; } = HueConfigurationExportDocument.CurrentSchemaVersion;
+        public HuePluginConfigurationSettings? Configuration { get; set; }
+        public List<UserBridgeMappingImport> UserMappings { get; set; } = new();
+        public List<HueColorPresetRequest> ColorPresets { get; set; } = new();
+        public bool ReplaceMappings { get; set; } = true;
+        public bool ReplaceColorPresets { get; set; } = true;
+    }
+
+    /// <summary>
+    /// Sanitized result returned after a successful configuration import.
+    /// </summary>
+    public sealed class HueConfigurationImportResult
+    {
+        public string Message { get; set; } = string.Empty;
+        public int MappingsImported { get; set; }
+        public int ColorPresetsImported { get; set; }
+        public int TotalMappings { get; set; }
+        public int TotalColorPresets { get; set; }
+        public bool GlobalAppKeyPreserved { get; set; }
+        public bool GlobalClientKeyPreserved { get; set; }
+        public int MappingCredentialPairsPreserved { get; set; }
     }
 
     public class HueRegistrationRequest

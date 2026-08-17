@@ -669,6 +669,15 @@ namespace Jellyfin.Plugin.Hue.Service
             return statuses;
         }
 
+        /// <summary>
+        /// Gets whether any playback worker still owns an active or pending playback
+        /// lifecycle. Terminal error/stopped status snapshots do not count as active.
+        /// </summary>
+        public bool HasActivePlaybackSessions => GetPlaybackRuntimeStatuses().Any(status =>
+            status.IsSyncing ||
+            status.CurrentItem != null ||
+            status.State is "Starting" or "Syncing" or "Resyncing" or "Paused" or "Stopping");
+
         private void SetRuntimeStatus(string state, string message, bool clearError = false)
         {
             lock (_syncLock)
