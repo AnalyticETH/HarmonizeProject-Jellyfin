@@ -1197,6 +1197,8 @@ namespace Jellyfin.Plugin.Hue.Service
             StopSync();
             var syncCts = CancellationTokenSource.CreateLinkedTokenSource(startupToken);
             var syncStatePublished = false;
+            var syncLoopStarted = false;
+            Stream? videoStream = null;
             lock (_syncLock)
             {
                 if (_isStopping || startupToken.IsCancellationRequested)
@@ -1232,7 +1234,6 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     _logger.LogWarning("Failed to load entertainment configuration from bridge");
                     SetRuntimeError("Could not load the selected entertainment area configuration.");
-                    StopSync();
                     return;
                 }
 
@@ -1271,7 +1272,6 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     _logger.LogWarning("Entertainment area {0} returned no channels to control", areaId);
                     SetRuntimeError("The selected entertainment area has no controllable channels.");
-                    StopSync();
                     return;
                 }
 
@@ -1289,7 +1289,6 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     _logger.LogError("Could not activate entertainment area {0} — aborting sync", areaId);
                     SetRuntimeError("The Hue bridge could not activate the entertainment area.");
-                    StopSync();
                     return;
                 }
 
@@ -1308,7 +1307,6 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     _logger.LogError("Could not establish DTLS stream for entertainment area {0}", areaId);
                     SetRuntimeError("The Hue bridge DTLS stream could not be established.");
-                    StopSync();
                     return;
                 }
 
@@ -1323,18 +1321,18 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 if (token.IsCancellationRequested)
                     return;
-                var videoStream = _ffmpegStreamer!.StartFfmpeg(videoPath, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags, _mediaEncoder.EncoderPath, seekPositionSeconds: seekSeconds);
+                videoStream = _ffmpegStreamer!.StartFfmpeg(videoPath, config.TargetFps, config.UseGpu, config.CustomFfmpegFlags, _mediaEncoder.EncoderPath, seekPositionSeconds: seekSeconds);
                 if (videoStream == null)
                 {
                     _logger.LogWarning("FFmpeg stream could not be started for path {0}", videoPath);
                     SetRuntimeError("FFmpeg could not start the video capture stream.");
-                    StopSync();
                     return;
                 }
 
                 // Let RunSyncLoop own disposal even when cancellation wins before scheduling.
                 SetRuntimeStatus("Syncing", "Streaming video colors to Hue.");
-                _ = Task.Run(() => RunSyncLoop(videoStream, lights, areaId, targetFrameDurationMs, syncCts, e.PlaySessionId));
+                _ = Task.Run(() => RunSyncLoop(videoStream!, lights, areaId, targetFrameDurationMs, syncCts, e.PlaySessionId));
+                syncLoopStarted = true;
             }
             catch (Exception ex)
             {
@@ -1342,13 +1340,31 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 _logger.LogError(ex, "Error starting Hue sync session");
                 SetRuntimeError("Hue sync could not start. Check the bridge and FFmpeg diagnostics.");
-                StopSync();
             }
             finally
             {
-                if (token.IsCancellationRequested)
+                try
                 {
-                    await CleanupCancelledStartup(e.PlaySessionId, syncCts).ConfigureAwait(false);
+                    // Before RunSyncLoop starts, this method still owns every partially
+                    // initialized resource. Roll back immediately on cancellation or any
+                    // startup failure instead of waiting for PlaybackStopped.
+                    if (syncStatePublished && (token.IsCancellationRequested || !syncLoopStarted))
+                        await CleanupAbortedStartup(e.PlaySessionId, syncCts).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (!syncLoopStarted)
+                    {
+                        try
+                        {
+                            videoStream?.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "Error disposing an unowned FFmpeg stream during startup rollback");
+                        }
+                    }
+
                     if (!syncStatePublished)
                         syncCts.Dispose();
                 }
@@ -1412,7 +1428,7 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private async Task CleanupCancelledStartup(string playSessionId, CancellationTokenSource syncCts)
+        private async Task CleanupAbortedStartup(string playSessionId, CancellationTokenSource syncCts)
         {
             bool pauseCleanupPending;
             lock (_syncLock)

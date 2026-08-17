@@ -181,6 +181,50 @@ public sealed class HueSyncServiceLifecycleTests
         await service.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task StartupFailure_RollsBackPublishedStateImmediately()
+    {
+        var handler = new BlockingHueHandler
+        {
+            ConfigurationJson = "{\"broken\":true}"
+        };
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+        Plugin.Instance!.Configuration.RestoreLightState = true;
+        SetPrivateField(service, "_savedLightStates", new List<HueClient.LightState>
+        {
+            new("light-id", true, 50, 0.1, 0.2)
+        });
+
+        var startMethod = typeof(HueSyncService).GetMethod("StartSyncForItemCore", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var startTask = Assert.IsAssignableFrom<Task>(startMethod.Invoke(service, new object?[]
+        {
+            CreateProgress("session-a"),
+            CancellationToken.None
+        }));
+
+        await handler.FirstConfigurationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseFirstConfiguration();
+        await handler.RestorationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("Error", service.GetRuntimeStatus().State);
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await startTask;
+        await WaitForSyncStateClearedAsync(service);
+
+        var status = service.GetRuntimeStatus();
+        Assert.Equal("Error", status.State);
+        Assert.Equal("Could not load the selected entertainment area configuration.", status.LastError);
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+        Assert.Null(GetPrivateField(service, "_savedLightStates"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
     private static async Task WaitForRuntimeStatusAsync(
         HueSyncService service,
         string expectedState,
@@ -584,6 +628,7 @@ public sealed class HueSyncServiceLifecycleTests
 
     private sealed class BlockingHueHandler : HttpMessageHandler
     {
+        public string ConfigurationJson { get; set; } = "{\"data\":[{\"channels\":[]}]}";
         public TaskCompletionSource<bool> FirstConfigurationRequest { get; } = NewSignal();
         public TaskCompletionSource<bool> SecondConfigurationRequest { get; } = NewSignal();
         public TaskCompletionSource<bool> StopRequest { get; } = NewSignal();
@@ -612,7 +657,7 @@ public sealed class HueSyncServiceLifecycleTests
                     SecondConfigurationRequest.TrySetResult(true);
                 }
 
-                return ConfigurationResponse();
+                return ConfigurationResponse(ConfigurationJson);
             }
 
             if (request.Method == HttpMethod.Put)
@@ -634,12 +679,12 @@ public sealed class HueSyncServiceLifecycleTests
             };
         }
 
-        private static HttpResponseMessage ConfigurationResponse()
+        private static HttpResponseMessage ConfigurationResponse(string configurationJson)
         {
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[]}]}",
+                    configurationJson,
                     Encoding.UTF8,
                     "application/json")
             };
