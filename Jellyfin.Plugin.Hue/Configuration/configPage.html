@@ -117,6 +117,16 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="samplingMode">Color Sampling Mode</label>
+                            <select id="samplingMode" name="samplingMode" is="emby-select">
+                                <option value="Average">Average neighborhood</option>
+                                <option value="CenterWeighted">Center-weighted neighborhood</option>
+                                <option value="CenterPixel">Center pixel</option>
+                            </select>
+                            <div class="fieldDescription">Choose how each Hue channel's sampling region is combined. Average is the stable default; center-weighted favors detail near the mapped position; center pixel follows the exact position.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="colorSmoothingPercent">Temporal Color Smoothing (%)</label>
                             <input id="colorSmoothingPercent" name="colorSmoothingPercent" type="number" min="0" max="90" is="emby-input" />
                             <div class="fieldDescription">Blend the previous frame into new colors to reduce flicker (0-90%, default: 0). Higher values create smoother but slower transitions.</div>
@@ -340,6 +350,7 @@
                         HueConfigurationPage.selectedAreaId = getConfigValue('EntertainmentAreaId', '');
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#samplingBreadthPercent').value = getConfigValue('SamplingBreadthPercent', 15);
+                        page.querySelector('#samplingMode').value = getConfigValue('SamplingMode', 'Average');
                         page.querySelector('#colorSmoothingPercent').value = getConfigValue('ColorSmoothingPercent', 0);
                         page.querySelector('#customFfmpegFlags').value = getConfigValue('CustomFfmpegFlags', '');
                         page.querySelector('#ffmpegStallTimeoutSeconds').value = getConfigValue('FfmpegStallTimeoutSeconds', 5);
@@ -376,6 +387,7 @@
                         EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         SamplingBreadthPercent: parseNumberOrDefault('#samplingBreadthPercent', 15),
+                        SamplingMode: page.querySelector('#samplingMode').value,
                         ColorSmoothingPercent: parseNumberOrDefault('#colorSmoothingPercent', 0),
                         CustomFfmpegFlags: page.querySelector('#customFfmpegFlags').value,
                         FfmpegStallTimeoutSeconds: parseNumberOrDefault('#ffmpegStallTimeoutSeconds', 5),

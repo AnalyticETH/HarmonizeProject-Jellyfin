@@ -420,6 +420,7 @@ public class PluginConfigurationTests
         Assert.Equal(30, config.BrightnessDimLevel);
         Assert.Equal(20, config.TargetFps);
         Assert.Equal(15, config.SamplingBreadthPercent);
+        Assert.Equal(PluginConfiguration.SamplingModeAverage, config.SamplingMode);
         Assert.Equal(0, config.ColorSmoothingPercent);
         Assert.True(config.UseGpu);
         Assert.Equal(100, config.BrightnessBoost);
@@ -512,6 +513,48 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         Assert.DoesNotContain("Sampling breadth must be between 1 and 50 percent", errors);
+    }
+
+    [Theory]
+    [InlineData("Unsupported")]
+    [InlineData("")]
+    public void Validate_WhenSamplingModeIsInvalid_ReturnsError(string samplingMode)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            SamplingMode = samplingMode
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Sampling mode must be Average, CenterWeighted, or CenterPixel", errors);
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.SamplingModeAverage)]
+    [InlineData(PluginConfiguration.SamplingModeCenterWeighted)]
+    [InlineData(PluginConfiguration.SamplingModeCenterPixel)]
+    [InlineData("centerweighted")]
+    public void Validate_WhenSamplingModeIsValid_ReturnsNoSamplingModeError(string samplingMode)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            SamplingMode = samplingMode
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("Sampling mode must be Average, CenterWeighted, or CenterPixel", errors);
     }
 
     [Theory]

@@ -821,6 +821,68 @@ namespace Jellyfin.Plugin.Hue.Service
             return Math.Max(1, (int)(normalizedPercent / 100.0 * averageFrameSize));
         }
 
+        internal static byte[] SampleRegionColor(
+            byte[] frame,
+            int centerX,
+            int centerY,
+            int distance,
+            string? samplingMode)
+        {
+            var normalizedDistance = Math.Clamp(distance, 0, Math.Max(FrameWidth, FrameHeight));
+            var mode = string.Equals(samplingMode, PluginConfiguration.SamplingModeCenterPixel, StringComparison.OrdinalIgnoreCase)
+                ? PluginConfiguration.SamplingModeCenterPixel
+                : string.Equals(samplingMode, PluginConfiguration.SamplingModeCenterWeighted, StringComparison.OrdinalIgnoreCase)
+                    ? PluginConfiguration.SamplingModeCenterWeighted
+                    : PluginConfiguration.SamplingModeAverage;
+
+            if (mode == PluginConfiguration.SamplingModeCenterPixel)
+            {
+                var clampedCenterX = Math.Clamp(centerX, 0, FrameWidth - 1);
+                var clampedCenterY = Math.Clamp(centerY, 0, FrameHeight - 1);
+                var centerIndex = (clampedCenterY * FrameWidth + clampedCenterX) * BytesPerPixel;
+                return new[] { frame[centerIndex], frame[centerIndex + 1], frame[centerIndex + 2] };
+            }
+
+            // Keep the Average mode's original half-open bounds unchanged so existing
+            // configurations produce the same colors as before this setting was added.
+            var minX = (int)Math.Max(0L, (long)centerX - normalizedDistance);
+            var maxX = (int)Math.Min(FrameWidth, (long)centerX + normalizedDistance);
+            var minY = (int)Math.Max(0L, (long)centerY - normalizedDistance);
+            var maxY = (int)Math.Min(FrameHeight, (long)centerY + normalizedDistance);
+            long redSum = 0;
+            long greenSum = 0;
+            long blueSum = 0;
+            long totalWeight = 0;
+
+            for (var y = minY; y < maxY; y++)
+            {
+                var rowStart = y * FrameWidth * BytesPerPixel;
+                for (var x = minX; x < maxX; x++)
+                {
+                    var index = rowStart + x * BytesPerPixel;
+                    var weight = mode == PluginConfiguration.SamplingModeCenterWeighted
+                        ? (int)Math.Max(
+                            1L,
+                            normalizedDistance + 1L - Math.Max(Math.Abs((long)x - centerX), Math.Abs((long)y - centerY)))
+                        : 1;
+                    redSum += (long)frame[index] * weight;
+                    greenSum += (long)frame[index + 1] * weight;
+                    blueSum += (long)frame[index + 2] * weight;
+                    totalWeight += weight;
+                }
+            }
+
+            if (totalWeight == 0)
+                return new byte[BytesPerPixel];
+
+            return new[]
+            {
+                (byte)(redSum / totalWeight),
+                (byte)(greenSum / totalWeight),
+                (byte)(blueSum / totalWeight)
+            };
+        }
+
         internal static bool ShouldCaptureLightState(
             bool restoreLightState,
             bool hasSavedLightStates,
@@ -934,7 +996,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 targetFrameDurationMs,
                 expectedSyncCts,
                 playSessionId,
-                DefaultSamplingBreadthPercent);
+                DefaultSamplingBreadthPercent,
+                PluginConfiguration.SamplingModeAverage);
         }
 
         private async Task RunSyncLoopWithSampling(
@@ -944,7 +1007,8 @@ namespace Jellyfin.Plugin.Hue.Service
             int targetFrameDurationMs,
             CancellationTokenSource expectedSyncCts,
             string playSessionId,
-            int samplingBreadthPercent)
+            int samplingBreadthPercent,
+            string samplingMode)
         {
             int frameSize = FrameWidth * FrameHeight * BytesPerPixel;
             byte[] buffer = new byte[frameSize];
@@ -1009,35 +1073,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         int cx = (int)((kvp.Value.x + 1.0) * (FrameWidth - 1) / 2.0);
                         int cy = (int)((1.0 - kvp.Value.z) * (FrameHeight - 1) / 2.0); // Invert z for screen coordinates
 
-                        int minX = Math.Max(0, cx - dist);
-                        int maxX = Math.Min(FrameWidth, cx + dist);
-                        int minY = Math.Max(0, cy - dist);
-                        int maxY = Math.Min(FrameHeight, cy + dist);
-
-                        long rSum = 0, gSum = 0, bSum = 0;
-                        int count = 0;
-
-                        // RGB24: R, G, B - Optimized tight loop
-                        for (int y = minY; y < maxY; y++)
-                        {
-                            int rowStart = y * FrameWidth * BytesPerPixel;
-                            for (int x = minX; x < maxX; x++)
-                            {
-                                int idx = rowStart + x * BytesPerPixel;
-                                rSum += buffer[idx];
-                                gSum += buffer[idx + 1];
-                                bSum += buffer[idx + 2];
-                                count++;
-                            }
-                        }
-
-                        if (count == 0)
-                            count = 1;
-                        byte r = (byte)(rSum / count);
-                        byte g = (byte)(gSum / count);
-                        byte b = (byte)(bSum / count);
-
-                        channelColors[kvp.Key] = new byte[] { r, g, b };
+                        channelColors[kvp.Key] = SampleRegionColor(buffer, cx, cy, dist, samplingMode);
                     }
 
                     // Get configuration for advanced color processing
@@ -1536,6 +1572,11 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 }
 
+                // Capture sampling settings with the playback session so an administrator
+                // changing configuration mid-playback does not alter an in-flight loop.
+                var samplingBreadthPercent = config.SamplingBreadthPercent;
+                var samplingMode = config.SamplingMode;
+
                 // Let RunSyncLoop own disposal even when cancellation wins before scheduling.
                 SetRuntimeStatus("Syncing", "Streaming video colors to Hue.");
                 _ = Task.Run(() => RunSyncLoopWithSampling(
@@ -1545,7 +1586,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     targetFrameDurationMs,
                     syncCts,
                     e.PlaySessionId,
-                    config.SamplingBreadthPercent));
+                    samplingBreadthPercent,
+                    samplingMode));
                 syncLoopStarted = true;
             }
             catch (Exception ex)

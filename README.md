@@ -56,6 +56,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Entertainment Area ID** | UUID of the specific area to sync. |
 | **Target FPS** | Frames per second to process (Default: 20). Lower = less CPU. |
 | **Color Sampling Breadth** | Size of the neighborhood sampled around each Hue channel's screen position (1-50%, default: 15%). Smaller values follow fine detail; larger values reduce noise. |
+| **Color Sampling Mode** | Average (default), center-weighted, or center-pixel sampling for balancing ambient stability against detail. |
 | **Temporal Color Smoothing** | Blend the previous frame into new colors to reduce flicker (0-90%, default: 0%). Higher values create smoother but slower transitions. |
 | **When Playback Is Paused** | Keep the last synced colors (default) or restore the original light state captured at playback start. Sync resumes automatically. Restoring uses the **Restore Light State After Sync** setting. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
@@ -262,7 +263,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.21 (Current)
+### Version 1.5.22 (Current)
+- **Configurable color sampling modes**: Choose stable Average neighborhood sampling, sharper CenterWeighted sampling, or exact CenterPixel sampling per playback session
+
+### Version 1.5.21
 - **Session-safe light restoration**: Keep-colors pause/resume no longer overwrites the original playback-start light snapshot, and service shutdown restores saved state before releasing Hue output
 
 ### Version 1.5.20

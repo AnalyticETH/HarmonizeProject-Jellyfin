@@ -309,6 +309,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "default-app-key",
             HueClientKey = "default-client-key",
             SamplingBreadthPercent = 25,
+            SamplingMode = PluginConfiguration.SamplingModeCenterWeighted,
             ColorSmoothingPercent = 65,
             NetworkRetryAttempts = 6,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
@@ -329,6 +330,7 @@ public sealed class HueApiControllerTests : IDisposable
         var settings = Assert.IsType<HuePluginConfigurationSettings>(response.Value);
         Assert.Equal("default-app-key", settings.HueAppKey);
         Assert.Equal(25, settings.SamplingBreadthPercent);
+        Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, settings.SamplingMode);
         Assert.Equal(65, settings.ColorSmoothingPercent);
         Assert.Equal(6, settings.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, settings.PauseBehavior);
@@ -358,6 +360,7 @@ public sealed class HueApiControllerTests : IDisposable
             SyncEnabled = false,
             TargetFps = 30,
             SamplingBreadthPercent = 25,
+            SamplingMode = PluginConfiguration.SamplingModeCenterPixel,
             ColorSmoothingPercent = 40,
             NetworkRetryAttempts = 4,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState
@@ -366,6 +369,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(action.Result);
         Assert.Equal(30, configuration.TargetFps);
         Assert.Equal(25, configuration.SamplingBreadthPercent);
+        Assert.Equal(PluginConfiguration.SamplingModeCenterPixel, configuration.SamplingMode);
         Assert.Equal(40, configuration.ColorSmoothingPercent);
         Assert.Equal(4, configuration.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, configuration.PauseBehavior);

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.22] - 2026-08-17
+
+### Added
+- Configurable Average, CenterWeighted, and CenterPixel spatial sampling modes
+- Regression coverage for sampling-mode validation, persistence, and color extraction
+
+### Changed
+- Sampling mode is captured with each playback session while Average preserves the prior behavior
+
 ## [1.5.21] - 2026-08-17
 
 ### Changed

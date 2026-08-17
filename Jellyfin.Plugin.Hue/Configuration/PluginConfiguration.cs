@@ -28,6 +28,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
     {
         public const string PauseBehaviorKeepLastColors = "KeepLastColors";
         public const string PauseBehaviorRestoreLightState = "RestoreLightState";
+        public const string SamplingModeAverage = "Average";
+        public const string SamplingModeCenterWeighted = "CenterWeighted";
+        public const string SamplingModeCenterPixel = "CenterPixel";
 
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
@@ -64,6 +67,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string PauseBehavior { get; set; } = PauseBehaviorKeepLastColors;
         public int TargetFps { get; set; } = 20;
         public int SamplingBreadthPercent { get; set; } = 15;
+        public string SamplingMode { get; set; } = SamplingModeAverage;
         public int ColorSmoothingPercent { get; set; } = 0;
         public bool UseGpu { get; set; } = true;
         public string CustomFfmpegFlags { get; set; } = string.Empty; // e.g. -hwaccel auto
@@ -146,6 +150,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 if (SamplingBreadthPercent < MinSamplingBreadthPercent ||
                     SamplingBreadthPercent > MaxSamplingBreadthPercent)
                     errors.Add("Sampling breadth must be between 1 and 50 percent");
+
+                if (!string.Equals(SamplingMode, SamplingModeAverage, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(SamplingMode, SamplingModeCenterWeighted, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(SamplingMode, SamplingModeCenterPixel, StringComparison.OrdinalIgnoreCase))
+                    errors.Add("Sampling mode must be Average, CenterWeighted, or CenterPixel");
 
                 if (ColorSmoothingPercent < MinColorSmoothingPercent ||
                     ColorSmoothingPercent > MaxColorSmoothingPercent)
