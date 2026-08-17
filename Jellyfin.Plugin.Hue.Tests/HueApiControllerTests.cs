@@ -97,6 +97,82 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public async Task TestConnection_ReturnsReachabilityAndAreaCount()
+    {
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}");
+        var controller = CreateController();
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConnectionTestResult>(response.Value);
+        Assert.True(result.IsReachable);
+        Assert.Equal(1, result.AreaCount);
+        Assert.Null(result.AreaFound);
+        Assert.Contains("Found 1", result.Message);
+    }
+
+    [Fact]
+    public async Task TestConnection_WithInvalidAddress_ReturnsBadRequest()
+    {
+        var controller = CreateController();
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            IpAddress = "8.8.8.8",
+            AppKey = "app-key"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TestConnection_WithSelectedAreaVerifiesControllableChannels()
+    {
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var controller = CreateController();
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConnectionTestResult>(response.Value);
+        Assert.True(result.AreaFound);
+        Assert.Equal("Living Room", result.AreaName);
+        Assert.Contains("ready", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private HueApiController CreateController()
     {
         var client = new HueClient(_httpClient, _loggerMock.Object);

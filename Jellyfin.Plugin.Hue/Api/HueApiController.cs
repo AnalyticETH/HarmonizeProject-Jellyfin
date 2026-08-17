@@ -114,6 +114,76 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(areas);
         }
 
+        /// <summary>
+        /// Tests bridge reachability and, when supplied, verifies an entertainment area without starting a stream.
+        /// </summary>
+        [HttpPost("TestConnection")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        public async Task<ActionResult<HueConnectionTestResult>> TestConnection(
+            [FromBody] HueConnectionTestRequest? request)
+        {
+            if (request == null ||
+                !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
+                string.IsNullOrWhiteSpace(request.AppKey))
+            {
+                return BadRequest("A valid private bridge address and app key are required.");
+            }
+
+            var bridgeIp = request.IpAddress.Trim();
+            var appKey = request.AppKey.Trim();
+            var areas = await _hueClient.GetEntertainmentAreas(bridgeIp, appKey);
+            if (areas == null)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, "Could not contact the Hue bridge with the supplied credentials.");
+            }
+
+            var areaId = request.EntertainmentAreaId?.Trim();
+            var result = new HueConnectionTestResult
+            {
+                IsReachable = true,
+                AreaCount = areas.Count,
+                AreaId = string.IsNullOrWhiteSpace(areaId) ? null : areaId
+            };
+
+            if (string.IsNullOrWhiteSpace(areaId))
+            {
+                result.Message = $"Bridge reachable. Found {areas.Count} entertainment area(s).";
+                return Ok(result);
+            }
+
+            var selectedArea = areas.FirstOrDefault(area => string.Equals(area.Id, areaId, StringComparison.OrdinalIgnoreCase));
+            if (selectedArea == null)
+            {
+                result.AreaFound = false;
+                result.Message = "Bridge reachable, but the selected entertainment area was not found.";
+                return Ok(result);
+            }
+
+            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(bridgeIp, appKey, areaId);
+            if (areaConfiguration == null)
+            {
+                result.AreaFound = false;
+                result.Message = "Bridge reachable, but the selected entertainment area could not be loaded.";
+                return Ok(result);
+            }
+
+            if (!areaConfiguration.Value.TryGetProperty("channels", out var channels) ||
+                channels.ValueKind != System.Text.Json.JsonValueKind.Array ||
+                channels.GetArrayLength() == 0)
+            {
+                result.AreaFound = false;
+                result.Message = "Bridge reachable, but the selected entertainment area has no controllable channels.";
+                return Ok(result);
+            }
+
+            result.AreaFound = true;
+            result.AreaName = selectedArea.Name;
+            result.Message = $"Bridge reachable. Entertainment area '{selectedArea.Name}' is ready.";
+            return Ok(result);
+        }
+
         [HttpGet("Status")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<HueSyncStatus> GetStatus()
@@ -235,6 +305,39 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("appKey")]
         public string AppKey { get; set; } = string.Empty;
+    }
+
+    public class HueConnectionTestRequest
+    {
+        [JsonPropertyName("ipAddress")]
+        public string IpAddress { get; set; } = string.Empty;
+
+        [JsonPropertyName("appKey")]
+        public string AppKey { get; set; } = string.Empty;
+
+        [JsonPropertyName("entertainmentAreaId")]
+        public string? EntertainmentAreaId { get; set; }
+    }
+
+    public class HueConnectionTestResult
+    {
+        [JsonPropertyName("isReachable")]
+        public bool IsReachable { get; set; }
+
+        [JsonPropertyName("areaCount")]
+        public int AreaCount { get; set; }
+
+        [JsonPropertyName("areaId")]
+        public string? AreaId { get; set; }
+
+        [JsonPropertyName("areaFound")]
+        public bool? AreaFound { get; set; }
+
+        [JsonPropertyName("areaName")]
+        public string? AreaName { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
     }
 
     public class HueRegistrationResult

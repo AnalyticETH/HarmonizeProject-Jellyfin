@@ -34,6 +34,10 @@
                                 style="margin-bottom: 20px;">
                                 <span>Refresh Entertainment Areas</span>
                             </button>
+                            <button is="emby-button" type="button" class="raised" id="testConnectionBtn"
+                                style="margin-bottom: 20px;">
+                                <span>Test Connection</span>
+                            </button>
                             <div id="bridgeStatus" style="flex: 1 1 200px; color: #fff; padding: 6px 10px; border-radius: 6px; background: #3f51b5;">
                                 Enter bridge address and keys, then refresh to test.
                             </div>
@@ -142,6 +146,9 @@
                             <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                                 <button is="emby-button" type="button" class="raised" id="mappingDiscoverBtn" style="margin-bottom: 20px;">
                                     <span>Discover Bridge</span>
+                                </button>
+                                <button is="emby-button" type="button" class="raised" id="mappingTestConnectionBtn" style="margin-bottom: 20px;">
+                                    <span>Test Connection</span>
                                 </button>
                                 <button is="emby-button" type="button" class="raised" id="mappingLinkBridgeBtn" style="margin-bottom: 20px;">
                                     <span>Link Bridge</span>
@@ -334,6 +341,34 @@
                         contentType: "application/json",
                         dataType: "json"
                     });
+                },
+                fetchConnectionTest: function (bridgeIp, appKey, areaId) {
+                    return ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/TestConnection"),
+                        data: JSON.stringify({
+                            ipAddress: bridgeIp,
+                            appKey: appKey,
+                            entertainmentAreaId: areaId || ""
+                        }),
+                        contentType: "application/json",
+                        dataType: "json"
+                    });
+                },
+                connectionTestMessage: function (response, areaId) {
+                    var areaFound = response && (response.areaFound !== undefined ? response.areaFound : response.AreaFound);
+                    var message = response && (response.message || response.Message);
+                    if (areaId && areaFound === false) {
+                        return {
+                            tone: "warning",
+                            text: message || "Bridge is reachable, but the selected entertainment area was not found."
+                        };
+                    }
+
+                    return {
+                        tone: "success",
+                        text: message || "Bridge connection succeeded."
+                    };
                 },
                 loadEntertainmentAreas: function (page, selectedId) {
                     var statusEl = page.querySelector('#entertainmentAreaStatus');
@@ -539,6 +574,34 @@
                         }
                     });
                 },
+                testDefaultConnection: function (page) {
+                    var button = page.querySelector('#testConnectionBtn');
+                    var bridgeIp = page.querySelector('#hueBridgeIp').value.trim();
+                    var appKey = page.querySelector('#hueAppKey').value.trim();
+                    var areaId = HueConfigurationPage.getSelectedAreaId(page);
+
+                    if (!bridgeIp || !appKey) {
+                        Dashboard.alert("Enter a bridge address and app key first.");
+                        return;
+                    }
+
+                    button.disabled = true;
+                    HueConfigurationPage.refreshStatus(page, "Testing bridge connection...", "info");
+                    Dashboard.showLoadingMsg();
+                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId)
+                        .then(function (response) {
+                            var result = HueConfigurationPage.connectionTestMessage(response, areaId);
+                            HueConfigurationPage.refreshStatus(page, result.text, result.tone);
+                        })
+                        .catch(function (err) {
+                            console.error("Bridge connection test error:", err);
+                            HueConfigurationPage.refreshStatus(page, "Bridge connection failed. Verify the address, app key, and network access.", "error");
+                        })
+                        .finally(function () {
+                            button.disabled = false;
+                            Dashboard.hideLoadingMsg();
+                        });
+                },
 
                 // User Mapping Functions
                 loadUsers: function (page) {
@@ -671,6 +734,53 @@
                         })
                         .finally(function () {
                             discoverBtn.disabled = false;
+                            Dashboard.hideLoadingMsg();
+                        });
+                },
+
+                testMappingConnection: function () {
+                    var bridgeIpEl = document.getElementById('mappingBridgeIp');
+                    var appKeyEl = document.getElementById('mappingAppKey');
+                    var areaSelect = document.getElementById('mappingAreaSelect');
+                    var button = document.getElementById('mappingTestConnectionBtn');
+                    var statusEl = document.getElementById('mappingBridgeStatus');
+                    var bridgeIp = bridgeIpEl ? bridgeIpEl.value.trim() : '';
+                    var appKey = appKeyEl ? appKeyEl.value.trim() : '';
+                    var areaId = areaSelect ? areaSelect.value : '';
+
+                    if (areaId === "manual") {
+                        var manualAreaEl = document.getElementById('mappingAreaManual');
+                        areaId = manualAreaEl ? manualAreaEl.value.trim() : '';
+                    }
+
+                    if (!bridgeIp || !appKey) {
+                        Dashboard.alert("Enter a bridge address and app key first.");
+                        return;
+                    }
+
+                    button.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Testing bridge connection...";
+                        statusEl.style.background = "#3f51b5";
+                    }
+                    Dashboard.showLoadingMsg();
+                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId)
+                        .then(function (response) {
+                            var result = HueConfigurationPage.connectionTestMessage(response, areaId);
+                            if (statusEl) {
+                                statusEl.textContent = result.text;
+                                statusEl.style.background = result.tone === "success" ? "#4caf50" : "#f0ad4e";
+                            }
+                        })
+                        .catch(function (err) {
+                            console.error("Mapping bridge connection test error:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "Bridge connection failed. Verify the address, app key, and network access.";
+                                statusEl.style.background = "#d9534f";
+                            }
+                        })
+                        .finally(function () {
+                            button.disabled = false;
                             Dashboard.hideLoadingMsg();
                         });
                 },
@@ -1021,6 +1131,10 @@
                 HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
             });
 
+            document.querySelector('#testConnectionBtn').addEventListener('click', function () {
+                HueConfigurationPage.testDefaultConnection(this.closest('.page'));
+            });
+
             document.querySelector('#entertainmentAreaSelect').addEventListener('change', function () {
                 HueConfigurationPage.toggleManualArea(this.closest('.page'), this.value === 'manual');
             });
@@ -1028,6 +1142,10 @@
             // User mapping button event listeners
             document.querySelector('#mappingDiscoverBtn').addEventListener('click', function () {
                 HueConfigurationPage.discoverMappingBridge();
+            });
+
+            document.querySelector('#mappingTestConnectionBtn').addEventListener('click', function () {
+                HueConfigurationPage.testMappingConnection();
             });
 
             document.querySelector('#mappingLinkBridgeBtn').addEventListener('click', function () {

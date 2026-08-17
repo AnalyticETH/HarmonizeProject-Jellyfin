@@ -50,6 +50,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Hue Bridge Address** | The private/local IP address of your bridge (or a .local mDNS host name). |
 | **Discover Bridge** | Ask the Hue discovery service for a bridge address and fill it into the form automatically. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
+| **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. |
 | **Hue App Key** | "Username" for the REST API (auto-filled). |
 | **Hue Client Key** | "ClientKey" for the streaming API (auto-filled). |
 | **Entertainment Area ID** | UUID of the specific area to sync. |
@@ -84,6 +85,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | :--- | :--- |
 | `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
+| `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness without starting a stream. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
@@ -235,7 +237,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.5 (Current)
+### Version 1.5.6 (Current)
+- **Connection diagnostics**: Test bridge reachability and selected-area readiness without starting playback
+
+### Version 1.5.5
 - **Mapping management**: Explicit Edit and Cancel controls for per-user bridge mappings
 - **Credential-safe area loading**: The configuration UI sends app keys in the request body instead of URLs
 
