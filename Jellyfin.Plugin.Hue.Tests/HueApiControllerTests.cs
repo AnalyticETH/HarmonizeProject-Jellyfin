@@ -936,6 +936,115 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMapping_WithoutBridgeInheritsGlobalConfiguration()
+    {
+        var userId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app",
+            HueClientKey = "global-client",
+            EntertainmentAreaId = "global-area",
+            ChannelIds = "2, 9"
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = userId.ToString(),
+            UserName = "Viewer",
+            SyncEnabled = true,
+            BrightnessBoostOverride = 125,
+            ChannelIdsOverride = "1, 3"
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Empty(mapping.HueBridgeIp);
+        Assert.Empty(mapping.HueAppKey);
+        Assert.Empty(mapping.HueClientKey);
+        Assert.Empty(mapping.EntertainmentAreaId);
+        Assert.Empty(mapping.EntertainmentAreaName);
+        Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
+        Assert.Equal("1, 3", mapping.ChannelIdsOverride);
+
+        var bridge = configuration.GetBridgeConfigForUser(userId);
+        Assert.Equal("192.168.1.100", bridge.BridgeIp);
+        Assert.Equal("global-app", bridge.AppKey);
+        Assert.Equal("global-client", bridge.ClientKey);
+        Assert.Equal("global-area", bridge.AreaId);
+    }
+
+    [Fact]
+    public void SaveUserMapping_ChangingCustomTargetToDefaultClearsCredentials()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app",
+            HueClientKey = "global-client",
+            EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "old-app-secret",
+                    HueClientKey = "old-client-secret",
+                    EntertainmentAreaId = "old-area",
+                    EntertainmentAreaName = "Old Room"
+                }
+            }
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "user-1",
+            UserName = "Viewer",
+            SyncEnabled = true,
+            BrightnessBoostOverride = 150
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Empty(mapping.HueBridgeIp);
+        Assert.Empty(mapping.HueAppKey);
+        Assert.Empty(mapping.HueClientKey);
+        Assert.Empty(mapping.EntertainmentAreaId);
+        Assert.Empty(mapping.EntertainmentAreaName);
+        Assert.Equal((int?)150, mapping.BrightnessBoostOverride);
+    }
+
+    [Fact]
+    public void SaveUserMapping_DefaultBridgeRejectsPartialCredentials()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app",
+            HueClientKey = "global-client",
+            EntertainmentAreaId = "global-area"
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "user-default",
+            SyncEnabled = true,
+            HueAppKey = "accidental-mapping-secret"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Contains("Leave mapping bridge credentials", response.Value?.ToString(), StringComparison.Ordinal);
+        Assert.Empty(configuration.UserMappings);
+    }
+
+    [Fact]
     public void SaveUserMapping_NewEnabledMappingStillRequiresCredentials()
     {
         InstallConfiguration(new PluginConfiguration());

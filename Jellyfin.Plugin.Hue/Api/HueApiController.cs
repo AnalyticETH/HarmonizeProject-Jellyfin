@@ -808,9 +808,13 @@ namespace Jellyfin.Plugin.Hue.Api
             var existingMapping = config.UserMappings.FirstOrDefault(existing =>
                 string.Equals(existing.UserId, mapping.UserId, StringComparison.OrdinalIgnoreCase));
 
+            var inheritsDefaultBridge = string.IsNullOrWhiteSpace(mapping.HueBridgeIp);
+
             // The edit form deliberately leaves secret fields blank. Preserve an
-            // existing credential unless the caller supplied a replacement value.
-            if (mapping.SyncEnabled && existingMapping != null)
+            // existing credential only while the mapping continues to target its
+            // own bridge. Clearing the bridge address is an explicit request to
+            // inherit the global bridge, so stale custom credentials must not return.
+            if (mapping.SyncEnabled && !inheritsDefaultBridge && existingMapping != null)
             {
                 if (string.IsNullOrWhiteSpace(mapping.HueAppKey))
                 {
@@ -823,17 +827,37 @@ namespace Jellyfin.Plugin.Hue.Api
                 }
             }
 
-            if (mapping.SyncEnabled && !HueBridgeCertificateValidation.IsValidBridgeAddress(mapping.HueBridgeIp))
+            if (mapping.SyncEnabled && !inheritsDefaultBridge &&
+                !HueBridgeCertificateValidation.IsValidBridgeAddress(mapping.HueBridgeIp))
             {
                 return BadRequest("A valid private bridge IP address or .local host name is required.");
             }
 
-            if (mapping.SyncEnabled &&
+            if (mapping.SyncEnabled && !inheritsDefaultBridge &&
                 (string.IsNullOrWhiteSpace(mapping.HueAppKey) ||
                  string.IsNullOrWhiteSpace(mapping.HueClientKey) ||
                  string.IsNullOrWhiteSpace(mapping.EntertainmentAreaId)))
             {
                 return BadRequest("Bridge credentials and entertainment area ID are required.");
+            }
+
+            if (mapping.SyncEnabled && inheritsDefaultBridge &&
+                (!string.IsNullOrWhiteSpace(mapping.HueAppKey) ||
+                 !string.IsNullOrWhiteSpace(mapping.HueClientKey) ||
+                 !string.IsNullOrWhiteSpace(mapping.EntertainmentAreaId)))
+            {
+                return BadRequest("Leave mapping bridge credentials and entertainment area blank to inherit the global bridge settings, or provide a complete custom bridge target.");
+            }
+
+            if (mapping.SyncEnabled && inheritsDefaultBridge)
+            {
+                // Keep the persisted representation unambiguous: blank bridge
+                // mappings inherit every global target field and retain no secrets.
+                mapping.HueBridgeIp = string.Empty;
+                mapping.HueAppKey = string.Empty;
+                mapping.HueClientKey = string.Empty;
+                mapping.EntertainmentAreaId = string.Empty;
+                mapping.EntertainmentAreaName = string.Empty;
             }
 
             if (!mapping.SyncEnabled)

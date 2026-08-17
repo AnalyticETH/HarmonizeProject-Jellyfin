@@ -96,6 +96,9 @@ To configure per-user mappings:
 Users without a mapping will use the default bridge settings configured above.
 Existing mappings can be updated with **Edit** or removed with **Delete**. Editing keeps the
 selected Jellyfin user fixed while allowing the bridge address, credentials, and area to change.
+To keep a per-user profile while using the global bridge, create or edit an enabled mapping and
+leave Bridge Address, App Key, Client Key, and Entertainment Area blank; those target fields
+inherit the global configuration. Enter all four fields when targeting a custom bridge.
 To leave a user's playback unchanged, edit or create that mapping and uncheck **Enable Hue Sync
 for this user**; bridge credentials are not required for a disabled mapping. Users without a
 mapping continue to use the default bridge settings.
