@@ -43,6 +43,9 @@ namespace Jellyfin.Plugin.Hue.Hue
         private Dictionary<int, byte[]>? _lastSentColors;
         private byte _sequenceNumber = 0;
         private readonly SemaphoreSlim _reconnectLock = new SemaphoreSlim(1, 1);
+        // A stream stop cancels any delayed reconnect or in-flight DTLS startup. The
+        // source is replaced for the next stream so a later playback can reconnect normally.
+        private CancellationTokenSource _streamLifecycleCts = new CancellationTokenSource();
 
         // How long to wait after spawning OpenSSL before attempting to write
         // The DTLS handshake typically takes 100-400ms on a local network
@@ -68,6 +71,13 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// Returns true if preparation succeeded and reconnection should proceed.
         /// </summary>
         public Func<Task<bool>>? OnBeforeReconnect { get; set; }
+
+        /// <summary>
+        /// Optional cancellation-aware preparation callback invoked before each reconnect.
+        /// The legacy <see cref="OnBeforeReconnect"/> callback remains supported for callers
+        /// that do not need to observe cancellation.
+        /// </summary>
+        public Func<CancellationToken, Task<bool>>? OnBeforeReconnectWithCancellation { get; set; }
 
         /// <summary>
         /// Gets or sets the maximum number of DTLS reconnect attempts after a stream failure.
@@ -156,6 +166,21 @@ namespace Jellyfin.Plugin.Hue.Hue
             string clientKey,
             CancellationToken cancellationToken = default)
         {
+            await StartStreamCoreAsync(
+                bridgeIp,
+                appKey,
+                clientKey,
+                cancellationToken,
+                cancelPendingReconnect: true).ConfigureAwait(false);
+        }
+
+        private async Task StartStreamCoreAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            CancellationToken cancellationToken,
+            bool cancelPendingReconnect)
+        {
             cancellationToken.ThrowIfCancellationRequested();
             if (string.IsNullOrEmpty(bridgeIp) || string.IsNullOrEmpty(clientKey))
             {
@@ -169,9 +194,26 @@ namespace Jellyfin.Plugin.Hue.Hue
                 return;
             }
 
+            // A reconnect already owns the current lifecycle token. Do not cancel that
+            // token when it replaces the failed process; an external StopStream still can.
+            StopStream(cancelPendingReconnect);
             _lastBridgeConfig = (bridgeIp, appKey, clientKey);
-            StopStream();
             _lastSentColors = null;
+
+            CancellationTokenSource? startupTokenSource = null;
+            CancellationToken startupToken;
+            lock (_lock)
+            {
+                startupToken = _streamLifecycleCts.Token;
+            }
+
+            if (cancellationToken.CanBeCanceled)
+            {
+                startupTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    startupToken);
+                startupToken = startupTokenSource.Token;
+            }
 
             try
             {
@@ -253,7 +295,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 // Without this wait, the first SendColors call will fail because
                 // the UDP channel isn't established yet.
                 // during the wait rather than blocking it.
-                await Task.Delay(DtlsHandshakeWaitMs, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(DtlsHandshakeWaitMs, startupToken).ConfigureAwait(false);
 
                 if (process.HasExited)
                 {
@@ -271,16 +313,33 @@ namespace Jellyfin.Plugin.Hue.Hue
                 StopStream();
                 throw;
             }
+            finally
+            {
+                startupTokenSource?.Dispose();
+            }
         }
 
         /// <summary>
         /// Attempts to reconnect the DTLS stream if it has failed
         /// </summary>
-        private async Task<bool> TryReconnectAsync()
+        private async Task<bool> TryReconnectAsync(CancellationToken cancellationToken)
         {
-            await _reconnectLock.WaitAsync().ConfigureAwait(false);
+            CancellationToken lifecycleToken;
+            lock (_lock)
+            {
+                lifecycleToken = _streamLifecycleCts.Token;
+            }
+
+            using var reconnectTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifecycleToken);
+            var reconnectToken = reconnectTokenSource.Token;
+
+            await _reconnectLock.WaitAsync(reconnectToken).ConfigureAwait(false);
             try
             {
+                reconnectToken.ThrowIfCancellationRequested();
+
                 // A concurrent SendColors call may have repaired the stream while this
                 // caller was waiting for the reconnect gate.
                 if (IsHealthy())
@@ -296,33 +355,56 @@ namespace Jellyfin.Plugin.Hue.Hue
                 var attempt = _reconnectAttempts;
                 _logger.LogWarning("Attempting to reconnect DTLS stream (attempt {0}/{1})", attempt, MaxReconnectAttempts);
 
-                StopStream();
+                StopStream(cancelPendingReconnect: false);
                 // Exponential backoff — await so we don't block a thread pool thread
-                await Task.Delay(1000 * attempt).ConfigureAwait(false);
+                await Task.Delay(1000 * attempt, reconnectToken).ConfigureAwait(false);
 
                 // Re-activate the entertainment area before reopening the DTLS tunnel.
                 // The bridge requires action=start or it silently drops all packets.
-                if (OnBeforeReconnect != null)
+                if (OnBeforeReconnectWithCancellation != null)
+                {
+                    if (!await OnBeforeReconnectWithCancellation(reconnectToken).ConfigureAwait(false))
+                    {
+                        _logger.LogWarning("Pre-reconnect preparation failed, aborting reconnect");
+                        return false;
+                    }
+                    await Task.Delay(EntertainmentAreaActivationDelayMs, reconnectToken).ConfigureAwait(false);
+                }
+                else if (OnBeforeReconnect != null)
                 {
                     if (!await OnBeforeReconnect().ConfigureAwait(false))
                     {
                         _logger.LogWarning("Pre-reconnect preparation failed, aborting reconnect");
                         return false;
                     }
-                    await Task.Delay(EntertainmentAreaActivationDelayMs).ConfigureAwait(false); // Let bridge enter streaming mode
+                    await Task.Delay(EntertainmentAreaActivationDelayMs, reconnectToken).ConfigureAwait(false); // Let bridge enter streaming mode
                 }
 
                 if (_lastBridgeConfig != null)
                 {
                     var (bridgeIp, appKey, clientKey) = _lastBridgeConfig.Value;
-                    await StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
+                    await StartStreamCoreAsync(
+                        bridgeIp,
+                        appKey,
+                        clientKey,
+                        reconnectToken,
+                        cancelPendingReconnect: false).ConfigureAwait(false);
                 }
                 else if (_lastConfig != null)
                 {
-                    await StartStreamAsync(_lastConfig.HueBridgeIp, _lastConfig.HueAppKey, _lastConfig.HueClientKey).ConfigureAwait(false);
+                    await StartStreamCoreAsync(
+                        _lastConfig.HueBridgeIp,
+                        _lastConfig.HueAppKey,
+                        _lastConfig.HueClientKey,
+                        reconnectToken,
+                        cancelPendingReconnect: false).ConfigureAwait(false);
                 }
 
                 return IsHealthy();
+            }
+            catch (OperationCanceledException) when (reconnectToken.IsCancellationRequested)
+            {
+                return false;
             }
             catch (Exception ex)
             {
@@ -336,11 +418,21 @@ namespace Jellyfin.Plugin.Hue.Hue
         }
 
         public void StopStream()
+            => StopStream(cancelPendingReconnect: true);
+
+        private void StopStream(bool cancelPendingReconnect)
         {
+            CancellationTokenSource? canceledLifecycle = null;
             try
             {
                 lock (_lock)
                 {
+                    if (cancelPendingReconnect)
+                    {
+                        canceledLifecycle = _streamLifecycleCts;
+                        _streamLifecycleCts = new CancellationTokenSource();
+                    }
+
                     _stdin?.Close();
                     if (_opensslProcess != null && !_opensslProcess.HasExited)
                     {
@@ -354,7 +446,15 @@ namespace Jellyfin.Plugin.Hue.Hue
                     _opensslProcess = null;
                     _stdin = null;
                     _lastSentColors = null;
+                    if (cancelPendingReconnect)
+                    {
+                        // A public stop ends the stream lifecycle completely. Clear the
+                        // saved target so a stale caller cannot resurrect a later tunnel.
+                        _lastConfig = null;
+                        _lastBridgeConfig = null;
+                    }
                 }
+                canceledLifecycle?.Cancel();
                 _logger.LogInformation("DTLS stream stopped");
             }
             catch (Exception ex)
@@ -443,10 +543,18 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="areaId">The entertainment area ID (used for logging only)</param>
         /// <param name="channelColors">Dictionary mapping channel IDs to 6-byte RGB16 color data</param>
         /// <param name="colorChangeThreshold">Minimum per-channel color change to trigger update (0 to disable)</param>
+        /// <param name="cancellationToken">Cancels the send or any reconnect attempt.</param>
         /// <returns>True when the packet was sent or intentionally skipped by the change threshold; otherwise false.</returns>
-        public async Task<bool> SendColors(string areaId, Dictionary<int, byte[]> channelColors, int colorChangeThreshold = 0)
+        public async Task<bool> SendColors(
+            string areaId,
+            Dictionary<int, byte[]> channelColors,
+            int colorChangeThreshold = 0,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(channelColors);
+
+            if (cancellationToken.IsCancellationRequested)
+                return false;
 
             // Skip if colors haven't changed significantly
             if (colorChangeThreshold > 0 && !HasSignificantColorChange(channelColors, colorChangeThreshold))
@@ -458,7 +566,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             if (!IsHealthy())
             {
                 _logger.LogWarning("DTLS stream unhealthy, attempting reconnect");
-                if (!await TryReconnectAsync().ConfigureAwait(false))
+                if (!await TryReconnectAsync(cancellationToken).ConfigureAwait(false))
                 {
                     _logger.LogError("Failed to reconnect DTLS stream after {0} attempts", MaxReconnectAttempts);
                     return false;
@@ -479,8 +587,8 @@ namespace Jellyfin.Plugin.Hue.Hue
             try
             {
                 var packet = BuildHueStreamPacket(channelColors);
-                await stdinCopy.WriteAsync(packet, 0, packet.Length);
-                await stdinCopy.FlushAsync();
+                await stdinCopy.WriteAsync(packet, 0, packet.Length, cancellationToken).ConfigureAwait(false);
+                await stdinCopy.FlushAsync(cancellationToken).ConfigureAwait(false);
 
                 // Store last sent colors for change detection
                 _lastSentColors = new Dictionary<int, byte[]>();
@@ -495,14 +603,21 @@ namespace Jellyfin.Plugin.Hue.Hue
                 _logger.LogDebug("Stream disposed while sending colors");
                 return false;
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
             catch (IOException ex)
             {
                 _logger.LogWarning(ex, "IO error sending colors to bridge, attempting reconnect");
-                _ = TryReconnectAsync().ContinueWith(t =>
+                if (cancellationToken.IsCancellationRequested)
+                    return false;
+
+                _ = TryReconnectAsync(cancellationToken).ContinueWith(t =>
                 {
                     if (t.IsFaulted)
                         _logger.LogError(t.Exception!.GetBaseException(), "Unobserved exception during DTLS reconnect");
-                    else if (t.Result == false)
+                    else if (t.Result == false && !cancellationToken.IsCancellationRequested)
                         _logger.LogWarning("DTLS reconnection failed — lights may stop syncing until next playback");
                 }, TaskContinuationOptions.ExecuteSynchronously);
                 return false;

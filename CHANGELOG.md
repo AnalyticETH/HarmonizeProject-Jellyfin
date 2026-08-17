@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.54] - 2026-08-17
+
+### Fixed
+- DTLS startup, color writes, reconnect delays, and entertainment-area reactivation now honor the active playback or diagnostic cancellation token
+- Stopped streams clear their saved reconnect target so delayed background work cannot resurrect a tunnel after playback ends
+
 ## [1.5.53] - 2026-08-17
 
 ### Added

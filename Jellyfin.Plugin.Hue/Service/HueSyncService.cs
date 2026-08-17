@@ -908,39 +908,59 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Sends colors to lights using a temporary streamer instance with explicit bridge config
         /// </summary>
-        private async Task<bool> SendTemporaryColorsWithConfig(string bridgeIp, string appKey, string clientKey, string areaId, Dictionary<int, byte[]> channelColors, int delayMs)
+        private async Task<bool> SendTemporaryColorsWithConfig(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            Dictionary<int, byte[]> channelColors,
+            int delayMs,
+            CancellationToken cancellationToken = default)
         {
             var activated = false;
             var succeeded = false;
             try
             {
                 // Must activate the area before opening a DTLS session
-                activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId).ConfigureAwait(false);
+                activated = await _hueClient.StartEntertainmentArea(
+                    bridgeIp,
+                    appKey,
+                    areaId,
+                    cancellationToken).ConfigureAwait(false);
                 if (!activated)
                 {
                     _logger.LogWarning("SendTemporaryColorsWithConfig: could not activate area {0}, skipping", areaId);
                     return false;
                 }
 
-                await Task.Delay(EntertainmentAreaActivationDelayMs);
+                await Task.Delay(EntertainmentAreaActivationDelayMs, cancellationToken).ConfigureAwait(false);
 
                 var tempStreamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
                 try
                 {
-                    await tempStreamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
+                    tempStreamer.OnBeforeReconnectWithCancellation = token =>
+                        _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId, token);
+                    await tempStreamer.StartStreamAsync(
+                        bridgeIp,
+                        appKey,
+                        clientKey,
+                        cancellationToken).ConfigureAwait(false);
                     if (!tempStreamer.IsHealthy())
                     {
                         _logger.LogWarning("SendTemporaryColorsWithConfig: DTLS stream did not start for area {0}", areaId);
                         return false;
                     }
 
-                    if (!await tempStreamer.SendColors(areaId, channelColors).ConfigureAwait(false))
+                    if (!await tempStreamer.SendColors(
+                            areaId,
+                            channelColors,
+                            cancellationToken: cancellationToken).ConfigureAwait(false))
                     {
                         _logger.LogWarning("SendTemporaryColorsWithConfig: DTLS stream could not send colors for area {0}", areaId);
                         return false;
                     }
 
-                    await Task.Delay(delayMs);
+                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
                     succeeded = true;
                 }
                 finally
@@ -975,7 +995,8 @@ namespace Jellyfin.Plugin.Hue.Service
             string areaId,
             System.Text.Json.JsonElement areaConfig,
             int brightnessDimLevel,
-            IReadOnlySet<int>? channelIds)
+            IReadOnlySet<int>? channelIds,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -1000,7 +1021,14 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
 
                 // Send dim command before starting stream
-                await SendTemporaryColorsWithConfig(bridgeIp, appKey, clientKey, areaId, channelColors, CinemaModeDimmingDelayMs);
+                await SendTemporaryColorsWithConfig(
+                    bridgeIp,
+                    appKey,
+                    clientKey,
+                    areaId,
+                    channelColors,
+                    CinemaModeDimmingDelayMs,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1592,7 +1620,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         var blackoutSent = await _hueStreamer!.SendColors(
                             areaId,
                             blackColors,
-                            colorProcessingSettings.ColorChangeThreshold);
+                            colorProcessingSettings.ColorChangeThreshold,
+                            token);
                         if (!HandleDtlsSendResult(blackoutSent, token, ref consecutiveSendFailures))
                         {
                             streamFailed = true;
@@ -1689,7 +1718,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     var processedSent = await _hueStreamer!.SendColors(
                         areaId,
                         processedColors,
-                        colorProcessingSettings.ColorChangeThreshold);
+                        colorProcessingSettings.ColorChangeThreshold,
+                        token);
                     if (!HandleDtlsSendResult(processedSent, token, ref consecutiveSendFailures))
                     {
                         streamFailed = true;
@@ -2141,7 +2171,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         areaId,
                         areaConfig.Value,
                         brightnessDimLevel,
-                        selectedChannelIds);
+                        selectedChannelIds,
+                        startupToken);
                     if (token.IsCancellationRequested)
                         return;
                 }
@@ -2170,9 +2201,14 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
 
                 // Set reconnect callback so DTLS reconnections re-activate the area first
-                _hueStreamer!.OnBeforeReconnect = () => _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
+                _hueStreamer!.OnBeforeReconnectWithCancellation = reconnectToken =>
+                    _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId, reconnectToken);
                 SetRuntimeStatus("Starting", "Opening the DTLS light stream...");
-                await _hueStreamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
+                await _hueStreamer.StartStreamAsync(
+                    bridgeIp,
+                    appKey,
+                    clientKey,
+                    token).ConfigureAwait(false);
                 if (token.IsCancellationRequested)
                     return;
                 if (!_hueStreamer.IsHealthy())

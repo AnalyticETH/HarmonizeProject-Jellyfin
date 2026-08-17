@@ -196,7 +196,8 @@ public sealed class HueStreamTester : IHueStreamTester
             await Task.Delay(EntertainmentAreaActivationDelayMs, cancellationToken).ConfigureAwait(false);
 
             var streamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
-            streamer.OnBeforeReconnect = () => _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
+            streamer.OnBeforeReconnectWithCancellation = reconnectToken =>
+                _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId, reconnectToken);
             try
             {
                 await streamer.StartStreamAsync(bridgeIp, appKey, clientKey, cancellationToken).ConfigureAwait(false);
@@ -206,7 +207,10 @@ public sealed class HueStreamTester : IHueStreamTester
                 }
                 else
                 {
-                    var sent = await streamer.SendColors(areaId, channelColors).ConfigureAwait(false);
+                    var sent = await streamer.SendColors(
+                        areaId,
+                        channelColors,
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
                     probeResult = sent
                         ? new HueStreamProbeResult
                         {
@@ -396,7 +400,8 @@ public sealed class HueStreamTester : IHueStreamTester
             await Task.Delay(EntertainmentAreaActivationDelayMs, cancellationToken).ConfigureAwait(false);
 
             var streamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
-            streamer.OnBeforeReconnect = () => _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
+            streamer.OnBeforeReconnectWithCancellation = reconnectToken =>
+                _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId, reconnectToken);
             try
             {
                 await streamer.StartStreamAsync(bridgeIp, appKey, clientKey, cancellationToken).ConfigureAwait(false);
@@ -406,7 +411,10 @@ public sealed class HueStreamTester : IHueStreamTester
                 }
                 else
                 {
-                    var sent = await streamer.SendColors(areaId, channelColors).ConfigureAwait(false);
+                    var sent = await streamer.SendColors(
+                        areaId,
+                        channelColors,
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
                     if (!sent)
                     {
                         previewResult = Failure("The DTLS stream opened, but the preview color could not be sent.");
@@ -428,7 +436,10 @@ public sealed class HueStreamTester : IHueStreamTester
                                 cancellationToken)
                                 .ConfigureAwait(false);
                             if (DateTime.UtcNow < previewEndsAt &&
-                                !await streamer.SendColors(areaId, channelColors).ConfigureAwait(false))
+                                !await streamer.SendColors(
+                                    areaId,
+                                    channelColors,
+                                    cancellationToken: cancellationToken).ConfigureAwait(false))
                             {
                                 previewResult = Failure("The DTLS stream stopped while holding the preview color.");
                                 previewCompleted = true;

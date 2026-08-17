@@ -1,4 +1,6 @@
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Hue;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -44,6 +46,34 @@ public class HueStreamerTests
         _streamer.MaxReconnectAttempts = configured;
 
         Assert.Equal(expected, _streamer.MaxReconnectAttempts);
+    }
+
+    [Fact]
+    public async Task StartStreamAsync_WhenCanceledBeforeStartupDoesNotLaunchProcess()
+    {
+        using var cancellationSource = new CancellationTokenSource();
+        cancellationSource.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            _streamer.StartStreamAsync(
+                "192.168.1.100",
+                "app-key",
+                "00112233445566778899aabbccddeeff",
+                cancellationSource.Token));
+    }
+
+    [Fact]
+    public async Task SendColors_WhenCanceledBeforeWriteReturnsFalse()
+    {
+        using var cancellationSource = new CancellationTokenSource();
+        cancellationSource.Cancel();
+
+        var sent = await _streamer.SendColors(
+            "area-id",
+            new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } },
+            cancellationToken: cancellationSource.Token);
+
+        Assert.False(sent);
     }
 
     #region Color Encoding Tests
