@@ -258,6 +258,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveSamplingBreadthPercent);
         Assert.Null(status.ActiveSamplingMode);
         Assert.Null(status.ActiveColorSmoothingPercent);
+        Assert.Null(status.ActiveRestoreLightState);
         Assert.Null(status.LastError);
         Assert.False(status.CanStopSync);
     }
@@ -292,6 +293,7 @@ public sealed class HueApiControllerTests : IDisposable
                     UseCinemaModeOverride = false,
                     BrightnessDimLevelOverride = 10,
                     PauseBehaviorOverride = PluginConfiguration.PauseBehaviorRestoreLightState,
+                    RestoreLightStateOverride = true,
                     BrightnessBoostOverride = 150,
                     RedGainOverride = 120,
                     GreenGainOverride = 90,
@@ -320,6 +322,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((bool?)false, mapping.UseCinemaModeOverride);
         Assert.Equal((int?)10, mapping.BrightnessDimLevelOverride);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, mapping.PauseBehaviorOverride);
+        Assert.Equal((bool?)true, mapping.RestoreLightStateOverride);
         Assert.Equal((int?)150, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)120, mapping.RedGainOverride);
         Assert.Equal((int?)90, mapping.GreenGainOverride);
@@ -483,6 +486,7 @@ public sealed class HueApiControllerTests : IDisposable
             UseCinemaModeOverride = true,
             BrightnessDimLevelOverride = 20,
             PauseBehaviorOverride = PluginConfiguration.PauseBehaviorKeepLastColors,
+            RestoreLightStateOverride = false,
             BrightnessBoostOverride = 125,
             RedGainOverride = 115,
             GreenGainOverride = 95,
@@ -508,6 +512,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((bool?)true, mapping.UseCinemaModeOverride);
         Assert.Equal((int?)20, mapping.BrightnessDimLevelOverride);
         Assert.Equal(PluginConfiguration.PauseBehaviorKeepLastColors, mapping.PauseBehaviorOverride);
+        Assert.Equal((bool?)false, mapping.RestoreLightStateOverride);
         Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)115, mapping.RedGainOverride);
         Assert.Equal((int?)95, mapping.GreenGainOverride);

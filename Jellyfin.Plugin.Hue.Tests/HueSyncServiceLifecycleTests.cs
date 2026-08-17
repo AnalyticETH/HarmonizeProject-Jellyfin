@@ -38,6 +38,7 @@ public sealed class HueSyncServiceLifecycleTests
         SetPrivateField(service, "_currentSamplingBreadthPercent", 25);
         SetPrivateField(service, "_currentSamplingMode", PluginConfiguration.SamplingModeCenterWeighted);
         SetPrivateField(service, "_currentColorSmoothingPercent", 40);
+        SetPrivateField(service, "_activeRestoreLightState", true);
         SetPrivateField(service, "_currentItemName", "Feature film");
         SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-3));
         SetPrivateField(service, "_runtimeState", "Syncing");
@@ -55,6 +56,7 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal(25, status.ActiveSamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, status.ActiveSamplingMode);
         Assert.Equal(40, status.ActiveColorSmoothingPercent);
+        Assert.Equal((bool?)true, status.ActiveRestoreLightState);
         Assert.Equal("192.168.1.100", status.ActiveBridgeIp);
         Assert.Equal("area-id", status.ActiveEntertainmentAreaId);
         Assert.True(status.SyncDurationSeconds >= 2);
@@ -389,6 +391,37 @@ public sealed class HueSyncServiceLifecycleTests
 
         Assert.Null(GetPrivateField(service, "_savedLightStates"));
         Assert.Equal("Idle", service.GetRuntimeStatus().State);
+        Assert.Equal("Sync service stopped.", service.GetRuntimeStatus().Message);
+    }
+
+    [Fact]
+    public async Task StopAsync_UsesActiveRestoreOverrideWhenGlobalRestorationIsDisabled()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        Plugin.Instance!.Configuration.RestoreLightState = false;
+        Plugin.Instance.Configuration.UseCinemaMode = false;
+        SetPrivateField(service, "_activeRestoreLightState", true);
+        SetPrivateField(service, "_savedLightStates", new List<HueClient.LightState>
+        {
+            new("light-id", true, 50, 0.1, 0.2)
+        });
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        var stopTask = service.StopAsync(CancellationToken.None);
+        await handler.RestorationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await stopTask;
+
+        Assert.Null(GetPrivateField(service, "_savedLightStates"));
+        Assert.Null(GetPrivateField(service, "_activeRestoreLightState"));
         Assert.Equal("Sync service stopped.", service.GetRuntimeStatus().Message);
     }
 

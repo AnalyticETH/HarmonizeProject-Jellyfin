@@ -62,6 +62,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Color Sampling Mode** | Average (default), center-weighted, or center-pixel sampling for balancing ambient stability against detail. |
 | **Temporal Color Smoothing** | Blend the previous frame into new colors to reduce flicker (0-90%, default: 0%). Higher values create smoother but slower transitions. |
 | **Performance Profile** | Target FPS, frame resolution, video fit, deinterlacing, sampling breadth/mode, and smoothing can be overridden per user while blank fields inherit global settings. |
+| **Restore Light State After Sync** | Save and restore each light's original state after playback. Per-user mappings can override this policy while blank fields inherit the global setting. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
 | **RGB Channel Gains** | Independently scale red, green, and blue channels from 50-200% (default: 100%) for room-specific white-balance correction before saturation and hue processing. |
 | **Output Brightness** | Final 0-100% brightness scale applied after boost, saturation, and hue shift (default: 100%). Use it to cap room brightness without changing color balance. |
@@ -98,12 +99,13 @@ server and are not displayed in the browser. Leave those fields blank to keep th
 enter replacement keys to rotate them. The mapping list reports credential presence without
 revealing the key values.
 
-Each mapping can also define optional per-user color and performance profiles. Color fields cover
+Each mapping can also define optional per-user color, performance, and restoration profiles. Color fields cover
 Brightness Boost, RGB Channel Gains, Color Saturation, Hue Shift, and Output Brightness. Performance
 fields cover Target FPS, Frame Resolution, Video Fit, Deinterlacing, Sampling Breadth/Mode, and
-Temporal Color Smoothing. Leave any profile field blank to inherit the current global setting;
-populated overrides apply only to that user's playback, including when the mapping uses the default
-bridge.
+Temporal Color Smoothing. The restoration profile chooses whether that user captures and restores
+the original per-light state or uses the cinema/default cleanup behavior. Leave any profile field
+blank to inherit the current global setting; populated overrides apply only to that user's playback,
+including when the mapping uses the default bridge.
 
 Mappings can also override Cinema Mode, its dim level, and pause behavior. Choose **Inherit global
 setting** to keep the defaults, or enable/disable cinema mode, set a separate 0-100% dim level, and
@@ -118,11 +120,11 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
 | `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration. |
-| `GET /HueSync/Status` | Read sanitized runtime state, active target/performance profile, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
+| `GET /HueSync/Status` | Read sanitized runtime state, active target/performance/restoration profile, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings without serializing per-user mappings to the configuration page. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
-| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color/performance-profile overrides; GET responses redact stored credentials. |
+| `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color/performance/restoration-profile overrides; GET responses redact stored credentials. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 
 ### Generating Hue Credentials (Manual Fallback)
@@ -199,7 +201,7 @@ docker run --rm -v "$PWD:/src" -v /tmp/hue-nuget:/root/.nuget/packages \
 The test suite covers:
 - **Color Processing**: RGB/HSL conversion, sampling, and round-trip conversions
 - **Configuration Validation**: All plugin settings and edge cases
-- **Per-user Profiles**: Playback, color, performance inheritance, validation, and API persistence
+- **Per-user Profiles**: Playback, color, performance, restoration inheritance, validation, and API persistence
 - **HueClient Integration**: REST API parsing, error handling, and retry logic
 - **Bridge discovery API**: Authenticated bridge discovery with local-address filtering
 - **HueStreamer Protocol**: Binary packet construction, color encoding, and coordinate mapping
@@ -282,7 +284,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.32 (Current)
+### Version 1.5.33 (Current)
+- **Per-user light-state restoration**: Choose whether each mapped user captures/restores original light state or follows the cinema/default cleanup behavior; blank fields inherit the global setting and the active policy is reported in Live Sync Status
+
+### Version 1.5.32
 - **Per-user performance profiles**: Override capture FPS, frame resolution, video fit, deinterlacing, sampling, and temporal smoothing per mapping while preserving global inheritance and reporting the active session profile
 
 ### Version 1.5.31

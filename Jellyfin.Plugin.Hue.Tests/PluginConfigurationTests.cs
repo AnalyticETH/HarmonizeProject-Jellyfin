@@ -1163,7 +1163,8 @@ public class PluginConfigurationTests
                     UserId = userId.ToString().ToUpperInvariant(),
                     UseCinemaModeOverride = false,
                     BrightnessDimLevelOverride = 10,
-                    PauseBehaviorOverride = PluginConfiguration.PauseBehaviorRestoreLightState
+                    PauseBehaviorOverride = PluginConfiguration.PauseBehaviorRestoreLightState,
+                    RestoreLightStateOverride = false
                 }
             }
         };
@@ -1175,9 +1176,11 @@ public class PluginConfigurationTests
 
         Assert.Equal((bool?)false, overrides.UseCinemaMode);
         Assert.Equal((int?)10, overrides.BrightnessDimLevel);
+        Assert.Equal((bool?)false, overrides.RestoreLightState);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, pauseBehaviorOverride);
         Assert.Null(unmappedOverrides.UseCinemaMode);
         Assert.Null(unmappedOverrides.BrightnessDimLevel);
+        Assert.Null(unmappedOverrides.RestoreLightState);
         Assert.Null(unmappedPauseBehaviorOverride);
     }
 

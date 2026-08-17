@@ -263,6 +263,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveSamplingBreadthPercent = runtime?.ActiveSamplingBreadthPercent,
                 ActiveSamplingMode = runtime?.ActiveSamplingMode,
                 ActiveColorSmoothingPercent = runtime?.ActiveColorSmoothingPercent,
+                ActiveRestoreLightState = runtime?.ActiveRestoreLightState,
                 FramesProcessed = runtime?.FramesProcessed ?? 0,
                 CanStopSync = runtime?.CanStopSync ?? false,
                 IsFfmpegHealthy = runtime?.IsFfmpegHealthy ?? false,
@@ -353,7 +354,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Gets all user-to-bridge mappings without returning stored credentials. Optional
-        /// per-user playback, color, and performance profile values are included because they are not secret.
+        /// per-user playback, color, performance, and restoration profile values are included because they are not secret.
         /// </summary>
         [HttpGet("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -369,7 +370,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
         /// synchronization without storing bridge credentials and can override playback, color processing,
-        /// or capture-performance settings.
+        /// capture-performance, or light-restoration settings.
         /// </summary>
         [HttpPost("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -609,7 +610,7 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Non-secret representation of a per-user bridge mapping, playback, color, and performance profiles.
+    /// Non-secret representation of a per-user bridge mapping, playback, color, performance, and restoration profiles.
     /// </summary>
     public sealed class UserBridgeMappingSummary
     {
@@ -624,6 +625,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool? UseCinemaModeOverride { get; set; }
         public int? BrightnessDimLevelOverride { get; set; }
         public string? PauseBehaviorOverride { get; set; }
+        public bool? RestoreLightStateOverride { get; set; }
         public int? BrightnessBoostOverride { get; set; }
         public int? RedGainOverride { get; set; }
         public int? GreenGainOverride { get; set; }
@@ -654,6 +656,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 UseCinemaModeOverride = mapping.UseCinemaModeOverride,
                 BrightnessDimLevelOverride = mapping.BrightnessDimLevelOverride,
                 PauseBehaviorOverride = mapping.PauseBehaviorOverride,
+                RestoreLightStateOverride = mapping.RestoreLightStateOverride,
                 BrightnessBoostOverride = mapping.BrightnessBoostOverride,
                 RedGainOverride = mapping.RedGainOverride,
                 GreenGainOverride = mapping.GreenGainOverride,
@@ -766,6 +769,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ActiveSamplingBreadthPercent { get; set; }
         public string? ActiveSamplingMode { get; set; }
         public int? ActiveColorSmoothingPercent { get; set; }
+        public bool? ActiveRestoreLightState { get; set; }
         public long FramesProcessed { get; set; }
         public bool CanStopSync { get; set; }
         public bool IsFfmpegHealthy { get; set; }

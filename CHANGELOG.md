@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.33] - 2026-08-17
+
+### Added
+- Optional per-user light-state restoration policies with global inheritance
+- Active restoration-policy diagnostics in sanitized runtime status responses and the configuration page
+- Regression coverage for restoration-policy resolution, persistence, lifecycle behavior, and status/API wiring
+
+### Changed
+- Per-user restoration policy is captured at playback startup so pause, stop, and terminal cleanup use a consistent light-state strategy
+
 ## [1.5.32] - 2026-08-17
 
 ### Added

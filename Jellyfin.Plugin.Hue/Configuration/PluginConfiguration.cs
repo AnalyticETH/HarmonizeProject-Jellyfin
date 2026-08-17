@@ -5,7 +5,7 @@ using MediaBrowser.Model.Plugins;
 namespace Jellyfin.Plugin.Hue.Configuration
 {
     /// <summary>
-    /// Per-user bridge, entertainment area, and optional playback, color, and performance profile mapping
+    /// Per-user bridge, entertainment area, and optional playback, color, performance, and restoration profile mapping
     /// </summary>
     public class UserBridgeMapping
     {
@@ -24,6 +24,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool? UseCinemaModeOverride { get; set; }
         public int? BrightnessDimLevelOverride { get; set; }
         public string? PauseBehaviorOverride { get; set; }
+        public bool? RestoreLightStateOverride { get; set; }
 
         // Optional per-user color profile overrides. Null values inherit the global setting.
         public int? BrightnessBoostOverride { get; set; }
@@ -154,16 +155,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
-        /// Gets optional per-user cinema-mode overrides. Null values mean the global plugin
-        /// setting should be used for that component.
+        /// Gets optional per-user playback and restoration overrides. Null values mean the global
+        /// plugin setting should be used for that component.
         /// </summary>
-        public (bool? UseCinemaMode, int? BrightnessDimLevel) GetPlaybackOverridesForUser(Guid userId)
+        public (
+            bool? UseCinemaMode,
+            int? BrightnessDimLevel,
+            bool? RestoreLightState) GetPlaybackOverridesForUser(Guid userId)
         {
             var userIdText = userId.ToString();
             var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
             return mapping == null
-                ? (null, null)
-                : (mapping.UseCinemaModeOverride, mapping.BrightnessDimLevelOverride);
+                ? (null, null, null)
+                : (mapping.UseCinemaModeOverride, mapping.BrightnessDimLevelOverride, mapping.RestoreLightStateOverride);
         }
 
         /// <summary>

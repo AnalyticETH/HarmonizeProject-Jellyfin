@@ -23,6 +23,7 @@
                             <div><strong>Deinterlace:</strong> <span id="runtimeDeinterlaceMode">—</span></div>
                             <div><strong>Capture profile:</strong> <span id="runtimeCaptureProfile">—</span></div>
                             <div><strong>Sampling:</strong> <span id="runtimeSamplingProfile">—</span></div>
+                            <div><strong>Restoration:</strong> <span id="runtimeRestorationProfile">—</span></div>
                         </div>
                         <div style="flex: 1 1 280px;">
                             <div><strong>Health:</strong> <span id="runtimeHealth">—</span></div>
@@ -273,6 +274,16 @@
                                         <option value="RestoreLightState">Restore original light state</option>
                                     </select>
                                     <div class="fieldDescription">Choose whether pausing this user's playback keeps the last Hue colors or restores the captured light state.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingRestoreLightStateOverride">Light State Restoration Override</label>
+                                    <select id="mappingRestoreLightStateOverride" is="emby-select">
+                                        <option value="">Inherit global setting</option>
+                                        <option value="true">Restore saved light state</option>
+                                        <option value="false">Use cinema/default restoration</option>
+                                    </select>
+                                    <div class="fieldDescription">Choose whether this user's playback captures and restores the original per-light state. The global setting remains the fallback.</div>
                                 </div>
                             </fieldset>
 
@@ -870,6 +881,7 @@
                         var samplingBreadth = HueConfigurationPage.readStatusField(status, "ActiveSamplingBreadthPercent", null);
                         var samplingMode = HueConfigurationPage.readStatusField(status, "ActiveSamplingMode", null);
                         var colorSmoothing = HueConfigurationPage.readStatusField(status, "ActiveColorSmoothingPercent", null);
+                        var restoreLightState = HueConfigurationPage.readStatusField(status, "ActiveRestoreLightState", null);
                         var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
                         var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
                         var frames = HueConfigurationPage.readStatusField(status, "FramesProcessed", 0);
@@ -895,6 +907,9 @@
                         page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
                             ? "—"
                             : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
+                        page.querySelector('#runtimeRestorationProfile').textContent = restoreLightState == null
+                            ? "—"
+                            : (restoreLightState ? "Saved light state" : "Cinema/default restoration");
                         page.querySelector('#runtimeTarget').textContent = activeBridge && activeArea && activeBridge !== "—"
                             ? activeBridge + " / " + activeArea
                             : "—";
@@ -1168,7 +1183,8 @@
                             var hasPlaybackProfile = [
                                 getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride'),
                                 getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride'),
-                                getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride')
+                                getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride'),
+                                getMappingValue('RestoreLightStateOverride', 'restoreLightStateOverride')
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
@@ -1224,6 +1240,7 @@
                         '#mappingUseCinemaModeOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
+                        '#mappingRestoreLightStateOverride',
                         '#mappingBrightnessBoostOverride',
                         '#mappingRedGainOverride',
                         '#mappingGreenGainOverride',
@@ -1595,6 +1612,7 @@
                         UseCinemaModeOverride: readOptionalBoolean('mappingUseCinemaModeOverride'),
                         BrightnessDimLevelOverride: readOptionalNumber('mappingBrightnessDimLevelOverride'),
                         PauseBehaviorOverride: readOptionalString('mappingPauseBehaviorOverride'),
+                        RestoreLightStateOverride: readOptionalBoolean('mappingRestoreLightStateOverride'),
                         BrightnessBoostOverride: readOptionalNumber('mappingBrightnessBoostOverride'),
                         RedGainOverride: readOptionalNumber('mappingRedGainOverride'),
                         GreenGainOverride: readOptionalNumber('mappingGreenGainOverride'),
@@ -1663,6 +1681,7 @@
                         '#mappingUseCinemaModeOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
+                        '#mappingRestoreLightStateOverride',
                         '#mappingBrightnessBoostOverride',
                         '#mappingRedGainOverride',
                         '#mappingGreenGainOverride',
@@ -1728,6 +1747,7 @@
                         var useCinemaModeOverride = getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride');
                         var brightnessDimLevelOverride = getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride');
                         var pauseBehaviorOverride = getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride');
+                        var restoreLightStateOverride = getMappingValue('RestoreLightStateOverride', 'restoreLightStateOverride');
                         var brightnessBoostOverride = getMappingValue('BrightnessBoostOverride', 'brightnessBoostOverride');
                         var redGainOverride = getMappingValue('RedGainOverride', 'redGainOverride');
                         var greenGainOverride = getMappingValue('GreenGainOverride', 'greenGainOverride');
@@ -1774,6 +1794,7 @@
                         page.querySelector('#mappingUseCinemaModeOverride').value = useCinemaModeOverride == null ? "" : String(useCinemaModeOverride).toLowerCase();
                         page.querySelector('#mappingBrightnessDimLevelOverride').value = brightnessDimLevelOverride == null ? "" : brightnessDimLevelOverride;
                         page.querySelector('#mappingPauseBehaviorOverride').value = pauseBehaviorOverride == null ? "" : pauseBehaviorOverride;
+                        page.querySelector('#mappingRestoreLightStateOverride').value = restoreLightStateOverride == null ? "" : String(restoreLightStateOverride).toLowerCase();
                         page.querySelector('#mappingBrightnessBoostOverride').value = brightnessBoostOverride == null ? "" : brightnessBoostOverride;
                         page.querySelector('#mappingRedGainOverride').value = redGainOverride == null ? "" : redGainOverride;
                         page.querySelector('#mappingGreenGainOverride').value = greenGainOverride == null ? "" : greenGainOverride;

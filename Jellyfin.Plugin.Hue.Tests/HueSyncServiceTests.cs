@@ -36,13 +36,15 @@ public sealed class HueSyncServiceTests
         {
             UseCinemaMode = true,
             BrightnessDimLevel = 40,
+            RestoreLightState = true,
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
                 {
                     UserId = userId.ToString(),
                     UseCinemaModeOverride = false,
-                    BrightnessDimLevelOverride = 10
+                    BrightnessDimLevelOverride = 10,
+                    RestoreLightStateOverride = false
                 }
             }
         };
@@ -52,8 +54,10 @@ public sealed class HueSyncServiceTests
 
         Assert.False(effective.UseCinemaMode);
         Assert.Equal(10, effective.BrightnessDimLevel);
+        Assert.False(effective.RestoreLightState);
         Assert.True(fallback.UseCinemaMode);
         Assert.Equal(40, fallback.BrightnessDimLevel);
+        Assert.True(fallback.RestoreLightState);
     }
 
     [Fact]

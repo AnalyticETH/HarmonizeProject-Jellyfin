@@ -78,6 +78,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _currentSamplingMode;
         private int? _currentColorSmoothingPercent;
         private bool? _activeUseCinemaMode;
+        private bool? _activeRestoreLightState;
         private string? _activePauseBehavior;
         private string? _manuallyStoppedPlaySessionId;
         private string _runtimeState = "Idle";
@@ -230,6 +231,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     lock (_syncLock)
                     {
                         _activeUseCinemaMode = null;
+                        _activeRestoreLightState = null;
                         _activePauseBehavior = null;
                     }
 
@@ -306,6 +308,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int? currentSamplingBreadthPercent;
             string? currentSamplingMode;
             int? currentColorSmoothingPercent;
+            bool? activeRestoreLightState;
             string state;
             string message;
             string? lastError;
@@ -324,6 +327,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentSamplingBreadthPercent = _currentSamplingBreadthPercent;
                 currentSamplingMode = _currentSamplingMode;
                 currentColorSmoothingPercent = _currentColorSmoothingPercent;
+                activeRestoreLightState = _activeRestoreLightState;
                 state = _runtimeState;
                 message = _runtimeMessage;
                 lastError = _lastError;
@@ -352,6 +356,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveSamplingBreadthPercent = isSyncing ? currentSamplingBreadthPercent : null,
                 ActiveSamplingMode = isSyncing ? currentSamplingMode : null,
                 ActiveColorSmoothingPercent = isSyncing ? currentColorSmoothingPercent : null,
+                ActiveRestoreLightState = isSyncing ? activeRestoreLightState : null,
                 ActiveBridgeIp = isSyncing ? bridgeConfig?.BridgeIp : null,
                 ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
                 IsSyncing = isSyncing,
@@ -895,7 +900,10 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        internal static (bool UseCinemaMode, int BrightnessDimLevel) ResolvePlaybackSettings(
+        internal static (
+            bool UseCinemaMode,
+            int BrightnessDimLevel,
+            bool RestoreLightState) ResolvePlaybackSettings(
             PluginConfiguration config,
             Guid userId)
         {
@@ -903,7 +911,8 @@ namespace Jellyfin.Plugin.Hue.Service
             var overrides = config.GetPlaybackOverridesForUser(userId);
             return (
                 overrides.UseCinemaMode ?? config.UseCinemaMode,
-                Math.Clamp(overrides.BrightnessDimLevel ?? config.BrightnessDimLevel, 0, 100));
+                Math.Clamp(overrides.BrightnessDimLevel ?? config.BrightnessDimLevel, 0, 100),
+                overrides.RestoreLightState ?? config.RestoreLightState);
         }
 
         internal static string ResolvePauseBehavior(PluginConfiguration config, Guid userId)
@@ -1690,7 +1699,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
-            var (useCinemaMode, brightnessDimLevel) = ResolvePlaybackSettings(config, userId);
+            var (useCinemaMode, brightnessDimLevel, restoreLightState) = ResolvePlaybackSettings(config, userId);
             var pauseBehavior = ResolvePauseBehavior(config, userId);
             var performanceSettings = ResolvePerformanceSettings(config, userId);
 
@@ -1752,6 +1761,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentSamplingMode = performanceSettings.SamplingMode;
                     _currentColorSmoothingPercent = performanceSettings.ColorSmoothingPercent;
                     _activeUseCinemaMode = useCinemaMode;
+                    _activeRestoreLightState = restoreLightState;
                     _activePauseBehavior = pauseBehavior;
                     syncStatePublished = true;
                 }
@@ -1779,7 +1789,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 // Save current light states if configured
                 var shouldCaptureLightState = ShouldCaptureLightState(
-                    config.RestoreLightState,
+                    restoreLightState,
                     _savedLightStates != null,
                     _savedLightStatePlaySessionId,
                     e.PlaySessionId);
@@ -1953,14 +1963,16 @@ namespace Jellyfin.Plugin.Hue.Service
             bool clearCurrentItem = true)
         {
             bool effectiveUseCinemaMode;
+            bool effectiveRestoreLightState;
             lock (_syncLock)
             {
                 effectiveUseCinemaMode = _activeUseCinemaMode ?? config?.UseCinemaMode ?? false;
+                effectiveRestoreLightState = _activeRestoreLightState ?? config?.RestoreLightState ?? true;
             }
 
             try
             {
-                if (config != null && config.SyncEnabled && config.RestoreLightState && savedLightStates != null && bridgeConfig != null)
+                if (config != null && config.SyncEnabled && effectiveRestoreLightState && savedLightStates != null && bridgeConfig != null)
                 {
                     _logger.LogInformation("Restoring saved light states");
                     await _hueClient.RestoreLightStates(bridgeConfig.Value.BridgeIp, bridgeConfig.Value.AppKey, savedLightStates);
@@ -2002,6 +2014,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 lock (_syncLock)
                 {
                     _activeUseCinemaMode = null;
+                    _activeRestoreLightState = null;
                     _activePauseBehavior = null;
                 }
                 if (bridgeConfig != null)
@@ -2156,6 +2169,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveSamplingBreadthPercent { get; init; }
         public string? ActiveSamplingMode { get; init; }
         public int? ActiveColorSmoothingPercent { get; init; }
+        public bool? ActiveRestoreLightState { get; init; }
         public string? ActiveBridgeIp { get; init; }
         public string? ActiveEntertainmentAreaId { get; init; }
         public bool IsSyncing { get; init; }
