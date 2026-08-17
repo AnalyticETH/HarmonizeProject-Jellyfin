@@ -161,6 +161,18 @@
                     </fieldset>
 
                     <fieldset class="verticalSection">
+                        <legend>Playback Pause Behavior</legend>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pauseBehavior">When Playback Is Paused</label>
+                            <select id="pauseBehavior" name="pauseBehavior" is="emby-select">
+                                <option value="KeepLastColors">Keep last synced colors</option>
+                                <option value="RestoreLightState">Restore original light state</option>
+                            </select>
+                            <div class="fieldDescription">Choose whether pausing playback leaves the last Hue colors in place or restores the lights captured when playback started. Sync resumes automatically when playback continues.</div>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="verticalSection">
                         <legend>Per-User Bridge Mappings</legend>
                         <div class="fieldDescription" style="margin-bottom: 1em;">
                             Map individual Jellyfin users to specific Hue bridges and entertainment areas.
@@ -335,6 +347,7 @@
                         page.querySelector('#syncEnabled').checked = getConfigValue('SyncEnabled', false);
                         page.querySelector('#useCinemaMode').checked = getConfigValue('UseCinemaMode', true);
                         page.querySelector('#brightnessDimLevel').value = getConfigValue('BrightnessDimLevel', 30);
+                        page.querySelector('#pauseBehavior').value = getConfigValue('PauseBehavior', 'KeepLastColors');
                         page.querySelector('#restoreLightState').checked = getConfigValue('RestoreLightState', true);
                         page.querySelector('#brightnessBoost').value = getConfigValue('BrightnessBoost', 100);
                         page.querySelector('#colorSaturation').value = getConfigValue('ColorSaturation', 100);
@@ -370,6 +383,7 @@
                         SyncEnabled: page.querySelector('#syncEnabled').checked,
                         UseCinemaMode: page.querySelector('#useCinemaMode').checked,
                         BrightnessDimLevel: parseNumberOrDefault('#brightnessDimLevel', 30),
+                        PauseBehavior: page.querySelector('#pauseBehavior').value,
                         RestoreLightState: page.querySelector('#restoreLightState').checked,
                         BrightnessBoost: parseNumberOrDefault('#brightnessBoost', 100),
                         ColorSaturation: parseNumberOrDefault('#colorSaturation', 100),

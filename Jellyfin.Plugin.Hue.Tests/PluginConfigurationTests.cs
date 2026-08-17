@@ -428,7 +428,49 @@ public class PluginConfigurationTests
         Assert.Equal(10, config.ColorChangeThreshold);
         Assert.Equal(3, config.NetworkRetryAttempts);
         Assert.Equal(5, config.FfmpegStallTimeoutSeconds);
+        Assert.Equal(PluginConfiguration.PauseBehaviorKeepLastColors, config.PauseBehavior);
         Assert.True(new UserBridgeMapping().SyncEnabled);
+    }
+
+    [Theory]
+    [InlineData("Unsupported")]
+    [InlineData("")]
+    public void Validate_WhenPauseBehaviorIsInvalid_ReturnsError(string pauseBehavior)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            PauseBehavior = pauseBehavior
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Pause behavior must be KeepLastColors or RestoreLightState", errors);
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.PauseBehaviorKeepLastColors)]
+    [InlineData(PluginConfiguration.PauseBehaviorRestoreLightState)]
+    [InlineData("restorelightstate")]
+    public void Validate_WhenPauseBehaviorIsValid_ReturnsNoPauseError(string pauseBehavior)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            PauseBehavior = pauseBehavior
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("Pause behavior must be KeepLastColors or RestoreLightState", errors);
     }
 
     [Theory]

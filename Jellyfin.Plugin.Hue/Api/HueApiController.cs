@@ -484,6 +484,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public bool UseCinemaMode { get; set; } = true;
         public int BrightnessDimLevel { get; set; } = 30;
+        public string PauseBehavior { get; set; } = PluginConfiguration.PauseBehaviorKeepLastColors;
         public int TargetFps { get; set; } = 20;
         public int SamplingBreadthPercent { get; set; } = 15;
         public int ColorSmoothingPercent { get; set; } = 0;
@@ -508,6 +509,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 EntertainmentAreaId = config.EntertainmentAreaId,
                 UseCinemaMode = config.UseCinemaMode,
                 BrightnessDimLevel = config.BrightnessDimLevel,
+                PauseBehavior = config.PauseBehavior,
                 TargetFps = config.TargetFps,
                 SamplingBreadthPercent = config.SamplingBreadthPercent,
                 ColorSmoothingPercent = config.ColorSmoothingPercent,
@@ -532,6 +534,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.EntertainmentAreaId = EntertainmentAreaId?.Trim() ?? string.Empty;
             config.UseCinemaMode = UseCinemaMode;
             config.BrightnessDimLevel = BrightnessDimLevel;
+            config.PauseBehavior = PauseBehavior?.Trim() ?? PluginConfiguration.PauseBehaviorKeepLastColors;
             config.TargetFps = TargetFps;
             config.SamplingBreadthPercent = SamplingBreadthPercent;
             config.ColorSmoothingPercent = ColorSmoothingPercent;

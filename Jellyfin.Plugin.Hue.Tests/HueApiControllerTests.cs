@@ -311,6 +311,7 @@ public sealed class HueApiControllerTests : IDisposable
             SamplingBreadthPercent = 25,
             ColorSmoothingPercent = 65,
             NetworkRetryAttempts = 6,
+            PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -330,6 +331,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(25, settings.SamplingBreadthPercent);
         Assert.Equal(65, settings.ColorSmoothingPercent);
         Assert.Equal(6, settings.NetworkRetryAttempts);
+        Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, settings.PauseBehavior);
         var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("UserMappings", serialized, StringComparison.OrdinalIgnoreCase);
@@ -357,7 +359,8 @@ public sealed class HueApiControllerTests : IDisposable
             TargetFps = 30,
             SamplingBreadthPercent = 25,
             ColorSmoothingPercent = 40,
-            NetworkRetryAttempts = 4
+            NetworkRetryAttempts = 4,
+            PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState
         });
 
         Assert.IsType<OkObjectResult>(action.Result);
@@ -365,6 +368,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(25, configuration.SamplingBreadthPercent);
         Assert.Equal(40, configuration.ColorSmoothingPercent);
         Assert.Equal(4, configuration.NetworkRetryAttempts);
+        Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, configuration.PauseBehavior);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);

@@ -560,8 +560,18 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 }
 
-                _logger.LogInformation("Playback paused, stopping light sync");
-                SetRuntimeStatus("Paused", "Playback paused; lights are being restored.");
+                var pauseRestoresLights = string.Equals(
+                    Plugin.Instance?.Configuration?.PauseBehavior,
+                    PluginConfiguration.PauseBehaviorRestoreLightState,
+                    StringComparison.OrdinalIgnoreCase);
+                _logger.LogInformation(
+                    "Playback paused, stopping light sync; pause behavior is {0}",
+                    pauseRestoresLights ? "restore" : "keep-last-colors");
+                SetRuntimeStatus(
+                    "Paused",
+                    pauseRestoresLights
+                        ? "Playback paused; lights are being restored."
+                        : "Playback paused; keeping the last synced colors.");
                 Task pauseCleanup;
                 lock (_syncLock)
                 {
@@ -632,19 +642,35 @@ namespace Jellyfin.Plugin.Hue.Service
                     }
                 }
 
+                var config = Plugin.Instance?.Configuration;
+                var restoreOnPause = string.Equals(
+                    config?.PauseBehavior,
+                    PluginConfiguration.PauseBehaviorRestoreLightState,
+                    StringComparison.OrdinalIgnoreCase);
                 var bridgeConfig = _currentBridgeConfig;
+                var savedLightStates = restoreOnPause ? _savedLightStates : null;
                 StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId);
 
-                if (bridgeConfig != null)
+                if (restoreOnPause)
+                {
+                    _currentBridgeConfig = null;
+                    await RestoreAndDeactivateAsync(
+                        config,
+                        bridgeConfig,
+                        savedLightStates,
+                        publishIdleStatus: false,
+                        clearCurrentItem: false).ConfigureAwait(false);
+                    SetRuntimeStatus("Paused", "Playback paused; original light state restored.");
+                }
+                else if (bridgeConfig != null)
                 {
                     await _hueClient.StopEntertainmentArea(
                         bridgeConfig.Value.BridgeIp,
                         bridgeConfig.Value.AppKey,
                         bridgeConfig.Value.AreaId).ConfigureAwait(false);
                     _bridgeAreaDeactivated = true;
+                    SetRuntimeStatus("Paused", "Playback paused; waiting to resume.");
                 }
-
-                SetRuntimeStatus("Paused", "Playback paused; waiting to resume.");
             }
             finally
             {
@@ -1539,7 +1565,9 @@ namespace Jellyfin.Plugin.Hue.Service
         private async Task RestoreAndDeactivateAsync(
             PluginConfiguration? config,
             (string BridgeIp, string AppKey, string ClientKey, string AreaId)? bridgeConfig,
-            List<HueClient.LightState>? savedLightStates)
+            List<HueClient.LightState>? savedLightStates,
+            bool publishIdleStatus = true,
+            bool clearCurrentItem = true)
         {
             try
             {
@@ -1566,13 +1594,17 @@ namespace Jellyfin.Plugin.Hue.Service
             }
             finally
             {
-                CurrentItemName = null;
-                lock (_syncLock)
+                if (clearCurrentItem)
+                    CurrentItemName = null;
+                if (publishIdleStatus)
                 {
-                    if (!string.Equals(_runtimeState, "Error", StringComparison.Ordinal))
+                    lock (_syncLock)
                     {
-                        _runtimeState = "Idle";
-                        _runtimeMessage = "Playback stopped.";
+                        if (!string.Equals(_runtimeState, "Error", StringComparison.Ordinal))
+                        {
+                            _runtimeState = "Idle";
+                            _runtimeMessage = "Playback stopped.";
+                        }
                     }
                 }
                 if (bridgeConfig != null)

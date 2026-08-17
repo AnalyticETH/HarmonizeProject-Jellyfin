@@ -485,6 +485,10 @@ public sealed class HueSyncServiceLifecycleTests
         var progressMethod = typeof(HueSyncService).GetMethod("OnPlaybackProgress", BindingFlags.Instance | BindingFlags.NonPublic)!;
         progressMethod.Invoke(service, new object?[] { null, CreateProgress("session-a", isPaused: true) });
         await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForRuntimeStatusAsync(
+            service,
+            "Paused",
+            "Playback paused; waiting to resume.");
 
         progressMethod.Invoke(service, new object?[] { null, CreateProgress("session-a") });
         Assert.False(handler.FirstConfigurationRequest.Task.IsCompleted);
@@ -492,6 +496,46 @@ public sealed class HueSyncServiceLifecycleTests
         handler.ReleaseStopRequest();
         handler.ReleaseFirstConfiguration();
         await handler.FirstConfigurationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PlaybackPause_WithRestoreBehaviorRestoresSavedStateImmediately()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        Plugin.Instance!.Configuration.RestoreLightState = true;
+        Plugin.Instance.Configuration.PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState;
+        SetPrivateField(service, "_savedLightStates", new List<HueClient.LightState>
+        {
+            new("light-id", true, 50, 0.1, 0.2)
+        });
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+        SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-10));
+        SetPrivateField(service, "_currentItemName", "Test item");
+
+        var progressMethod = typeof(HueSyncService).GetMethod("OnPlaybackProgress", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        progressMethod.Invoke(service, new object?[] { null, CreateProgress("session-a", isPaused: true) });
+
+        await handler.RestorationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForRuntimeStatusAsync(
+            service,
+            "Paused",
+            "Playback paused; original light state restored.");
+
+        Assert.Null(GetPrivateField(service, "_savedLightStates"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+        Assert.Equal("Test item", service.GetRuntimeStatus().CurrentItem);
 
         await service.StopAsync(CancellationToken.None);
     }

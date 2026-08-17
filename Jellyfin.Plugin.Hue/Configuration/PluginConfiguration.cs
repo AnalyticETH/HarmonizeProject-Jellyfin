@@ -26,6 +26,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// </summary>
     public class PluginConfiguration : BasePluginConfiguration
     {
+        public const string PauseBehaviorKeepLastColors = "KeepLastColors";
+        public const string PauseBehaviorRestoreLightState = "RestoreLightState";
+
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
         private const int MinBrightnessDimLevel = 0;
@@ -58,6 +61,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
         public bool UseCinemaMode { get; set; } = true; // Dimming behavior
         public int BrightnessDimLevel { get; set; } = 30;
+        public string PauseBehavior { get; set; } = PauseBehaviorKeepLastColors;
         public int TargetFps { get; set; } = 20;
         public int SamplingBreadthPercent { get; set; } = 15;
         public int ColorSmoothingPercent { get; set; } = 0;
@@ -134,6 +138,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (TargetFps < MinTargetFps || TargetFps > MaxTargetFps)
                     errors.Add("Target FPS must be between 1 and 60");
+
+                if (!string.Equals(PauseBehavior, PauseBehaviorKeepLastColors, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(PauseBehavior, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase))
+                    errors.Add("Pause behavior must be KeepLastColors or RestoreLightState");
 
                 if (SamplingBreadthPercent < MinSamplingBreadthPercent ||
                     SamplingBreadthPercent > MaxSamplingBreadthPercent)
