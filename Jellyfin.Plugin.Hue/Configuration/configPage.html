@@ -80,7 +80,7 @@
                 </fieldset>
                 <fieldset class="verticalSection" id="configurationPortabilitySection">
                     <legend>Backup and Restore</legend>
-                    <div class="fieldDescription" style="margin-bottom: 0.75em;">Export your settings, per-user profiles, and saved color scenes as a credential-safe JSON document. Stored bridge keys are never included; importing on this server preserves matching keys, while a migration to another server requires entering replacement keys in the import document or configuration page.</div>
+                    <div class="fieldDescription" style="margin-bottom: 0.75em;">Export your settings, per-user profiles, and saved color scenes as a credential-safe JSON document. Stored bridge keys are never included; importing on this server preserves matching keys. For a migration, enter replacement keys below; they stay in this page's memory and are sent only with the atomic import request.</div>
                     <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
                         <button is="emby-button" type="button" class="raised" id="exportConfigurationBtn">
                             <span>Export Configuration</span>
@@ -91,6 +91,13 @@
                         <input id="importConfigurationFile" type="file" accept="application/json,.json" style="display: none;" />
                     </div>
                     <div id="configurationPortabilityStatus" class="fieldDescription" style="margin-top: 0.75em;">Imports are atomic and are rejected while playback is active.</div>
+                    <div id="configurationImportCredentials" style="display: none; margin-top: 1em;">
+                        <div class="fieldDescription" style="margin-bottom: 0.75em;"><strong>Migration credentials (optional)</strong><br />Leave fields blank when importing back to the same server; matching stored keys are preserved automatically. For a new server, enter the replacement App Key and Client Key for each target that needs them. Values are not added to the downloaded file or saved in the browser.</div>
+                        <div id="configurationImportCredentialFields"></div>
+                        <button is="emby-button" type="button" class="raised" id="applyConfigurationImportBtn" style="margin-top: 0.75em;">
+                            <span>Review and Import</span>
+                        </button>
+                    </div>
                 </fieldset>
                 <form class="huePluginConfigurationForm">
                     <fieldset class="verticalSection">
@@ -943,70 +950,182 @@
                         Dashboard.hideLoadingMsg();
                     });
                 },
+                clearConfigurationImport: function (page) {
+                    if (!page) return;
+                    page._hueImportDocument = null;
+                    var section = page.querySelector('#configurationImportCredentials');
+                    var fields = page.querySelector('#configurationImportCredentialFields');
+                    if (fields) fields.innerHTML = '';
+                    if (section) section.style.display = 'none';
+                },
+                readConfigurationValue: function (source, name, fallback) {
+                    if (!source) return fallback;
+                    if (typeof source[name] !== 'undefined') return source[name];
+                    var camelName = name.charAt(0).toLowerCase() + name.slice(1);
+                    return typeof source[camelName] === 'undefined' ? fallback : source[camelName];
+                },
+                writeConfigurationValue: function (source, name, value) {
+                    if (!source) return;
+                    if (Object.prototype.hasOwnProperty.call(source, name)) {
+                        source[name] = value;
+                        return;
+                    }
+                    source[name.charAt(0).toLowerCase() + name.slice(1)] = value;
+                },
+                renderConfigurationImportCredentials: function (page, importDocument) {
+                    var section = page && page.querySelector('#configurationImportCredentials');
+                    var fields = page && page.querySelector('#configurationImportCredentialFields');
+                    if (!section || !fields) return;
+
+                    var configuration = HueConfigurationPage.readConfigurationValue(importDocument, 'Configuration', null) || {};
+                    var mappings = HueConfigurationPage.readConfigurationValue(importDocument, 'UserMappings', []) || [];
+                    var html = '';
+                    var globalBridgeIp = String(HueConfigurationPage.readConfigurationValue(configuration, 'HueBridgeIp', '') || '').trim();
+                    var globalHasAppKey = !!HueConfigurationPage.readConfigurationValue(configuration, 'HasAppKey', false);
+                    var globalHasClientKey = !!HueConfigurationPage.readConfigurationValue(configuration, 'HasClientKey', false);
+
+                    if (globalBridgeIp || globalHasAppKey || globalHasClientKey) {
+                        html += '<div style="border-top: 1px solid rgba(255,255,255,.15); padding-top: .75em; margin-top: .5em;">';
+                        html += '<div><strong>Global target</strong>' + (globalBridgeIp ? ' — ' + escapeHtml(globalBridgeIp) : '') + '</div>';
+                        html += '<div class="inputContainer" style="display: flex; gap: 1em; flex-wrap: wrap;">';
+                        html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement App Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="global" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
+                        html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Client Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="global" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
+                        html += '</div></div>';
+                    }
+
+                    mappings.forEach(function (mapping, index) {
+                        mapping = mapping || {};
+                        var syncEnabled = HueConfigurationPage.readConfigurationValue(mapping, 'SyncEnabled', true) !== false;
+                        var bridgeIp = String(HueConfigurationPage.readConfigurationValue(mapping, 'HueBridgeIp', '') || '').trim();
+                        if (!syncEnabled || !bridgeIp) return;
+                        var userName = String(HueConfigurationPage.readConfigurationValue(mapping, 'UserName', '') || '').trim();
+                        var userId = String(HueConfigurationPage.readConfigurationValue(mapping, 'UserId', '') || '').trim();
+                        var label = userName || userId || ('Mapping ' + (index + 1));
+                        html += '<div style="border-top: 1px solid rgba(255,255,255,.15); padding-top: .75em; margin-top: .75em;">';
+                        html += '<div><strong>' + escapeHtml(label) + '</strong> — ' + escapeHtml(bridgeIp) + '</div>';
+                        html += '<div class="inputContainer" style="display: flex; gap: 1em; flex-wrap: wrap;">';
+                        html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement App Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="mapping" data-hue-import-index="' + index + '" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
+                        html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Client Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="mapping" data-hue-import-index="' + index + '" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
+                        html += '</div></div>';
+                    });
+
+                    fields.innerHTML = html || '<div class="fieldDescription">This export contains no custom target credentials to enter. Matching credentials, if present, will be preserved by the server.</div>';
+                    section.style.display = 'block';
+                },
+                prepareConfigurationImport: function (page, importDocument) {
+                    if (!page) return;
+                    page._hueImportDocument = importDocument;
+                    HueConfigurationPage.renderConfigurationImportCredentials(page, importDocument);
+                    var status = page.querySelector('#configurationPortabilityStatus');
+                    if (status) {
+                        status.textContent = 'Review the optional migration credential fields, then click Review and Import.';
+                        status.style.color = '';
+                    }
+                },
+                applyConfigurationImportCredentials: function (page) {
+                    var importDocument = page && page._hueImportDocument;
+                    if (!page || !importDocument) return false;
+                    var configuration = HueConfigurationPage.readConfigurationValue(importDocument, 'Configuration', null);
+                    if (!configuration) return false;
+                    var globalApp = page.querySelector('[data-hue-import-scope="global"][data-hue-import-key="app"]');
+                    var globalClient = page.querySelector('[data-hue-import-scope="global"][data-hue-import-key="client"]');
+                    var globalAppValue = globalApp ? globalApp.value.trim() : '';
+                    var globalClientValue = globalClient ? globalClient.value.trim() : '';
+                    HueConfigurationPage.writeConfigurationValue(configuration, 'HueAppKey', globalAppValue || HueConfigurationPage.readConfigurationValue(configuration, 'HueAppKey', ''));
+                    HueConfigurationPage.writeConfigurationValue(configuration, 'HueClientKey', globalClientValue || HueConfigurationPage.readConfigurationValue(configuration, 'HueClientKey', ''));
+
+                    var mappings = HueConfigurationPage.readConfigurationValue(importDocument, 'UserMappings', []) || [];
+                    page.querySelectorAll('[data-hue-import-scope="mapping"]').forEach(function (input) {
+                        var index = parseInt(input.getAttribute('data-hue-import-index'), 10);
+                        if (isNaN(index) || !mappings[index]) return;
+                        var key = input.getAttribute('data-hue-import-key');
+                        var value = input.value.trim();
+                        if (key === 'app') HueConfigurationPage.writeConfigurationValue(mappings[index], 'HueAppKey', value || HueConfigurationPage.readConfigurationValue(mappings[index], 'HueAppKey', ''));
+                        if (key === 'client') HueConfigurationPage.writeConfigurationValue(mappings[index], 'HueClientKey', value || HueConfigurationPage.readConfigurationValue(mappings[index], 'HueClientKey', ''));
+                    });
+                    importDocument.replaceMappings = true;
+                    importDocument.replaceColorPresets = true;
+                    return true;
+                },
+                submitConfigurationImport: function (page) {
+                    var status = page && page.querySelector('#configurationPortabilityStatus');
+                    var importDocument = page && page._hueImportDocument;
+                    if (!page || !importDocument) return;
+                    if (!HueConfigurationPage.applyConfigurationImportCredentials(page)) return;
+
+                    Dashboard.confirm("Import this configuration? Existing settings, mappings, and saved scenes will be replaced. Stored matching bridge keys are preserved; any values entered above are sent once for this import and are never exported.", "Import Hue Configuration", function (confirmed) {
+                        if (!confirmed) return;
+                        var button = page.querySelector('#importConfigurationBtn');
+                        var applyButton = page.querySelector('#applyConfigurationImportBtn');
+                        if (button) button.disabled = true;
+                        if (applyButton) applyButton.disabled = true;
+                        Dashboard.showLoadingMsg();
+                        ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("HueSync/Configuration/Import"),
+                            data: JSON.stringify(importDocument),
+                            contentType: "application/json",
+                            dataType: "json"
+                        }).then(function (response) {
+                            response = response || {};
+                            if (status) {
+                                status.textContent = response.message || response.Message || "Configuration imported.";
+                                status.style.color = "#4caf50";
+                            }
+                            HueConfigurationPage.clearConfigurationImport(page);
+                            HueConfigurationPage.loadConfiguration(page);
+                            HueConfigurationPage.loadUserMappings(page);
+                            HueConfigurationPage.loadColorPresets(page);
+                        }).catch(function (err) {
+                            console.error("Failed to import Hue configuration:", err);
+                            if (status) {
+                                status.textContent = "Configuration import failed. No changes were applied. Correct the migration fields and retry.";
+                                status.style.color = "#d9534f";
+                            }
+                            Dashboard.alert("Unable to import configuration: " + (err && err.message ? err.message : "invalid, incomplete, or active playback"));
+                        }).finally(function () {
+                            if (button) button.disabled = false;
+                            if (applyButton) applyButton.disabled = false;
+                            Dashboard.hideLoadingMsg();
+                        });
+                    });
+                },
                 importConfigurationFile: function (page, file) {
                     var status = page && page.querySelector('#configurationPortabilityStatus');
-                    if (!file) return;
+                    if (!page || !file) return;
                     var reader = new FileReader();
                     reader.onload = function () {
-                        var document;
+                        var importDocument;
                         try {
-                            document = JSON.parse(String(reader.result || ""));
+                            importDocument = JSON.parse(String(reader.result || ""));
                         } catch (err) {
                             if (status) {
                                 status.textContent = "The selected file is not valid JSON.";
                                 status.style.color = "#d9534f";
                             }
+                            HueConfigurationPage.clearConfigurationImport(page);
                             return;
                         }
 
-                        if (!document || !document.configuration || document.schemaVersion !== 1) {
+                        var configuration = HueConfigurationPage.readConfigurationValue(importDocument, 'Configuration', null);
+                        var schemaVersion = HueConfigurationPage.readConfigurationValue(importDocument, 'SchemaVersion', null);
+                        if (!importDocument || !configuration || schemaVersion !== 1) {
                             if (status) {
                                 status.textContent = "The selected file is not a supported Hue configuration export.";
                                 status.style.color = "#d9534f";
                             }
+                            HueConfigurationPage.clearConfigurationImport(page);
                             return;
                         }
 
-                        Dashboard.confirm("Import this configuration? Existing settings, mappings, and saved scenes will be replaced. Stored matching bridge keys are preserved; active playback must be stopped first.", "Import Hue Configuration", function (confirmed) {
-                            if (!confirmed) return;
-                            var button = page.querySelector('#importConfigurationBtn');
-                            if (button) button.disabled = true;
-                            Dashboard.showLoadingMsg();
-                            document.replaceMappings = true;
-                            document.replaceColorPresets = true;
-                            ApiClient.ajax({
-                                type: "POST",
-                                url: ApiClient.getUrl("HueSync/Configuration/Import"),
-                                data: JSON.stringify(document),
-                                contentType: "application/json",
-                                dataType: "json"
-                            }).then(function (response) {
-                                response = response || {};
-                                if (status) {
-                                    status.textContent = response.message || response.Message || "Configuration imported.";
-                                    status.style.color = "#4caf50";
-                                }
-                                HueConfigurationPage.loadConfiguration(page);
-                                HueConfigurationPage.loadUserMappings(page);
-                                HueConfigurationPage.loadColorPresets(page);
-                            }).catch(function (err) {
-                                console.error("Failed to import Hue configuration:", err);
-                                if (status) {
-                                    status.textContent = "Configuration import failed. No changes were applied.";
-                                    status.style.color = "#d9534f";
-                                }
-                                Dashboard.alert("Unable to import configuration: " + (err && err.message ? err.message : "invalid or incomplete document"));
-                            }).finally(function () {
-                                if (button) button.disabled = false;
-                                Dashboard.hideLoadingMsg();
-                            });
-                        });
+                        HueConfigurationPage.prepareConfigurationImport(page, importDocument);
                     };
                     reader.onerror = function () {
                         if (status) {
                             status.textContent = "Unable to read the selected configuration file.";
                             status.style.color = "#d9534f";
                         }
+                        HueConfigurationPage.clearConfigurationImport(page);
                     };
                     reader.readAsText(file);
                 },
@@ -3151,6 +3270,10 @@
                 var file = this.files && this.files.length > 0 ? this.files[0] : null;
                 HueConfigurationPage.importConfigurationFile(this.closest('.page'), file);
                 this.value = '';
+            });
+
+            document.querySelector('#applyConfigurationImportBtn').addEventListener('click', function () {
+                HueConfigurationPage.submitConfigurationImport(this.closest('.page'));
             });
 
             document.querySelector('#stopRuntimeSyncBtn').addEventListener('click', function () {

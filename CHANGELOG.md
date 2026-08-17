@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.66] - 2026-08-17
+
+### Added
+- **Credential-entry migration wizard**: Backup and Restore now provides password fields for replacement global and per-user bridge keys, so cross-server imports do not require hand-editing JSON
+
+### Security
+- Replacement keys remain in page memory only, are sent only with the authenticated atomic import request, and are never included in downloaded exports or import responses
+
 ## [1.5.65] - 2026-08-17
 
 ### Added

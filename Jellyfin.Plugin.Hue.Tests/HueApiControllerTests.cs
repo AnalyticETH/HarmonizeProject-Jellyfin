@@ -1649,6 +1649,52 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ImportConfiguration_AcceptsExplicitReplacementCredentialsForMigration()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = new HuePluginConfigurationSettings
+            {
+                SyncEnabled = true,
+                HueBridgeIp = "192.168.1.100",
+                HueAppKey = "migrated-global-app-secret",
+                HueClientKey = "migrated-global-client-secret",
+                EntertainmentAreaId = "global-area"
+            },
+            UserMappings = new List<UserBridgeMappingImport>
+            {
+                new()
+                {
+                    UserId = "migrated-user",
+                    UserName = "Migrated Viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "migrated-mapping-app-secret",
+                    HueClientKey = "migrated-mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area"
+                }
+            }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConfigurationImportResult>(response.Value);
+        Assert.Equal(1, result.MappingsImported);
+        Assert.Equal("migrated-global-app-secret", configuration.HueAppKey);
+        Assert.Equal("migrated-global-client-secret", configuration.HueClientKey);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Equal("migrated-mapping-app-secret", mapping.HueAppKey);
+        Assert.Equal("migrated-mapping-client-secret", mapping.HueClientKey);
+
+        var serializedResult = System.Text.Json.JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("migrated-global-app-secret", serializedResult, StringComparison.Ordinal);
+        Assert.DoesNotContain("migrated-global-client-secret", serializedResult, StringComparison.Ordinal);
+        Assert.DoesNotContain("migrated-mapping-app-secret", serializedResult, StringComparison.Ordinal);
+        Assert.DoesNotContain("migrated-mapping-client-secret", serializedResult, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ImportConfiguration_RejectsIncompleteNewTargetWithoutChangingConfiguration()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
