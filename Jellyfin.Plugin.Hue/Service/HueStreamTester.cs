@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Microsoft.Extensions.Logging;
 
@@ -52,8 +53,8 @@ public sealed class HueStreamTester : IHueStreamTester
 {
     private const int EntertainmentAreaActivationDelayMs = 200;
     private const byte ProbeColor = 1;
-    internal const int MinPreviewDurationSeconds = 1;
-    internal const int MaxPreviewDurationSeconds = 30;
+    internal const int MinPreviewDurationSeconds = PluginConfiguration.MinPreviewDurationSeconds;
+    internal const int MaxPreviewDurationSeconds = PluginConfiguration.MaxPreviewDurationSeconds;
 
     private readonly HueClient _hueClient;
     private readonly ILoggerFactory _loggerFactory;
@@ -120,6 +121,7 @@ public sealed class HueStreamTester : IHueStreamTester
             await Task.Delay(EntertainmentAreaActivationDelayMs).ConfigureAwait(false);
 
             var streamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
+            streamer.OnBeforeReconnect = () => _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
             try
             {
                 await streamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);
@@ -236,6 +238,7 @@ public sealed class HueStreamTester : IHueStreamTester
             await Task.Delay(EntertainmentAreaActivationDelayMs).ConfigureAwait(false);
 
             var streamer = new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>());
+            streamer.OnBeforeReconnect = () => _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
             try
             {
                 await streamer.StartStreamAsync(bridgeIp, appKey, clientKey).ConfigureAwait(false);

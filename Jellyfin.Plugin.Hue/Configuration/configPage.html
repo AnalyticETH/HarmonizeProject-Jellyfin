@@ -147,6 +147,28 @@
                             </button>
                         </div>
                         <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the default bridge, area, and global channel profile above.</div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 1em;">
+                            <div style="flex: 1 1 220px;">
+                                <label class="inputLabel inputLabelUnfocused" for="previewPresetSelect">Saved Scene</label>
+                                <select id="previewPresetSelect" is="emby-select" style="width: 100%;">
+                                    <option value="">No saved scenes</option>
+                                </select>
+                            </div>
+                            <button is="emby-button" type="button" class="raised" id="applyPreviewPresetBtn">
+                                <span>Apply Scene</span>
+                            </button>
+                            <div style="flex: 1 1 220px;">
+                                <label class="inputLabel inputLabelUnfocused" for="previewPresetName">Scene Name</label>
+                                <input id="previewPresetName" type="text" is="emby-input" maxlength="64" placeholder="e.g. Movie Night" />
+                            </div>
+                            <button is="emby-button" type="button" class="raised" id="savePreviewPresetBtn">
+                                <span>Save / Update Scene</span>
+                            </button>
+                            <button is="emby-button" type="button" class="raised" id="deletePreviewPresetBtn" disabled>
+                                <span>Delete Scene</span>
+                            </button>
+                        </div>
+                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, brightness, and duration as a reusable scene. Scenes contain no bridge credentials.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -704,6 +726,7 @@
                         page.querySelector('#colorChangeThreshold').value = getConfigValue('ColorChangeThreshold', 10);
                         page.querySelector('#networkRetryAttempts').value = getConfigValue('NetworkRetryAttempts', 3);
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
+                        HueConfigurationPage.loadColorPresets(page);
                     }).catch(function (err) {
                         console.error("Failed to load Hue configuration:", err);
                         HueConfigurationPage.refreshStatus(page, "Unable to load plugin configuration.", "error");
@@ -907,6 +930,165 @@
                             button.disabled = false;
                             Dashboard.hideLoadingMsg();
                         });
+                },
+                loadColorPresets: function (page, selectedName) {
+                    var selectEl = page.querySelector('#previewPresetSelect');
+                    if (!selectEl) return Promise.resolve();
+
+                    selectEl.disabled = true;
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets"))
+                        .then(function (response) {
+                            var presets = Array.isArray(response)
+                                ? response
+                                : response && Array.isArray(response.data)
+                                    ? response.data
+                                    : [];
+                            selectEl.innerHTML = '<option value="">Choose a saved scene...</option>';
+                            presets.forEach(function (preset) {
+                                if (!preset) return;
+                                var name = preset.name !== undefined ? preset.name : preset.Name;
+                                if (!name) return;
+                                var option = document.createElement('option');
+                                option.value = name;
+                                option.textContent = name;
+                                option.dataset.red = String(preset.red !== undefined ? preset.red : preset.Red);
+                                option.dataset.green = String(preset.green !== undefined ? preset.green : preset.Green);
+                                option.dataset.blue = String(preset.blue !== undefined ? preset.blue : preset.Blue);
+                                option.dataset.brightnessPercent = String(preset.brightnessPercent !== undefined ? preset.brightnessPercent : preset.BrightnessPercent);
+                                option.dataset.durationSeconds = String(preset.durationSeconds !== undefined ? preset.durationSeconds : preset.DurationSeconds);
+                                selectEl.appendChild(option);
+                            });
+                            if (selectedName) {
+                                selectEl.value = selectedName;
+                            }
+                            HueConfigurationPage.updatePresetButtons(page);
+                        })
+                        .catch(function (err) {
+                            console.error("Failed to load color presets:", err);
+                            selectEl.innerHTML = '<option value="">Unable to load saved scenes</option>';
+                            HueConfigurationPage.updatePresetButtons(page);
+                        })
+                        .finally(function () {
+                            selectEl.disabled = false;
+                        });
+                },
+                updatePresetButtons: function (page) {
+                    var selectEl = page.querySelector('#previewPresetSelect');
+                    var deleteBtn = page.querySelector('#deletePreviewPresetBtn');
+                    if (deleteBtn) {
+                        deleteBtn.disabled = !selectEl || !selectEl.value;
+                    }
+                },
+                applyColorPreset: function (page) {
+                    var selectEl = page.querySelector('#previewPresetSelect');
+                    var option = selectEl && selectEl.options[selectEl.selectedIndex];
+                    var statusEl = page.querySelector('#previewPresetStatus');
+                    if (!option || !option.value) {
+                        Dashboard.alert("Choose a saved scene first.");
+                        return;
+                    }
+
+                    var red = Number(option.dataset.red);
+                    var green = Number(option.dataset.green);
+                    var blue = Number(option.dataset.blue);
+                    var brightness = Number(option.dataset.brightnessPercent);
+                    var duration = Number(option.dataset.durationSeconds);
+                    page.querySelector('#previewColor').value = '#' + [red, green, blue].map(function (component) {
+                        return component.toString(16).padStart(2, '0');
+                    }).join('');
+                    page.querySelector('#previewBrightness').value = brightness;
+                    page.querySelector('#previewDuration').value = duration;
+                    page.querySelector('#previewPresetName').value = option.value;
+                    if (statusEl) {
+                        statusEl.textContent = "Applied saved scene '" + option.value + "'. Preview it on the default target or current mapping.";
+                        statusEl.style.color = "#8bc34a";
+                    }
+                    HueConfigurationPage.updatePresetButtons(page);
+                },
+                saveColorPreset: function (page) {
+                    var nameEl = page.querySelector('#previewPresetName');
+                    var statusEl = page.querySelector('#previewPresetStatus');
+                    var name = nameEl ? nameEl.value.trim() : '';
+                    var values;
+                    if (!name) {
+                        Dashboard.alert("Enter a scene name first.");
+                        return;
+                    }
+
+                    try {
+                        values = HueConfigurationPage.getPreviewValues(page);
+                    } catch (err) {
+                        Dashboard.alert(err.message || err);
+                        return;
+                    }
+
+                    var button = page.querySelector('#savePreviewPresetBtn');
+                    button.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Saving scene...";
+                        statusEl.style.color = "";
+                    }
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/ColorPresets"),
+                        data: JSON.stringify({
+                            name: name,
+                            red: values.red,
+                            green: values.green,
+                            blue: values.blue,
+                            brightnessPercent: values.brightnessPercent,
+                            durationSeconds: values.durationSeconds
+                        }),
+                        contentType: "application/json",
+                        dataType: "json"
+                    }).then(function () {
+                        if (statusEl) {
+                            statusEl.textContent = "Scene '" + name + "' saved.";
+                            statusEl.style.color = "#8bc34a";
+                        }
+                        return HueConfigurationPage.loadColorPresets(page, name);
+                    }).catch(function (err) {
+                        console.error("Failed to save color preset:", err);
+                        if (statusEl) {
+                            statusEl.textContent = "Unable to save scene. Check the name and preview values.";
+                            statusEl.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        button.disabled = false;
+                    });
+                },
+                deleteColorPreset: function (page) {
+                    var selectEl = page.querySelector('#previewPresetSelect');
+                    var statusEl = page.querySelector('#previewPresetStatus');
+                    var name = selectEl ? selectEl.value : '';
+                    if (!name) {
+                        Dashboard.alert("Choose a saved scene first.");
+                        return;
+                    }
+
+                    Dashboard.confirm("Delete the saved scene '" + name + "'?", "Delete Scene", function (confirmed) {
+                        if (!confirmed) return;
+                        var button = page.querySelector('#deletePreviewPresetBtn');
+                        button.disabled = true;
+                        ApiClient.ajax({
+                            type: "DELETE",
+                            url: ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name))
+                        }).then(function () {
+                            if (statusEl) {
+                                statusEl.textContent = "Scene '" + name + "' deleted.";
+                                statusEl.style.color = "#8bc34a";
+                            }
+                            page.querySelector('#previewPresetName').value = '';
+                            return HueConfigurationPage.loadColorPresets(page);
+                        }).catch(function (err) {
+                            console.error("Failed to delete color preset:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "Unable to delete the saved scene.";
+                                statusEl.style.color = "#d9534f";
+                            }
+                            HueConfigurationPage.updatePresetButtons(page);
+                        });
+                    });
                 },
                 connectionTestMessage: function (response, areaId) {
                     var areaFound = response && (response.areaFound !== undefined ? response.areaFound : response.AreaFound);
@@ -2375,6 +2557,22 @@
 
             document.querySelector('#previewColorBtn').addEventListener('click', function () {
                 HueConfigurationPage.previewDefaultColor(this.closest('.page'));
+            });
+
+            document.querySelector('#previewPresetSelect').addEventListener('change', function () {
+                HueConfigurationPage.updatePresetButtons(this.closest('.page'));
+            });
+
+            document.querySelector('#applyPreviewPresetBtn').addEventListener('click', function () {
+                HueConfigurationPage.applyColorPreset(this.closest('.page'));
+            });
+
+            document.querySelector('#savePreviewPresetBtn').addEventListener('click', function () {
+                HueConfigurationPage.saveColorPreset(this.closest('.page'));
+            });
+
+            document.querySelector('#deletePreviewPresetBtn').addEventListener('click', function () {
+                HueConfigurationPage.deleteColorPreset(this.closest('.page'));
             });
 
             document.querySelector('#refreshRuntimeStatusBtn').addEventListener('click', function () {

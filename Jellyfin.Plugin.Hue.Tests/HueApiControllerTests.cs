@@ -418,6 +418,98 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetColorPresets_ReturnsSortedVisualScenesWithoutCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Zest", Red = 255, Green = 20, Blue = 10 },
+                new() { Name = "Ambient", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 60, DurationSeconds = 7 }
+            }
+        });
+
+        var action = CreateController().GetColorPresets();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var presets = Assert.IsAssignableFrom<IEnumerable<HueColorPresetResult>>(response.Value).ToArray();
+        Assert.Equal(new[] { "Ambient", "Zest" }, presets.Select(preset => preset.Name));
+        Assert.Equal(60, presets[0].BrightnessPercent);
+        Assert.Equal(7, presets[0].DurationSeconds);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(presets);
+        Assert.DoesNotContain("HueAppKey", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HueClientKey", serialized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SaveColorPreset_AddsAndUpdatesByName()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+
+        var addAction = CreateController().SaveColorPreset(new HueColorPresetRequest
+        {
+            Name = " Movie Night ",
+            Red = 230,
+            Green = 90,
+            Blue = 20,
+            BrightnessPercent = 75,
+            DurationSeconds = 8
+        });
+        Assert.IsType<OkObjectResult>(addAction.Result);
+
+        var updateAction = CreateController().SaveColorPreset(new HueColorPresetRequest
+        {
+            Name = "movie night",
+            Red = 10,
+            Green = 40,
+            Blue = 200,
+            BrightnessPercent = 55,
+            DurationSeconds = 3
+        });
+        Assert.IsType<OkObjectResult>(updateAction.Result);
+
+        var preset = Assert.Single(configuration.ColorPresets);
+        Assert.Equal("movie night", preset.Name);
+        Assert.Equal(10, preset.Red);
+        Assert.Equal(55, preset.BrightnessPercent);
+        Assert.Equal(3, preset.DurationSeconds);
+    }
+
+    [Fact]
+    public void SaveColorPreset_InvalidValuesReturnsBadRequestWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+
+        var action = CreateController().SaveColorPreset(new HueColorPresetRequest
+        {
+            Name = "Broken",
+            Red = 256,
+            DurationSeconds = PluginConfiguration.MaxPreviewDurationSeconds + 1
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Empty(configuration.ColorPresets);
+    }
+
+    [Fact]
+    public void DeleteColorPreset_RemovesSceneAndReportsMissingNames()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Accent" } }
+        });
+        var controller = CreateController();
+
+        var deleted = controller.DeleteColorPreset("accent");
+        Assert.IsType<OkObjectResult>(deleted);
+        Assert.Empty(configuration.ColorPresets);
+
+        var missing = controller.DeleteColorPreset("accent");
+        Assert.IsType<NotFoundObjectResult>(missing);
+    }
+
+    [Fact]
     public async Task TestConnection_WithClientKeyRunsDtlsProbe()
     {
         _httpHandlerMock

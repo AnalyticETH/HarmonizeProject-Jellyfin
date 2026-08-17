@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.Hue.Configuration
@@ -56,6 +57,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
+    /// A reusable solid-color preview scene. Presets intentionally contain no bridge
+    /// credentials or target information; they can be applied to the default target or
+    /// any per-user mapping from the administrator configuration page.
+    /// </summary>
+    public class HueColorPreset
+    {
+        public string Name { get; set; } = string.Empty;
+        public int Red { get; set; } = 255;
+        public int Green { get; set; } = 255;
+        public int Blue { get; set; } = 255;
+        public int BrightnessPercent { get; set; } = 100;
+        public int DurationSeconds { get; set; } = 5;
+    }
+
+    /// <summary>
     /// Configuration for the Philips Hue Sync plugin
     /// </summary>
     public class PluginConfiguration : BasePluginConfiguration
@@ -99,6 +115,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private const int MaxSamplingBreadthPercent = 50;
         private const int MinColorSmoothingPercent = 0;
         private const int MaxColorSmoothingPercent = 90;
+        public const int MinPreviewDurationSeconds = 1;
+        public const int MaxPreviewDurationSeconds = 30;
+        public const int MaxColorPresets = 50;
+        public const int MaxColorPresetNameLength = 64;
 
         public bool SyncEnabled { get; set; } = false;
 
@@ -115,6 +135,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
         // Per-user bridge mappings
         public List<UserBridgeMapping> UserMappings { get; set; } = new List<UserBridgeMapping>();
+
+        /// <summary>
+        /// Named solid-color scenes available to the administrator preview controls.
+        /// Presets are global and do not contain bridge credentials or channel targets.
+        /// </summary>
+        public List<HueColorPreset> ColorPresets { get; set; } = new List<HueColorPreset>();
 
         public bool UseCinemaMode { get; set; } = true; // Dimming behavior
         public int BrightnessDimLevel { get; set; } = 30;
@@ -565,6 +591,76 @@ namespace Jellyfin.Plugin.Hue.Configuration
             return errors;
         }
 
+        /// <summary>
+        /// Validates one reusable solid-color preview preset.
+        /// </summary>
+        public static List<string> ValidateColorPreset(HueColorPreset? preset, string label = "Color preset")
+        {
+            var errors = new List<string>();
+            if (preset == null)
+            {
+                errors.Add($"{label} is required");
+                return errors;
+            }
+
+            var name = preset.Name?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+                errors.Add($"{label} name is required");
+            else if (name.Length > MaxColorPresetNameLength)
+                errors.Add($"{label} name must be {MaxColorPresetNameLength} characters or fewer");
+            else if (name.Any(char.IsControl))
+                errors.Add($"{label} name must not contain control characters");
+            else if (name.IndexOfAny(new[] { '/', '\\', '?', '#' }) >= 0)
+                errors.Add($"{label} name must not contain path or URL separator characters");
+
+            if (preset.Red < MinByteSetting || preset.Red > MaxByteSetting ||
+                preset.Green < MinByteSetting || preset.Green > MaxByteSetting ||
+                preset.Blue < MinByteSetting || preset.Blue > MaxByteSetting)
+            {
+                errors.Add($"{label} RGB values must be between 0 and 255");
+            }
+
+            if (preset.BrightnessPercent < MinOutputBrightnessPercent ||
+                preset.BrightnessPercent > MaxOutputBrightnessPercent)
+            {
+                errors.Add($"{label} brightness must be between 0 and 100 percent");
+            }
+
+            if (preset.DurationSeconds < MinPreviewDurationSeconds ||
+                preset.DurationSeconds > MaxPreviewDurationSeconds)
+            {
+                errors.Add($"{label} duration must be between {MinPreviewDurationSeconds} and {MaxPreviewDurationSeconds} seconds");
+            }
+
+            return errors;
+        }
+
+        /// <summary>
+        /// Validates the complete reusable preset collection, including names that must
+        /// be unique so the UI can address a preset deterministically.
+        /// </summary>
+        public List<string> ValidateColorPresets()
+        {
+            var errors = new List<string>();
+            if (ColorPresets == null)
+                return errors;
+
+            if (ColorPresets.Count > MaxColorPresets)
+                errors.Add($"No more than {MaxColorPresets} color presets may be saved");
+
+            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < ColorPresets.Count; index++)
+            {
+                var label = $"Color preset {index + 1}";
+                errors.AddRange(ValidateColorPreset(ColorPresets[index], label));
+                var name = ColorPresets[index]?.Name?.Trim();
+                if (!string.IsNullOrWhiteSpace(name) && !seenNames.Add(name))
+                    errors.Add($"{label} duplicates another color preset name");
+            }
+
+            return errors;
+        }
+
         public PluginConfiguration()
         {
             // Defaults
@@ -592,6 +688,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public List<string> Validate()
         {
             var errors = new List<string>();
+
+            errors.AddRange(ValidateColorPresets());
 
             if (SyncEnabled)
             {

@@ -6,6 +6,61 @@ namespace Jellyfin.Plugin.Hue.Tests;
 public class PluginConfigurationTests
 {
     [Fact]
+    public void ValidateColorPresets_AllowsValidReusableScene()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new()
+                {
+                    Name = "Movie Night",
+                    Red = 220,
+                    Green = 90,
+                    Blue = 35,
+                    BrightnessPercent = 75,
+                    DurationSeconds = 8
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateColorPresets());
+        Assert.Empty(config.Validate());
+    }
+
+    [Fact]
+    public void ValidateColorPresets_RejectsInvalidValuesAndDuplicateNames()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Accent", Red = 256, DurationSeconds = 0 },
+                new() { Name = " accent " }
+            }
+        };
+
+        var errors = config.ValidateColorPresets();
+
+        Assert.Contains("Color preset 1 RGB values must be between 0 and 255", errors);
+        Assert.Contains("Color preset 1 duration must be between 1 and 30 seconds", errors);
+        Assert.Contains("Color preset 2 duplicates another color preset name", errors);
+    }
+
+    [Fact]
+    public void ValidateColorPresets_RejectsTooManyScenes()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = Enumerable.Range(0, PluginConfiguration.MaxColorPresets + 1)
+                .Select(index => new HueColorPreset { Name = $"Scene {index}" })
+                .ToList()
+        };
+
+        Assert.Contains($"No more than {PluginConfiguration.MaxColorPresets} color presets may be saved", config.ValidateColorPresets());
+    }
+
+    [Fact]
     public void Validate_WhenSyncDisabled_ReturnsNoErrors()
     {
         // Arrange

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.40] - 2026-08-17
+
+### Added
+- Reusable named color scenes with configurable RGB, brightness, and preview duration
+- Authenticated color-preset CRUD endpoints with case-insensitive updates and a 50-scene safety limit
+- Configuration-page scene picker, apply, save/update, and delete controls shared by default and mapping previews
+- Regression coverage for preset validation, persistence, sorting, update semantics, deletion, and invalid requests
+
+### Changed
+- DTLS probes and solid-color previews re-activate the entertainment area before reconnecting after a stream failure
+
 ## [1.5.39] - 2026-08-17
 
 ### Added

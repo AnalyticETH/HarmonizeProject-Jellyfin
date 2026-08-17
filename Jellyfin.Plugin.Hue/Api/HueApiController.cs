@@ -209,6 +209,19 @@ namespace Jellyfin.Plugin.Hue.Api
             return channelIds;
         }
 
+        private static HueColorPresetResult ToColorPresetResult(HueColorPreset preset)
+        {
+            return new HueColorPresetResult
+            {
+                Name = preset.Name,
+                Red = preset.Red,
+                Green = preset.Green,
+                Blue = preset.Blue,
+                BrightnessPercent = preset.BrightnessPercent,
+                DurationSeconds = preset.DurationSeconds
+            };
+        }
+
         /// <summary>
         /// Tests bridge reachability and, when supplied, verifies an entertainment area. A client key
         /// additionally opts into a short non-destructive DTLS stream probe. A channelIds profile can
@@ -487,6 +500,107 @@ namespace Jellyfin.Plugin.Hue.Api
                 AvailableChannelCount = availableChannelIds.Count,
                 SelectedChannelCount = requestedChannelIds?.Count ?? availableChannelIds.Count
             });
+        }
+
+        /// <summary>
+        /// Lists reusable solid-color preview scenes. Presets contain only visual
+        /// values and never include bridge credentials or per-user targets.
+        /// </summary>
+        [HttpGet("ColorPresets")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<IEnumerable<HueColorPresetResult>> GetColorPresets()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var presets = config.ColorPresets ?? new List<HueColorPreset>();
+            return Ok(presets
+                .Where(preset => preset != null)
+                .OrderBy(preset => preset.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(ToColorPresetResult));
+        }
+
+        /// <summary>
+        /// Saves or updates a reusable solid-color preview scene by case-insensitive name.
+        /// </summary>
+        [HttpPost("ColorPresets")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HueColorPresetResult> SaveColorPreset(
+            [FromBody] HueColorPresetRequest? request)
+        {
+            if (request == null)
+                return BadRequest("Color preset is required.");
+
+            var preset = request.ToConfigurationPreset();
+            var validationErrors = PluginConfiguration.ValidateColorPreset(preset);
+            if (validationErrors.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = "Color preset is invalid.",
+                    errors = validationErrors
+                });
+            }
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            config.ColorPresets ??= new List<HueColorPreset>();
+            var existingIndex = config.ColorPresets.FindIndex(existing =>
+                existing != null &&
+                string.Equals(existing.Name?.Trim(), preset.Name, StringComparison.OrdinalIgnoreCase));
+            if (existingIndex >= 0)
+            {
+                config.ColorPresets[existingIndex] = preset;
+            }
+            else
+            {
+                if (config.ColorPresets.Count >= PluginConfiguration.MaxColorPresets)
+                {
+                    return BadRequest(new
+                    {
+                        message = $"No more than {PluginConfiguration.MaxColorPresets} color presets may be saved.",
+                        errors = new[] { $"No more than {PluginConfiguration.MaxColorPresets} color presets may be saved" }
+                    });
+                }
+
+                config.ColorPresets.Add(preset);
+            }
+
+            plugin.SaveConfiguration();
+            return Ok(ToColorPresetResult(preset));
+        }
+
+        /// <summary>
+        /// Deletes one reusable solid-color preview scene by name.
+        /// </summary>
+        [HttpDelete("ColorPresets/{name}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult DeleteColorPreset(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return NotFound("Color preset not found.");
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            config.ColorPresets ??= new List<HueColorPreset>();
+            var removed = config.ColorPresets.RemoveAll(existing =>
+                existing != null &&
+                string.Equals(existing.Name?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (removed == 0)
+                return NotFound("Color preset not found.");
+
+            Plugin.Instance?.SaveConfiguration();
+            return Ok(new { message = "Color preset deleted successfully." });
         }
 
         [HttpGet("Status")]
@@ -1123,6 +1237,61 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("selectedChannelCount")]
         public int SelectedChannelCount { get; set; }
+    }
+
+    public class HueColorPresetRequest
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("red")]
+        public int Red { get; set; }
+
+        [JsonPropertyName("green")]
+        public int Green { get; set; }
+
+        [JsonPropertyName("blue")]
+        public int Blue { get; set; }
+
+        [JsonPropertyName("brightnessPercent")]
+        public int BrightnessPercent { get; set; } = 100;
+
+        [JsonPropertyName("durationSeconds")]
+        public int DurationSeconds { get; set; } = 5;
+
+        public HueColorPreset ToConfigurationPreset()
+        {
+            return new HueColorPreset
+            {
+                Name = Name?.Trim() ?? string.Empty,
+                Red = Red,
+                Green = Green,
+                Blue = Blue,
+                BrightnessPercent = BrightnessPercent,
+                DurationSeconds = DurationSeconds
+            };
+        }
+    }
+
+    public class HueColorPresetResult
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("red")]
+        public int Red { get; set; }
+
+        [JsonPropertyName("green")]
+        public int Green { get; set; }
+
+        [JsonPropertyName("blue")]
+        public int Blue { get; set; }
+
+        [JsonPropertyName("brightnessPercent")]
+        public int BrightnessPercent { get; set; }
+
+        [JsonPropertyName("durationSeconds")]
+        public int DurationSeconds { get; set; }
     }
 
     public class HueRegistrationResult
