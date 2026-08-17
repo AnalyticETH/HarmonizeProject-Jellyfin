@@ -51,14 +51,16 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpPost("Register")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<ActionResult<HueRegistrationResult>> RegisterBridge([FromBody] HueRegistrationRequest? request)
+        public async Task<ActionResult<HueRegistrationResult>> RegisterBridge(
+            [FromBody] HueRegistrationRequest? request,
+            CancellationToken cancellationToken = default)
         {
             if (request == null || !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress))
             {
                 return BadRequest("A valid private bridge IP address or .local host name is required.");
             }
 
-            var result = await _hueClient.RegisterWithBridge(request.IpAddress.Trim());
+            var result = await _hueClient.RegisterWithBridge(request.IpAddress.Trim(), cancellationToken);
             if (result == null)
             {
                 return BadRequest("Failed to register. Did you press the Link Button?");
@@ -73,9 +75,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("DiscoverBridge")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
-        public async Task<ActionResult<HueBridgeDiscoveryResult>> DiscoverBridge()
+        public async Task<ActionResult<HueBridgeDiscoveryResult>> DiscoverBridge(CancellationToken cancellationToken = default)
         {
-            var ipAddress = await _hueClient.DiscoverBridgeIp();
+            var ipAddress = await _hueClient.DiscoverBridgeIp(cancellationToken);
             if (string.IsNullOrWhiteSpace(ipAddress))
             {
                 return StatusCode(StatusCodes.Status502BadGateway, "No Hue Bridge was found on the local network.");
@@ -90,9 +92,10 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         public async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> GetEntertainmentAreas(
             [FromQuery(Name = "ip")] string? bridgeIp,
-            [FromQuery(Name = "appKey")] string? appKey)
+            [FromQuery(Name = "appKey")] string? appKey,
+            CancellationToken cancellationToken = default)
         {
-            return await LoadEntertainmentAreas(bridgeIp, appKey);
+            return await LoadEntertainmentAreas(bridgeIp, appKey, cancellationToken);
         }
 
         /// <summary>
@@ -103,14 +106,15 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         public async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> PostEntertainmentAreas(
-            [FromBody] HueEntertainmentAreasRequest? request)
+            [FromBody] HueEntertainmentAreasRequest? request,
+            CancellationToken cancellationToken = default)
         {
             if (request == null || string.IsNullOrWhiteSpace(request.IpAddress) || string.IsNullOrWhiteSpace(request.AppKey))
             {
                 return BadRequest("Bridge IP and app key are required before loading entertainment areas.");
             }
 
-            return await LoadEntertainmentAreas(request.IpAddress, request.AppKey);
+            return await LoadEntertainmentAreas(request.IpAddress, request.AppKey, cancellationToken);
         }
 
         /// <summary>
@@ -122,7 +126,8 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         public async Task<ActionResult<IEnumerable<HueEntertainmentChannel>>> PostEntertainmentChannels(
-            [FromBody] HueEntertainmentChannelsRequest? request)
+            [FromBody] HueEntertainmentChannelsRequest? request,
+            CancellationToken cancellationToken = default)
         {
             if (request == null ||
                 !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
@@ -135,7 +140,8 @@ namespace Jellyfin.Plugin.Hue.Api
             var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
                 request.IpAddress.Trim(),
                 request.AppKey.Trim(),
-                request.EntertainmentAreaId.Trim());
+                request.EntertainmentAreaId.Trim(),
+                cancellationToken);
             if (areaConfiguration == null)
             {
                 return StatusCode(StatusCodes.Status502BadGateway, "Could not load entertainment channels from the Hue bridge.");
@@ -174,7 +180,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
         private async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> LoadEntertainmentAreas(
             string? bridgeIp,
-            string? appKey)
+            string? appKey,
+            CancellationToken cancellationToken)
         {
             bridgeIp ??= Plugin.Instance?.Configuration?.HueBridgeIp;
             appKey ??= Plugin.Instance?.Configuration?.HueAppKey;
@@ -184,7 +191,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Bridge IP and app key are required before loading entertainment areas.");
             }
 
-            var areas = await _hueClient.GetEntertainmentAreas(bridgeIp, appKey);
+            var areas = await _hueClient.GetEntertainmentAreas(bridgeIp, appKey, cancellationToken);
             if (areas == null)
             {
                 return StatusCode(StatusCodes.Status502BadGateway, "Could not contact the Hue bridge.");
@@ -263,7 +270,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
             var bridgeIp = request.IpAddress.Trim();
             var appKey = request.AppKey.Trim();
-            var areas = await _hueClient.GetEntertainmentAreas(bridgeIp, appKey);
+            var areas = await _hueClient.GetEntertainmentAreas(bridgeIp, appKey, cancellationToken);
             if (areas == null)
             {
                 return StatusCode(StatusCodes.Status502BadGateway, "Could not contact the Hue bridge with the supplied credentials.");
@@ -291,7 +298,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 return Ok(result);
             }
 
-            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(bridgeIp, appKey, areaId);
+            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
+                bridgeIp,
+                appKey,
+                areaId,
+                cancellationToken);
             if (areaConfiguration == null)
             {
                 result.AreaFound = false;
@@ -354,6 +365,10 @@ namespace Jellyfin.Plugin.Hue.Api
                             areaConfiguration.Value,
                             selectedChannelIds,
                             cancellationToken);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
                     }
                     catch
                     {
@@ -446,7 +461,11 @@ namespace Jellyfin.Plugin.Hue.Api
             var appKey = request.AppKey.Trim();
             var clientKey = request.ClientKey.Trim();
             var areaId = request.EntertainmentAreaId.Trim();
-            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(bridgeIp, appKey, areaId);
+            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
+                bridgeIp,
+                appKey,
+                areaId,
+                cancellationToken);
             if (areaConfiguration == null)
             {
                 return StatusCode(StatusCodes.Status502BadGateway, "Could not load the selected entertainment area from the Hue bridge.");
@@ -490,6 +509,10 @@ namespace Jellyfin.Plugin.Hue.Api
                     request.BrightnessPercent,
                     request.DurationSeconds,
                     cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch
             {

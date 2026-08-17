@@ -256,6 +256,95 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public async Task TestAsync_WhenCanceledDuringActivationStillRestoresBridgeState()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        var activationStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopSent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var restoreCount = 0;
+        handler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Returns<HttpRequestMessage, CancellationToken>(async (request, cancellationToken) =>
+            {
+                if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(@"{
+                            ""data"": [{
+                                ""on"": {""on"": true},
+                                ""dimming"": {""brightness"": 50},
+                                ""color"": {""xy"": {""x"": 0.3, ""y"": 0.3}}
+                            }]
+                        }")
+                    };
+                }
+
+                if (request.Method == HttpMethod.Put)
+                {
+                    var body = request.Content == null
+                        ? string.Empty
+                        : await request.Content.ReadAsStringAsync();
+                    if (body.Contains("\"start\"", StringComparison.Ordinal))
+                    {
+                        activationStarted.TrySetResult(true);
+                        return await new TaskCompletionSource<HttpResponseMessage>().Task.WaitAsync(cancellationToken);
+                    }
+
+                    if (body.Contains("\"stop\"", StringComparison.Ordinal))
+                    {
+                        stopSent.TrySetResult(true);
+                    }
+                    else if (request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal))
+                    {
+                        Interlocked.Increment(ref restoreCount);
+                    }
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}")
+                };
+            });
+
+        using var httpClient = new HttpClient(handler.Object);
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
+        {
+            RetryAttempts = 0
+        };
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
+        var tester = new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>());
+        using var document = JsonDocument.Parse(
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+        using var cancellationSource = new CancellationTokenSource();
+
+        var probeTask = tester.TestAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            cancellationToken: cancellationSource.Token);
+        await activationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellationSource.Cancel();
+
+        var result = await probeTask;
+        await stopSent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("canceled", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, Volatile.Read(ref restoreCount));
+    }
+
+    [Fact]
     public async Task TestAsync_WhenCanceledAfterActivationStillRestoresBridgeState()
     {
         var handler = new Mock<HttpMessageHandler>();

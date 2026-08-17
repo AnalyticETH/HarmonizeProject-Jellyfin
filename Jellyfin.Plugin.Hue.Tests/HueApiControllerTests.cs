@@ -93,6 +93,38 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PostEntertainmentAreas_ForwardsRequestCancellationToBridgeCall()
+    {
+        CancellationToken observedToken = default;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((_, token) => observedToken = token)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"data\":[]}", Encoding.UTF8, "application/json")
+            });
+        var controller = CreateController();
+        using var cancellationSource = new CancellationTokenSource();
+
+        var action = await controller.PostEntertainmentAreas(
+            new HueEntertainmentAreasRequest
+            {
+                IpAddress = "192.168.1.100",
+                AppKey = "app-key"
+            },
+            cancellationSource.Token);
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        // HttpClient passes a linked transport token to the handler, so identity is
+        // intentionally different from the MVC request token; it must still be cancelable.
+        Assert.True(observedToken.CanBeCanceled);
+    }
+
+    [Fact]
     public async Task PostEntertainmentAreas_WithoutCredentials_ReturnsBadRequest()
     {
         var controller = CreateController();
@@ -144,6 +176,48 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(1, result.AreaCount);
         Assert.Null(result.AreaFound);
         Assert.Contains("Found 1", result.Message);
+    }
+
+    [Fact]
+    public async Task TestConnection_ForwardsRequestCancellationToAllBridgeReads()
+    {
+        var observedTokens = new List<CancellationToken>();
+        var requestCount = 0;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Returns<HttpRequestMessage, CancellationToken>((_, token) =>
+            {
+                observedTokens.Add(token);
+                requestCount++;
+                var content = requestCount == 1
+                    ? "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}"
+                    : "{\"data\":[{\"channels\":[{\"channel_id\":1}]}]}";
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(content, Encoding.UTF8, "application/json")
+                });
+            });
+        var controller = CreateController();
+        using var cancellationSource = new CancellationTokenSource();
+
+        var action = await controller.TestConnection(
+            new HueConnectionTestRequest
+            {
+                IpAddress = "192.168.1.100",
+                AppKey = "app-key",
+                EntertainmentAreaId = "area-1"
+            },
+            cancellationSource.Token);
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Equal(2, observedTokens.Count);
+        // HttpClient passes linked transport tokens to the handler rather than the
+        // controller's token instance; every bridge read must still be cancelable.
+        Assert.All(observedTokens, token => Assert.True(token.CanBeCanceled));
     }
 
     [Fact]

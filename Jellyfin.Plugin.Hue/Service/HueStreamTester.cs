@@ -154,7 +154,27 @@ public sealed class HueStreamTester : IHueStreamTester
         if (cancellationToken.IsCancellationRequested)
             return Failure("The DTLS stream probe request was canceled before activation.");
 
-        var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId).ConfigureAwait(false);
+        bool activated;
+        try
+        {
+            // A canceled activation request may have reached the bridge before the
+            // response was aborted. Always run the normal safety cleanup if activation
+            // throws cancellation so the area is deactivated and saved light state is restored.
+            activated = await _hueClient.StartEntertainmentArea(
+                bridgeIp,
+                appKey,
+                areaId,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return await AddCleanupResultAsync(
+                Failure("The DTLS stream probe request was canceled during activation; the bridge is being restored."),
+                bridgeIp,
+                appKey,
+                areaId,
+                savedLightStates).ConfigureAwait(false);
+        }
         if (!activated)
         {
             return Failure("The Hue bridge could not activate the entertainment area.");
@@ -325,7 +345,27 @@ public sealed class HueStreamTester : IHueStreamTester
         if (cancellationToken.IsCancellationRequested)
             return Failure("The solid color preview request was canceled before activation.");
 
-        var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId).ConfigureAwait(false);
+        bool activated;
+        try
+        {
+            // A canceled activation request may have reached the bridge before the
+            // response was aborted. Always run the normal safety cleanup if activation
+            // throws cancellation so the area is deactivated and saved light state is restored.
+            activated = await _hueClient.StartEntertainmentArea(
+                bridgeIp,
+                appKey,
+                areaId,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return await AddCleanupResultAsync(
+                Failure("The solid color preview request was canceled during activation; the bridge is being restored."),
+                bridgeIp,
+                appKey,
+                areaId,
+                savedLightStates).ConfigureAwait(false);
+        }
         if (!activated)
         {
             return Failure("The Hue bridge could not activate the entertainment area for preview.");

@@ -103,6 +103,18 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task DiscoverBridgeIp_WhenCanceled_PropagatesCancellation()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "[]");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+        using var cancellationSource = new CancellationTokenSource();
+        cancellationSource.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.DiscoverBridgeIp(cancellationSource.Token));
+    }
+
+    [Fact]
     public async Task DiscoverBridgeIp_MultipleBridges_ReturnsFirstIp()
     {
         // Arrange
@@ -286,6 +298,22 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task GetEntertainmentConfiguration_WhenCanceled_PropagatesCancellation()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+        using var cancellationSource = new CancellationTokenSource();
+        cancellationSource.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.GetEntertainmentConfiguration(
+                "192.168.1.100",
+                "test-app-key",
+                "area-1",
+                cancellationSource.Token));
+    }
+
+    [Fact]
     public async Task StartEntertainmentArea_TransientServerError_RetriesAndSucceeds()
     {
         _httpHandlerMock.Protected()
@@ -318,6 +346,22 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task StartEntertainmentArea_WhenCanceled_PropagatesCancellation()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+        using var cancellationSource = new CancellationTokenSource();
+        cancellationSource.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.StartEntertainmentArea(
+                "192.168.1.100",
+                "test-app-key",
+                "area-uuid",
+                cancellationSource.Token));
+    }
+
+    [Fact]
     public async Task GetEntertainmentAreas_InvalidJson_ReturnsNull()
     {
         SetupHttpResponse(HttpStatusCode.OK, "not valid json");
@@ -326,6 +370,18 @@ public class HueClientTests : IDisposable
         var result = await client.GetEntertainmentAreas("192.168.1.100", "test-app-key");
 
         Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetEntertainmentAreas_WhenCanceled_PropagatesCancellation()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "{\"data\":[]}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+        using var cancellationSource = new CancellationTokenSource();
+        cancellationSource.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.GetEntertainmentAreas("192.168.1.100", "test-app-key", cancellationSource.Token));
     }
 
     #endregion
@@ -870,6 +926,18 @@ public class HueClientTests : IDisposable
 
         // Assert
         Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task RegisterWithBridge_WhenCanceled_PropagatesCancellation()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "[]");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+        using var cancellationSource = new CancellationTokenSource();
+        cancellationSource.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.RegisterWithBridge("192.168.1.100", cancellationSource.Token));
     }
 
     #endregion

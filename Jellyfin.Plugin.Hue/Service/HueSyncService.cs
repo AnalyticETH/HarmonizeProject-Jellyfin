@@ -2019,7 +2019,11 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (token.IsCancellationRequested)
                     return;
 
-                var areaConfig = await _hueClient.GetEntertainmentConfiguration(bridgeIp, appKey, areaId);
+                var areaConfig = await _hueClient.GetEntertainmentConfiguration(
+                    bridgeIp,
+                    appKey,
+                    areaId,
+                    token);
                 if (token.IsCancellationRequested)
                     return;
                 if (areaConfig == null)
@@ -2097,7 +2101,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         bridgeIp,
                         appKey,
                         areaConfig.Value,
-                        selectedChannelIds);
+                        selectedChannelIds,
+                        token);
                     if (token.IsCancellationRequested)
                         return;
 
@@ -2145,7 +2150,11 @@ namespace Jellyfin.Plugin.Hue.Service
                 // The bridge silently drops all DTLS packets if the area is not in streaming mode.
                 _logger.LogInformation("Activating entertainment area {0} for streaming", areaId);
                 SetRuntimeStatus("Starting", "Activating the entertainment area...");
-                var activated = await _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId);
+                var activated = await _hueClient.StartEntertainmentArea(
+                    bridgeIp,
+                    appKey,
+                    areaId,
+                    token);
                 if (token.IsCancellationRequested)
                     return;
                 if (!activated)

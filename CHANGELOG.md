@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.50] - 2026-08-17
+
+### Added
+- End-to-end request cancellation for bridge discovery, registration, entertainment-area reads, area configuration reads, and streaming-area activation
+
+### Changed
+- API preflight calls now stop promptly when the originating request is canceled instead of continuing retries in the background
+- Canceled activation attempts still run best-effort entertainment-area deactivation and saved-light restoration cleanup
+
 ## [1.5.49] - 2026-08-17
 
 ### Added

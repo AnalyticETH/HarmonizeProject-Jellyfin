@@ -116,13 +116,14 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <summary>
         /// Discovers the IP address of a Hue Bridge on the local network using the meethue.com discovery service
         /// </summary>
+        /// <param name="cancellationToken">Cancels the discovery request.</param>
         /// <returns>The IP address of the bridge, or empty string if not found</returns>
-        public async Task<string> DiscoverBridgeIp()
+        public async Task<string> DiscoverBridgeIp(CancellationToken cancellationToken = default)
         {
             // Simple discovery via meethue.com or mDNS (simplified for now)
             try
             {
-                var response = await _httpClient.GetStringAsync("https://discovery.meethue.com/");
+                var response = await _httpClient.GetStringAsync("https://discovery.meethue.com/", cancellationToken).ConfigureAwait(false);
                 using var doc = JsonDocument.Parse(response);
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
                 {
@@ -143,6 +144,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                     }
                 }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error discovering bridge");
@@ -154,9 +159,12 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// Registers this application with the Hue Bridge to obtain credentials
         /// </summary>
         /// <param name="ip">The IP address of the Hue Bridge</param>
+        /// <param name="cancellationToken">Cancels the registration request.</param>
         /// <returns>Registration result with username and client key, or null if failed</returns>
         /// <remarks>The physical link button must be pressed on the bridge before calling this method</remarks>
-        public async Task<Api.HueRegistrationResult?> RegisterWithBridge(string ip)
+        public async Task<Api.HueRegistrationResult?> RegisterWithBridge(
+            string ip,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -166,13 +174,16 @@ namespace Jellyfin.Plugin.Hue.Hue
                     // Hue bridge firmware now requires the local API to be accessed over TLS.
                     // The bridge certificate is handled by PluginServiceRegistrator for local
                     // bridge addresses only; public discovery traffic keeps normal validation.
-                    using var response = await _httpClient.PostAsync(BuildBridgeUrl("https", ip, "/api"), content).ConfigureAwait(false);
+                    using var response = await _httpClient.PostAsync(
+                        BuildBridgeUrl("https", ip, "/api"),
+                        content,
+                        cancellationToken).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
                         response.EnsureSuccessStatusCode();
                     }
 
-                    var json = await response.Content.ReadAsStringAsync();
+                    var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
                     // Response: [{"success":{"username":"...","clientkey":"..."}}] OR [{"error":...}]
                     using var doc = JsonDocument.Parse(json);
@@ -198,7 +209,11 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                     _logger.LogWarning("Registration failed: {0}", json);
                     return null;
-                }).ConfigureAwait(false);
+                }, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -213,8 +228,13 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="bridgeIp">The IP address of the Hue Bridge</param>
         /// <param name="appKey">The application key for authentication</param>
         /// <param name="areaId">The ID of the entertainment area</param>
+        /// <param name="cancellationToken">Cancels the configuration request.</param>
         /// <returns>JSON element containing the area configuration, or null if failed</returns>
-        public async Task<JsonElement?> GetEntertainmentConfiguration(string bridgeIp, string appKey, string areaId)
+        public async Task<JsonElement?> GetEntertainmentConfiguration(
+            string bridgeIp,
+            string appKey,
+            string areaId,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -224,10 +244,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                     using var request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Add("hue-application-key", appKey);
 
-                    using var response = await _httpClient.SendAsync(request);
+                    using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
 
-                    var json = await response.Content.ReadAsStringAsync();
+                    var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                     using var doc = JsonDocument.Parse(json);
                     // Expected: { "data": [ { "channels": [ ... ] } ] }
                     if (!doc.RootElement.TryGetProperty("data", out var data) ||
@@ -240,7 +260,11 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                     // Clone the element so the JsonDocument can be safely disposed
                     return (JsonElement?)data[0].Clone();
-                }).ConfigureAwait(false);
+                }, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -259,8 +283,13 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="bridgeIp">IP address of the Hue Bridge</param>
         /// <param name="appKey">Application key for authentication</param>
         /// <param name="areaId">Entertainment area UUID</param>
+        /// <param name="cancellationToken">Cancels activation without changing cleanup behavior.</param>
         /// <returns>True if activation succeeded</returns>
-        public async Task<bool> StartEntertainmentArea(string bridgeIp, string appKey, string areaId)
+        public async Task<bool> StartEntertainmentArea(
+            string bridgeIp,
+            string appKey,
+            string areaId,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -272,10 +301,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                     request.Headers.Add("hue-application-key", appKey);
                     request.Content = new StringContent("{\"action\":\"start\"}", System.Text.Encoding.UTF8, "application/json");
 
-                    using var response = await _httpClient.SendAsync(request);
+                    using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
-                        var body = await response.Content.ReadAsStringAsync();
+                        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                         if (IsRetriableStatusCode(response.StatusCode))
                         {
                             throw new HttpRequestException(
@@ -290,9 +319,13 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                     _logger.LogInformation("Entertainment area {0} activated for streaming", areaId);
                     return true;
-                }).ConfigureAwait(false);
+                }, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                 return result == true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -364,8 +397,12 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         /// <param name="bridgeIp">The IP address of the Hue Bridge</param>
         /// <param name="appKey">The application key for authentication</param>
+        /// <param name="cancellationToken">Cancels the areas request.</param>
         /// <returns>List of entertainment areas, or null if failed</returns>
-        public async Task<List<EntertainmentArea>?> GetEntertainmentAreas(string bridgeIp, string appKey)
+        public async Task<List<EntertainmentArea>?> GetEntertainmentAreas(
+            string bridgeIp,
+            string appKey,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -375,10 +412,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                     using var request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Add("hue-application-key", appKey);
 
-                    using var response = await _httpClient.SendAsync(request);
+                    using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
 
-                    var json = await response.Content.ReadAsStringAsync();
+                    var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                     using var doc = JsonDocument.Parse(json);
 
                     var results = new List<EntertainmentArea>();
@@ -402,7 +439,11 @@ namespace Jellyfin.Plugin.Hue.Hue
                     }
 
                     return results;
-                }).ConfigureAwait(false);
+                }, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -458,19 +499,22 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="appKey">The application key for authentication</param>
         /// <param name="areaConfig">The entertainment area configuration</param>
         /// <param name="channelIds">Optional entertainment channel IDs to capture.</param>
+        /// <param name="cancellationToken">Cancels the capture request without changing cleanup behavior.</param>
         /// <returns>The light states that were captured. Use GetLightStatesWithResult when
         /// the caller must distinguish a complete capture from a partial one.</returns>
         public async Task<List<LightState>> GetLightStates(
             string bridgeIp,
             string appKey,
             JsonElement areaConfig,
-            IReadOnlySet<int>? channelIds = null)
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
         {
             var result = await GetLightStatesWithResult(
                 bridgeIp,
                 appKey,
                 areaConfig,
-                channelIds).ConfigureAwait(false);
+                channelIds,
+                cancellationToken).ConfigureAwait(false);
             return result.States;
         }
 

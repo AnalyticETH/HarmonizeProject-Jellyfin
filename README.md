@@ -316,7 +316,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.49 (Current)
+### Version 1.5.50 (Current)
+- **End-to-end request cancellation**: Bridge discovery, registration, entertainment-area reads, area configuration reads, and streaming-area activation now honor the originating API request token
+- **Activation cleanup safety**: If cancellation arrives while the bridge activation request is in flight, the diagnostic still deactivates the area and restores the captured light state before releasing the lifecycle lease
+
+### Version 1.5.49
 - **System Diagnostics**: Add a non-mutating setup and runtime report for configuration validity, FFmpeg/OpenSSL availability and versions, lifecycle contention, and playback/diagnostic readiness
 - **Actionable setup feedback**: Add a configuration-page diagnostics panel that explains missing prerequisites without exposing bridge credentials
 
