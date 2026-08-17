@@ -325,6 +325,12 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="outputBrightnessPercent">Output Brightness (%)</label>
+                            <input id="outputBrightnessPercent" name="outputBrightnessPercent" type="number" min="0" max="100" is="emby-input" />
+                            <div class="fieldDescription">Final brightness scale applied to synced colors after boost and saturation (0-100%, default: 100). Use this to cap the room brightness without changing color balance.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="blackoutThreshold">Blackout Threshold</label>
                             <input id="blackoutThreshold" name="blackoutThreshold" type="number" min="0" max="255" is="emby-input" />
                             <div class="fieldDescription">Set lights to black when average brightness is below this value (0-255, default: 15).</div>
@@ -398,6 +404,7 @@
                         page.querySelector('#restoreLightState').checked = getConfigValue('RestoreLightState', true);
                         page.querySelector('#brightnessBoost').value = getConfigValue('BrightnessBoost', 100);
                         page.querySelector('#colorSaturation').value = getConfigValue('ColorSaturation', 100);
+                        page.querySelector('#outputBrightnessPercent').value = getConfigValue('OutputBrightnessPercent', 100);
                         page.querySelector('#blackoutThreshold').value = getConfigValue('BlackoutThreshold', 15);
                         page.querySelector('#colorChangeThreshold').value = getConfigValue('ColorChangeThreshold', 10);
                         page.querySelector('#networkRetryAttempts').value = getConfigValue('NetworkRetryAttempts', 3);
@@ -438,6 +445,7 @@
                         RestoreLightState: page.querySelector('#restoreLightState').checked,
                         BrightnessBoost: parseNumberOrDefault('#brightnessBoost', 100),
                         ColorSaturation: parseNumberOrDefault('#colorSaturation', 100),
+                        OutputBrightnessPercent: parseNumberOrDefault('#outputBrightnessPercent', 100),
                         BlackoutThreshold: parseNumberOrDefault('#blackoutThreshold', 15),
                         ColorChangeThreshold: parseNumberOrDefault('#colorChangeThreshold', 10),
                         NetworkRetryAttempts: parseNumberOrDefault('#networkRetryAttempts', 3)

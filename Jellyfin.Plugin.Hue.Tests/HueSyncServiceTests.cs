@@ -217,4 +217,21 @@ public sealed class HueSyncServiceTests
 
         Assert.Equal(new byte[] { 10, 10, 10 }, smoothed[1]);
     }
+
+    [Theory]
+    [InlineData(255, 100, 255)]
+    [InlineData(255, 50, 127.5)]
+    [InlineData(255, 0, 0)]
+    [InlineData(-10, 100, 0)]
+    [InlineData(300, 100, 255)]
+    public void ApplyOutputBrightness_ScalesAndClamps(
+        double channel,
+        int outputBrightnessPercent,
+        double expected)
+    {
+        Assert.Equal(
+            expected,
+            HueSyncService.ApplyOutputBrightness(channel, outputBrightnessPercent),
+            precision: 6);
+    }
 }

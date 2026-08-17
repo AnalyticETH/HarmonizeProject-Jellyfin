@@ -274,6 +274,26 @@ public class PluginConfigurationTests
 
     [Theory]
     [InlineData(-1)]
+    [InlineData(101)]
+    public void Validate_WhenOutputBrightnessIsOutOfRange_ReturnsError(int outputBrightnessPercent)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            OutputBrightnessPercent = outputBrightnessPercent
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Output brightness must be between 0 and 100 percent", errors);
+    }
+
+    [Theory]
+    [InlineData(-1)]
     [InlineData(256)]
     public void Validate_WhenBlackoutThresholdOutOfRange_ReturnsError(int threshold)
     {
@@ -428,6 +448,7 @@ public class PluginConfigurationTests
         Assert.True(config.UseGpu);
         Assert.Equal(100, config.BrightnessBoost);
         Assert.Equal(100, config.ColorSaturation);
+        Assert.Equal(100, config.OutputBrightnessPercent);
         Assert.Equal(15, config.BlackoutThreshold);
         Assert.Equal(10, config.ColorChangeThreshold);
         Assert.Equal(3, config.NetworkRetryAttempts);

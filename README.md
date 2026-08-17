@@ -61,6 +61,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Color Sampling Breadth** | Size of the neighborhood sampled around each Hue channel's screen position (1-50%, default: 15%). Smaller values follow fine detail; larger values reduce noise. |
 | **Color Sampling Mode** | Average (default), center-weighted, or center-pixel sampling for balancing ambient stability against detail. |
 | **Temporal Color Smoothing** | Blend the previous frame into new colors to reduce flicker (0-90%, default: 0%). Higher values create smoother but slower transitions. |
+| **Output Brightness** | Final 0-100% brightness scale applied after boost and saturation (default: 100%). Use it to cap room brightness without changing color balance. |
 | **When Playback Is Paused** | Keep the last synced colors (default) or restore the original light state captured at playback start. Sync resumes automatically. Restoring uses the **Restore Light State After Sync** setting. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
@@ -266,7 +267,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.25 (Current)
+### Version 1.5.26 (Current)
+- **Output brightness control**: Cap synced light brightness from 0-100% after boost/saturation while preserving color balance
+
+### Version 1.5.25
 - **Configurable video deinterlacing**: Choose Off for progressive video, Auto for flagged interlaced frames, or On for sources that need forced deinterlacing; the active mode is reported in Live Sync Status
 
 ### Version 1.5.24

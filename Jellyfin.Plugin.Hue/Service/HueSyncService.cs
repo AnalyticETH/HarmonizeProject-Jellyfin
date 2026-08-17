@@ -982,6 +982,16 @@ namespace Jellyfin.Plugin.Hue.Service
             return smoothedColors;
         }
 
+        /// <summary>
+        /// Applies the final output-brightness scale after color adjustments while keeping
+        /// the channel in the RGB byte range used by the Hue stream encoder.
+        /// </summary>
+        internal static double ApplyOutputBrightness(double channel, int outputBrightnessPercent)
+        {
+            var normalizedPercent = Math.Clamp(outputBrightnessPercent, 0, 100) / 100.0;
+            return Math.Clamp(channel * normalizedPercent, 0, 255);
+        }
+
         private static byte BlendColorChannel(
             byte current,
             byte previous,
@@ -1211,6 +1221,14 @@ namespace Jellyfin.Plugin.Hue.Service
                                 r = r2 * 255;
                                 g = g2 * 255;
                                 b = b2 * 255;
+                            }
+
+                            // Apply the final output-brightness scale after color adjustments
+                            if (config.OutputBrightnessPercent != 100)
+                            {
+                                r = ApplyOutputBrightness(r, config.OutputBrightnessPercent);
+                                g = ApplyOutputBrightness(g, config.OutputBrightnessPercent);
+                                b = ApplyOutputBrightness(b, config.OutputBrightnessPercent);
                             }
 
                             // Format following HarmonizeProject: divide by 2 for 16-bit color compatibility

@@ -49,6 +49,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private const int MaxBrightnessBoost = 200;
         private const int MinColorSaturation = 0;
         private const int MaxColorSaturation = 200;
+        private const int MinOutputBrightnessPercent = 0;
+        private const int MaxOutputBrightnessPercent = 100;
         private const int MinByteSetting = 0;
         private const int MaxByteSetting = 255;
         private const int MinNetworkRetryAttempts = 0;
@@ -89,6 +91,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool RestoreLightState { get; set; } = true; // Save and restore light state before sync
         public int BrightnessBoost { get; set; } = 100; // Brightness multiplier (50-200%)
         public int ColorSaturation { get; set; } = 100; // Color saturation adjustment (0-200%)
+        public int OutputBrightnessPercent { get; set; } = 100; // Final output brightness ceiling (0-100%)
         public int BlackoutThreshold { get; set; } = 15; // Average brightness below which lights are set to black (0-255)
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
         public int NetworkRetryAttempts { get; set; } = 3; // Number of retry attempts for Hue REST and DTLS recovery
@@ -211,6 +214,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (ColorSaturation < MinColorSaturation || ColorSaturation > MaxColorSaturation)
                     errors.Add("Color saturation must be between 0 and 200");
+
+                if (OutputBrightnessPercent < MinOutputBrightnessPercent ||
+                    OutputBrightnessPercent > MaxOutputBrightnessPercent)
+                    errors.Add("Output brightness must be between 0 and 100 percent");
 
                 if (BlackoutThreshold < MinByteSetting || BlackoutThreshold > MaxByteSetting)
                     errors.Add("Blackout threshold must be between 0 and 255");
