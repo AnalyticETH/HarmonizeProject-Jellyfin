@@ -350,6 +350,35 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task StopAsync_RestoresSavedStateBeforeServiceShutdown()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        Plugin.Instance!.Configuration.RestoreLightState = true;
+        SetPrivateField(service, "_savedLightStates", new List<HueClient.LightState>
+        {
+            new("light-id", true, 50, 0.1, 0.2)
+        });
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        var stopTask = service.StopAsync(CancellationToken.None);
+        await handler.RestorationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await stopTask;
+
+        Assert.Null(GetPrivateField(service, "_savedLightStates"));
+        Assert.Equal("Idle", service.GetRuntimeStatus().State);
+        Assert.Equal("Sync service stopped.", service.GetRuntimeStatus().Message);
+    }
+
+    [Fact]
     public async Task StaleManualStopNotificationDoesNotResetNewerSession()
     {
         using var httpClient = new HttpClient(new BlockingHueHandler());

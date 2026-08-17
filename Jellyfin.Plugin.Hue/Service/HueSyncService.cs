@@ -56,6 +56,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private readonly ILoggerFactory _loggerFactory;
         private string? _currentPlaySessionId;
         private List<HueClient.LightState>? _savedLightStates;
+        private string? _savedLightStatePlaySessionId;
         private DateTime _syncStartTime;
         private const int MinSyncDurationBeforePauseMs = 5000; // Ignore pause events for first 5 seconds
         private string? _startingPlaySessionId;
@@ -193,20 +194,25 @@ namespace Jellyfin.Plugin.Hue.Service
                 await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
                 try
                 {
+                    var config = Plugin.Instance?.Configuration;
                     var bridgeConfig = _currentBridgeConfig;
                     var areaAlreadyDeactivated = _bridgeAreaDeactivated;
+                    var savedLightStates = _savedLightStates;
                     StopSync(deactivateArea: false);
                     _currentBridgeConfig = null;
                     _currentItemName = null;
 
-                    if (bridgeConfig != null && !areaAlreadyDeactivated)
+                    if (bridgeConfig != null && (!areaAlreadyDeactivated || savedLightStates != null))
                     {
-                        await _hueClient.StopEntertainmentArea(
-                            bridgeConfig.Value.BridgeIp,
-                            bridgeConfig.Value.AppKey,
-                            bridgeConfig.Value.AreaId).ConfigureAwait(false);
-                        _bridgeAreaDeactivated = true;
+                        await RestoreAndDeactivateAsync(
+                            config,
+                            bridgeConfig,
+                            savedLightStates,
+                            publishIdleStatus: false).ConfigureAwait(false);
                     }
+
+                    _savedLightStates = null;
+                    _savedLightStatePlaySessionId = null;
                 }
                 finally
                 {
@@ -815,6 +821,17 @@ namespace Jellyfin.Plugin.Hue.Service
             return Math.Max(1, (int)(normalizedPercent / 100.0 * averageFrameSize));
         }
 
+        internal static bool ShouldCaptureLightState(
+            bool restoreLightState,
+            bool hasSavedLightStates,
+            string? savedLightStatePlaySessionId,
+            string playSessionId)
+        {
+            return restoreLightState &&
+                   (!hasSavedLightStates ||
+                    !string.Equals(savedLightStatePlaySessionId, playSessionId, StringComparison.Ordinal));
+        }
+
         internal static Dictionary<int, byte[]> ApplyTemporalSmoothing(
             IReadOnlyDictionary<int, byte[]> currentColors,
             IReadOnlyDictionary<int, byte[]> previousColors,
@@ -1421,13 +1438,19 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 // Save current light states if configured
-                if (config.RestoreLightState)
+                var shouldCaptureLightState = ShouldCaptureLightState(
+                    config.RestoreLightState,
+                    _savedLightStates != null,
+                    _savedLightStatePlaySessionId,
+                    e.PlaySessionId);
+                if (shouldCaptureLightState)
                 {
                     _logger.LogInformation("Saving current light states for restoration");
                     var savedLightStates = await _hueClient.GetLightStates(bridgeIp, appKey, areaConfig.Value);
                     if (token.IsCancellationRequested)
                         return;
                     _savedLightStates = savedLightStates;
+                    _savedLightStatePlaySessionId = e.PlaySessionId;
                 }
 
                 if (config.UseCinemaMode)
@@ -1576,7 +1599,10 @@ namespace Jellyfin.Plugin.Hue.Service
                     _logger.LogInformation("Restoring saved light states");
                     await _hueClient.RestoreLightStates(bridgeConfig.Value.BridgeIp, bridgeConfig.Value.AppKey, savedLightStates);
                     if (ReferenceEquals(_savedLightStates, savedLightStates))
+                    {
                         _savedLightStates = null;
+                        _savedLightStatePlaySessionId = null;
+                    }
                 }
                 else if (config != null && config.UseCinemaMode && config.SyncEnabled && bridgeConfig != null)
                 {

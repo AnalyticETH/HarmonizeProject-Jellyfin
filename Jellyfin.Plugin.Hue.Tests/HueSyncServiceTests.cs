@@ -7,6 +7,27 @@ namespace Jellyfin.Plugin.Hue.Tests;
 public sealed class HueSyncServiceTests
 {
     [Theory]
+    [InlineData(true, false, null, "session-a", true)]
+    [InlineData(true, true, "session-a", "session-a", false)]
+    [InlineData(true, true, "session-a", "session-b", true)]
+    [InlineData(false, true, "session-a", "session-a", false)]
+    public void ShouldCaptureLightState_PreservesSnapshotForSamePlaybackSession(
+        bool restoreLightState,
+        bool hasSavedLightStates,
+        string? savedLightStatePlaySessionId,
+        string playSessionId,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            HueSyncService.ShouldCaptureLightState(
+                restoreLightState,
+                hasSavedLightStates,
+                savedLightStatePlaySessionId,
+                playSessionId));
+    }
+
+    [Theory]
     [InlineData(0, 18)]
     [InlineData(1, 1)]
     [InlineData(15, 18)]

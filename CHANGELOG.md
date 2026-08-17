@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.21] - 2026-08-17
+
+### Changed
+- Keep-colors pause/resume now preserves the original playback-start light snapshot for final restoration
+- Service shutdown now restores saved light state before deactivating Hue output
+
+### Added
+- Regression coverage for same-session snapshot ownership and shutdown restoration
+
 ## [1.5.20] - 2026-08-17
 
 ### Added

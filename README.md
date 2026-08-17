@@ -262,7 +262,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.20 (Current)
+### Version 1.5.21 (Current)
+- **Session-safe light restoration**: Keep-colors pause/resume no longer overwrites the original playback-start light snapshot, and service shutdown restores saved state before releasing Hue output
+
+### Version 1.5.20
 - **Configurable pause behavior**: Keep the last synced colors or restore the original captured light state when playback pauses; the previous keep-last-colors behavior remains the default
 - **Pause lifecycle diagnostics**: Live Sync Status reports the selected pause behavior and preserves the playback item while paused
 
