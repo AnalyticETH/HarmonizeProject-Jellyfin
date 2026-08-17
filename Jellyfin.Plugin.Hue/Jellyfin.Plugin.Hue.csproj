@@ -10,9 +10,9 @@
     <!-- Plugin metadata -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>CS1591</NoWarn>
-    <AssemblyVersion>1.5.2.0</AssemblyVersion>
-    <FileVersion>1.5.2.0</FileVersion>
-    <Version>1.5.2.0</Version>
+    <AssemblyVersion>1.5.3.0</AssemblyVersion>
+    <FileVersion>1.5.3.0</FileVersion>
+    <Version>1.5.3.0</Version>
     <Authors>MCP Capital LLC</Authors>
     <Company>MCP Capital LLC</Company>
     <Description>Synchronize Philips Hue lights with your media playback in real-time.</Description>
@@ -29,8 +29,10 @@
       <PrivateAssets>all</PrivateAssets>
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <!-- Security: Override vulnerable transitive dependencies -->
-    <PackageReference Include="System.Text.Json" Version="9.0.1" />
+    <!-- Keep the JSON assembly on the .NET 8 servicing line; the plugin package does not
+         ship framework assemblies, so a .NET 9 assembly would not load on Jellyfin .NET 8. -->
+    <PackageReference Include="System.Text.Json" Version="8.0.6" />
+    <PackageReference Include="System.Text.Encodings.Web" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>

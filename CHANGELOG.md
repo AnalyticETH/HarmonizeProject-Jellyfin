@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Require bridge targets to be private/local addresses or .local mDNS names
 - Add regression coverage for registration transport security, address validation, and certificate validation boundaries
 
+## [1.5.3] - 2026-08-16
+
+### Fixed
+- Keep plugin JSON and encoding dependencies on the .NET 8 servicing line so the release loads on Jellyfin's .NET 8 runtime
+- Pin vulnerable legacy transitive framework packages to safe compatible versions and make the CI advisory scan pass
+
 ## [1.5.0] - 2026-08-16
 
 ### Added

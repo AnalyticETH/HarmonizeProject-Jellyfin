@@ -217,10 +217,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.2 (Current)
+### Version 1.5.3 (Current)
 - **Hue HTTPS compatibility**: Link-button registration uses the TLS-protected bridge API required by current firmware
 - **Scoped certificate handling**: Self-signed bridge certificates are accepted only for private/local bridge addresses; public discovery uses normal TLS validation
 - **Local bridge target validation**: Configuration and API mapping inputs reject public hosts and malformed URLs
+- **.NET 8 runtime compatibility**: Plugin JSON and encoding dependencies stay on the .NET 8 servicing line and pass the vulnerability scan
 
 ### Version 1.5.0
 - **Playback lifecycle hardening**: Stop, pause, resume, and shutdown paths serialize cleanup and bridge deactivation safely
