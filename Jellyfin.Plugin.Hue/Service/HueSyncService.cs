@@ -49,6 +49,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private readonly ISessionManager _sessionManager;
         private readonly ILogger<HueSyncService> _logger;
         private readonly IMediaEncoder _mediaEncoder;
+        private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
 
         private FfmpegStreamer? _ffmpegStreamer;
         private HueStreamer? _hueStreamer;
@@ -97,6 +98,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private bool? _activeUseCinemaMode;
         private bool? _activeCinemaModeAttempted;
         private bool? _activeRestoreLightState;
+        private IDisposable? _playbackLifecycleLease;
         private string? _activePauseBehavior;
         private string? _manuallyStoppedPlaySessionId;
         private string _runtimeState = "Idle";
@@ -162,13 +164,20 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        public HueSyncService(ISessionManager sessionManager, ILogger<HueSyncService> logger, ILoggerFactory loggerFactory, HueClient hueClient, IMediaEncoder mediaEncoder)
+        public HueSyncService(
+            ISessionManager sessionManager,
+            ILogger<HueSyncService> logger,
+            ILoggerFactory loggerFactory,
+            HueClient hueClient,
+            IMediaEncoder mediaEncoder,
+            HueBridgeLifecycleGate? bridgeLifecycleGate = null)
         {
             _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
             _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
             _mediaEncoder = mediaEncoder ?? throw new ArgumentNullException(nameof(mediaEncoder));
+            _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -245,6 +254,10 @@ namespace Jellyfin.Plugin.Hue.Service
                             bridgeConfig,
                             savedLightStates,
                             publishIdleStatus: false).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        ReleasePlaybackLifecycleLease();
                     }
 
                     lock (_syncLock)
@@ -841,7 +854,12 @@ namespace Jellyfin.Plugin.Hue.Service
                         bridgeConfig.Value.AppKey,
                         bridgeConfig.Value.AreaId).ConfigureAwait(false);
                     _bridgeAreaDeactivated = true;
+                    ReleasePlaybackLifecycleLease();
                     SetRuntimeStatus("Paused", "Playback paused; waiting to resume.");
+                }
+                else
+                {
+                    ReleasePlaybackLifecycleLease();
                 }
 
                 lock (_syncLock)
@@ -1942,6 +1960,14 @@ namespace Jellyfin.Plugin.Hue.Service
             if (startupToken.IsCancellationRequested)
                 return;
 
+            IDisposable? playbackLifecycleLease = _bridgeLifecycleGate.TryEnterPlayback();
+            if (playbackLifecycleLease == null)
+            {
+                _logger.LogWarning("Hue playback startup was blocked because a diagnostic is using the bridge");
+                SetRuntimeError("Hue playback could not start while a Hue diagnostic (connection probe or preview) is using the bridge.");
+                return;
+            }
+
             StopSync();
             var syncCts = CancellationTokenSource.CreateLinkedTokenSource(startupToken);
             var syncStatePublished = false;
@@ -1955,6 +1981,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
                 else
                 {
+                    _playbackLifecycleLease = playbackLifecycleLease;
+                    playbackLifecycleLease = null;
                     _syncCts = syncCts;
                     _currentPlaySessionId = e.PlaySessionId;
                     _currentBridgeConfig = (bridgeIp, appKey, clientKey, areaId);
@@ -1978,6 +2006,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     syncStatePublished = true;
                 }
             }
+
+            playbackLifecycleLease?.Dispose();
 
             var token = syncCts.Token;
 
@@ -2342,7 +2372,20 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 SetCleanupWarning(cleanupWarning);
+                ReleasePlaybackLifecycleLease();
             }
+        }
+
+        private void ReleasePlaybackLifecycleLease()
+        {
+            IDisposable? lifecycleLease;
+            lock (_syncLock)
+            {
+                lifecycleLease = _playbackLifecycleLease;
+                _playbackLifecycleLease = null;
+            }
+
+            lifecycleLease?.Dispose();
         }
 
         private async Task CleanupAbortedStartup(string playSessionId, CancellationTokenSource syncCts)

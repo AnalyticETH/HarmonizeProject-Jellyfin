@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
@@ -62,13 +61,18 @@ public sealed class HueStreamTester : IHueStreamTester
     private readonly HueClient _hueClient;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<HueStreamTester> _logger;
-    private readonly SemaphoreSlim _diagnosticLifecycleLock = new(1, 1);
+    private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
 
-    public HueStreamTester(HueClient hueClient, ILoggerFactory loggerFactory, ILogger<HueStreamTester> logger)
+    public HueStreamTester(
+        HueClient hueClient,
+        ILoggerFactory loggerFactory,
+        ILogger<HueStreamTester> logger,
+        HueBridgeLifecycleGate? bridgeLifecycleGate = null)
     {
         _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
     }
 
     public Task<HueStreamProbeResult> TestAsync(
@@ -371,7 +375,8 @@ public sealed class HueStreamTester : IHueStreamTester
 
     private async Task<HueStreamProbeResult> RunSerializedAsync(Func<Task<HueStreamProbeResult>> operation)
     {
-        if (!await _diagnosticLifecycleLock.WaitAsync(0).ConfigureAwait(false))
+        var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
+        if (lifecycleLease == null)
             return Failure(DiagnosticBusyMessage);
 
         try
@@ -380,7 +385,7 @@ public sealed class HueStreamTester : IHueStreamTester
         }
         finally
         {
-            _diagnosticLifecycleLock.Release();
+            lifecycleLease.Dispose();
         }
     }
 

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.47] - 2026-08-17
+
+### Added
+- Shared `HueBridgeLifecycleGate` coordination between playback and Test Connection/preview diagnostics
+
+### Changed
+- Playback startup now refuses to mutate Hue output while a diagnostic lifecycle holds the bridge
+- Diagnostics now fail safely during playback even when the API `IsSyncing` check races a new playback start
+- Playback lifecycle leases are released across normal stop, startup rollback, pause, shutdown, and restoration cleanup paths
+
 ## [1.5.46] - 2026-08-17
 
 ### Fixed

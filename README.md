@@ -65,7 +65,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Execution Profile** | GPU acceleration, additional FFmpeg flags, FFmpeg stall timeout, and Hue REST/DTLS retry attempts can be overridden per user while blank fields inherit global settings; the effective policy is captured when playback starts. |
 | **Channel Profile** | Select a comma-separated subset of entertainment channel IDs globally; use **Load Channel IDs** after choosing an area to read available IDs, then edit the list. Blank global fields drive every channel. A populated per-user channel override takes precedence, while blank per-user fields inherit the global selection. The active selection is captured with the playback session. |
 | **Solid Color Preview** | Choose a color, brightness, and 1-30 second duration to preview the default target (or the current mapping target). The plugin captures and restores the selected lights automatically and refuses to overlap active playback. |
-| **Cleanup diagnostics** | Light capture and restoration retry each light using the captured network policy. Playback, probes, and previews refuse to activate when the snapshot is incomplete; concurrent diagnostics are serialized so their snapshots and cleanup cannot overlap. Partial restoration or failed entertainment-area deactivation remains visible as a sanitized warning in Live Sync Status and probe/preview results. |
+| **Cleanup diagnostics** | Light capture and restoration retry each light using the captured network policy. Playback, probes, and previews refuse to activate when the snapshot is incomplete; one shared bridge lease also prevents playback and diagnostics from overlapping. Partial restoration or failed entertainment-area deactivation remains visible as a sanitized warning in Live Sync Status and probe/preview results. |
 | **Saved Color Scenes** | Save up to 50 named color, brightness, and duration presets. Apply a saved scene to the default target or the current mapping; presets contain no bridge credentials. |
 | **Restore Light State After Sync** | Save and restore each light's original state after playback. Per-user mappings can override this policy while blank fields inherit the global setting. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
@@ -314,7 +314,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.46 (Current)
+### Version 1.5.47 (Current)
+- **Shared bridge lifecycle gate**: Playback and Test Connection/preview diagnostics now reserve one process-wide bridge lease, closing the race between the API's point-in-time playback check and startup
+- **Safe contention handling**: Playback reports a diagnostic-busy error, while diagnostics return the existing busy result during active playback; leases are released on stop, pause, rollback, shutdown, and restoration
+
+### Version 1.5.46
 - **Process-wide diagnostic lock**: The shared Test Connection/preview gate now lives in the singleton tester service, so concurrent API requests cannot bypass serialization by resolving separate tester instances
 
 ### Version 1.5.45

@@ -386,6 +386,34 @@ public sealed class HueSyncServiceLifecycleTests
         await service.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task PlaybackStartup_IsBlockedWhileDiagnosticLeaseIsHeld()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        var diagnosticLease = gate.TryEnterDiagnostic();
+        Assert.NotNull(diagnosticLease);
+
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient, gate);
+        await service.StartAsync(CancellationToken.None);
+
+        var startMethod = typeof(HueSyncService).GetMethod("StartSyncForItemCore", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var startTask = Assert.IsAssignableFrom<Task>(startMethod.Invoke(service, new object?[]
+        {
+            CreateProgress("diagnostic-blocked-session"),
+            CancellationToken.None
+        }));
+
+        await startTask;
+        Assert.False(handler.FirstConfigurationRequest.Task.IsCompleted);
+        Assert.Contains("diagnostic", service.GetRuntimeStatus().LastError, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+
+        diagnosticLease!.Dispose();
+        await service.StopAsync(CancellationToken.None);
+    }
+
     private static async Task WaitForRuntimeStatusAsync(
         HueSyncService service,
         string expectedState,
@@ -822,7 +850,7 @@ public sealed class HueSyncServiceLifecycleTests
         await service.StopAsync(CancellationToken.None);
     }
 
-    private static HueSyncService CreateService(HttpClient httpClient)
+    private static HueSyncService CreateService(HttpClient httpClient, HueBridgeLifecycleGate? bridgeLifecycleGate = null)
     {
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>());
         var loggerFactory = new Mock<ILoggerFactory>();
@@ -860,7 +888,8 @@ public sealed class HueSyncServiceLifecycleTests
             Mock.Of<ILogger<HueSyncService>>(),
             loggerFactory.Object,
             hueClient,
-            Mock.Of<IMediaEncoder>());
+            Mock.Of<IMediaEncoder>(),
+            bridgeLifecycleGate);
     }
 
     private static object? GetPrivateField(HueSyncService service, string fieldName) =>
