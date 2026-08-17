@@ -27,10 +27,13 @@
                         <button is="emby-button" type="button" class="raised" id="refreshRuntimeStatusBtn">
                             <span>Refresh Status</span>
                         </button>
+                        <button is="emby-button" type="button" class="raised" id="stopRuntimeSyncBtn" disabled>
+                            <span>Stop Current Sync</span>
+                        </button>
                     </div>
                     <div id="runtimeStatusMessage" class="fieldDescription" style="margin-top: 0.5em;">Loading runtime status...</div>
                     <div id="runtimeStatusError" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
-                    <div class="fieldDescription" style="margin-top: 0.75em;">Updates automatically while this page is open. Bridge credentials are never included in status responses.</div>
+                    <div class="fieldDescription" style="margin-top: 0.75em;">Updates automatically while this page is open. Stop Current Sync restores the lights and leaves playback running; bridge credentials are never included in status responses.</div>
                 </fieldset>
                 <form class="huePluginConfigurationForm">
                     <fieldset class="verticalSection">
@@ -558,12 +561,14 @@
 
                     page._hueRuntimeStatusLoading = true;
                     var refreshButton = page.querySelector('#refreshRuntimeStatusBtn');
+                    var stopButton = page.querySelector('#stopRuntimeSyncBtn');
                     if (refreshButton) refreshButton.disabled = true;
 
                     return ApiClient.getJSON(ApiClient.getUrl("HueSync/Status")).then(function (status) {
                         var state = HueConfigurationPage.readStatusField(status, "State", "Unavailable");
                         var serviceAvailable = HueConfigurationPage.readStatusField(status, "ServiceAvailable", false);
                         var isSyncing = HueConfigurationPage.readStatusField(status, "IsSyncing", false);
+                        var canStop = HueConfigurationPage.readStatusField(status, "CanStopSync", false);
                         var currentItem = HueConfigurationPage.readStatusField(status, "CurrentItem", "—");
                         var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
                         var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
@@ -589,6 +594,7 @@
                         page.querySelector('#runtimeFrames').textContent = String(frames || 0);
                         page.querySelector('#runtimeDuration').textContent = HueConfigurationPage.formatRuntimeDuration(duration);
                         page.querySelector('#runtimeStatusMessage').textContent = message || "No runtime message.";
+                        if (stopButton) stopButton.disabled = !serviceAvailable || !canStop;
 
                         var errorElement = page.querySelector('#runtimeStatusError');
                         if (errorElement) {
@@ -602,6 +608,29 @@
                     }).finally(function () {
                         page._hueRuntimeStatusLoading = false;
                         if (refreshButton) refreshButton.disabled = false;
+                    });
+                },
+                stopRuntimeSync: function (page) {
+                    if (!page || page._hueRuntimeStopInFlight) return;
+
+                    var stopButton = page.querySelector('#stopRuntimeSyncBtn');
+                    page._hueRuntimeStopInFlight = true;
+                    if (stopButton) stopButton.disabled = true;
+                    Dashboard.showLoadingMsg();
+
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/Stop"),
+                        dataType: "json"
+                    }).then(function (response) {
+                        HueConfigurationPage.loadRuntimeStatus(page);
+                    }).catch(function (err) {
+                        console.error("Failed to stop Hue sync:", err);
+                        HueConfigurationPage.loadRuntimeStatus(page);
+                        Dashboard.alert("Unable to stop Hue sync: " + (err && err.message ? err.message : "no active sync session"));
+                    }).finally(function () {
+                        page._hueRuntimeStopInFlight = false;
+                        Dashboard.hideLoadingMsg();
                     });
                 },
                 startRuntimeStatusPolling: function (page) {
@@ -1271,6 +1300,10 @@
 
             document.querySelector('#refreshRuntimeStatusBtn').addEventListener('click', function () {
                 HueConfigurationPage.loadRuntimeStatus(this.closest('.page'));
+            });
+
+            document.querySelector('#stopRuntimeSyncBtn').addEventListener('click', function () {
+                HueConfigurationPage.stopRuntimeSync(this.closest('.page'));
             });
 
             document.querySelector('#entertainmentAreaSelect').addEventListener('change', function () {

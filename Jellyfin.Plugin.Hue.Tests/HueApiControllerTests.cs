@@ -247,6 +247,18 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveBridgeIp);
         Assert.Null(status.ActiveEntertainmentAreaId);
         Assert.Null(status.LastError);
+        Assert.False(status.CanStopSync);
+    }
+
+    [Fact]
+    public async Task StopSync_WithoutHostedServiceReturnsServiceUnavailable()
+    {
+        var controller = CreateController();
+
+        var action = await controller.StopSync();
+
+        var response = Assert.IsType<ObjectResult>(action);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
     }
 
     private HueApiController CreateController(IHueStreamTester? streamTester = null)

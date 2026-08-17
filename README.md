@@ -86,7 +86,8 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/DiscoverBridge` | Discover a private/local Hue Bridge address. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "..." }` in the request body. |
 | `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration. |
-| `GET /HueSync/Status` | Read sanitized runtime state, active target, frame count, and FFmpeg/DTLS health. |
+| `GET /HueSync/Status` | Read sanitized runtime state, active target, frame count, FFmpeg/DTLS health, and whether the current sync can be stopped safely. |
+| `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
@@ -238,7 +239,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.8 (Current)
+### Version 1.5.9 (Current)
+- **Safe runtime stop**: Administrators can stop the active Hue sync from the live status panel without stopping playback; saved lights are restored and the session remains suppressed until playback ends
+- **Session-safe lifecycle**: Stale playback stop notifications cannot reset a newer playback session after a manual stop
+
+### Version 1.5.8
 - **DTLS setup probe**: Test Connection can now verify the Client Key and send a low-intensity probe packet through the selected entertainment area before playback
 
 ### Version 1.5.7

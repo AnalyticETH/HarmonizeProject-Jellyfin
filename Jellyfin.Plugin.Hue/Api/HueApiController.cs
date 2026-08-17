@@ -257,6 +257,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveBridgeIp = runtime?.ActiveBridgeIp,
                 ActiveEntertainmentAreaId = runtime?.ActiveEntertainmentAreaId,
                 FramesProcessed = runtime?.FramesProcessed ?? 0,
+                CanStopSync = runtime?.CanStopSync ?? false,
                 IsFfmpegHealthy = runtime?.IsFfmpegHealthy ?? false,
                 IsDtlsHealthy = runtime?.IsDtlsHealthy ?? false,
                 SyncDurationSeconds = runtime?.SyncDurationSeconds,
@@ -264,6 +265,24 @@ namespace Jellyfin.Plugin.Hue.Api
             };
 
             return Ok(status);
+        }
+
+        /// <summary>
+        /// Stops Hue output for the current playback session without stopping Jellyfin playback.
+        /// </summary>
+        [HttpPost("Stop")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult> StopSync()
+        {
+            if (_syncService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue sync service is not available.");
+
+            if (!await _syncService.StopCurrentSyncAsync())
+                return Conflict("There is no active playback sync session to stop.");
+
+            return Ok(new { message = "Hue sync stopped; playback continues." });
         }
 
         /// <summary>
@@ -446,6 +465,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? ActiveBridgeIp { get; set; }
         public string? ActiveEntertainmentAreaId { get; set; }
         public long FramesProcessed { get; set; }
+        public bool CanStopSync { get; set; }
         public bool IsFfmpegHealthy { get; set; }
         public bool IsDtlsHealthy { get; set; }
         public double? SyncDurationSeconds { get; set; }

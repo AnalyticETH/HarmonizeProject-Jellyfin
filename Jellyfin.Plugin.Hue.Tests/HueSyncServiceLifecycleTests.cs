@@ -52,6 +52,67 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task StopCurrentSync_SuppressesProgressUntilPlaybackStops()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+
+        await service.StartAsync(CancellationToken.None);
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentItemName", "Feature film");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+        SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-10));
+
+        var stopTask = service.StopCurrentSyncAsync();
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(service.CanStopSync);
+
+        handler.ReleaseStopRequest();
+        Assert.True(await stopTask);
+        Assert.False(service.IsSyncing);
+        Assert.False(service.CanStopSync);
+        Assert.Equal("Stopped", service.GetRuntimeStatus().State);
+
+        var progressMethod = typeof(HueSyncService).GetMethod("OnPlaybackProgress", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        progressMethod.Invoke(service, new object?[] { null, CreateProgress("session-a") });
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+
+        var stopMethod = typeof(HueSyncService).GetMethod("OnPlaybackStopped", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        stopMethod.Invoke(service, new object?[] { null, CreateStop("session-a") });
+        Assert.Equal("Idle", service.GetRuntimeStatus().State);
+        Assert.Null(GetPrivateField(service, "_manuallyStoppedPlaySessionId"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StaleManualStopNotificationDoesNotResetNewerSession()
+    {
+        using var httpClient = new HttpClient(new BlockingHueHandler());
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_startingPlaySessionId", "session-b");
+        SetPrivateField(service, "_manuallyStoppedPlaySessionId", "session-a");
+        SetPrivateField(service, "_runtimeState", "Starting");
+        SetPrivateField(service, "_runtimeMessage", "Preparing newer playback.");
+
+        var stopMethod = typeof(HueSyncService).GetMethod("OnPlaybackStopped", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        stopMethod.Invoke(service, new object?[] { null, CreateStop("session-a") });
+
+        Assert.Null(GetPrivateField(service, "_manuallyStoppedPlaySessionId"));
+        Assert.Equal("session-a", GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Equal("session-b", GetPrivateField(service, "_startingPlaySessionId"));
+        Assert.Equal("Starting", service.GetRuntimeStatus().State);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PlaybackStop_QueuesImmediateNextStartUntilCleanupCompletes()
     {
         var handler = new BlockingHueHandler();

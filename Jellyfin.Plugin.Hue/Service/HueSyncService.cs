@@ -63,6 +63,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private bool _bridgeAreaDeactivated;
         private volatile bool _isStopping;
         private string? _currentItemName;
+        private string? _manuallyStoppedPlaySessionId;
         private string _runtimeState = "Idle";
         private string _runtimeMessage = "Waiting for playback.";
         private string? _lastError;
@@ -93,6 +94,34 @@ namespace Jellyfin.Plugin.Hue.Service
                 lock (_syncLock)
                 {
                     _currentItemName = value;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Indicates whether an administrator can stop the current playback session's Hue output
+        /// without stopping Jellyfin playback.
+        /// </summary>
+        public bool CanStopSync
+        {
+            get
+            {
+                lock (_syncLock)
+                {
+                    if (_isStopping ||
+                        (_manuallyStoppedPlaySessionId != null &&
+                         string.Equals(_manuallyStoppedPlaySessionId, _currentPlaySessionId, StringComparison.Ordinal) &&
+                         _syncCts == null &&
+                         _currentBridgeConfig == null &&
+                         _startingPlaySessionId == null))
+                    {
+                        return false;
+                    }
+
+                    return _currentPlaySessionId != null ||
+                           _startingPlaySessionId != null ||
+                           _syncCts != null ||
+                           _currentBridgeConfig != null;
                 }
             }
         }
@@ -135,6 +164,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _isStopping = true;
                 _startupCts?.Cancel();
                 _syncCts?.Cancel();
+                _manuallyStoppedPlaySessionId = null;
                 pauseCleanup = _pauseCleanupTask;
             }
 
@@ -161,6 +191,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     var areaAlreadyDeactivated = _bridgeAreaDeactivated;
                     StopSync(deactivateArea: false);
                     _currentBridgeConfig = null;
+                    _currentItemName = null;
 
                     if (bridgeConfig != null && !areaAlreadyDeactivated)
                     {
@@ -181,6 +212,44 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
+        /// Stops Hue output for the current playback session while leaving Jellyfin playback running.
+        /// The session is suppressed until its playback-stop event, so progress notifications cannot
+        /// immediately restart synchronization.
+        /// </summary>
+        public async Task<bool> StopCurrentSyncAsync()
+        {
+            await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                string? playSessionId;
+                lock (_syncLock)
+                {
+                    if (!CanStopSync)
+                        return false;
+
+                    playSessionId = _currentPlaySessionId ?? _startingPlaySessionId;
+                    _manuallyStoppedPlaySessionId = playSessionId;
+                    _startupCts?.Cancel();
+                    _syncCts?.Cancel();
+                }
+
+                var config = Plugin.Instance?.Configuration;
+                var bridgeConfig = _currentBridgeConfig;
+                var savedLightStates = _savedLightStates;
+                StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId, clearSession: false);
+                _currentBridgeConfig = null;
+
+                await RestoreAndDeactivateAsync(config, bridgeConfig, savedLightStates).ConfigureAwait(false);
+                SetRuntimeStatus("Stopped", "Hue sync stopped by an administrator; playback continues.");
+                return true;
+            }
+            finally
+            {
+                _syncLifecycleLock.Release();
+            }
+        }
+
+        /// <summary>
         /// Returns a point-in-time snapshot of the active playback synchronization session.
         /// Credentials are intentionally excluded so this can be safely exposed to the
         /// administrator status page.
@@ -194,6 +263,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string? lastError;
             DateTime syncStartTime;
             CancellationTokenSource? syncCts;
+            bool canStopSync;
 
             lock (_syncLock)
             {
@@ -204,6 +274,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 lastError = _lastError;
                 syncStartTime = _syncStartTime;
                 syncCts = _syncCts;
+                canStopSync = CanStopSync;
             }
 
             var isSyncing = syncCts != null && !syncCts.IsCancellationRequested;
@@ -222,6 +293,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveBridgeIp = isSyncing ? bridgeConfig?.BridgeIp : null,
                 ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
                 IsSyncing = isSyncing,
+                CanStopSync = canStopSync,
                 FramesProcessed = ffmpeg?.FramesProcessed ?? 0,
                 IsFfmpegHealthy = isSyncing && ffmpeg?.IsHealthy() == true,
                 IsDtlsHealthy = isSyncing && hueStreamer?.IsHealthy() == true,
@@ -288,6 +360,12 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (_isStopping)
                     return;
 
+                if (string.Equals(_manuallyStoppedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                {
+                    _logger.LogDebug("Hue sync was manually stopped for this playback session, skipping restart");
+                    return;
+                }
+
                 if (string.Equals(_startingPlaySessionId, e.PlaySessionId, StringComparison.Ordinal) ||
                     (IsSyncing && _currentPlaySessionId == e.PlaySessionId))
                 {
@@ -306,6 +384,36 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             if (_isStopping)
                 return;
+
+            var manuallyStopped = false;
+            var manualStopNotification = false;
+            lock (_syncLock)
+            {
+                if (string.Equals(_manuallyStoppedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                {
+                    manualStopNotification = true;
+                    _manuallyStoppedPlaySessionId = null;
+                    // A newer playback session may already be starting while the old
+                    // session's stop notification is in flight. In that case, clear only
+                    // the suppression marker and leave the newer session untouched.
+                    manuallyStopped = string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal) &&
+                                      (_startingPlaySessionId == null ||
+                                       string.Equals(_startingPlaySessionId, e.PlaySessionId, StringComparison.Ordinal));
+                    if (manuallyStopped)
+                    {
+                        _currentPlaySessionId = null;
+                        _currentItemName = null;
+                    }
+                }
+            }
+
+            if (manualStopNotification)
+            {
+                if (manuallyStopped)
+                    SetRuntimeStatus("Idle", "Playback stopped.");
+                return;
+            }
+
             if (_currentPlaySessionId != null &&
                 !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal) &&
                 !string.Equals(_startingPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
@@ -372,6 +480,13 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             if (_isStopping)
                 return;
+
+            lock (_syncLock)
+            {
+                if (string.Equals(_manuallyStoppedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                    return;
+            }
+
             if (_currentPlaySessionId != null && !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
             {
                 return;
@@ -1298,6 +1413,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public string? ActiveBridgeIp { get; init; }
         public string? ActiveEntertainmentAreaId { get; init; }
         public bool IsSyncing { get; init; }
+        public bool CanStopSync { get; init; }
         public long FramesProcessed { get; init; }
         public bool IsFfmpegHealthy { get; init; }
         public bool IsDtlsHealthy { get; init; }
