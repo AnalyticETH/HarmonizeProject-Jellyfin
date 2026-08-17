@@ -267,6 +267,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveOutputBrightnessPercent);
         Assert.Null(status.ActiveBlackoutThreshold);
         Assert.Null(status.ActiveColorChangeThreshold);
+        Assert.Null(status.ActiveUseGpu);
+        Assert.Null(status.ActiveCustomFfmpegFlagsConfigured);
+        Assert.Null(status.ActiveFfmpegStallTimeoutSeconds);
+        Assert.Null(status.ActiveNetworkRetryAttempts);
         Assert.Null(status.ActiveRestoreLightState);
         Assert.Null(status.LastError);
         Assert.False(status.CanStopSync);
@@ -312,6 +316,10 @@ public sealed class HueApiControllerTests : IDisposable
                     OutputBrightnessPercentOverride = 75,
                     BlackoutThresholdOverride = 30,
                     ColorChangeThresholdOverride = 5,
+                    UseGpuOverride = false,
+                    CustomFfmpegFlagsOverride = "-hwaccel vaapi",
+                    FfmpegStallTimeoutSecondsOverride = 20,
+                    NetworkRetryAttemptsOverride = 1,
                     TargetFpsOverride = 30,
                     FrameResolutionOverride = PluginConfiguration.FrameResolutionHigh,
                     VideoScalingModeOverride = PluginConfiguration.VideoScalingModeFit,
@@ -343,6 +351,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)75, mapping.OutputBrightnessPercentOverride);
         Assert.Equal((int?)30, mapping.BlackoutThresholdOverride);
         Assert.Equal((int?)5, mapping.ColorChangeThresholdOverride);
+        Assert.Equal((bool?)false, mapping.UseGpuOverride);
+        Assert.Equal("-hwaccel vaapi", mapping.CustomFfmpegFlagsOverride);
+        Assert.Equal((int?)20, mapping.FfmpegStallTimeoutSecondsOverride);
+        Assert.Equal((int?)1, mapping.NetworkRetryAttemptsOverride);
         Assert.Equal((int?)30, mapping.TargetFpsOverride);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, mapping.FrameResolutionOverride);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, mapping.VideoScalingModeOverride);
@@ -509,6 +521,10 @@ public sealed class HueApiControllerTests : IDisposable
             OutputBrightnessPercentOverride = 65,
             BlackoutThresholdOverride = 20,
             ColorChangeThresholdOverride = 3,
+            UseGpuOverride = true,
+            CustomFfmpegFlagsOverride = "-threads 2",
+            FfmpegStallTimeoutSecondsOverride = 15,
+            NetworkRetryAttemptsOverride = 2,
             TargetFpsOverride = 30,
             FrameResolutionOverride = PluginConfiguration.FrameResolutionLow,
             VideoScalingModeOverride = PluginConfiguration.VideoScalingModeCrop,
@@ -537,6 +553,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)65, mapping.OutputBrightnessPercentOverride);
         Assert.Equal((int?)20, mapping.BlackoutThresholdOverride);
         Assert.Equal((int?)3, mapping.ColorChangeThresholdOverride);
+        Assert.Equal((bool?)true, mapping.UseGpuOverride);
+        Assert.Equal("-threads 2", mapping.CustomFfmpegFlagsOverride);
+        Assert.Equal((int?)15, mapping.FfmpegStallTimeoutSecondsOverride);
+        Assert.Equal((int?)2, mapping.NetworkRetryAttemptsOverride);
         Assert.Equal((int?)30, mapping.TargetFpsOverride);
         Assert.Equal(PluginConfiguration.FrameResolutionLow, mapping.FrameResolutionOverride);
         Assert.Equal(PluginConfiguration.VideoScalingModeCrop, mapping.VideoScalingModeOverride);
@@ -574,13 +594,17 @@ public sealed class HueApiControllerTests : IDisposable
             SyncEnabled = false,
             BrightnessDimLevelOverride = 101,
             PauseBehaviorOverride = "InvalidPauseBehavior",
-            TargetFpsOverride = 0
+            TargetFpsOverride = 0,
+            FfmpegStallTimeoutSecondsOverride = 0,
+            NetworkRetryAttemptsOverride = 11
         });
 
         var response = Assert.IsType<BadRequestObjectResult>(action);
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
         var validationBody = System.Text.Json.JsonSerializer.Serialize(response.Value);
         Assert.Contains("target FPS override must be between 1 and 60", validationBody, StringComparison.Ordinal);
+        Assert.Contains("FFmpeg stall timeout override must be between 1 and 60 seconds", validationBody, StringComparison.Ordinal);
+        Assert.Contains("network retry attempts override must be between 0 and 10", validationBody, StringComparison.Ordinal);
         Assert.Empty(configuration.UserMappings);
     }
 

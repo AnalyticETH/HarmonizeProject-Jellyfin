@@ -1159,6 +1159,38 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetExecutionOverridesForUser_UsesMatchingMappingAndNormalizesOptionalValues()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    UseGpuOverride = false,
+                    CustomFfmpegFlagsOverride = "  -hwaccel vaapi  ",
+                    FfmpegStallTimeoutSecondsOverride = 12,
+                    NetworkRetryAttemptsOverride = 1
+                }
+            }
+        };
+
+        var overrides = config.GetExecutionOverridesForUser(userId);
+        var unmapped = config.GetExecutionOverridesForUser(System.Guid.NewGuid());
+
+        Assert.Equal((bool?)false, overrides.UseGpu);
+        Assert.Equal("-hwaccel vaapi", overrides.CustomFfmpegFlags);
+        Assert.Equal((int?)12, overrides.FfmpegStallTimeoutSeconds);
+        Assert.Equal((int?)1, overrides.NetworkRetryAttempts);
+        Assert.Null(unmapped.UseGpu);
+        Assert.Null(unmapped.CustomFfmpegFlags);
+        Assert.Null(unmapped.FfmpegStallTimeoutSeconds);
+        Assert.Null(unmapped.NetworkRetryAttempts);
+    }
+
+    [Fact]
     public void GetPlaybackOverridesForUser_UsesMatchingMappingAndLeavesBlankValuesForGlobalSettings()
     {
         var userId = System.Guid.NewGuid();
@@ -1268,6 +1300,33 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 sampling breadth override must be between 1 and 50 percent", errors);
         Assert.Contains("User mapping 1 sampling mode override must be Average, CenterWeighted, or CenterPixel", errors);
         Assert.Contains("User mapping 1 color smoothing override must be between 0 and 90 percent", errors);
+    }
+
+    [Fact]
+    public void Validate_WhenUserExecutionOverridesAreInvalid_ReturnsExecutionErrors()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-key",
+            HueClientKey = "default-client-key",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    FfmpegStallTimeoutSecondsOverride = 0,
+                    NetworkRetryAttemptsOverride = 11
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("User mapping 1 FFmpeg stall timeout override must be between 1 and 60 seconds", errors);
+        Assert.Contains("User mapping 1 network retry attempts override must be between 0 and 10", errors);
     }
 
     [Fact]

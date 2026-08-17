@@ -51,6 +51,14 @@ public sealed class HueSyncServiceLifecycleTests
                 OutputBrightnessPercent: 75,
                 BlackoutThreshold: 30,
                 ColorChangeThreshold: 5));
+        SetPrivateField(
+            service,
+            "_activeExecutionSettings",
+            (
+                UseGpu: false,
+                CustomFfmpegFlags: "-hwaccel vaapi",
+                FfmpegStallTimeoutSeconds: 20,
+                NetworkRetryAttempts: 1));
         SetPrivateField(service, "_activeRestoreLightState", true);
         SetPrivateField(service, "_currentItemName", "Feature film");
         SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-3));
@@ -78,6 +86,10 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal(75, status.ActiveOutputBrightnessPercent);
         Assert.Equal(30, status.ActiveBlackoutThreshold);
         Assert.Equal(5, status.ActiveColorChangeThreshold);
+        Assert.Equal((bool?)false, status.ActiveUseGpu);
+        Assert.Equal((bool?)true, status.ActiveCustomFfmpegFlagsConfigured);
+        Assert.Equal(20, status.ActiveFfmpegStallTimeoutSeconds);
+        Assert.Equal(1, status.ActiveNetworkRetryAttempts);
         Assert.Equal((bool?)true, status.ActiveRestoreLightState);
         Assert.Equal("192.168.1.100", status.ActiveBridgeIp);
         Assert.Equal("area-id", status.ActiveEntertainmentAreaId);

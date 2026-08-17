@@ -272,6 +272,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveOutputBrightnessPercent = runtime?.ActiveOutputBrightnessPercent,
                 ActiveBlackoutThreshold = runtime?.ActiveBlackoutThreshold,
                 ActiveColorChangeThreshold = runtime?.ActiveColorChangeThreshold,
+                ActiveUseGpu = runtime?.ActiveUseGpu,
+                ActiveCustomFfmpegFlagsConfigured = runtime?.ActiveCustomFfmpegFlagsConfigured,
+                ActiveFfmpegStallTimeoutSeconds = runtime?.ActiveFfmpegStallTimeoutSeconds,
+                ActiveNetworkRetryAttempts = runtime?.ActiveNetworkRetryAttempts,
                 ActiveRestoreLightState = runtime?.ActiveRestoreLightState,
                 FramesProcessed = runtime?.FramesProcessed ?? 0,
                 CanStopSync = runtime?.CanStopSync ?? false,
@@ -363,7 +367,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Gets all user-to-bridge mappings without returning stored credentials. Optional
-        /// per-user playback, color-threshold, performance, and restoration profile values are included because they are not secret.
+        /// per-user playback, color-threshold, performance, execution, and restoration profile values are included because they are not secret.
         /// </summary>
         [HttpGet("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -379,7 +383,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
         /// synchronization without storing bridge credentials and can override playback, color processing and scene thresholds,
-        /// capture-performance, or light-restoration settings.
+        /// capture-performance, execution, or light-restoration settings.
         /// </summary>
         [HttpPost("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -402,18 +406,22 @@ namespace Jellyfin.Plugin.Hue.Api
             var playbackOverrideErrors = PluginConfiguration.ValidatePlaybackOverrides(mapping, overrideLabel);
             var colorOverrideErrors = PluginConfiguration.ValidateColorOverrides(mapping, overrideLabel);
             var performanceOverrideErrors = PluginConfiguration.ValidatePerformanceOverrides(mapping, overrideLabel);
+            var executionOverrideErrors = PluginConfiguration.ValidateExecutionOverrides(mapping, overrideLabel);
             var overrideErrors = new List<string>(playbackOverrideErrors);
             overrideErrors.AddRange(colorOverrideErrors);
             overrideErrors.AddRange(performanceOverrideErrors);
+            overrideErrors.AddRange(executionOverrideErrors);
             if (overrideErrors.Count > 0)
             {
                 return BadRequest(new
                 {
-                    message = performanceOverrideErrors.Count > 0
-                        ? "User performance profile is invalid."
-                        : playbackOverrideErrors.Count > 0
-                            ? "User profile overrides are invalid."
-                            : "User color profile is invalid.",
+                    message = executionOverrideErrors.Count > 0
+                        ? "User execution profile is invalid."
+                        : performanceOverrideErrors.Count > 0
+                            ? "User performance profile is invalid."
+                            : playbackOverrideErrors.Count > 0
+                                ? "User profile overrides are invalid."
+                                : "User color profile is invalid.",
                     errors = overrideErrors
                 });
             }
@@ -619,7 +627,8 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Non-secret representation of a per-user bridge mapping, playback, color, performance, and restoration profiles.
+    /// Non-secret representation of a per-user bridge mapping, playback, color, performance,
+    /// execution, and restoration profiles.
     /// </summary>
     public sealed class UserBridgeMappingSummary
     {
@@ -644,6 +653,10 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? OutputBrightnessPercentOverride { get; set; }
         public int? BlackoutThresholdOverride { get; set; }
         public int? ColorChangeThresholdOverride { get; set; }
+        public bool? UseGpuOverride { get; set; }
+        public string? CustomFfmpegFlagsOverride { get; set; }
+        public int? FfmpegStallTimeoutSecondsOverride { get; set; }
+        public int? NetworkRetryAttemptsOverride { get; set; }
         public int? TargetFpsOverride { get; set; }
         public string? FrameResolutionOverride { get; set; }
         public string? VideoScalingModeOverride { get; set; }
@@ -677,6 +690,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 OutputBrightnessPercentOverride = mapping.OutputBrightnessPercentOverride,
                 BlackoutThresholdOverride = mapping.BlackoutThresholdOverride,
                 ColorChangeThresholdOverride = mapping.ColorChangeThresholdOverride,
+                UseGpuOverride = mapping.UseGpuOverride,
+                CustomFfmpegFlagsOverride = mapping.CustomFfmpegFlagsOverride,
+                FfmpegStallTimeoutSecondsOverride = mapping.FfmpegStallTimeoutSecondsOverride,
+                NetworkRetryAttemptsOverride = mapping.NetworkRetryAttemptsOverride,
                 TargetFpsOverride = mapping.TargetFpsOverride,
                 FrameResolutionOverride = mapping.FrameResolutionOverride,
                 VideoScalingModeOverride = mapping.VideoScalingModeOverride,
@@ -791,6 +808,10 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ActiveOutputBrightnessPercent { get; set; }
         public int? ActiveBlackoutThreshold { get; set; }
         public int? ActiveColorChangeThreshold { get; set; }
+        public bool? ActiveUseGpu { get; set; }
+        public bool? ActiveCustomFfmpegFlagsConfigured { get; set; }
+        public int? ActiveFfmpegStallTimeoutSeconds { get; set; }
+        public int? ActiveNetworkRetryAttempts { get; set; }
         public bool? ActiveRestoreLightState { get; set; }
         public long FramesProcessed { get; set; }
         public bool CanStopSync { get; set; }

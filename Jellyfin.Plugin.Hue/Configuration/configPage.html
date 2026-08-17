@@ -24,6 +24,7 @@
                             <div><strong>Capture profile:</strong> <span id="runtimeCaptureProfile">—</span></div>
                             <div><strong>Sampling:</strong> <span id="runtimeSamplingProfile">—</span></div>
                             <div><strong>Color policy:</strong> <span id="runtimeColorProfile">—</span></div>
+                            <div><strong>Execution:</strong> <span id="runtimeExecutionProfile">—</span></div>
                             <div><strong>Restoration:</strong> <span id="runtimeRestorationProfile">—</span></div>
                         </div>
                         <div style="flex: 1 1 280px;">
@@ -407,6 +408,39 @@
                                     <label class="inputLabel inputLabelUnfocused" for="mappingColorSmoothingPercentOverride">Color Smoothing Override (%)</label>
                                     <input id="mappingColorSmoothingPercentOverride" type="number" min="0" max="90" is="emby-input" />
                                     <div class="fieldDescription">Optional temporal smoothing (0-90%).</div>
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
+                                <legend>Per-user Execution Profile (optional)</legend>
+                                <div class="fieldDescription" style="margin-bottom: 1em;">Leave these fields blank to inherit global FFmpeg and network settings. The selected execution policy is captured when this user's playback starts.</div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingUseGpuOverride">GPU Acceleration Override</label>
+                                    <select id="mappingUseGpuOverride" is="emby-select">
+                                        <option value="">Inherit global setting</option>
+                                        <option value="true">Enable GPU acceleration</option>
+                                        <option value="false">Disable GPU acceleration</option>
+                                    </select>
+                                    <div class="fieldDescription">Choose whether this user's FFmpeg process adds <code>-hwaccel auto</code>.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingCustomFfmpegFlagsOverride">Additional FFmpeg Flags Override</label>
+                                    <input id="mappingCustomFfmpegFlagsOverride" type="text" is="emby-input" placeholder="Leave blank to inherit" />
+                                    <div class="fieldDescription">Optional per-user flags appended to FFmpeg (for example, a decoder or hardware-device flag). Blank inherits the global text.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingFfmpegStallTimeoutSecondsOverride">FFmpeg Stall Timeout Override (seconds)</label>
+                                    <input id="mappingFfmpegStallTimeoutSecondsOverride" type="number" min="1" max="60" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user no-frame timeout (1-60 seconds).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingNetworkRetryAttemptsOverride">Network Retry Attempts Override</label>
+                                    <input id="mappingNetworkRetryAttemptsOverride" type="number" min="0" max="10" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user Hue REST/DTLS retry count (0-10).</div>
                                 </div>
                             </fieldset>
 
@@ -903,6 +937,10 @@
                         var outputBrightness = HueConfigurationPage.readStatusField(status, "ActiveOutputBrightnessPercent", null);
                         var blackoutThreshold = HueConfigurationPage.readStatusField(status, "ActiveBlackoutThreshold", null);
                         var colorChangeThreshold = HueConfigurationPage.readStatusField(status, "ActiveColorChangeThreshold", null);
+                        var useGpu = HueConfigurationPage.readStatusField(status, "ActiveUseGpu", null);
+                        var customFfmpegFlagsConfigured = HueConfigurationPage.readStatusField(status, "ActiveCustomFfmpegFlagsConfigured", null);
+                        var ffmpegStallTimeout = HueConfigurationPage.readStatusField(status, "ActiveFfmpegStallTimeoutSeconds", null);
+                        var networkRetryAttempts = HueConfigurationPage.readStatusField(status, "ActiveNetworkRetryAttempts", null);
                         var restoreLightState = HueConfigurationPage.readStatusField(status, "ActiveRestoreLightState", null);
                         var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
                         var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
@@ -934,6 +972,10 @@
                             : String(brightnessBoost) + "% boost · RGB " + String(redGain) + "/" + String(greenGain) + "/" + String(blueGain) +
                                 " · sat " + String(colorSaturation) + "% · hue " + String(hueShiftDegrees) + "° · output " + String(outputBrightness) +
                                 "% · blackout < " + String(blackoutThreshold) + " · change ≥ " + String(colorChangeThreshold);
+                        page.querySelector('#runtimeExecutionProfile').textContent = useGpu == null
+                            ? "—"
+                            : "GPU " + (useGpu ? "on" : "off") + " · stall " + String(ffmpegStallTimeout) + "s · retries " + String(networkRetryAttempts) +
+                                " · flags " + (customFfmpegFlagsConfigured ? "custom" : "global/default");
                         page.querySelector('#runtimeRestorationProfile').textContent = restoreLightState == null
                             ? "—"
                             : (restoreLightState ? "Saved light state" : "Cinema/default restoration");
@@ -1228,7 +1270,15 @@
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
-                            var hasProfile = hasColorProfile || hasPlaybackProfile || hasPerformanceProfile;
+                            var hasExecutionProfile = [
+                                getMappingValue('UseGpuOverride', 'useGpuOverride'),
+                                getMappingValue('CustomFfmpegFlagsOverride', 'customFfmpegFlagsOverride'),
+                                getMappingValue('FfmpegStallTimeoutSecondsOverride', 'ffmpegStallTimeoutSecondsOverride'),
+                                getMappingValue('NetworkRetryAttemptsOverride', 'networkRetryAttemptsOverride')
+                            ].some(function (value) {
+                                return value !== null && typeof value !== 'undefined' && value !== '';
+                            });
+                            var hasProfile = hasColorProfile || hasPlaybackProfile || hasPerformanceProfile || hasExecutionProfile;
                             var credentialState = !syncEnabled ? 'Not required' : (hasAppKey && hasClientKey ? 'Stored' : 'Incomplete');
                             html += '<tr style="border-bottom: 1px solid #333;">';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.UserName || mapping.userName || userId || 'Unknown') + '</td>';
@@ -1285,7 +1335,11 @@
                         '#mappingVideoDeinterlaceModeOverride',
                         '#mappingSamplingBreadthPercentOverride',
                         '#mappingSamplingModeOverride',
-                        '#mappingColorSmoothingPercentOverride'
+                        '#mappingColorSmoothingPercentOverride',
+                        '#mappingUseGpuOverride',
+                        '#mappingCustomFfmpegFlagsOverride',
+                        '#mappingFfmpegStallTimeoutSecondsOverride',
+                        '#mappingNetworkRetryAttemptsOverride'
                     ];
 
                     selectors.forEach(function (selector) {
@@ -1659,7 +1713,11 @@
                         VideoDeinterlaceModeOverride: readOptionalString('mappingVideoDeinterlaceModeOverride'),
                         SamplingBreadthPercentOverride: readOptionalNumber('mappingSamplingBreadthPercentOverride'),
                         SamplingModeOverride: readOptionalString('mappingSamplingModeOverride'),
-                        ColorSmoothingPercentOverride: readOptionalNumber('mappingColorSmoothingPercentOverride')
+                        ColorSmoothingPercentOverride: readOptionalNumber('mappingColorSmoothingPercentOverride'),
+                        UseGpuOverride: readOptionalBoolean('mappingUseGpuOverride'),
+                        CustomFfmpegFlagsOverride: readOptionalString('mappingCustomFfmpegFlagsOverride'),
+                        FfmpegStallTimeoutSecondsOverride: readOptionalNumber('mappingFfmpegStallTimeoutSecondsOverride'),
+                        NetworkRetryAttemptsOverride: readOptionalNumber('mappingNetworkRetryAttemptsOverride')
                     };
 
                     ApiClient.ajax({
@@ -1730,7 +1788,11 @@
                         '#mappingVideoDeinterlaceModeOverride',
                         '#mappingSamplingBreadthPercentOverride',
                         '#mappingSamplingModeOverride',
-                        '#mappingColorSmoothingPercentOverride'
+                        '#mappingColorSmoothingPercentOverride',
+                        '#mappingUseGpuOverride',
+                        '#mappingCustomFfmpegFlagsOverride',
+                        '#mappingFfmpegStallTimeoutSecondsOverride',
+                        '#mappingNetworkRetryAttemptsOverride'
                     ];
                     profileSelectors.forEach(function (selector) {
                         var element = page.querySelector(selector);
@@ -1799,6 +1861,10 @@
                         var samplingBreadthPercentOverride = getMappingValue('SamplingBreadthPercentOverride', 'samplingBreadthPercentOverride');
                         var samplingModeOverride = getMappingValue('SamplingModeOverride', 'samplingModeOverride');
                         var colorSmoothingPercentOverride = getMappingValue('ColorSmoothingPercentOverride', 'colorSmoothingPercentOverride');
+                        var useGpuOverride = getMappingValue('UseGpuOverride', 'useGpuOverride');
+                        var customFfmpegFlagsOverride = getMappingValue('CustomFfmpegFlagsOverride', 'customFfmpegFlagsOverride');
+                        var ffmpegStallTimeoutSecondsOverride = getMappingValue('FfmpegStallTimeoutSecondsOverride', 'ffmpegStallTimeoutSecondsOverride');
+                        var networkRetryAttemptsOverride = getMappingValue('NetworkRetryAttemptsOverride', 'networkRetryAttemptsOverride');
 
                         var userSelect = page.querySelector('#mappingUserSelect');
                         if (userSelect) {
@@ -1848,6 +1914,10 @@
                         page.querySelector('#mappingSamplingBreadthPercentOverride').value = samplingBreadthPercentOverride == null ? "" : samplingBreadthPercentOverride;
                         page.querySelector('#mappingSamplingModeOverride').value = samplingModeOverride == null ? "" : samplingModeOverride;
                         page.querySelector('#mappingColorSmoothingPercentOverride').value = colorSmoothingPercentOverride == null ? "" : colorSmoothingPercentOverride;
+                        page.querySelector('#mappingUseGpuOverride').value = useGpuOverride == null ? "" : String(useGpuOverride).toLowerCase();
+                        page.querySelector('#mappingCustomFfmpegFlagsOverride').value = customFfmpegFlagsOverride == null ? "" : customFfmpegFlagsOverride;
+                        page.querySelector('#mappingFfmpegStallTimeoutSecondsOverride').value = ffmpegStallTimeoutSecondsOverride == null ? "" : ffmpegStallTimeoutSecondsOverride;
+                        page.querySelector('#mappingNetworkRetryAttemptsOverride').value = networkRetryAttemptsOverride == null ? "" : networkRetryAttemptsOverride;
                         page.querySelector('#mappingAreaManual').value = "";
                         page.querySelector('#mappingFormLegend').textContent = "Edit User Mapping";
                         page.querySelector('#addMappingBtn').querySelector('span').textContent = "Update User Mapping";

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.35] - 2026-08-17
+
+### Added
+- Optional per-user execution profiles for GPU acceleration, FFmpeg flags, stall timeout, and network retries with global inheritance
+- Active execution diagnostics in sanitized runtime status and the configuration page
+- Regression coverage for execution resolution, validation, persistence, startup wiring, and status/API behavior
+
+### Changed
+- FFmpeg, retry, reconnect, and stall monitoring now use the execution policy captured at playback startup for each user
+
 ## [1.5.34] - 2026-08-17
 
 ### Added

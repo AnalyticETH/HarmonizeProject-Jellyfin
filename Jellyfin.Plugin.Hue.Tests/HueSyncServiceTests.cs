@@ -188,6 +188,42 @@ public sealed class HueSyncServiceTests
         Assert.Equal(10, fallback.ColorChangeThreshold);
     }
 
+    [Fact]
+    public void ResolveExecutionSettings_UsesPerUserOverridesAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            UseGpu = true,
+            CustomFfmpegFlags = "-threads 2",
+            FfmpegStallTimeoutSeconds = 5,
+            NetworkRetryAttempts = 3,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString(),
+                    UseGpuOverride = false,
+                    CustomFfmpegFlagsOverride = "  -hwaccel vaapi  ",
+                    FfmpegStallTimeoutSecondsOverride = 20,
+                    NetworkRetryAttemptsOverride = 0
+                }
+            }
+        };
+
+        var effective = HueSyncService.ResolveExecutionSettings(configuration, userId);
+        var fallback = HueSyncService.ResolveExecutionSettings(configuration, System.Guid.NewGuid());
+
+        Assert.Equal((bool?)false, effective.UseGpu);
+        Assert.Equal("-hwaccel vaapi", effective.CustomFfmpegFlags);
+        Assert.Equal(20, effective.FfmpegStallTimeoutSeconds);
+        Assert.Equal(0, effective.NetworkRetryAttempts);
+        Assert.Equal((bool?)true, fallback.UseGpu);
+        Assert.Equal("-threads 2", fallback.CustomFfmpegFlags);
+        Assert.Equal(5, fallback.FfmpegStallTimeoutSeconds);
+        Assert.Equal(3, fallback.NetworkRetryAttempts);
+    }
+
     [Theory]
     [InlineData(0, 18)]
     [InlineData(1, 1)]

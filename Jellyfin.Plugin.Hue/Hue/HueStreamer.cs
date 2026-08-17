@@ -71,8 +71,8 @@ namespace Jellyfin.Plugin.Hue.Hue
 
         /// <summary>
         /// Gets or sets the maximum number of DTLS reconnect attempts after a stream failure.
-        /// The plugin configuration applies its NetworkRetryAttempts value here for playback
-        /// sessions; zero disables reconnect attempts while preserving the active stream path.
+        /// HueSyncService applies the captured per-session execution policy here; zero disables
+        /// reconnect attempts while preserving the active stream path.
         /// </summary>
         public int MaxReconnectAttempts
         {

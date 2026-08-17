@@ -87,6 +87,11 @@ namespace Jellyfin.Plugin.Hue.Service
             int OutputBrightnessPercent,
             int BlackoutThreshold,
             int ColorChangeThreshold)? _activeColorProcessingSettings;
+        private (
+            bool UseGpu,
+            string CustomFfmpegFlags,
+            int FfmpegStallTimeoutSeconds,
+            int NetworkRetryAttempts)? _activeExecutionSettings;
         private bool? _activeUseCinemaMode;
         private bool? _activeRestoreLightState;
         private string? _activePauseBehavior;
@@ -243,6 +248,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         _activeUseCinemaMode = null;
                         _activeRestoreLightState = null;
                         _activePauseBehavior = null;
+                        _activeColorProcessingSettings = null;
+                        _activeExecutionSettings = null;
                     }
 
                     _savedLightStates = null;
@@ -328,6 +335,11 @@ namespace Jellyfin.Plugin.Hue.Service
                 int OutputBrightnessPercent,
                 int BlackoutThreshold,
                 int ColorChangeThreshold)? activeColorProcessingSettings;
+            (
+                bool UseGpu,
+                string CustomFfmpegFlags,
+                int FfmpegStallTimeoutSeconds,
+                int NetworkRetryAttempts)? activeExecutionSettings;
             bool? activeRestoreLightState;
             string state;
             string message;
@@ -348,6 +360,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentSamplingMode = _currentSamplingMode;
                 currentColorSmoothingPercent = _currentColorSmoothingPercent;
                 activeColorProcessingSettings = _activeColorProcessingSettings;
+                activeExecutionSettings = _activeExecutionSettings;
                 activeRestoreLightState = _activeRestoreLightState;
                 state = _runtimeState;
                 message = _runtimeMessage;
@@ -386,6 +399,12 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveOutputBrightnessPercent = isSyncing ? activeColorProcessingSettings?.OutputBrightnessPercent : null,
                 ActiveBlackoutThreshold = isSyncing ? activeColorProcessingSettings?.BlackoutThreshold : null,
                 ActiveColorChangeThreshold = isSyncing ? activeColorProcessingSettings?.ColorChangeThreshold : null,
+                ActiveUseGpu = isSyncing ? activeExecutionSettings?.UseGpu : null,
+                ActiveCustomFfmpegFlagsConfigured = isSyncing
+                    ? !string.IsNullOrWhiteSpace(activeExecutionSettings?.CustomFfmpegFlags)
+                    : null,
+                ActiveFfmpegStallTimeoutSeconds = isSyncing ? activeExecutionSettings?.FfmpegStallTimeoutSeconds : null,
+                ActiveNetworkRetryAttempts = isSyncing ? activeExecutionSettings?.NetworkRetryAttempts : null,
                 ActiveRestoreLightState = isSyncing ? activeRestoreLightState : null,
                 ActiveBridgeIp = isSyncing ? bridgeConfig?.BridgeIp : null,
                 ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
@@ -393,7 +412,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 CanStopSync = canStopSync,
                 FramesProcessed = ffmpeg?.FramesProcessed ?? 0,
                 IsFfmpegHealthy = isSyncing && ffmpeg?.IsHealthy(
-                    Plugin.Instance?.Configuration?.FfmpegStallTimeoutSeconds ?? DefaultFfmpegStallTimeoutSeconds) == true,
+                    activeExecutionSettings?.FfmpegStallTimeoutSeconds
+                        ?? Plugin.Instance?.Configuration?.FfmpegStallTimeoutSeconds
+                        ?? DefaultFfmpegStallTimeoutSeconds) == true,
                 IsDtlsHealthy = isSyncing && hueStreamer?.IsHealthy() == true,
                 SyncDurationSeconds = syncDuration,
                 SyncStartedAtUtc = isSyncing && syncStartTime != default ? syncStartTime : null
@@ -453,8 +474,14 @@ namespace Jellyfin.Plugin.Hue.Service
 
         private TimeSpan GetFrameReadTimeout()
         {
-            var configuredTimeout = Plugin.Instance?.Configuration?.FfmpegStallTimeoutSeconds
-                ?? DefaultFfmpegStallTimeoutSeconds;
+            int configuredTimeout;
+            lock (_syncLock)
+            {
+                configuredTimeout = _activeExecutionSettings?.FfmpegStallTimeoutSeconds
+                    ?? Plugin.Instance?.Configuration?.FfmpegStallTimeoutSeconds
+                    ?? DefaultFfmpegStallTimeoutSeconds;
+            }
+
             return _ffmpegStreamer?.GetFrameReadTimeout(configuredTimeout)
                 ?? TimeSpan.FromSeconds(Math.Clamp(configuredTimeout, 1, 60));
         }
@@ -793,6 +820,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 lock (_syncLock)
                 {
                     _activeColorProcessingSettings = null;
+                    _activeExecutionSettings = null;
                 }
             }
             finally
@@ -1012,6 +1040,29 @@ namespace Jellyfin.Plugin.Hue.Service
                 Math.Clamp(processingOverrides.OutputBrightnessPercent ?? config.OutputBrightnessPercent, 0, 100),
                 Math.Clamp(thresholdOverrides.BlackoutThreshold ?? config.BlackoutThreshold, 0, 255),
                 Math.Clamp(thresholdOverrides.ColorChangeThreshold ?? config.ColorChangeThreshold, 0, 255));
+        }
+
+        internal static (
+            bool UseGpu,
+            string CustomFfmpegFlags,
+            int FfmpegStallTimeoutSeconds,
+            int NetworkRetryAttempts) ResolveExecutionSettings(
+            PluginConfiguration config,
+            Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            var overrides = config.GetExecutionOverridesForUser(userId);
+            return (
+                overrides.UseGpu ?? config.UseGpu,
+                (overrides.CustomFfmpegFlags ?? config.CustomFfmpegFlags ?? string.Empty).Trim(),
+                Math.Clamp(
+                    overrides.FfmpegStallTimeoutSeconds ?? config.FfmpegStallTimeoutSeconds,
+                    1,
+                    60),
+                Math.Clamp(
+                    overrides.NetworkRetryAttempts ?? config.NetworkRetryAttempts,
+                    0,
+                    10));
         }
 
         private static string NormalizeFrameResolution(string? value)
@@ -1767,6 +1818,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var pauseBehavior = ResolvePauseBehavior(config, userId);
             var performanceSettings = ResolvePerformanceSettings(config, userId);
             var colorProcessingSettings = ResolveColorProcessingSettings(config, userId);
+            var executionSettings = ResolveExecutionSettings(config, userId);
 
             var videoPath = e.Item?.Path;
             if (string.IsNullOrWhiteSpace(videoPath))
@@ -1794,8 +1846,8 @@ namespace Jellyfin.Plugin.Hue.Service
 
             _logger.LogInformation("Starting sync for user {0} with bridge {1} and area {2}", userId, bridgeIp, areaId);
 
-            _hueClient.RetryAttempts = config.NetworkRetryAttempts;
-            _hueStreamer.MaxReconnectAttempts = config.NetworkRetryAttempts;
+            _hueClient.RetryAttempts = executionSettings.NetworkRetryAttempts;
+            _hueStreamer.MaxReconnectAttempts = executionSettings.NetworkRetryAttempts;
             if (startupToken.IsCancellationRequested)
                 return;
 
@@ -1826,6 +1878,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentSamplingMode = performanceSettings.SamplingMode;
                     _currentColorSmoothingPercent = performanceSettings.ColorSmoothingPercent;
                     _activeColorProcessingSettings = colorProcessingSettings;
+                    _activeExecutionSettings = executionSettings;
                     _activeUseCinemaMode = useCinemaMode;
                     _activeRestoreLightState = restoreLightState;
                     _activePauseBehavior = pauseBehavior;
@@ -1944,12 +1997,12 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 if (token.IsCancellationRequested)
                     return;
-                _ffmpegStreamer!.StallTimeoutSeconds = config.FfmpegStallTimeoutSeconds;
+                _ffmpegStreamer!.StallTimeoutSeconds = executionSettings.FfmpegStallTimeoutSeconds;
                 videoStream = _ffmpegStreamer!.StartFfmpeg(
                     videoPath,
                     targetFps,
-                    config.UseGpu,
-                    config.CustomFfmpegFlags,
+                    executionSettings.UseGpu,
+                    executionSettings.CustomFfmpegFlags,
                     _mediaEncoder.EncoderPath,
                     seekPositionSeconds: seekSeconds,
                     frameWidth: frameWidth,
@@ -2083,6 +2136,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _activeRestoreLightState = null;
                     _activePauseBehavior = null;
                     _activeColorProcessingSettings = null;
+                    _activeExecutionSettings = null;
                 }
                 if (bridgeConfig != null)
                 {
@@ -2245,6 +2299,10 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveOutputBrightnessPercent { get; init; }
         public int? ActiveBlackoutThreshold { get; init; }
         public int? ActiveColorChangeThreshold { get; init; }
+        public bool? ActiveUseGpu { get; init; }
+        public bool? ActiveCustomFfmpegFlagsConfigured { get; init; }
+        public int? ActiveFfmpegStallTimeoutSeconds { get; init; }
+        public int? ActiveNetworkRetryAttempts { get; init; }
         public bool? ActiveRestoreLightState { get; init; }
         public string? ActiveBridgeIp { get; init; }
         public string? ActiveEntertainmentAreaId { get; init; }

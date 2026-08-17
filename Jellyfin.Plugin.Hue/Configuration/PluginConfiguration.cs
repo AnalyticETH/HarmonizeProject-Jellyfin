@@ -45,6 +45,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? SamplingBreadthPercentOverride { get; set; }
         public string? SamplingModeOverride { get; set; }
         public int? ColorSmoothingPercentOverride { get; set; }
+
+        // Optional per-user execution and reliability overrides. Null values inherit the global setting.
+        public bool? UseGpuOverride { get; set; }
+        public string? CustomFfmpegFlagsOverride { get; set; }
+        public int? FfmpegStallTimeoutSecondsOverride { get; set; }
+        public int? NetworkRetryAttemptsOverride { get; set; }
     }
 
     /// <summary>
@@ -255,6 +261,27 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     mapping.ColorSmoothingPercentOverride);
         }
 
+        /// <summary>
+        /// Gets optional per-user FFmpeg and network execution overrides. Null values mean the
+        /// global execution setting should be used for that component.
+        /// </summary>
+        public (
+            bool? UseGpu,
+            string? CustomFfmpegFlags,
+            int? FfmpegStallTimeoutSeconds,
+            int? NetworkRetryAttempts) GetExecutionOverridesForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return mapping == null
+                ? (null, null, null, null)
+                : (
+                    mapping.UseGpuOverride,
+                    NormalizeOptionalOverride(mapping.CustomFfmpegFlagsOverride),
+                    mapping.FfmpegStallTimeoutSecondsOverride,
+                    mapping.NetworkRetryAttemptsOverride);
+        }
+
         private static string? NormalizeOptionalOverride(string? value)
             => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -422,6 +449,30 @@ namespace Jellyfin.Plugin.Hue.Configuration
             return errors;
         }
 
+        /// <summary>
+        /// Validates optional per-user FFmpeg and network execution overrides.
+        /// </summary>
+        public static List<string> ValidateExecutionOverrides(UserBridgeMapping mapping, string label = "User mapping")
+        {
+            var errors = new List<string>();
+
+            if (mapping.FfmpegStallTimeoutSecondsOverride.HasValue &&
+                (mapping.FfmpegStallTimeoutSecondsOverride.Value < MinFfmpegStallTimeoutSeconds ||
+                 mapping.FfmpegStallTimeoutSecondsOverride.Value > MaxFfmpegStallTimeoutSeconds))
+            {
+                errors.Add($"{label} FFmpeg stall timeout override must be between 1 and 60 seconds");
+            }
+
+            if (mapping.NetworkRetryAttemptsOverride.HasValue &&
+                (mapping.NetworkRetryAttemptsOverride.Value < MinNetworkRetryAttempts ||
+                 mapping.NetworkRetryAttemptsOverride.Value > MaxNetworkRetryAttempts))
+            {
+                errors.Add($"{label} network retry attempts override must be between 0 and 10");
+            }
+
+            return errors;
+        }
+
         public PluginConfiguration()
         {
             // Defaults
@@ -571,6 +622,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.AddRange(ValidatePlaybackOverrides(mapping, label));
                 errors.AddRange(ValidateColorOverrides(mapping, label));
                 errors.AddRange(ValidatePerformanceOverrides(mapping, label));
+                errors.AddRange(ValidateExecutionOverrides(mapping, label));
 
                 if (string.IsNullOrWhiteSpace(mapping.UserId))
                 {
