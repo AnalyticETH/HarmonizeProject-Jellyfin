@@ -484,11 +484,11 @@ public sealed class HueSyncServiceLifecycleTests
 
         var progressMethod = typeof(HueSyncService).GetMethod("OnPlaybackProgress", BindingFlags.Instance | BindingFlags.NonPublic)!;
         progressMethod.Invoke(service, new object?[] { null, CreateProgress("session-a", isPaused: true) });
-        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForRuntimeStatusAsync(
             service,
             "Paused",
-            "Playback paused; waiting to resume.");
+            "Playback paused; keeping the last synced colors.");
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         progressMethod.Invoke(service, new object?[] { null, CreateProgress("session-a") });
         Assert.False(handler.FirstConfigurationRequest.Task.IsCompleted);
