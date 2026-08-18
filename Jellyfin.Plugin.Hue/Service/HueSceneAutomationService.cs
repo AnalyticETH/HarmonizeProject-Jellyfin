@@ -255,7 +255,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// <summary>
     /// Calculates a bounded preview of future cue occurrences. Calendar dates are
     /// evaluated in the cue's selected time zone, so one-time dates, date windows,
-    /// exclusions, weekly/monthly recurrence, DST gaps, and weekday masks use the same
+    /// exclusions, daily/weekly/monthly recurrence, DST gaps, and weekday masks use the same
     /// rules as the hosted scheduler.
     /// </summary>
     internal static IReadOnlyList<HueSceneScheduleOccurrence> GetUpcomingOccurrences(
@@ -402,8 +402,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// <summary>
     /// Determines whether a schedule is due in the supplied server-local minute after
     /// converting that instant into the cue's configured time zone. One-time cues match
-    /// their RunDate; recurring cues use either Sunday=1 through Saturday=64 bits or a
-    /// monthly calendar day.
+    /// their RunDate; recurring cues use every calendar day, Sunday=1 through Saturday=64
+    /// bits, or a monthly calendar day.
     /// </summary>
     internal static bool IsDue(HueSceneSchedule schedule, DateTime localNow)
     {
@@ -438,6 +438,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         string recurrence,
         DateTime scheduleDate)
     {
+        if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceDaily, StringComparison.Ordinal))
+            return true;
+
         if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceMonthly, StringComparison.Ordinal))
         {
             if (schedule.DayOfMonth < 1 || schedule.DayOfMonth > 31)
@@ -536,7 +539,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         out DateTime? nextRunUtc)
     {
         nextRunUtc = null;
-        // Weekly cues always find a match within seven days, while monthly day 31 can
+        // Daily and weekly cues always find a match within one or seven days, while monthly day 31 can
         // be more than a week away. Use the bounded public horizon so every valid cue
         // reports its next run instead of appearing idle for part of the month.
         var occurrence = GetUpcomingOccurrences(
@@ -705,7 +708,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 if (schedule.DayOfMonth < 1 || schedule.DayOfMonth > 31)
                     return new HueSceneScheduleReadiness(false, "A monthly cue requires a day of month from 1 to 31.");
             }
-            else if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > PluginConfiguration.AllSceneScheduleDaysMask)
+            else if (string.Equals(normalizedRecurrence, PluginConfiguration.SceneScheduleRecurrenceWeekly, StringComparison.Ordinal) &&
+                     (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > PluginConfiguration.AllSceneScheduleDaysMask))
             {
                 return new HueSceneScheduleReadiness(false, "At least one valid day must be selected.");
             }

@@ -35,6 +35,41 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void DailyRecurrence_RunsEveryCalendarDateWithoutWeekdayMask()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            DaysOfWeekMask = 0,
+            StartDate = "2026-08-17",
+            EndDate = "2026-08-20",
+            ExcludedDates = new List<string> { "2026-08-18" }
+        };
+        var beforeFirstCue = new DateTime(2026, 8, 17, 6, 0, 0, DateTimeKind.Utc);
+
+        Assert.True(HueSceneAutomationService.IsDue(
+            schedule,
+            new DateTime(2026, 8, 17, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            schedule,
+            new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc)));
+
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            beforeFirstCue,
+            maxOccurrences: 5,
+            horizonDays: 5);
+
+        Assert.Equal(3, occurrences.Count);
+        Assert.Equal(new DateTime(2026, 8, 17, 7, 5, 0), occurrences[0].LocalTime);
+        Assert.Equal(new DateTime(2026, 8, 19, 7, 5, 0), occurrences[1].LocalTime);
+        Assert.Equal(new DateTime(2026, 8, 20, 7, 5, 0), occurrences[2].LocalTime);
+    }
+
+    [Fact]
     public void GetNextRunLocal_UsesServerLocalScheduleAndSkipsElapsedOccurrence()
     {
         var schedule = new HueSceneSchedule

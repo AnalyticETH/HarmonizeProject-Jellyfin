@@ -1202,6 +1202,37 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_CrudPreservesDailyRecurrenceWithoutWeekdayMask()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Everyday" } }
+        });
+        var controller = CreateController();
+
+        var action = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Everyday cue",
+            PresetName = "Everyday",
+            TimeOfDay = "07:05",
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            DaysOfWeekMask = 0,
+            Enabled = true
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceDaily, result.Recurrence);
+        Assert.Equal(0, result.DaysOfWeekMask);
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceDaily, saved.Recurrence);
+
+        var listedResponse = Assert.IsType<OkObjectResult>(controller.GetSceneSchedules().Result);
+        var listed = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleResult>>(listedResponse.Value));
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceDaily, listed.Recurrence);
+    }
+
+    [Fact]
     public void SceneScheduleTimeZones_ReturnsSystemChoicesWithoutCredentials()
     {
         InstallConfiguration(new PluginConfiguration
@@ -1273,7 +1304,7 @@ public sealed class HueApiControllerTests : IDisposable
             Name = "Broken recurrence cue",
             PresetName = "Evening",
             TimeOfDay = "20:00",
-            Recurrence = "Daily",
+            Recurrence = "Hourly",
             DayOfMonth = 1,
             DaysOfWeekMask = 127
         });

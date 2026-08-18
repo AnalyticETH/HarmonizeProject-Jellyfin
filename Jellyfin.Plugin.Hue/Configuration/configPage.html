@@ -263,7 +263,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run weekly on selected weekdays or monthly on a calendar day, with optional inclusive start/end dates and exclusions. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, or monthly on a calendar day, with optional inclusive start/end dates and exclusions. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -298,6 +298,7 @@
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleRecurrence">Recurrence</label>
                                 <select id="sceneScheduleRecurrence" is="emby-select">
+                                    <option value="Daily">Daily</option>
                                     <option value="Weekly">Weekly</option>
                                     <option value="Monthly">Monthly</option>
                                 </select>
@@ -351,7 +352,7 @@
                                 <option value="32" selected>Friday</option>
                                 <option value="64" selected>Saturday</option>
                             </select>
-                            <div class="fieldDescription">Weekly cues choose one or more weekdays; monthly cues use the Day of month field instead. Setting a one-time date disables recurring date rules and recurrence controls. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default. Dates are calendar dates in the selected cue time zone and include both endpoints. Enter excluded dates as comma-separated <code>yyyy-MM-dd</code> values to skip holidays or blackout days.</div>
+                            <div class="fieldDescription">Daily cues run on every calendar date; weekly cues choose one or more weekdays; monthly cues use the Day of month field instead. Setting a one-time date disables recurring date rules and recurrence controls. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default. Dates are calendar dates in the selected cue time zone and include both endpoints. Enter excluded dates as comma-separated <code>yyyy-MM-dd</code> values to skip holidays or blackout days.</div>
                         </div>
                         <button is="emby-button" type="button" class="raised button-submit" id="saveSceneScheduleBtn" style="margin-top: 0.5em;"><span>Save Scheduled Cue</span></button>
                         <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule timing/date rules, and target mapping IDs; bridge credentials remain server-side.</div>
@@ -1678,9 +1679,10 @@
                             var duration = schedule.durationSeconds !== undefined ? schedule.durationSeconds : schedule.DurationSeconds;
                             var recurrence = schedule.recurrence !== undefined ? schedule.recurrence : schedule.Recurrence;
                             var dayOfMonth = schedule.dayOfMonth !== undefined ? schedule.dayOfMonth : schedule.DayOfMonth;
-                            var recurrenceLabel = String(recurrence || 'Weekly').toLowerCase() === 'monthly'
+                            var recurrenceMode = String(recurrence || 'Weekly').toLowerCase();
+                            var recurrenceLabel = recurrenceMode === 'monthly'
                                 ? ' · monthly ' + Number(dayOfMonth || 0)
-                                : '';
+                                : (recurrenceMode === 'daily' ? ' · daily' : '');
                             var runDate = schedule.runDate !== undefined ? schedule.runDate : schedule.RunDate;
                             var startDate = schedule.startDate !== undefined ? schedule.startDate : schedule.StartDate;
                             var endDate = schedule.endDate !== undefined ? schedule.endDate : schedule.EndDate;
@@ -1847,9 +1849,10 @@
                                 : "";
                             addCell(String(name) + (enabled ? "" : " (disabled)"));
                             addCell(String(target));
-                            var recurrenceLabel = String(recurrence).toLowerCase() === "monthly"
+                            var recurrenceMode = String(recurrence).toLowerCase();
+                            var recurrenceLabel = recurrenceMode === "monthly"
                                 ? "monthly " + String(dayOfMonth || 0)
-                                : daysForMask(mask);
+                                : (recurrenceMode === "daily" ? "daily" : daysForMask(mask));
                             addCell(String(preset) + " · " + String(time) + " · " + String(duration || 0) + "s · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
@@ -2189,7 +2192,9 @@
                     var dayOfMonth = page.querySelector('#sceneScheduleDayOfMonth');
                     var dayOfMonthContainer = page.querySelector('#sceneScheduleDayOfMonthContainer');
                     var oneTime = !!(runDate && runDate.value);
-                    var monthly = !oneTime && recurrence && String(recurrence.value).toLowerCase() === 'monthly';
+                    var recurrenceMode = recurrence ? String(recurrence.value).toLowerCase() : 'weekly';
+                    var monthly = !oneTime && recurrenceMode === 'monthly';
+                    var daily = !oneTime && recurrenceMode === 'daily';
                     if (oneTime && clearRecurringRules) {
                         if (startDate) startDate.value = '';
                         if (endDate) endDate.value = '';
@@ -2205,8 +2210,8 @@
                         if (control) control.disabled = oneTime;
                     });
                     if (days) {
-                        days.disabled = oneTime || !!monthly;
-                        days.style.opacity = oneTime || monthly ? '0.6' : '';
+                        days.disabled = oneTime || !!monthly || !!daily;
+                        days.style.opacity = oneTime || monthly || daily ? '0.6' : '';
                     }
                     if (dayOfMonth) dayOfMonth.disabled = oneTime || !monthly;
                     if (dayOfMonthContainer) dayOfMonthContainer.style.display = monthly ? '' : 'none';
@@ -2297,14 +2302,17 @@
                         .map(function (value) { return value.trim(); })
                         .filter(function (value) { return value; });
                     var daysOfWeekMask = HueConfigurationPage.getSceneScheduleDaysMask(page);
+                    var recurrenceMode = String(recurrence).toLowerCase();
                     if (!name || !presetName || !timeOfDay || (!runDate &&
-                        ((String(recurrence).toLowerCase() === 'monthly' && !dayOfMonth) ||
-                         (String(recurrence).toLowerCase() !== 'monthly' && !daysOfWeekMask)))) {
+                        ((recurrenceMode === 'monthly' && !dayOfMonth) ||
+                         (recurrenceMode === 'weekly' && !daysOfWeekMask)))) {
                         Dashboard.alert(runDate
                             ? "Enter a cue name, saved scene, time, and one-time date."
-                            : (String(recurrence).toLowerCase() === 'monthly'
+                            : (recurrenceMode === 'monthly'
                                 ? "Enter a cue name, saved scene, time, and monthly day of month."
-                                : "Enter a cue name, saved scene, time, and at least one weekday."));
+                                : (recurrenceMode === 'weekly'
+                                    ? "Enter a cue name, saved scene, time, and at least one weekday."
+                                    : "Enter a cue name, saved scene, and time.")));
                         return;
                     }
                     if (!Number.isInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 30) {

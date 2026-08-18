@@ -203,6 +203,31 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsDailyRecurrenceWithoutWeekdayMask()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Everyday" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-daily",
+                    Name = "Everyday welcome",
+                    PresetName = "Everyday",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    TimeOfDay = "07:05",
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+        Assert.True(PluginConfiguration.TryNormalizeSceneScheduleRecurrence(" daily ", out var normalized));
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceDaily, normalized);
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsInvalidMonthlyRecurrence()
     {
         var config = new PluginConfiguration
@@ -225,7 +250,7 @@ public class PluginConfigurationTests
                     Id = "cue-recurrence-invalid",
                     Name = "Invalid recurrence cue",
                     PresetName = "Evening",
-                    Recurrence = "Daily",
+                    Recurrence = "Hourly",
                     DayOfMonth = 1,
                     TimeOfDay = "20:00",
                     DaysOfWeekMask = 127
@@ -236,7 +261,7 @@ public class PluginConfigurationTests
         var errors = config.ValidateSceneSchedules();
 
         Assert.Contains(errors, error => error.Contains("monthly recurrence requires", StringComparison.Ordinal));
-        Assert.Contains(errors, error => error.Contains("recurrence must be Weekly or Monthly", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("recurrence must be Daily, Weekly, or Monthly", StringComparison.Ordinal));
     }
 
     [Fact]
