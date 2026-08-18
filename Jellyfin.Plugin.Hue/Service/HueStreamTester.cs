@@ -38,7 +38,8 @@ public interface IHueStreamTester
         int durationSeconds,
         CancellationToken cancellationToken = default,
         int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
-        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds);
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+        string effect = PluginConfiguration.ColorPresetEffectSolid);
 
     /// <summary>
     /// Cancels the active diagnostic or preview, if one is running. Cleanup continues
@@ -263,7 +264,7 @@ public sealed class HueStreamTester : IHueStreamTester
     }
 
     /// <summary>
-    /// Displays a bounded solid-color preview through the same save/activate/DTLS/restore
+    /// Displays a bounded preview through the same save/activate/DTLS/restore
     /// lifecycle used by playback. This is intentionally separate from TestAsync so a
     /// connection check can remain low intensity and non-disruptive.
     /// </summary>
@@ -281,7 +282,8 @@ public sealed class HueStreamTester : IHueStreamTester
         int durationSeconds,
         CancellationToken cancellationToken = default,
         int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
-        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds)
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+        string effect = PluginConfiguration.ColorPresetEffectSolid)
         => RunSerializedAsync(operationCancellation => PreviewCoreAsync(
             bridgeIp,
             appKey,
@@ -296,6 +298,7 @@ public sealed class HueStreamTester : IHueStreamTester
             durationSeconds,
             transitionSeconds,
             transitionOutSeconds,
+            effect,
             operationCancellation), cancellationToken);
 
     private async Task<HueStreamProbeResult> PreviewCoreAsync(
@@ -312,10 +315,15 @@ public sealed class HueStreamTester : IHueStreamTester
         int durationSeconds,
         int transitionSeconds,
         int transitionOutSeconds,
+        string effect,
         CancellationToken cancellationToken)
     {
+        if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
+            return Failure("Preview effect must be Solid, Pulse, or Rainbow.");
+
+        effect = normalizedEffect;
         if (cancellationToken.IsCancellationRequested)
-            return Failure("The solid color preview request was canceled.");
+            return Failure($"The {effect.ToLowerInvariant()} preview request was canceled.");
 
         if (string.IsNullOrWhiteSpace(bridgeIp) ||
             string.IsNullOrWhiteSpace(appKey) ||
@@ -383,7 +391,7 @@ public sealed class HueStreamTester : IHueStreamTester
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return Failure("The solid color preview request was canceled before activation.");
+            return Failure($"The {effect.ToLowerInvariant()} preview request was canceled before activation.");
         }
         catch (Exception ex)
         {
@@ -392,7 +400,7 @@ public sealed class HueStreamTester : IHueStreamTester
         }
 
         if (cancellationToken.IsCancellationRequested)
-            return Failure("The solid color preview request was canceled before activation.");
+            return Failure($"The {effect.ToLowerInvariant()} preview request was canceled before activation.");
 
         bool activated;
         try
@@ -409,7 +417,7 @@ public sealed class HueStreamTester : IHueStreamTester
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return await AddCleanupResultAsync(
-                Failure("The solid color preview request was canceled during activation; the bridge is being restored."),
+                Failure($"The {effect.ToLowerInvariant()} preview request was canceled during activation; the bridge is being restored."),
                 bridgeIp,
                 appKey,
                 areaId,
@@ -421,14 +429,14 @@ public sealed class HueStreamTester : IHueStreamTester
             // have reached the bridge even if its response was lost, so always run the
             // safety cleanup before returning to the configuration page.
             return await AddCleanupResultAsync(
-                Failure("The Hue bridge could not activate the entertainment area for preview; the bridge is being restored."),
+                Failure($"The Hue bridge could not activate the entertainment area for {effect.ToLowerInvariant()} preview; the bridge is being restored."),
                 bridgeIp,
                 appKey,
                 areaId,
                 savedLightStates).ConfigureAwait(false);
         }
 
-        var previewResult = Failure("The solid color preview did not complete.");
+        var previewResult = Failure($"The {effect.ToLowerInvariant()} preview did not complete.");
         try
         {
             await Task.Delay(EntertainmentAreaActivationDelayMs, cancellationToken).ConfigureAwait(false);
@@ -449,9 +457,17 @@ public sealed class HueStreamTester : IHueStreamTester
                     var previewEndsAt = previewStartedAt.AddSeconds(durationSeconds);
                     var transitionEndsAt = previewStartedAt.AddSeconds(transitionSeconds);
                     var transitionOutStartsAt = previewEndsAt.Subtract(TimeSpan.FromSeconds(transitionOutSeconds));
-                    var frame = transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds
-                        ? BuildTransitionColors(channelColors, 0)
-                        : channelColors;
+                    var animated = !string.Equals(
+                        effect,
+                        PluginConfiguration.ColorPresetEffectSolid,
+                        StringComparison.OrdinalIgnoreCase);
+                    var frame = BuildEffectColors(
+                        channelColors,
+                        effect,
+                        0,
+                        durationSeconds);
+                    if (transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds)
+                        frame = BuildTransitionColors(frame, 0);
                     var sent = await streamer.SendColors(
                         areaId,
                         frame,
@@ -481,7 +497,10 @@ public sealed class HueStreamTester : IHueStreamTester
                                 transitionSeconds,
                                 0d,
                                 1d);
-                            frame = BuildTransitionColors(channelColors, progress);
+                            var elapsedSeconds = (DateTime.UtcNow - previewStartedAt).TotalSeconds;
+                            frame = BuildTransitionColors(
+                                BuildEffectColors(channelColors, effect, elapsedSeconds, durationSeconds),
+                                progress);
                             if (!await streamer.SendColors(
                                     areaId,
                                     frame,
@@ -496,7 +515,11 @@ public sealed class HueStreamTester : IHueStreamTester
                         if (!transitionFailed && transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds &&
                             !await streamer.SendColors(
                                 areaId,
-                                channelColors,
+                                BuildEffectColors(
+                                    channelColors,
+                                    effect,
+                                    (DateTime.UtcNow - previewStartedAt).TotalSeconds,
+                                    durationSeconds),
                                 cancellationToken: cancellationToken).ConfigureAwait(false))
                         {
                             transitionFailed = true;
@@ -525,7 +548,13 @@ public sealed class HueStreamTester : IHueStreamTester
                                     transitionOutSeconds,
                                     0d,
                                     1d);
-                                frame = BuildTransitionColors(channelColors, 1d - fadeOutProgress);
+                                frame = BuildTransitionColors(
+                                    BuildEffectColors(
+                                        channelColors,
+                                        effect,
+                                        (DateTime.UtcNow - previewStartedAt).TotalSeconds,
+                                        durationSeconds),
+                                    1d - fadeOutProgress);
                                 if (!await streamer.SendColors(
                                         areaId,
                                         frame,
@@ -540,24 +569,32 @@ public sealed class HueStreamTester : IHueStreamTester
                             }
 
                             // Hue bridges deactivate an entertainment area after a period of
-                            // inactivity. Refresh the static packet once per second so a longer
-                            // preview remains visible for its full requested duration, stopping
-                            // the hold refresh when the fade-out window begins.
+                            // inactivity. Refresh static scenes once per second and animated
+                            // scenes every 100ms so a longer preview remains visible for its
+                            // full requested duration, stopping the hold refresh when the
+                            // fade-out window begins.
                             var remainingHold = previewEndsAt - now;
                             if (transitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds)
                                 remainingHold = TimeSpan.FromTicks(Math.Min(remainingHold.Ticks, (transitionOutStartsAt - now).Ticks));
                             if (remainingHold <= TimeSpan.Zero)
                                 continue;
 
+                            var refreshInterval = animated
+                                ? TimeSpan.FromMilliseconds(PreviewTransitionRefreshIntervalMs)
+                                : TimeSpan.FromSeconds(1);
                             await Task.Delay(
-                                remainingHold > TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : remainingHold,
+                                remainingHold > refreshInterval ? refreshInterval : remainingHold,
                                 cancellationToken)
                                 .ConfigureAwait(false);
                             if (DateTime.UtcNow < transitionOutStartsAt &&
                                 DateTime.UtcNow < previewEndsAt &&
                                 !await streamer.SendColors(
                                     areaId,
-                                    channelColors,
+                                    BuildEffectColors(
+                                        channelColors,
+                                        effect,
+                                        (DateTime.UtcNow - previewStartedAt).TotalSeconds,
+                                        durationSeconds),
                                     cancellationToken: cancellationToken).ConfigureAwait(false))
                             {
                                 previewResult = Failure("The DTLS stream stopped while holding the preview color.");
@@ -569,7 +606,9 @@ public sealed class HueStreamTester : IHueStreamTester
                         if (!transitionFailed && transitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds &&
                             !await streamer.SendColors(
                                 areaId,
-                                BuildTransitionColors(channelColors, 0),
+                                BuildTransitionColors(
+                                    BuildEffectColors(channelColors, effect, durationSeconds, durationSeconds),
+                                    0),
                                 cancellationToken: cancellationToken).ConfigureAwait(false))
                         {
                             transitionFailed = true;
@@ -586,10 +625,16 @@ public sealed class HueStreamTester : IHueStreamTester
                                     : transitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds
                                         ? $" with a {transitionOutSeconds}-second fade-out."
                                         : ".";
+                            var effectDescription = string.Equals(
+                                effect,
+                                PluginConfiguration.ColorPresetEffectSolid,
+                                StringComparison.OrdinalIgnoreCase)
+                                ? "solid color"
+                                : $"{effect.ToLowerInvariant()} effect";
                             previewResult = new HueStreamProbeResult
                             {
                                 Succeeded = true,
-                                Message = $"Displayed the solid color preview for {durationSeconds} seconds across {channelColors.Count} channel(s){transitionMessage}"
+                                Message = $"Displayed the {effectDescription} preview for {durationSeconds} seconds across {channelColors.Count} channel(s){transitionMessage}"
                             };
                         }
                     }
@@ -597,12 +642,12 @@ public sealed class HueStreamTester : IHueStreamTester
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                previewResult = Failure("The solid color preview request was canceled; the bridge is being restored.");
+                previewResult = Failure($"The {effect.ToLowerInvariant()} preview request was canceled; the bridge is being restored.");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Hue solid color preview failed for entertainment area {0}", areaId);
-                previewResult = Failure("The solid color preview failed. Check the client key and OpenSSL diagnostics.");
+                _logger.LogWarning(ex, "Hue {0} preview failed for entertainment area {1}", effect, areaId);
+                previewResult = Failure($"The {effect} preview failed. Check the client key and OpenSSL diagnostics.");
             }
             finally
             {
@@ -611,7 +656,7 @@ public sealed class HueStreamTester : IHueStreamTester
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            previewResult = Failure("The solid color preview request was canceled; the bridge is being restored.");
+            previewResult = Failure($"The {effect.ToLowerInvariant()} preview request was canceled; the bridge is being restored.");
         }
         finally
         {
@@ -739,6 +784,118 @@ public sealed class HueStreamTester : IHueStreamTester
 
         return colors;
     }
+
+    /// <summary>
+    /// Builds one deterministic frame for a saved-scene effect. Every effect remains
+    /// bounded to the selected RGB16 target and is safe to call at the preview refresh
+    /// cadence. Solid returns a clone so callers can freely apply fade transitions.
+    /// </summary>
+    internal static Dictionary<int, byte[]> BuildEffectColors(
+        IReadOnlyDictionary<int, byte[]> targetColors,
+        string effect,
+        double elapsedSeconds,
+        double durationSeconds)
+    {
+        ArgumentNullException.ThrowIfNull(targetColors);
+        if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
+            throw new ArgumentException("Effect must be Solid, Pulse, or Rainbow.", nameof(effect));
+
+        var elapsed = Math.Max(0d, elapsedSeconds);
+        var duration = Math.Max(1d, durationSeconds);
+        var colors = new Dictionary<int, byte[]>(targetColors.Count);
+        foreach (var (channelId, target) in targetColors)
+        {
+            if (target == null || target.Length != 6)
+                throw new ArgumentException("Each Hue effect color must contain six RGB16 bytes.", nameof(targetColors));
+
+            if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectSolid, StringComparison.Ordinal))
+            {
+                colors[channelId] = (byte[])target.Clone();
+                continue;
+            }
+
+            if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectPulse, StringComparison.Ordinal))
+            {
+                var phase = (elapsed % 2.4d) / 2.4d;
+                var wave = 0.5d + 0.5d * Math.Sin((phase * 2d * Math.PI) - (Math.PI / 2d));
+                var multiplier = 0.2d + (0.8d * wave);
+                colors[channelId] = ScaleFrame(target, multiplier);
+                continue;
+            }
+
+            var red = target[0] / 127d;
+            var green = target[2] / 127d;
+            var blue = target[4] / 127d;
+            var value = Math.Clamp(Math.Max(red, Math.Max(green, blue)), 0d, 1d);
+            var baseHue = RgbToHue(red, green, blue);
+            var hue = (baseHue + ((elapsed / duration) * 360d)) % 360d;
+            var (rainbowRed, rainbowGreen, rainbowBlue) = HsvToRgb(hue, 1d, value);
+            colors[channelId] = new[]
+            {
+                ToRgb16Byte(rainbowRed), ToRgb16Byte(rainbowRed),
+                ToRgb16Byte(rainbowGreen), ToRgb16Byte(rainbowGreen),
+                ToRgb16Byte(rainbowBlue), ToRgb16Byte(rainbowBlue)
+            };
+        }
+
+        return colors;
+    }
+
+    private static byte[] ScaleFrame(IReadOnlyList<byte> target, double multiplier)
+    {
+        var frame = new byte[target.Count];
+        for (var index = 0; index < target.Count; index++)
+        {
+            frame[index] = (byte)Math.Clamp(
+                (int)Math.Round(target[index] * multiplier, MidpointRounding.AwayFromZero),
+                byte.MinValue,
+                byte.MaxValue);
+        }
+
+        return frame;
+    }
+
+    private static double RgbToHue(double red, double green, double blue)
+    {
+        var max = Math.Max(red, Math.Max(green, blue));
+        var min = Math.Min(red, Math.Min(green, blue));
+        var delta = max - min;
+        if (delta <= double.Epsilon)
+            return 0d;
+
+        var hue = max == red
+            ? 60d * (((green - blue) / delta) % 6d)
+            : max == green
+                ? 60d * (((blue - red) / delta) + 2d)
+                : 60d * (((red - green) / delta) + 4d);
+        return hue < 0d ? hue + 360d : hue;
+    }
+
+    private static (double Red, double Green, double Blue) HsvToRgb(
+        double hue,
+        double saturation,
+        double value)
+    {
+        var chroma = value * saturation;
+        var intermediate = chroma * (1d - Math.Abs(((hue / 60d) % 2d) - 1d));
+        var match = value - chroma;
+        var (red, green, blue) = hue switch
+        {
+            < 60d => (chroma, intermediate, 0d),
+            < 120d => (intermediate, chroma, 0d),
+            < 180d => (0d, chroma, intermediate),
+            < 240d => (0d, intermediate, chroma),
+            < 300d => (intermediate, 0d, chroma),
+            _ => (chroma, 0d, intermediate)
+        };
+        return (red + match, green + match, blue + match);
+    }
+
+    private static byte ToRgb16Byte(double component)
+        => (byte)Math.Clamp(
+            (int)Math.Round(Math.Clamp(component, 0d, 1d) * 127d, MidpointRounding.AwayFromZero),
+            byte.MinValue,
+            byte.MaxValue);
 
     internal static bool TryBuildProbeColors(JsonElement areaConfiguration, out Dictionary<int, byte[]> channelColors)
         => TryBuildProbeColors(areaConfiguration, null, out channelColors);

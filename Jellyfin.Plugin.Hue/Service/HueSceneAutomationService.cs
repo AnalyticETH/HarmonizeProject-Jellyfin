@@ -168,6 +168,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             var preset = config?.ColorPresets?.FirstOrDefault(candidate =>
                 candidate != null &&
                 string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
+            PluginConfiguration.TryNormalizeColorPresetEffect(preset?.Effect, out var effect);
             PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var recurrence);
             var timeZone = PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var resolvedTimeZone)
                 ? resolvedTimeZone
@@ -177,6 +178,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleId = schedule.Id?.Trim() ?? string.Empty,
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
+                Effect = effect,
                 DurationSeconds = GetEffectiveDurationSeconds(schedule, preset),
                 TransitionSeconds = GetEffectiveTransitionSeconds(schedule, preset),
                 TransitionOutSeconds = GetEffectiveTransitionOutSeconds(schedule, preset),
@@ -399,6 +401,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleId = schedule.Id?.Trim() ?? string.Empty,
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
+                Effect = PluginConfiguration.ColorPresetEffectSolid,
                 DurationSeconds = schedule.DurationSeconds,
                 TransitionSeconds = Math.Clamp(
                     transitionSeconds,
@@ -1214,7 +1217,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 GetEffectiveDurationSeconds(schedule, preset),
                 cancellationToken,
                 GetEffectiveTransitionSeconds(schedule, preset),
-                GetEffectiveTransitionOutSeconds(schedule, preset)).ConfigureAwait(false);
+                GetEffectiveTransitionOutSeconds(schedule, preset),
+                preset.Effect).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1226,11 +1230,13 @@ public sealed class HueSceneAutomationService : BackgroundService
             return Failure(schedule.Id, "The scheduled scene preview failed unexpectedly.", schedule, target.TargetLabel);
         }
 
+        PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
         return new HueSceneAutomationRunResult
         {
             ScheduleId = schedule.Id,
             ScheduleName = schedule.Name?.Trim() ?? string.Empty,
             PresetName = preset.Name?.Trim() ?? string.Empty,
+            Effect = effect,
             TargetLabel = target.TargetLabel,
             Succeeded = preview.Succeeded,
             Message = preview.Message,
@@ -1461,6 +1467,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleId = result.ScheduleId,
             ScheduleName = result.ScheduleName,
             PresetName = result.PresetName,
+            Effect = result.Effect,
             TargetLabel = result.TargetLabel,
             Succeeded = result.Succeeded,
             Message = result.Message,
@@ -1477,6 +1484,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleId = source.ScheduleId?.Trim() ?? string.Empty,
             ScheduleName = source.ScheduleName?.Trim() ?? string.Empty,
             PresetName = source.PresetName?.Trim() ?? string.Empty,
+            Effect = PluginConfiguration.TryNormalizeColorPresetEffect(source.Effect, out var effect)
+                ? effect
+                : PluginConfiguration.ColorPresetEffectSolid,
             TargetLabel = source.TargetLabel?.Trim(),
             Succeeded = source.Succeeded,
             Message = source.Message?.Trim() ?? string.Empty,
@@ -1493,6 +1503,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleId = entry.ScheduleId?.Trim() ?? string.Empty,
             ScheduleName = entry.ScheduleName?.Trim() ?? string.Empty,
             PresetName = entry.PresetName?.Trim() ?? string.Empty,
+            Effect = PluginConfiguration.TryNormalizeColorPresetEffect(entry.Effect, out var effect)
+                ? effect
+                : PluginConfiguration.ColorPresetEffectSolid,
             TargetLabel = entry.TargetLabel?.Trim(),
             Succeeded = entry.Succeeded,
             Message = entry.Message?.Trim() ?? string.Empty,
@@ -1509,6 +1522,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleId = source.ScheduleId,
             ScheduleName = source.ScheduleName,
             PresetName = source.PresetName,
+            Effect = source.Effect,
             TargetLabel = source.TargetLabel,
             Succeeded = source.Succeeded,
             Message = source.Message,
@@ -1665,6 +1679,9 @@ public sealed class HueSceneAutomationRunResult
     [JsonPropertyName("presetName")]
     public string PresetName { get; init; } = string.Empty;
 
+    [JsonPropertyName("effect")]
+    public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
+
     [JsonPropertyName("targetLabel")]
     public string? TargetLabel { get; init; }
 
@@ -1697,6 +1714,9 @@ public sealed class HueSceneScheduleOccurrence
 
     [JsonPropertyName("presetName")]
     public string PresetName { get; init; } = string.Empty;
+
+    [JsonPropertyName("effect")]
+    public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
 
     [JsonPropertyName("durationSeconds")]
     public int DurationSeconds { get; init; }
@@ -1745,6 +1765,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("presetName")]
     public string PresetName { get; init; } = string.Empty;
+
+    [JsonPropertyName("effect")]
+    public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
 
     [JsonPropertyName("durationSeconds")]
     public int DurationSeconds { get; init; }

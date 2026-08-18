@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.92] - 2026-08-18
+
+### Added
+- **Saved-scene effects**: add bounded Solid, breathing Pulse, and hue-cycling Rainbow effects to manual previews and reusable scenes
+- **Scheduled effect playback**: scheduled cues, scheduler status, upcoming occurrences, iCalendar exports, history, and credential-safe backups preserve the selected effect while retaining the restorative capture/restore lifecycle
+- **Effect-aware administrator controls**: select an effect, save it with a scene, apply it back to the editor, and preview it on either the default or current mapping target
+
+### Security
+- Effects remain credential-free visual metadata; all animated frames use the existing serialized DTLS lifecycle, cancellation path, bounded durations, and captured-light restoration
+
 ## [1.5.91] - 2026-08-18
 
 ### Added

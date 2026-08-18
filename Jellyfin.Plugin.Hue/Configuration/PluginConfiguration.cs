@@ -57,14 +57,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
-    /// A reusable solid-color preview scene. Presets intentionally contain no bridge
-    /// credentials or target information; they can be applied to the default target or
-    /// any per-user mapping from the administrator configuration page. TransitionSeconds
-    /// and TransitionOutSeconds optionally fade the scene in and out within the configured duration.
+    /// A reusable preview scene. Presets intentionally contain no bridge credentials or
+    /// target information; they can be applied to the default target or any per-user
+    /// mapping from the administrator configuration page. TransitionSeconds and
+    /// TransitionOutSeconds optionally fade the scene in and out within the configured
+    /// duration. Effect selects the bounded frame pattern used during the hold.
     /// </summary>
     public class HueColorPreset
     {
         public string Name { get; set; } = string.Empty;
+        /// <summary>
+        /// Bounded scene effect. Missing values in older configurations deserialize to
+        /// <see cref="PluginConfiguration.ColorPresetEffectSolid"/>.
+        /// </summary>
+        public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
         public int Red { get; set; } = 255;
         public int Green { get; set; } = 255;
         public int Blue { get; set; } = 255;
@@ -213,6 +219,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string ScheduleId { get; set; } = string.Empty;
         public string ScheduleName { get; set; } = string.Empty;
         public string PresetName { get; set; } = string.Empty;
+        public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
         public string? TargetLabel { get; set; }
         public bool Succeeded { get; set; }
         public string Message { get; set; } = string.Empty;
@@ -265,6 +272,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private const int MaxSamplingBreadthPercent = 50;
         private const int MinColorSmoothingPercent = 0;
         private const int MaxColorSmoothingPercent = 90;
+        public const string ColorPresetEffectSolid = "Solid";
+        public const string ColorPresetEffectPulse = "Pulse";
+        public const string ColorPresetEffectRainbow = "Rainbow";
         public const int MinPreviewDurationSeconds = 1;
         public const int MaxPreviewDurationSeconds = 30;
         public const int MinColorPresetTransitionSeconds = 0;
@@ -291,6 +301,37 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxSceneScheduleRecurrenceInterval = 365;
         public const int MaxSessionHistoryCount = 25;
         public const int MaxSceneScheduleHistoryCount = 100;
+
+        private static readonly string[] ColorPresetEffects =
+        {
+            ColorPresetEffectSolid,
+            ColorPresetEffectPulse,
+            ColorPresetEffectRainbow
+        };
+
+        /// <summary>
+        /// Returns the canonical spelling for a supported saved-scene effect. Blank
+        /// values are treated as the legacy solid-color behavior.
+        /// </summary>
+        public static bool TryNormalizeColorPresetEffect(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = ColorPresetEffectSolid;
+                return true;
+            }
+
+            var match = ColorPresetEffects.FirstOrDefault(effect =>
+                string.Equals(effect, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = ColorPresetEffectSolid;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
 
         public bool SyncEnabled { get; set; } = false;
 
@@ -804,7 +845,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
-        /// Validates one reusable solid-color preview preset.
+        /// Validates one reusable scene-effect preview preset.
         /// </summary>
         public static List<string> ValidateColorPreset(HueColorPreset? preset, string label = "Color preset")
         {
@@ -824,6 +865,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.Add($"{label} name must not contain control characters");
             else if (name.IndexOfAny(new[] { '/', '\\', '?', '#' }) >= 0)
                 errors.Add($"{label} name must not contain path or URL separator characters");
+
+            if (!TryNormalizeColorPresetEffect(preset.Effect, out _))
+                errors.Add($"{label} effect must be one of {string.Join(", ", ColorPresetEffects)}");
 
             if (preset.Red < MinByteSetting || preset.Red > MaxByteSetting ||
                 preset.Green < MinByteSetting || preset.Green > MaxByteSetting ||

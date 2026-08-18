@@ -31,6 +31,28 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateColorPresets_AllowsSupportedEffectsAndNormalizesLegacyBlank()
+    {
+        foreach (var effect in new[]
+        {
+            PluginConfiguration.ColorPresetEffectSolid,
+            PluginConfiguration.ColorPresetEffectPulse,
+            PluginConfiguration.ColorPresetEffectRainbow,
+            " rainbow "
+        })
+        {
+            Assert.Empty(PluginConfiguration.ValidateColorPreset(new HueColorPreset
+            {
+                Name = effect,
+                Effect = effect
+            }));
+        }
+
+        Assert.True(PluginConfiguration.TryNormalizeColorPresetEffect(string.Empty, out var normalized));
+        Assert.Equal(PluginConfiguration.ColorPresetEffectSolid, normalized);
+    }
+
+    [Fact]
     public void ValidateColorPresets_RejectsInvalidValuesAndDuplicateNames()
     {
         var config = new PluginConfiguration
@@ -49,6 +71,18 @@ public class PluginConfigurationTests
         Assert.Contains("Color preset 1 transition must be between 0 and 30 seconds", errors);
         Assert.Contains("Color preset 1 fade-out must be between 0 and 30 seconds", errors);
         Assert.Contains("Color preset 2 duplicates another color preset name", errors);
+    }
+
+    [Fact]
+    public void ValidateColorPreset_RejectsUnknownEffect()
+    {
+        var errors = PluginConfiguration.ValidateColorPreset(new HueColorPreset
+        {
+            Name = "Unknown effect",
+            Effect = "Strobe"
+        });
+
+        Assert.Contains("effect must be one of Solid, Pulse, Rainbow", errors);
     }
 
     [Fact]

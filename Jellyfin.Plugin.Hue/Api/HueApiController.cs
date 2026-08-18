@@ -398,9 +398,11 @@ namespace Jellyfin.Plugin.Hue.Api
 
         private static HueColorPresetResult ToColorPresetResult(HueColorPreset preset)
         {
+            PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
             return new HueColorPresetResult
             {
                 Name = preset.Name,
+                Effect = effect,
                 Red = preset.Red,
                 Green = preset.Green,
                 Blue = preset.Blue,
@@ -441,12 +443,14 @@ namespace Jellyfin.Plugin.Hue.Api
             var preset = config.ColorPresets?.FirstOrDefault(candidate =>
                 candidate != null &&
                 string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
+            PluginConfiguration.TryNormalizeColorPresetEffect(preset?.Effect, out var effect);
 
             return new HueSceneScheduleResult
             {
                 Id = schedule.Id,
                 Name = schedule.Name,
                 PresetName = schedule.PresetName,
+                Effect = effect,
                 TargetUserId = targetUserId,
                 TargetLabel = targetLabel,
                 TimeOfDay = schedule.TimeOfDay,
@@ -667,9 +671,9 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Displays a bounded solid-color preview through the configured entertainment
+        /// Displays a bounded scene-effect preview through the configured entertainment
         /// area. The stream tester captures and restores the selected lights so this
-        /// diagnostic never leaves a manual color behind.
+        /// diagnostic never leaves a manual scene behind.
         /// </summary>
         [HttpPost("Preview")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -714,6 +718,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Preview brightness must be between 0 and 100 percent.");
             }
 
+            if (!PluginConfiguration.TryNormalizeColorPresetEffect(request.Effect, out var effect))
+            {
+                return BadRequest($"Preview effect must be one of {PluginConfiguration.ColorPresetEffectSolid}, {PluginConfiguration.ColorPresetEffectPulse}, or {PluginConfiguration.ColorPresetEffectRainbow}.");
+            }
+
             if (request.DurationSeconds < HueStreamTester.MinPreviewDurationSeconds ||
                 request.DurationSeconds > HueStreamTester.MaxPreviewDurationSeconds)
             {
@@ -745,7 +754,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
             if (_syncService?.IsSyncing == true)
             {
-                return Conflict("Stop active playback before running a solid color preview.");
+                return Conflict("Stop active playback before running a Hue scene preview.");
             }
 
             HashSet<int>? requestedChannelIds = null;
@@ -810,7 +819,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     request.DurationSeconds,
                     cancellationToken,
                     request.TransitionSeconds,
-                    request.TransitionOutSeconds);
+                    request.TransitionOutSeconds,
+                    effect);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -821,7 +831,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 streamPreview = new HueStreamProbeResult
                 {
                     Succeeded = false,
-                    Message = "The solid color preview failed unexpectedly. Check the server log."
+                    Message = $"The {effect.ToLowerInvariant()} preview failed unexpectedly. Check the server log."
                 };
             }
 
@@ -833,6 +843,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Red = request.Red,
                 Green = request.Green,
                 Blue = request.Blue,
+                Effect = effect,
                 BrightnessPercent = request.BrightnessPercent,
                 DurationSeconds = request.DurationSeconds,
                 TransitionSeconds = request.TransitionSeconds,
@@ -866,7 +877,7 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Lists reusable solid-color preview scenes. Presets contain only visual
+        /// Lists reusable credential-free preview scenes. Presets contain only visual
         /// values and never include bridge credentials or per-user targets.
         /// </summary>
         [HttpGet("ColorPresets")]
@@ -886,7 +897,7 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Saves or updates a reusable solid-color preview scene by case-insensitive name.
+        /// Saves or updates a reusable preview scene by case-insensitive name.
         /// </summary>
         [HttpPost("ColorPresets")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -941,7 +952,7 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Deletes one reusable solid-color preview scene by name.
+        /// Deletes one reusable preview scene by name.
         /// </summary>
         [HttpDelete("ColorPresets/{name}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1142,6 +1153,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     var effectiveDuration = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset);
                     var effectiveTransition = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset);
                     var effectiveTransitionOut = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset);
+                    PluginConfiguration.TryNormalizeColorPresetEffect(preset?.Effect, out var effect);
                     return HueSceneAutomationService.GetUpcomingOccurrences(
                             schedule,
                             serverLocalNow,
@@ -1155,6 +1167,7 @@ namespace Jellyfin.Plugin.Hue.Api
                             ScheduleId = occurrence.ScheduleId,
                             ScheduleName = occurrence.ScheduleName,
                             PresetName = occurrence.PresetName,
+                            Effect = effect,
                             Recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
                                 schedule.Recurrence,
                                 out var normalizedRecurrence)
@@ -1217,6 +1230,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "X-HUE-TIMEZONE", occurrence.TimeZoneId);
                 AppendIcsLine(builder, "X-HUE-RECURRENCE", occurrence.Recurrence);
                 AppendIcsLine(builder, "X-HUE-RECURRENCE-INTERVAL", occurrence.RecurrenceInterval.ToString(CultureInfo.InvariantCulture));
+                AppendIcsLine(builder, "X-HUE-EFFECT", occurrence.Effect);
                 AppendIcsLine(builder, "X-HUE-TRANSITION-SECONDS", occurrence.TransitionSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-OUT-SECONDS", occurrence.TransitionOutSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "STATUS", "CONFIRMED");
@@ -2854,17 +2868,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     .ToArray(),
                 ColorPresets = (config.ColorPresets ?? new List<HueColorPreset>())
                     .Where(preset => preset != null)
-                    .Select(preset => new HueColorPresetResult
-                    {
-                        Name = preset.Name,
-                        Red = preset.Red,
-                        Green = preset.Green,
-                        Blue = preset.Blue,
-                        BrightnessPercent = preset.BrightnessPercent,
-                        DurationSeconds = preset.DurationSeconds,
-                        TransitionSeconds = preset.TransitionSeconds,
-                        TransitionOutSeconds = preset.TransitionOutSeconds
-                    })
+                    .Select(HueApiController.ToColorPresetResult)
                     .ToArray(),
                 SceneSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
                     .Where(schedule => schedule != null)
@@ -2989,6 +2993,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("channelIds")]
         public string? ChannelIds { get; set; }
 
+        [JsonPropertyName("effect")]
+        public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
+
         [JsonPropertyName("red")]
         public int Red { get; set; } = 255;
 
@@ -3067,6 +3074,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("cleanupWarning")]
         public string? CleanupWarning { get; set; }
 
+        [JsonPropertyName("effect")]
+        public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
+
         [JsonPropertyName("red")]
         public int Red { get; set; }
 
@@ -3109,6 +3119,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
 
+        [JsonPropertyName("effect")]
+        public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
+
         [JsonPropertyName("red")]
         public int Red { get; set; }
 
@@ -3132,9 +3145,13 @@ namespace Jellyfin.Plugin.Hue.Api
 
         public HueColorPreset ToConfigurationPreset()
         {
+            var normalizedEffect = PluginConfiguration.TryNormalizeColorPresetEffect(Effect, out var effect)
+                ? effect
+                : Effect?.Trim() ?? string.Empty;
             return new HueColorPreset
             {
                 Name = Name?.Trim() ?? string.Empty,
+                Effect = normalizedEffect,
                 Red = Red,
                 Green = Green,
                 Blue = Blue,
@@ -3150,6 +3167,9 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("effect")]
+        public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
 
         [JsonPropertyName("red")]
         public int Red { get; set; }
@@ -3288,6 +3308,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("presetName")]
         public string PresetName { get; set; } = string.Empty;
 
+        [JsonPropertyName("effect")]
+        public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
+
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
 
@@ -3359,6 +3382,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetName")]
         public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("effect")]
+        public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
 
         [JsonPropertyName("recurrence")]
         public string Recurrence { get; set; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;

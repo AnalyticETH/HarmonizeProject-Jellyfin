@@ -224,12 +224,20 @@
                     </fieldset>
 
                     <fieldset class="verticalSection">
-                        <legend>Solid Color Preview</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a single color on the default bridge target for a few seconds. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry these settings into scheduled cues. Stop active playback before previewing.</div>
+                        <legend>Scene Effect Preview</legend>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, or hue-cycling Rainbow effect on the default bridge target for a few seconds. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect and transitions into scheduled cues. Stop active playback before previewing.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="previewColor">Color</label>
                                 <input id="previewColor" type="color" value="#ffffff" style="width: 5em; height: 2.5em; padding: 0.15em;" />
+                            </div>
+                            <div style="min-width: 150px;">
+                                <label class="inputLabel inputLabelUnfocused" for="previewEffect">Effect</label>
+                                <select id="previewEffect" is="emby-select">
+                                    <option value="Solid">Solid</option>
+                                    <option value="Pulse">Pulse</option>
+                                    <option value="Rainbow">Rainbow</option>
+                                </select>
                             </div>
                             <div style="min-width: 130px;">
                                 <label class="inputLabel inputLabelUnfocused" for="previewBrightness">Brightness (%)</label>
@@ -276,7 +284,7 @@
                                 <span>Delete Scene</span>
                             </button>
                         </div>
-                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, brightness, duration, and optional fade-in/fade-out as a reusable scene. Scenes contain no bridge credentials.</div>
+                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, brightness, duration, and optional fade-in/fade-out as a reusable scene. Scenes contain no bridge credentials.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -1402,7 +1410,7 @@
                         dataType: "json"
                     });
                 },
-                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId, transitionSeconds, transitionOutSeconds) {
+                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId, transitionSeconds, transitionOutSeconds, effect) {
                     var payload = {
                         ipAddress: bridgeIp,
                         appKey: appKey,
@@ -1412,6 +1420,7 @@
                         red: red,
                         green: green,
                         blue: blue,
+                        effect: effect || "Solid",
                         brightnessPercent: brightnessPercent,
                         durationSeconds: durationSeconds,
                         transitionSeconds: transitionSeconds || 0,
@@ -1440,6 +1449,11 @@
                     var duration = parseInt(page.querySelector('#previewDuration').value, 10);
                     var transition = parseInt(page.querySelector('#previewTransitionSeconds').value, 10);
                     var transitionOut = parseInt(page.querySelector('#previewTransitionOutSeconds').value, 10);
+                    var effectEl = page.querySelector('#previewEffect');
+                    var effect = effectEl && effectEl.value ? effectEl.value : "Solid";
+                    if (["Solid", "Pulse", "Rainbow"].indexOf(effect) < 0) {
+                        throw new Error("Preview effect must be Solid, Pulse, or Rainbow.");
+                    }
                     brightness = isNaN(brightness) ? 100 : brightness;
                     duration = isNaN(duration) ? 5 : duration;
                     transition = isNaN(transition) ? 0 : transition;
@@ -1463,6 +1477,7 @@
                         blue: parseInt(hex.substring(4, 6), 16),
                         brightnessPercent: brightness,
                         durationSeconds: duration,
+                        effect: effect,
                         transitionSeconds: transition,
                         transitionOutSeconds: transitionOut
                     };
@@ -1579,7 +1594,8 @@
                         values.durationSeconds,
                         undefined,
                         values.transitionSeconds,
-                        values.transitionOutSeconds);
+                        values.transitionOutSeconds,
+                        values.effect);
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request
@@ -1622,6 +1638,7 @@
                                 var option = document.createElement('option');
                                 option.value = name;
                                 option.textContent = name;
+                                option.dataset.effect = String(preset.effect !== undefined ? preset.effect : (preset.Effect || "Solid"));
                                 option.dataset.red = String(preset.red !== undefined ? preset.red : preset.Red);
                                 option.dataset.green = String(preset.green !== undefined ? preset.green : preset.Green);
                                 option.dataset.blue = String(preset.blue !== undefined ? preset.blue : preset.Blue);
@@ -1664,6 +1681,7 @@
                     var red = Number(option.dataset.red);
                     var green = Number(option.dataset.green);
                     var blue = Number(option.dataset.blue);
+                    var effect = option.dataset.effect || "Solid";
                     var brightness = Number(option.dataset.brightnessPercent);
                     var duration = Number(option.dataset.durationSeconds);
                     var transition = Number(option.dataset.transitionSeconds || 0);
@@ -1671,6 +1689,7 @@
                     page.querySelector('#previewColor').value = '#' + [red, green, blue].map(function (component) {
                         return component.toString(16).padStart(2, '0');
                     }).join('');
+                    page.querySelector('#previewEffect').value = effect;
                     page.querySelector('#previewBrightness').value = brightness;
                     page.querySelector('#previewDuration').value = duration;
                     page.querySelector('#previewTransitionSeconds').value = transition;
@@ -1710,6 +1729,7 @@
                         url: ApiClient.getUrl("HueSync/ColorPresets"),
                         data: JSON.stringify({
                             name: name,
+                            effect: values.effect,
                             red: values.red,
                             green: values.green,
                             blue: values.blue,
@@ -4174,7 +4194,8 @@
                         values.durationSeconds,
                         target.userId,
                         values.transitionSeconds,
-                        values.transitionOutSeconds);
+                        values.transitionOutSeconds,
+                        values.effect);
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request

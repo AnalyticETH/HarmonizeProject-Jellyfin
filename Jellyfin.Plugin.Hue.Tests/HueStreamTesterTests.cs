@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Service;
 using Microsoft.Extensions.Logging;
@@ -133,6 +134,53 @@ public sealed class HueStreamTesterTests
         Assert.Equal(target[1], completed[1]);
         Assert.Equal(new byte[6], initial[1]);
         Assert.NotSame(target[1], completed[1]);
+    }
+
+    [Fact]
+    public void BuildEffectColors_PulseModulatesTheSelectedFrame()
+    {
+        var target = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 63, 63, 32, 32, 0, 0 }
+        };
+
+        var dim = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectPulse,
+            elapsedSeconds: 0,
+            durationSeconds: 5);
+        var midpoint = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectPulse,
+            elapsedSeconds: 0.6,
+            durationSeconds: 5);
+
+        Assert.Equal(new byte[] { 13, 13, 6, 6, 0, 0 }, dim[1]);
+        Assert.Equal(new byte[] { 38, 38, 19, 19, 0, 0 }, midpoint[1]);
+        Assert.NotSame(target[1], dim[1]);
+    }
+
+    [Fact]
+    public void BuildEffectColors_RainbowRotatesFromTheSelectedColorHue()
+    {
+        var target = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 63, 63, 0, 0, 0, 0 }
+        };
+
+        var start = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectRainbow,
+            elapsedSeconds: 0,
+            durationSeconds: 1);
+        var green = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectRainbow,
+            elapsedSeconds: 1d / 3d,
+            durationSeconds: 1);
+
+        Assert.Equal(new byte[] { 63, 63, 0, 0, 0, 0 }, start[1]);
+        Assert.Equal(new byte[] { 0, 0, 63, 63, 0, 0 }, green[1]);
     }
 
     [Fact]

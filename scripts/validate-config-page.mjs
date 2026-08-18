@@ -15,7 +15,8 @@ const requiredMarkup = [
     'id="cancelConnectionTestBtn"',
     'id="cancelMappingTestConnectionBtn"',
     'id="cancelPreviewBtn"',
-    'id="cancelDiagnosticsBtn"'
+    'id="cancelDiagnosticsBtn"',
+    'id="previewEffect"'
 ];
 
 for (const marker of requiredMarkup) {
@@ -30,7 +31,9 @@ const requiredScript = [
     "HueConfigurationPage.cancelDiagnostics(e.target)",
     'url: ApiClient.getUrl("HueSync/Preview/Cancel")',
     'url: ApiClient.getUrl("HueSync/Diagnostics/Cancel")',
-    "HueConfigurationPage.cancelPreview(e.target)"
+    "HueConfigurationPage.cancelPreview(e.target)",
+    'effect: effect || "Solid"',
+    "effect: values.effect"
 ];
 
 for (const marker of requiredScript) {
