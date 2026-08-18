@@ -169,6 +169,40 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public async Task PreviewAsync_RejectsCombinedFadeDurationsWithoutTouchingBridge()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        using var httpClient = new HttpClient(handler.Object);
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>());
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
+        var tester = new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>());
+        using var document = JsonDocument.Parse("{\"channels\":[]}");
+
+        var result = await tester.PreviewAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            null,
+            255,
+            255,
+            255,
+            100,
+            4,
+            transitionSeconds: 2,
+            transitionOutSeconds: 3);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("together", result.Message, StringComparison.OrdinalIgnoreCase);
+        handler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task TestAsync_WithMalformedAreaDoesNotTouchBridge()
     {
         var handler = new Mock<HttpMessageHandler>();

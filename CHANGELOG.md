@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.88] - 2026-08-18
+
+### Added
+- **Saved-scene fade-out transitions**: optionally ramp each solid-color scene from its target RGB16 values back to dark at the end of the configured duration, alongside the existing fade-in support
+- **Bookended preview lifecycle**: validate that fade-in and fade-out together fit inside the preview, hold duration, or saved-scene duration while preserving state capture, cancellation, and restoration safety
+- **Portable fade metadata**: carry `transitionOutSeconds` through preview requests/results, saved-scene CRUD, effective scheduler status, upcoming occurrences, iCalendar export, and credential-safe backup/restore
+
+### Security
+- Fade-in and fade-out durations are bounded integers whose combined duration cannot exceed the scene or effective cue duration; credential-free scene, schedule, occurrence, calendar, and backup responses continue to omit bridge credentials and playback tokens
+
 ## [1.5.87] - 2026-08-18
 
 ### Added

@@ -177,6 +177,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 DurationSeconds = GetEffectiveDurationSeconds(schedule, preset),
                 TransitionSeconds = GetEffectiveTransitionSeconds(schedule, preset),
+                TransitionOutSeconds = GetEffectiveTransitionOutSeconds(schedule, preset),
                 Recurrence = recurrence,
                 RecurrenceInterval = schedule.RecurrenceInterval,
                 DayOfMonth = schedule.DayOfMonth,
@@ -266,6 +267,19 @@ public sealed class HueSceneAutomationService : BackgroundService
             Math.Min(GetEffectiveDurationSeconds(schedule, preset), PluginConfiguration.MaxColorPresetTransitionSeconds));
     }
 
+    internal static int GetEffectiveTransitionOutSeconds(HueSceneSchedule schedule, HueColorPreset? preset)
+    {
+        var duration = GetEffectiveDurationSeconds(schedule, preset);
+        var transitionIn = GetEffectiveTransitionSeconds(schedule, preset);
+        var transitionOut = preset?.TransitionOutSeconds ?? PluginConfiguration.MinColorPresetTransitionOutSeconds;
+        return Math.Clamp(
+            transitionOut,
+            PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            Math.Min(
+                duration - transitionIn,
+                PluginConfiguration.MaxColorPresetTransitionOutSeconds));
+    }
+
     /// <summary>
     /// Calculates a bounded preview of future cue occurrences. Calendar dates are
     /// evaluated in the cue's selected time zone, so one-time dates, date windows,
@@ -279,7 +293,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         int maxOccurrences = DefaultUpcomingOccurrencesPerSchedule,
         int horizonDays = DefaultUpcomingHorizonDays,
         bool includeFutureStartBeyondHorizon = true,
-        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds)
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds)
     {
         var occurrences = new List<HueSceneScheduleOccurrence>();
         var boundedOccurrences = Math.Clamp(
@@ -387,6 +402,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                     transitionSeconds,
                     PluginConfiguration.MinColorPresetTransitionSeconds,
                     PluginConfiguration.MaxColorPresetTransitionSeconds),
+                TransitionOutSeconds = Math.Clamp(
+                    transitionOutSeconds,
+                    PluginConfiguration.MinColorPresetTransitionOutSeconds,
+                    PluginConfiguration.MaxColorPresetTransitionOutSeconds),
                 RecurrenceInterval = schedule.RecurrenceInterval,
                 MonthOfYear = schedule.MonthOfYear,
                 WeekOfMonth = schedule.WeekOfMonth,
@@ -1132,7 +1151,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 preset.BrightnessPercent,
                 GetEffectiveDurationSeconds(schedule, preset),
                 cancellationToken,
-                GetEffectiveTransitionSeconds(schedule, preset)).ConfigureAwait(false);
+                GetEffectiveTransitionSeconds(schedule, preset),
+                GetEffectiveTransitionOutSeconds(schedule, preset)).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1622,6 +1642,9 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("transitionSeconds")]
     public int TransitionSeconds { get; init; }
 
+    [JsonPropertyName("transitionOutSeconds")]
+    public int TransitionOutSeconds { get; init; }
+
     [JsonPropertyName("recurrenceInterval")]
     public int RecurrenceInterval { get; init; } = PluginConfiguration.MinSceneScheduleRecurrenceInterval;
 
@@ -1666,6 +1689,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("transitionSeconds")]
     public int TransitionSeconds { get; init; }
+
+    [JsonPropertyName("transitionOutSeconds")]
+    public int TransitionOutSeconds { get; init; }
 
     [JsonPropertyName("recurrence")]
     public string Recurrence { get; init; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;

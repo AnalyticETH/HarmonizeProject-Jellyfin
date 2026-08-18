@@ -479,6 +479,29 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void GetEffectiveTransitionOutSeconds_ClampsToRemainingCueDuration()
+    {
+        var preset = new HueColorPreset
+        {
+            Name = "Evening",
+            DurationSeconds = 8,
+            TransitionSeconds = 3,
+            TransitionOutSeconds = 5
+        };
+
+        Assert.Equal(
+            5,
+            HueSceneAutomationService.GetEffectiveTransitionOutSeconds(
+                new HueSceneSchedule { DurationSeconds = 0 },
+                preset));
+        Assert.Equal(
+            2,
+            HueSceneAutomationService.GetEffectiveTransitionOutSeconds(
+                new HueSceneSchedule { DurationSeconds = 5 },
+                preset));
+    }
+
+    [Fact]
     public void MonthlyCue_ClampsDayThirtyOneToShortMonths()
     {
         var schedule = new HueSceneSchedule
@@ -610,6 +633,7 @@ public sealed class HueSceneAutomationServiceTests
                 80,
                 7,
                 It.IsAny<CancellationToken>(),
+                0,
                 0))
             .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Displayed one-time scene." });
         var service = new HueSceneAutomationService(
@@ -809,7 +833,7 @@ public sealed class HueSceneAutomationServiceTests
             EntertainmentAreaId = "area-1",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Evening", Red = 12, Green = 34, Blue = 56, BrightnessPercent = 75, DurationSeconds = 8, TransitionSeconds = 2 }
+                new() { Name = "Evening", Red = 12, Green = 34, Blue = 56, BrightnessPercent = 75, DurationSeconds = 8, TransitionSeconds = 2, TransitionOutSeconds = 1 }
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
@@ -834,7 +858,8 @@ public sealed class HueSceneAutomationServiceTests
                 75,
                 8,
                 It.IsAny<CancellationToken>(),
-                2))
+                2,
+                1))
             .ReturnsAsync(new HueStreamProbeResult
             {
                 Succeeded = true,
@@ -865,6 +890,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.False(status.AutomationEnabled);
         Assert.Equal("cue-1", runtime.ScheduleId);
         Assert.Equal(2, runtime.TransitionSeconds);
+        Assert.Equal(1, runtime.TransitionOutSeconds);
         Assert.Equal(string.Empty, runtime.TimeZoneId);
         Assert.Contains("Server local", runtime.TimeZoneDisplayName, StringComparison.Ordinal);
         Assert.NotNull(runtime.NextRunUtc);

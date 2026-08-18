@@ -60,7 +60,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// A reusable solid-color preview scene. Presets intentionally contain no bridge
     /// credentials or target information; they can be applied to the default target or
     /// any per-user mapping from the administrator configuration page. TransitionSeconds
-    /// optionally fades in the scene within the configured duration.
+    /// and TransitionOutSeconds optionally fade the scene in and out within the configured duration.
     /// </summary>
     public class HueColorPreset
     {
@@ -75,6 +75,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// the original instantaneous preview behavior; the value may not exceed the duration.
         /// </summary>
         public int TransitionSeconds { get; set; }
+        /// <summary>
+        /// Optional fade-out duration in seconds within the scene duration. Zero preserves
+        /// the original immediate end behavior; the combined fade-in and fade-out may not
+        /// exceed the duration.
+        /// </summary>
+        public int TransitionOutSeconds { get; set; }
     }
 
     /// <summary>
@@ -263,6 +269,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxPreviewDurationSeconds = 30;
         public const int MinColorPresetTransitionSeconds = 0;
         public const int MaxColorPresetTransitionSeconds = MaxPreviewDurationSeconds;
+        public const int MinColorPresetTransitionOutSeconds = 0;
+        public const int MaxColorPresetTransitionOutSeconds = MaxPreviewDurationSeconds;
         public const int MaxColorPresets = 50;
         public const int MaxColorPresetNameLength = 64;
         public const int MaxSceneSchedules = 50;
@@ -844,6 +852,16 @@ namespace Jellyfin.Plugin.Hue.Configuration
             else if (preset.TransitionSeconds > preset.DurationSeconds)
             {
                 errors.Add($"{label} transition cannot exceed the scene duration");
+            }
+
+            if (preset.TransitionOutSeconds < MinColorPresetTransitionOutSeconds ||
+                preset.TransitionOutSeconds > MaxColorPresetTransitionOutSeconds)
+            {
+                errors.Add($"{label} fade-out must be between {MinColorPresetTransitionOutSeconds} and {MaxColorPresetTransitionOutSeconds} seconds");
+            }
+            else if (preset.TransitionSeconds + preset.TransitionOutSeconds > preset.DurationSeconds)
+            {
+                errors.Add($"{label} fade-in and fade-out cannot exceed the scene duration together");
             }
 
             return errors;

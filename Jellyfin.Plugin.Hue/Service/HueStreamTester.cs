@@ -37,7 +37,8 @@ public interface IHueStreamTester
         int brightnessPercent,
         int durationSeconds,
         CancellationToken cancellationToken = default,
-        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds);
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds);
 }
 
 /// <summary>
@@ -271,7 +272,8 @@ public sealed class HueStreamTester : IHueStreamTester
         int brightnessPercent,
         int durationSeconds,
         CancellationToken cancellationToken = default,
-        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds)
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds)
         => RunSerializedAsync(() => PreviewCoreAsync(
             bridgeIp,
             appKey,
@@ -285,6 +287,7 @@ public sealed class HueStreamTester : IHueStreamTester
             brightnessPercent,
             durationSeconds,
             transitionSeconds,
+            transitionOutSeconds,
             cancellationToken));
 
     private async Task<HueStreamProbeResult> PreviewCoreAsync(
@@ -300,6 +303,7 @@ public sealed class HueStreamTester : IHueStreamTester
         int brightnessPercent,
         int durationSeconds,
         int transitionSeconds,
+        int transitionOutSeconds,
         CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
@@ -326,6 +330,15 @@ public sealed class HueStreamTester : IHueStreamTester
 
         if (transitionSeconds > durationSeconds)
             return Failure("Preview transition cannot exceed the preview duration.");
+
+        if (transitionOutSeconds < PluginConfiguration.MinColorPresetTransitionOutSeconds ||
+            transitionOutSeconds > PluginConfiguration.MaxColorPresetTransitionOutSeconds)
+        {
+            return Failure($"Preview fade-out must be between {PluginConfiguration.MinColorPresetTransitionOutSeconds} and {PluginConfiguration.MaxColorPresetTransitionOutSeconds} seconds.");
+        }
+
+        if (transitionSeconds + transitionOutSeconds > durationSeconds)
+            return Failure("Preview fade-in and fade-out cannot exceed the preview duration together.");
 
         if (!TryBuildSolidColors(
                 areaConfiguration,
@@ -424,8 +437,10 @@ public sealed class HueStreamTester : IHueStreamTester
                 }
                 else
                 {
-                    var previewEndsAt = DateTime.UtcNow.AddSeconds(durationSeconds);
-                    var transitionEndsAt = DateTime.UtcNow.AddSeconds(transitionSeconds);
+                    var previewStartedAt = DateTime.UtcNow;
+                    var previewEndsAt = previewStartedAt.AddSeconds(durationSeconds);
+                    var transitionEndsAt = previewStartedAt.AddSeconds(transitionSeconds);
+                    var transitionOutStartsAt = previewEndsAt.Subtract(TimeSpan.FromSeconds(transitionOutSeconds));
                     var frame = transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds
                         ? BuildTransitionColors(channelColors, 0)
                         : channelColors;
@@ -480,20 +495,58 @@ public sealed class HueStreamTester : IHueStreamTester
                             previewResult = Failure("The DTLS stream stopped while completing the preview transition.");
                         }
 
-                        // Hue bridges deactivate an entertainment area after a period of
-                        // inactivity. Refresh the static packet once per second so a longer
-                        // preview remains visible for its full requested duration.
                         while (!transitionFailed)
                         {
-                            var remaining = previewEndsAt - DateTime.UtcNow;
-                            if (remaining <= TimeSpan.Zero)
+                            var now = DateTime.UtcNow;
+                            if (now >= previewEndsAt)
                                 break;
 
+                            if (transitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds &&
+                                now >= transitionOutStartsAt)
+                            {
+                                var remainingFadeOut = previewEndsAt - now;
+                                await Task.Delay(
+                                    remainingFadeOut > TimeSpan.FromMilliseconds(PreviewTransitionRefreshIntervalMs)
+                                        ? TimeSpan.FromMilliseconds(PreviewTransitionRefreshIntervalMs)
+                                        : remainingFadeOut,
+                                    cancellationToken)
+                                    .ConfigureAwait(false);
+
+                                var fadeOutProgress = Math.Clamp(
+                                    (DateTime.UtcNow - transitionOutStartsAt).TotalSeconds /
+                                    transitionOutSeconds,
+                                    0d,
+                                    1d);
+                                frame = BuildTransitionColors(channelColors, 1d - fadeOutProgress);
+                                if (!await streamer.SendColors(
+                                        areaId,
+                                        frame,
+                                        cancellationToken: cancellationToken).ConfigureAwait(false))
+                                {
+                                    transitionFailed = true;
+                                    previewResult = Failure("The DTLS stream stopped while fading out the preview color.");
+                                    break;
+                                }
+
+                                continue;
+                            }
+
+                            // Hue bridges deactivate an entertainment area after a period of
+                            // inactivity. Refresh the static packet once per second so a longer
+                            // preview remains visible for its full requested duration, stopping
+                            // the hold refresh when the fade-out window begins.
+                            var remainingHold = previewEndsAt - now;
+                            if (transitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds)
+                                remainingHold = TimeSpan.FromTicks(Math.Min(remainingHold.Ticks, (transitionOutStartsAt - now).Ticks));
+                            if (remainingHold <= TimeSpan.Zero)
+                                continue;
+
                             await Task.Delay(
-                                remaining > TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : remaining,
+                                remainingHold > TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : remainingHold,
                                 cancellationToken)
                                 .ConfigureAwait(false);
-                            if (DateTime.UtcNow < previewEndsAt &&
+                            if (DateTime.UtcNow < transitionOutStartsAt &&
+                                DateTime.UtcNow < previewEndsAt &&
                                 !await streamer.SendColors(
                                     areaId,
                                     channelColors,
@@ -505,14 +558,30 @@ public sealed class HueStreamTester : IHueStreamTester
                             }
                         }
 
+                        if (!transitionFailed && transitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds &&
+                            !await streamer.SendColors(
+                                areaId,
+                                BuildTransitionColors(channelColors, 0),
+                                cancellationToken: cancellationToken).ConfigureAwait(false))
+                        {
+                            transitionFailed = true;
+                            previewResult = Failure("The DTLS stream stopped while completing the preview fade-out.");
+                        }
+
                         if (!transitionFailed)
                         {
+                            var transitionMessage = transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds &&
+                                transitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds
+                                ? $" with a {transitionSeconds}-second fade-in and a {transitionOutSeconds}-second fade-out."
+                                : transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds
+                                    ? $" with a {transitionSeconds}-second fade-in."
+                                    : transitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds
+                                        ? $" with a {transitionOutSeconds}-second fade-out."
+                                        : ".";
                             previewResult = new HueStreamProbeResult
                             {
                                 Succeeded = true,
-                                Message = transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds
-                                    ? $"Displayed the solid color preview for {durationSeconds} seconds across {channelColors.Count} channel(s) with a {transitionSeconds}-second fade-in."
-                                    : $"Displayed the solid color preview for {durationSeconds} seconds across {channelColors.Count} channel(s)."
+                                Message = $"Displayed the solid color preview for {durationSeconds} seconds across {channelColors.Count} channel(s){transitionMessage}"
                             };
                         }
                     }
