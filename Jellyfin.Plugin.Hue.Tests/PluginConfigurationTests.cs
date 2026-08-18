@@ -82,7 +82,7 @@ public class PluginConfigurationTests
             Effect = "Strobe"
         });
 
-        Assert.Contains("effect must be one of Solid, Pulse, Rainbow", errors);
+        Assert.Contains("Color preset effect must be one of Solid, Pulse, Rainbow", errors);
     }
 
     [Fact]
