@@ -120,6 +120,58 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void YearlyRecurrence_MatchesSelectedMonthAndClampsShortMonths()
+    {
+        var yearEnd = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+            MonthOfYear = 12,
+            DayOfMonth = 31,
+            DaysOfWeekMask = 0
+        };
+
+        Assert.True(HueSceneAutomationService.IsDue(
+            yearEnd,
+            new DateTime(2026, 12, 31, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            yearEnd,
+            new DateTime(2026, 11, 30, 7, 5, 30, DateTimeKind.Utc)));
+
+        var nextYear = HueSceneAutomationService.GetUpcomingOccurrences(
+            yearEnd,
+            new DateTime(2027, 1, 1, 6, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 1,
+            horizonDays: 366);
+        Assert.Single(nextYear);
+        Assert.Equal(new DateTime(2027, 12, 31, 7, 5, 0), nextYear[0].LocalTime);
+        Assert.Equal(12, nextYear[0].MonthOfYear);
+
+        var februaryThirtyFirst = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+            MonthOfYear = 2,
+            DayOfMonth = 31,
+            DaysOfWeekMask = 0
+        };
+
+        Assert.True(HueSceneAutomationService.IsDue(
+            februaryThirtyFirst,
+            new DateTime(2026, 2, 28, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            februaryThirtyFirst,
+            new DateTime(2026, 2, 27, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.True(HueSceneAutomationService.IsDue(
+            februaryThirtyFirst,
+            new DateTime(2028, 2, 29, 7, 5, 30, DateTimeKind.Utc)));
+    }
+
+    [Fact]
     public void GetNextRunLocal_UsesServerLocalScheduleAndSkipsElapsedOccurrence()
     {
         var schedule = new HueSceneSchedule
@@ -489,6 +541,16 @@ public sealed class HueSceneAutomationServiceTests
                 WeekOfMonth = 0,
                 DayOfWeek = -1
             });
+        var invalidYearly = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule
+            {
+                Enabled = true,
+                PresetName = "Evening",
+                Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+                MonthOfYear = 0,
+                DayOfMonth = 31
+            });
 
         Assert.False(invalidStart.Ready);
         Assert.Contains("start date", invalidStart.Message, StringComparison.OrdinalIgnoreCase);
@@ -504,6 +566,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Contains("monthly", invalidMonthly.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(invalidMonthlyWeekday.Ready);
         Assert.Contains("monthly-weekday", invalidMonthlyWeekday.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(invalidYearly.Ready);
+        Assert.Contains("yearly", invalidYearly.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

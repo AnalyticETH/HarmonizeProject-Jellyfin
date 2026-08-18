@@ -1270,6 +1270,43 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_CrudPreservesYearlyRecurrence()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Annual" } }
+        });
+        var controller = CreateController();
+
+        var action = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "New Year's Eve cue",
+            PresetName = "Annual",
+            TimeOfDay = "23:30",
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+            MonthOfYear = 12,
+            DayOfMonth = 31,
+            DaysOfWeekMask = 0,
+            Enabled = true
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceYearly, result.Recurrence);
+        Assert.Equal(12, result.MonthOfYear);
+        Assert.Equal(31, result.DayOfMonth);
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal(12, saved.MonthOfYear);
+        Assert.Equal(31, saved.DayOfMonth);
+
+        var listedResponse = Assert.IsType<OkObjectResult>(controller.GetSceneSchedules().Result);
+        var listed = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleResult>>(listedResponse.Value));
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceYearly, listed.Recurrence);
+        Assert.Equal(12, listed.MonthOfYear);
+        Assert.Equal(31, listed.DayOfMonth);
+    }
+
+    [Fact]
     public void SceneScheduleTimeZones_ReturnsSystemChoicesWithoutCredentials()
     {
         InstallConfiguration(new PluginConfiguration
@@ -2313,6 +2350,66 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int)DayOfWeek.Friday, importedCue.DayOfWeek);
         Assert.Equal(exportedCue.DurationSeconds, importedCue.DurationSeconds);
         Assert.Equal(0, importedCue.DaysOfWeekMask);
+    }
+
+    [Fact]
+    public void ConfigurationExportAndImport_PreservesYearlyRecurrenceMonth()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Annual" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "yearly-cue",
+                    Name = "New Year's Eve",
+                    PresetName = "Annual",
+                    TimeOfDay = "23:30",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+                    MonthOfYear = 12,
+                    DayOfMonth = 31,
+                    DaysOfWeekMask = 0
+                }
+            }
+        });
+
+        var exported = HueConfigurationExportDocument.From(configuration);
+        var exportedCue = Assert.Single(exported.SceneSchedules);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceYearly, exportedCue.Recurrence);
+        Assert.Equal(12, exportedCue.MonthOfYear);
+        Assert.Equal(31, exportedCue.DayOfMonth);
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            SchemaVersion = exported.SchemaVersion,
+            Configuration = exported.Configuration,
+            ColorPresets = new List<HueColorPresetRequest>
+            {
+                new() { Name = "Annual", DurationSeconds = 5 }
+            },
+            SceneSchedules = new List<HueSceneScheduleRequest>
+            {
+                new()
+                {
+                    Id = exportedCue.Id,
+                    Name = exportedCue.Name,
+                    PresetName = exportedCue.PresetName,
+                    TimeOfDay = exportedCue.TimeOfDay,
+                    Recurrence = exportedCue.Recurrence,
+                    MonthOfYear = exportedCue.MonthOfYear,
+                    DayOfMonth = exportedCue.DayOfMonth,
+                    DaysOfWeekMask = exportedCue.DaysOfWeekMask,
+                    Enabled = exportedCue.Enabled
+                }
+            }
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        var importedCue = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceYearly, importedCue.Recurrence);
+        Assert.Equal(12, importedCue.MonthOfYear);
+        Assert.Equal(31, importedCue.DayOfMonth);
     }
 
     [Fact]

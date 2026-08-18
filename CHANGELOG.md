@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.85] - 2026-08-18
+
+### Added
+- **Yearly scheduled cues**: run a saved scene on a selected month and calendar day each year for birthdays, anniversaries, and holidays, with short-month clamping
+- **Portable yearly recurrence**: carry `monthOfYear` and yearly date rules through cue CRUD, readiness/status telemetry, upcoming previews, iCalendar output, and credential-safe backup/restore
+- **Administrator yearly editor**: choose the month and day directly while existing daily, weekly, monthly-day, monthly-weekday, and one-time cues remain compatible
+
+### Security
+- Yearly recurrence metadata is limited to bounded month/day integers; bridge credentials, connection details, and playback tokens remain excluded from cue/status/calendar/backup responses
+
 ## [1.5.84] - 2026-08-18
 
 ### Added

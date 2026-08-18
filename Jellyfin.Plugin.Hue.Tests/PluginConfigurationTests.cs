@@ -257,6 +257,35 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsYearlyRecurrenceAndNormalizesMonth()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Annual" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-yearly",
+                    Name = "Holiday welcome",
+                    PresetName = "Annual",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+                    MonthOfYear = 12,
+                    DayOfMonth = 31,
+                    TimeOfDay = "23:00",
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+        Assert.True(PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
+            " yearly ",
+            out var normalized));
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceYearly, normalized);
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsInvalidMonthlyRecurrence()
     {
         var config = new PluginConfiguration
@@ -283,6 +312,17 @@ public class PluginConfigurationTests
                     DayOfMonth = 1,
                     TimeOfDay = "20:00",
                     DaysOfWeekMask = 127
+                },
+                new()
+                {
+                    Id = "cue-yearly-invalid",
+                    Name = "Invalid yearly cue",
+                    PresetName = "Evening",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+                    MonthOfYear = 13,
+                    DayOfMonth = 0,
+                    TimeOfDay = "20:00",
+                    DaysOfWeekMask = 0
                 }
             }
         };
@@ -290,7 +330,9 @@ public class PluginConfigurationTests
         var errors = config.ValidateSceneSchedules();
 
         Assert.Contains(errors, error => error.Contains("monthly recurrence requires", StringComparison.Ordinal));
-        Assert.Contains(errors, error => error.Contains("recurrence must be Daily, Weekly, Monthly, or MonthlyWeekday", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("yearly recurrence requires a month", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("yearly recurrence requires a day", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("recurrence must be Daily, Weekly, Monthly, MonthlyWeekday, or Yearly", StringComparison.Ordinal));
     }
 
     [Fact]
