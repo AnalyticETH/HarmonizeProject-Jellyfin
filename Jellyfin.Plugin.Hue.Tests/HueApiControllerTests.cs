@@ -1233,6 +1233,43 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_CrudPreservesMonthlyWeekdayRecurrence()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Weekday" } }
+        });
+        var controller = CreateController();
+
+        var action = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Last Friday cue",
+            PresetName = "Weekday",
+            TimeOfDay = "18:00",
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday,
+            WeekOfMonth = PluginConfiguration.SceneScheduleLastWeekOfMonth,
+            DayOfWeek = (int)DayOfWeek.Friday,
+            DaysOfWeekMask = 0,
+            Enabled = true
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, result.Recurrence);
+        Assert.Equal(PluginConfiguration.SceneScheduleLastWeekOfMonth, result.WeekOfMonth);
+        Assert.Equal((int)DayOfWeek.Friday, result.DayOfWeek);
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal(PluginConfiguration.SceneScheduleLastWeekOfMonth, saved.WeekOfMonth);
+        Assert.Equal((int)DayOfWeek.Friday, saved.DayOfWeek);
+
+        var listedResponse = Assert.IsType<OkObjectResult>(controller.GetSceneSchedules().Result);
+        var listed = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleResult>>(listedResponse.Value));
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, listed.Recurrence);
+        Assert.Equal(PluginConfiguration.SceneScheduleLastWeekOfMonth, listed.WeekOfMonth);
+        Assert.Equal((int)DayOfWeek.Friday, listed.DayOfWeek);
+    }
+
+    [Fact]
     public void SceneScheduleTimeZones_ReturnsSystemChoicesWithoutCredentials()
     {
         InstallConfiguration(new PluginConfiguration
@@ -2208,7 +2245,7 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
-    public void ConfigurationExportAndImport_PreservesOneTimeCueDate()
+    public void ConfigurationExportAndImport_PreservesOneTimeCueDateAndOrdinalWeekday()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
         {
@@ -2223,8 +2260,9 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeOfDay = "18:45",
                     TimeZoneId = TimeZoneInfo.Utc.Id,
                     RunDate = "2026-12-24",
-                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
-                    DayOfMonth = 31,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday,
+                    WeekOfMonth = PluginConfiguration.SceneScheduleLastWeekOfMonth,
+                    DayOfWeek = (int)DayOfWeek.Friday,
                     DurationSeconds = 10,
                     DaysOfWeekMask = 0
                 }
@@ -2234,8 +2272,9 @@ public sealed class HueApiControllerTests : IDisposable
         var exported = HueConfigurationExportDocument.From(configuration);
         var exportedCue = Assert.Single(exported.SceneSchedules);
         Assert.Equal("2026-12-24", exportedCue.RunDate);
-        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, exportedCue.Recurrence);
-        Assert.Equal(31, exportedCue.DayOfMonth);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, exportedCue.Recurrence);
+        Assert.Equal(PluginConfiguration.SceneScheduleLastWeekOfMonth, exportedCue.WeekOfMonth);
+        Assert.Equal((int)DayOfWeek.Friday, exportedCue.DayOfWeek);
         Assert.Equal(0, exportedCue.DaysOfWeekMask);
 
         var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
@@ -2257,7 +2296,8 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeZoneId = exportedCue.TimeZoneId,
                     RunDate = exportedCue.RunDate,
                     Recurrence = exportedCue.Recurrence,
-                    DayOfMonth = exportedCue.DayOfMonth,
+                    WeekOfMonth = exportedCue.WeekOfMonth,
+                    DayOfWeek = exportedCue.DayOfWeek,
                     DurationSeconds = exportedCue.DurationSeconds,
                     DaysOfWeekMask = exportedCue.DaysOfWeekMask,
                     Enabled = exportedCue.Enabled
@@ -2268,8 +2308,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(action.Result);
         var importedCue = Assert.Single(configuration.SceneSchedules);
         Assert.Equal("2026-12-24", importedCue.RunDate);
-        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, importedCue.Recurrence);
-        Assert.Equal(31, importedCue.DayOfMonth);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, importedCue.Recurrence);
+        Assert.Equal(PluginConfiguration.SceneScheduleLastWeekOfMonth, importedCue.WeekOfMonth);
+        Assert.Equal((int)DayOfWeek.Friday, importedCue.DayOfWeek);
         Assert.Equal(exportedCue.DurationSeconds, importedCue.DurationSeconds);
         Assert.Equal(0, importedCue.DaysOfWeekMask);
     }

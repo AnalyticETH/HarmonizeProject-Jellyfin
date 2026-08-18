@@ -178,6 +178,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 DurationSeconds = GetEffectiveDurationSeconds(schedule, preset),
                 Recurrence = recurrence,
                 DayOfMonth = schedule.DayOfMonth,
+                WeekOfMonth = schedule.WeekOfMonth,
+                DayOfWeek = schedule.DayOfWeek,
                 TargetLabel = ResolveTargetLabel(config, schedule),
                 TimeOfDay = schedule.TimeOfDay?.Trim() ?? string.Empty,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
@@ -255,7 +257,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// <summary>
     /// Calculates a bounded preview of future cue occurrences. Calendar dates are
     /// evaluated in the cue's selected time zone, so one-time dates, date windows,
-    /// exclusions, daily/weekly/monthly recurrence, DST gaps, and weekday masks use the same
+    /// exclusions, daily/weekly/monthly-day/monthly-weekday recurrence, DST gaps, and weekday
+    /// masks use the same
     /// rules as the hosted scheduler.
     /// </summary>
     internal static IReadOnlyList<HueSceneScheduleOccurrence> GetUpcomingOccurrences(
@@ -293,6 +296,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (!runDate.HasValue &&
             ((string.Equals(normalizedRecurrence, PluginConfiguration.SceneScheduleRecurrenceMonthly, StringComparison.Ordinal) &&
               (schedule.DayOfMonth < 1 || schedule.DayOfMonth > 31)) ||
+             (string.Equals(normalizedRecurrence, PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, StringComparison.Ordinal) &&
+              !IsMonthlyWeekdayConfigurationValid(schedule)) ||
              (string.Equals(normalizedRecurrence, PluginConfiguration.SceneScheduleRecurrenceWeekly, StringComparison.Ordinal) &&
               (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0)))
             return occurrences;
@@ -362,6 +367,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 DurationSeconds = schedule.DurationSeconds,
+                WeekOfMonth = schedule.WeekOfMonth,
+                DayOfWeek = schedule.DayOfWeek,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
                 TimeZoneDisplayName = string.IsNullOrWhiteSpace(schedule.TimeZoneId)
                     ? $"Server local ({timeZone.DisplayName})"
@@ -403,7 +410,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// Determines whether a schedule is due in the supplied server-local minute after
     /// converting that instant into the cue's configured time zone. One-time cues match
     /// their RunDate; recurring cues use every calendar day, Sunday=1 through Saturday=64
-    /// bits, or a monthly calendar day.
+    /// bits, a monthly calendar day, or a monthly ordinal weekday.
     /// </summary>
     internal static bool IsDue(HueSceneSchedule schedule, DateTime localNow)
     {
@@ -417,6 +424,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             (!PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var recurrence) ||
              (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceMonthly, StringComparison.Ordinal) &&
               (schedule.DayOfMonth < 1 || schedule.DayOfMonth > 31)) ||
+             (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, StringComparison.Ordinal) &&
+              !IsMonthlyWeekdayConfigurationValid(schedule)) ||
              (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceWeekly, StringComparison.Ordinal) &&
               (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0)))
             return false;
@@ -441,6 +450,22 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceDaily, StringComparison.Ordinal))
             return true;
 
+        if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, StringComparison.Ordinal))
+        {
+            if (!IsMonthlyWeekdayConfigurationValid(schedule) ||
+                (int)scheduleDate.DayOfWeek != schedule.DayOfWeek)
+            {
+                return false;
+            }
+
+            if (schedule.WeekOfMonth == PluginConfiguration.SceneScheduleLastWeekOfMonth)
+            {
+                return scheduleDate.Day + 7 > DateTime.DaysInMonth(scheduleDate.Year, scheduleDate.Month);
+            }
+
+            return ((scheduleDate.Day - 1) / 7) + 1 == schedule.WeekOfMonth;
+        }
+
         if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceMonthly, StringComparison.Ordinal))
         {
             if (schedule.DayOfMonth < 1 || schedule.DayOfMonth > 31)
@@ -452,6 +477,15 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         return (schedule.DaysOfWeekMask & (1 << (int)scheduleDate.DayOfWeek)) != 0;
+    }
+
+    private static bool IsMonthlyWeekdayConfigurationValid(HueSceneSchedule schedule)
+    {
+        return (schedule.WeekOfMonth == PluginConfiguration.SceneScheduleLastWeekOfMonth ||
+                (schedule.WeekOfMonth >= PluginConfiguration.MinSceneScheduleWeekOfMonth &&
+                 schedule.WeekOfMonth <= PluginConfiguration.MaxSceneScheduleWeekOfMonth)) &&
+               schedule.DayOfWeek >= (int)DayOfWeek.Sunday &&
+               schedule.DayOfWeek <= (int)DayOfWeek.Saturday;
     }
 
     private static bool IsScheduleDateAllowed(HueSceneSchedule schedule, DateTime scheduleDate)
@@ -707,6 +741,13 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 if (schedule.DayOfMonth < 1 || schedule.DayOfMonth > 31)
                     return new HueSceneScheduleReadiness(false, "A monthly cue requires a day of month from 1 to 31.");
+            }
+            else if (string.Equals(normalizedRecurrence, PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, StringComparison.Ordinal))
+            {
+                if (!IsMonthlyWeekdayConfigurationValid(schedule))
+                {
+                    return new HueSceneScheduleReadiness(false, "A monthly-weekday cue requires a valid ordinal week and weekday.");
+                }
             }
             else if (string.Equals(normalizedRecurrence, PluginConfiguration.SceneScheduleRecurrenceWeekly, StringComparison.Ordinal) &&
                      (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > PluginConfiguration.AllSceneScheduleDaysMask))
@@ -1322,6 +1363,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             TimeZoneId = source.TimeZoneId,
             Recurrence = source.Recurrence,
             DayOfMonth = source.DayOfMonth,
+            WeekOfMonth = source.WeekOfMonth,
+            DayOfWeek = source.DayOfWeek,
             DurationSeconds = source.DurationSeconds,
             RunDate = source.RunDate,
             StartDate = source.StartDate,
@@ -1451,6 +1494,12 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("durationSeconds")]
     public int DurationSeconds { get; init; }
 
+    [JsonPropertyName("weekOfMonth")]
+    public int WeekOfMonth { get; init; }
+
+    [JsonPropertyName("dayOfWeek")]
+    public int DayOfWeek { get; init; } = -1;
+
     [JsonPropertyName("timeZoneId")]
     public string TimeZoneId { get; init; } = string.Empty;
 
@@ -1486,6 +1535,12 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("dayOfMonth")]
     public int DayOfMonth { get; init; }
+
+    [JsonPropertyName("weekOfMonth")]
+    public int WeekOfMonth { get; init; }
+
+    [JsonPropertyName("dayOfWeek")]
+    public int DayOfWeek { get; init; } = -1;
 
     [JsonPropertyName("targetLabel")]
     public string TargetLabel { get; init; } = string.Empty;

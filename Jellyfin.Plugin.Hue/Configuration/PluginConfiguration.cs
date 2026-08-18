@@ -73,7 +73,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
     /// <summary>
     /// A credential-free cue that displays one saved color scene at a selected time-zone
-    /// wall-clock time. It can run once on RunDate or recur daily, weekly, or monthly with
+    /// wall-clock time. It can run once on RunDate or recur daily, weekly, monthly-day, or
+    /// monthly-weekday with
     /// optional date bounds and exclusions. A cue can optionally override the saved
     /// scene's hold duration for this event only. The target is resolved from the global
     /// bridge or a persisted user mapping when the cue runs; credentials are never stored here.
@@ -94,7 +95,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// Recurrence mode for recurring cues. Blank and <see cref="PluginConfiguration.SceneScheduleRecurrenceWeekly"/>
         /// preserve the original weekday-mask behavior; <see cref="PluginConfiguration.SceneScheduleRecurrenceDaily"/>
         /// runs on every calendar date; <see cref="PluginConfiguration.SceneScheduleRecurrenceMonthly"/>
-        /// uses <see cref="DayOfMonth"/> and clamps days beyond a month's length to its final day.
+        /// uses <see cref="DayOfMonth"/> and clamps days beyond a month's length to its final day;
+        /// <see cref="PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday"/> uses
+        /// <see cref="WeekOfMonth"/> and <see cref="DayOfWeek"/> for patterns such as first Monday
+        /// or last Friday.
         /// One-time cues ignore this value.
         /// </summary>
         public string Recurrence { get; set; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;
@@ -103,6 +107,17 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// length run on that month's final calendar day. Zero is unused by weekly and one-time cues.
         /// </summary>
         public int DayOfMonth { get; set; }
+        /// <summary>
+        /// Ordinal week for monthly-weekday recurrence. Values 1 through 5 select the first
+        /// through fifth matching weekday; -1 selects the last matching weekday. Zero is unused
+        /// by other recurrence modes.
+        /// </summary>
+        public int WeekOfMonth { get; set; }
+        /// <summary>
+        /// Sunday=0 through Saturday=6 for monthly-weekday recurrence. -1 is unused by other
+        /// recurrence modes.
+        /// </summary>
+        public int DayOfWeek { get; set; } = -1;
         /// <summary>
         /// Optional per-cue hold duration in seconds. Zero inherits the selected saved
         /// scene's duration; a non-zero value overrides it for this cue only.
@@ -234,6 +249,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string SceneScheduleRecurrenceWeekly = "Weekly";
         public const string SceneScheduleRecurrenceDaily = "Daily";
         public const string SceneScheduleRecurrenceMonthly = "Monthly";
+        public const string SceneScheduleRecurrenceMonthlyWeekday = "MonthlyWeekday";
+        public const int SceneScheduleLastWeekOfMonth = -1;
+        public const int MinSceneScheduleWeekOfMonth = 1;
+        public const int MaxSceneScheduleWeekOfMonth = 5;
         public const int MaxSessionHistoryCount = 25;
         public const int MaxSceneScheduleHistoryCount = 100;
 
@@ -822,7 +841,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// Validates one scene cue. Times use the selected cue timezone and are stored in
         /// 24-hour HH:mm form. A populated RunDate makes the cue one-time and ignores
         /// recurrence fields; blank RunDate uses either the recurring Sunday=1 through
-        /// Saturday=64 bit-mask behavior, every calendar day, or a monthly calendar day.
+        /// Saturday=64 bit-mask behavior, every calendar day, a monthly calendar day, or a
+        /// monthly ordinal weekday.
         /// </summary>
         public static List<string> ValidateSceneSchedule(
             HueSceneSchedule? schedule,
@@ -866,7 +886,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.Add($"{label} time zone is not available on this server");
 
             if (!TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
-                errors.Add($"{label} recurrence must be Daily, Weekly, or Monthly");
+                errors.Add($"{label} recurrence must be Daily, Weekly, Monthly, or MonthlyWeekday");
 
             if (schedule.DayOfMonth < 0 || schedule.DayOfMonth > 31)
                 errors.Add($"{label} day of month must be between 1 and 31 for monthly recurrence");
@@ -933,6 +953,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 {
                     if (schedule.DayOfMonth < 1 || schedule.DayOfMonth > 31)
                         errors.Add($"{label} monthly recurrence requires a day of month from 1 to 31");
+                }
+                else if (string.Equals(normalizedRecurrence, SceneScheduleRecurrenceMonthlyWeekday, StringComparison.Ordinal))
+                {
+                    if (schedule.WeekOfMonth != SceneScheduleLastWeekOfMonth &&
+                        (schedule.WeekOfMonth < MinSceneScheduleWeekOfMonth || schedule.WeekOfMonth > MaxSceneScheduleWeekOfMonth))
+                    {
+                        errors.Add($"{label} monthly-weekday recurrence requires a week of month from 1 to {MaxSceneScheduleWeekOfMonth} or {SceneScheduleLastWeekOfMonth}");
+                    }
+
+                    if (schedule.DayOfWeek < (int)System.DayOfWeek.Sunday ||
+                        schedule.DayOfWeek > (int)System.DayOfWeek.Saturday)
+                    {
+                        errors.Add($"{label} monthly-weekday recurrence requires a day of week from Sunday through Saturday");
+                    }
                 }
                 else if (string.Equals(normalizedRecurrence, SceneScheduleRecurrenceWeekly, StringComparison.Ordinal) &&
                          (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > AllSceneScheduleDaysMask))
@@ -1030,6 +1064,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (string.Equals(trimmed, SceneScheduleRecurrenceMonthly, StringComparison.OrdinalIgnoreCase))
             {
                 normalized = SceneScheduleRecurrenceMonthly;
+                return true;
+            }
+
+            if (string.Equals(trimmed, SceneScheduleRecurrenceMonthlyWeekday, StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = SceneScheduleRecurrenceMonthlyWeekday;
                 return true;
             }
 

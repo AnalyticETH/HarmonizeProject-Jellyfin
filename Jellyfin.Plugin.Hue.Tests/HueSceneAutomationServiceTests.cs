@@ -70,6 +70,56 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void MonthlyWeekdayRecurrence_MatchesFirstAndLastWeekday()
+    {
+        var firstMonday = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday,
+            WeekOfMonth = 1,
+            DayOfWeek = (int)DayOfWeek.Monday,
+            DaysOfWeekMask = 0
+        };
+
+        Assert.True(HueSceneAutomationService.IsDue(
+            firstMonday,
+            new DateTime(2026, 8, 3, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            firstMonday,
+            new DateTime(2026, 8, 10, 7, 5, 30, DateTimeKind.Utc)));
+
+        var firstOccurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            firstMonday,
+            new DateTime(2026, 8, 1, 6, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 2,
+            horizonDays: 45);
+        Assert.Equal(2, firstOccurrences.Count);
+        Assert.Equal(new DateTime(2026, 8, 3, 7, 5, 0), firstOccurrences[0].LocalTime);
+        Assert.Equal(new DateTime(2026, 9, 7, 7, 5, 0), firstOccurrences[1].LocalTime);
+
+        var lastFriday = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday,
+            WeekOfMonth = PluginConfiguration.SceneScheduleLastWeekOfMonth,
+            DayOfWeek = (int)DayOfWeek.Friday,
+            DaysOfWeekMask = 0
+        };
+        var lastOccurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            lastFriday,
+            new DateTime(2026, 8, 1, 6, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 2,
+            horizonDays: 60);
+        Assert.Equal(2, lastOccurrences.Count);
+        Assert.Equal(new DateTime(2026, 8, 28, 7, 5, 0), lastOccurrences[0].LocalTime);
+        Assert.Equal(new DateTime(2026, 9, 25, 7, 5, 0), lastOccurrences[1].LocalTime);
+    }
+
+    [Fact]
     public void GetNextRunLocal_UsesServerLocalScheduleAndSkipsElapsedOccurrence()
     {
         var schedule = new HueSceneSchedule
@@ -429,6 +479,16 @@ public sealed class HueSceneAutomationServiceTests
                 Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
                 DayOfMonth = 0
             });
+        var invalidMonthlyWeekday = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule
+            {
+                Enabled = true,
+                PresetName = "Evening",
+                Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday,
+                WeekOfMonth = 0,
+                DayOfWeek = -1
+            });
 
         Assert.False(invalidStart.Ready);
         Assert.Contains("start date", invalidStart.Message, StringComparison.OrdinalIgnoreCase);
@@ -442,6 +502,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Contains("duration", invalidDuration.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(invalidMonthly.Ready);
         Assert.Contains("monthly", invalidMonthly.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(invalidMonthlyWeekday.Ready);
+        Assert.Contains("monthly-weekday", invalidMonthlyWeekday.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

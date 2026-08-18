@@ -228,6 +228,35 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsMonthlyWeekdayRecurrence()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Weekday" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-monthly-weekday",
+                    Name = "Last Friday",
+                    PresetName = "Weekday",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday,
+                    WeekOfMonth = PluginConfiguration.SceneScheduleLastWeekOfMonth,
+                    DayOfWeek = (int)System.DayOfWeek.Friday,
+                    TimeOfDay = "18:00",
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+        Assert.True(PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
+            " monthlyweekday ",
+            out var normalized));
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, normalized);
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsInvalidMonthlyRecurrence()
     {
         var config = new PluginConfiguration
@@ -261,7 +290,7 @@ public class PluginConfigurationTests
         var errors = config.ValidateSceneSchedules();
 
         Assert.Contains(errors, error => error.Contains("monthly recurrence requires", StringComparison.Ordinal));
-        Assert.Contains(errors, error => error.Contains("recurrence must be Daily, Weekly, or Monthly", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("recurrence must be Daily, Weekly, Monthly, or MonthlyWeekday", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -263,7 +263,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, or monthly on a calendar day, with optional inclusive start/end dates and exclusions. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, or monthly on an ordinal weekday such as the first Monday or last Friday, with optional inclusive start/end dates and exclusions. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -301,12 +301,36 @@
                                     <option value="Daily">Daily</option>
                                     <option value="Weekly">Weekly</option>
                                     <option value="Monthly">Monthly</option>
+                                    <option value="MonthlyWeekday">Monthly weekday</option>
                                 </select>
                             </div>
                             <div id="sceneScheduleDayOfMonthContainer" style="display: none;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleDayOfMonth">Day of month</label>
                                 <input id="sceneScheduleDayOfMonth" type="number" min="1" max="31" is="emby-input" placeholder="1-31" />
                                 <div class="fieldDescription">Days beyond a month's length run on that month's final day.</div>
+                            </div>
+                            <div id="sceneScheduleMonthlyWeekdayContainer" style="display: none; flex: 1 1 340px;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleWeekOfMonth">Monthly weekday</label>
+                                <div style="display: flex; gap: 0.75em; align-items: flex-end; flex-wrap: wrap;">
+                                    <select id="sceneScheduleWeekOfMonth" is="emby-select">
+                                        <option value="1">First</option>
+                                        <option value="2">Second</option>
+                                        <option value="3">Third</option>
+                                        <option value="4">Fourth</option>
+                                        <option value="5">Fifth</option>
+                                        <option value="-1">Last</option>
+                                    </select>
+                                    <select id="sceneScheduleDayOfWeek" is="emby-select">
+                                        <option value="0">Sunday</option>
+                                        <option value="1" selected>Monday</option>
+                                        <option value="2">Tuesday</option>
+                                        <option value="3">Wednesday</option>
+                                        <option value="4">Thursday</option>
+                                        <option value="5">Friday</option>
+                                        <option value="6">Saturday</option>
+                                    </select>
+                                </div>
+                                <div class="fieldDescription">Choose the first through fifth, or last, matching weekday in each month.</div>
                             </div>
                             <div style="flex: 1 1 280px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTimeZone">Time zone</label>
@@ -352,7 +376,7 @@
                                 <option value="32" selected>Friday</option>
                                 <option value="64" selected>Saturday</option>
                             </select>
-                            <div class="fieldDescription">Daily cues run on every calendar date; weekly cues choose one or more weekdays; monthly cues use the Day of month field instead. Setting a one-time date disables recurring date rules and recurrence controls. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default. Dates are calendar dates in the selected cue time zone and include both endpoints. Enter excluded dates as comma-separated <code>yyyy-MM-dd</code> values to skip holidays or blackout days.</div>
+                            <div class="fieldDescription">Daily cues run on every calendar date; weekly cues choose one or more weekdays; monthly-day cues use the Day of month field; monthly-weekday cues use the ordinal weekday selector. Setting a one-time date disables recurring date rules and recurrence controls. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default. Dates are calendar dates in the selected cue time zone and include both endpoints. Enter excluded dates as comma-separated <code>yyyy-MM-dd</code> values to skip holidays or blackout days.</div>
                         </div>
                         <button is="emby-button" type="button" class="raised button-submit" id="saveSceneScheduleBtn" style="margin-top: 0.5em;"><span>Save Scheduled Cue</span></button>
                         <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule timing/date rules, and target mapping IDs; bridge credentials remain server-side.</div>
@@ -1670,6 +1694,11 @@
                             });
                         }
 
+                        var formatMonthlyWeekday = function (weekOfMonth, dayOfWeek) {
+                            var ordinals = { "1": "first", "2": "second", "3": "third", "4": "fourth", "5": "fifth", "-1": "last" };
+                            var weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                            return (ordinals[String(weekOfMonth)] || "ordinal") + " " + (weekdays[Number(dayOfWeek)] || "weekday");
+                        };
                         scheduleSelect.innerHTML = '<option value="">Choose a scheduled cue...</option>';
                         schedules.forEach(function (schedule) {
                             var id = schedule && (schedule.id !== undefined ? schedule.id : schedule.Id);
@@ -1679,10 +1708,14 @@
                             var duration = schedule.durationSeconds !== undefined ? schedule.durationSeconds : schedule.DurationSeconds;
                             var recurrence = schedule.recurrence !== undefined ? schedule.recurrence : schedule.Recurrence;
                             var dayOfMonth = schedule.dayOfMonth !== undefined ? schedule.dayOfMonth : schedule.DayOfMonth;
+                            var weekOfMonth = schedule.weekOfMonth !== undefined ? schedule.weekOfMonth : schedule.WeekOfMonth;
+                            var dayOfWeek = schedule.dayOfWeek !== undefined ? schedule.dayOfWeek : schedule.DayOfWeek;
                             var recurrenceMode = String(recurrence || 'Weekly').toLowerCase();
                             var recurrenceLabel = recurrenceMode === 'monthly'
                                 ? ' · monthly ' + Number(dayOfMonth || 0)
-                                : (recurrenceMode === 'daily' ? ' · daily' : '');
+                                : (recurrenceMode === 'monthlyweekday'
+                                    ? ' · ' + formatMonthlyWeekday(weekOfMonth, dayOfWeek)
+                                    : (recurrenceMode === 'daily' ? ' · daily' : ''));
                             var runDate = schedule.runDate !== undefined ? schedule.runDate : schedule.RunDate;
                             var startDate = schedule.startDate !== undefined ? schedule.startDate : schedule.StartDate;
                             var endDate = schedule.endDate !== undefined ? schedule.endDate : schedule.EndDate;
@@ -1780,6 +1813,11 @@
                                 return (Number(mask) & values[index]) !== 0;
                             }).join(", ") || "No days";
                         };
+                        var formatMonthlyWeekday = function (weekOfMonth, dayOfWeek) {
+                            var ordinals = { "1": "first", "2": "second", "3": "third", "4": "fourth", "5": "fifth", "-1": "last" };
+                            var weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                            return (ordinals[String(weekOfMonth)] || "ordinal") + " " + (weekdays[Number(dayOfWeek)] || "weekday");
+                        };
                         var formatLocal = function (value) {
                             return value ? new Date(value).toLocaleString() : "—";
                         };
@@ -1811,6 +1849,8 @@
                             var duration = HueConfigurationPage.readStatusField(schedule, "DurationSeconds", 0);
                             var recurrence = HueConfigurationPage.readStatusField(schedule, "Recurrence", "Weekly");
                             var dayOfMonth = HueConfigurationPage.readStatusField(schedule, "DayOfMonth", 0);
+                            var weekOfMonth = HueConfigurationPage.readStatusField(schedule, "WeekOfMonth", 0);
+                            var dayOfWeek = HueConfigurationPage.readStatusField(schedule, "DayOfWeek", -1);
                             var target = HueConfigurationPage.readStatusField(schedule, "TargetLabel", "Default bridge target");
                             var time = HueConfigurationPage.readStatusField(schedule, "TimeOfDay", "—");
                             var timeZone = HueConfigurationPage.readStatusField(schedule, "TimeZoneDisplayName", "Server local");
@@ -1852,7 +1892,9 @@
                             var recurrenceMode = String(recurrence).toLowerCase();
                             var recurrenceLabel = recurrenceMode === "monthly"
                                 ? "monthly " + String(dayOfMonth || 0)
-                                : (recurrenceMode === "daily" ? "daily" : daysForMask(mask));
+                                : (recurrenceMode === "monthlyweekday"
+                                    ? formatMonthlyWeekday(weekOfMonth, dayOfWeek)
+                                    : (recurrenceMode === "daily" ? "daily" : daysForMask(mask)));
                             addCell(String(preset) + " · " + String(time) + " · " + String(duration || 0) + "s · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
@@ -2191,30 +2233,46 @@
                     var recurrence = page.querySelector('#sceneScheduleRecurrence');
                     var dayOfMonth = page.querySelector('#sceneScheduleDayOfMonth');
                     var dayOfMonthContainer = page.querySelector('#sceneScheduleDayOfMonthContainer');
+                    var weekOfMonth = page.querySelector('#sceneScheduleWeekOfMonth');
+                    var dayOfWeek = page.querySelector('#sceneScheduleDayOfWeek');
+                    var monthlyWeekdayContainer = page.querySelector('#sceneScheduleMonthlyWeekdayContainer');
                     var oneTime = !!(runDate && runDate.value);
                     var recurrenceMode = recurrence ? String(recurrence.value).toLowerCase() : 'weekly';
                     var monthly = !oneTime && recurrenceMode === 'monthly';
+                    var monthlyWeekday = !oneTime && recurrenceMode === 'monthlyweekday';
                     var daily = !oneTime && recurrenceMode === 'daily';
                     if (oneTime && clearRecurringRules) {
                         if (startDate) startDate.value = '';
                         if (endDate) endDate.value = '';
                         if (excludedDates) excludedDates.value = '';
                     }
-                    if (!oneTime && clearRecurringRules && !monthly)
+                    if (!oneTime && clearRecurringRules && !monthly && !monthlyWeekday)
                         HueConfigurationPage.setSceneScheduleDaysMask(page, 127);
-                    if (!oneTime && clearRecurringRules && !monthly && dayOfMonth)
+                    if (!oneTime && clearRecurringRules && !monthly && !monthlyWeekday && dayOfMonth)
                         dayOfMonth.value = '';
                     if (!oneTime && clearRecurringRules && monthly && dayOfMonth && !dayOfMonth.value)
                         dayOfMonth.value = '1';
-                    [startDate, endDate, excludedDates, days, recurrence, dayOfMonth].forEach(function (control) {
+                    if (!oneTime && clearRecurringRules && !monthlyWeekday) {
+                        if (weekOfMonth) weekOfMonth.value = '1';
+                        if (dayOfWeek) dayOfWeek.value = '1';
+                    }
+                    if (!oneTime && clearRecurringRules && monthlyWeekday) {
+                        if (dayOfMonth) dayOfMonth.value = '';
+                        if (weekOfMonth && !weekOfMonth.value) weekOfMonth.value = '1';
+                        if (dayOfWeek && (!dayOfWeek.value || Number(dayOfWeek.value) < 0)) dayOfWeek.value = '1';
+                    }
+                    [startDate, endDate, excludedDates, days, recurrence, dayOfMonth, weekOfMonth, dayOfWeek].forEach(function (control) {
                         if (control) control.disabled = oneTime;
                     });
                     if (days) {
-                        days.disabled = oneTime || !!monthly || !!daily;
-                        days.style.opacity = oneTime || monthly || daily ? '0.6' : '';
+                        days.disabled = oneTime || !!monthly || !!monthlyWeekday || !!daily;
+                        days.style.opacity = oneTime || monthly || monthlyWeekday || daily ? '0.6' : '';
                     }
                     if (dayOfMonth) dayOfMonth.disabled = oneTime || !monthly;
+                    if (weekOfMonth) weekOfMonth.disabled = oneTime || !monthlyWeekday;
+                    if (dayOfWeek) dayOfWeek.disabled = oneTime || !monthlyWeekday;
                     if (dayOfMonthContainer) dayOfMonthContainer.style.display = monthly ? '' : 'none';
+                    if (monthlyWeekdayContainer) monthlyWeekdayContainer.style.display = monthlyWeekday ? '' : 'none';
                 },
                 updateSceneScheduleButtons: function (page) {
                     var select = page && page.querySelector('#sceneScheduleSelect');
@@ -2242,6 +2300,8 @@
                     page.querySelector('#sceneScheduleDuration').value = get('DurationSeconds', 'durationSeconds', 0) || '';
                     page.querySelector('#sceneScheduleRecurrence').value = get('Recurrence', 'recurrence', 'Weekly') || 'Weekly';
                     page.querySelector('#sceneScheduleDayOfMonth').value = get('DayOfMonth', 'dayOfMonth', 0) || '';
+                    page.querySelector('#sceneScheduleWeekOfMonth').value = get('WeekOfMonth', 'weekOfMonth', 1) || '1';
+                    page.querySelector('#sceneScheduleDayOfWeek').value = get('DayOfWeek', 'dayOfWeek', 1);
                     page.querySelector('#sceneScheduleRunDate').value = get('RunDate', 'runDate', '');
                     page.querySelector('#sceneScheduleStartDate').value = get('StartDate', 'startDate', '');
                     page.querySelector('#sceneScheduleEndDate').value = get('EndDate', 'endDate', '');
@@ -2273,6 +2333,8 @@
                     page.querySelector('#sceneScheduleDuration').value = '';
                     page.querySelector('#sceneScheduleRecurrence').value = 'Weekly';
                     page.querySelector('#sceneScheduleDayOfMonth').value = '';
+                    page.querySelector('#sceneScheduleWeekOfMonth').value = '1';
+                    page.querySelector('#sceneScheduleDayOfWeek').value = '1';
                     page.querySelector('#sceneScheduleTimeZone').value = '';
                     page.querySelector('#sceneScheduleRunDate').value = '';
                     page.querySelector('#sceneScheduleStartDate').value = '';
@@ -2293,6 +2355,10 @@
                     var recurrence = page.querySelector('#sceneScheduleRecurrence').value || 'Weekly';
                     var dayOfMonthText = page.querySelector('#sceneScheduleDayOfMonth').value.trim();
                     var dayOfMonth = dayOfMonthText ? Number(dayOfMonthText) : 0;
+                    var weekOfMonthText = page.querySelector('#sceneScheduleWeekOfMonth').value.trim();
+                    var weekOfMonth = weekOfMonthText ? Number(weekOfMonthText) : 0;
+                    var dayOfWeekText = page.querySelector('#sceneScheduleDayOfWeek').value;
+                    var dayOfWeek = dayOfWeekText === '' ? -1 : Number(dayOfWeekText);
                     var timeZoneId = page.querySelector('#sceneScheduleTimeZone').value;
                     var runDate = page.querySelector('#sceneScheduleRunDate').value;
                     var startDate = page.querySelector('#sceneScheduleStartDate').value;
@@ -2305,14 +2371,17 @@
                     var recurrenceMode = String(recurrence).toLowerCase();
                     if (!name || !presetName || !timeOfDay || (!runDate &&
                         ((recurrenceMode === 'monthly' && !dayOfMonth) ||
+                         (recurrenceMode === 'monthlyweekday' && (!weekOfMonth || dayOfWeek < 0)) ||
                          (recurrenceMode === 'weekly' && !daysOfWeekMask)))) {
                         Dashboard.alert(runDate
                             ? "Enter a cue name, saved scene, time, and one-time date."
                             : (recurrenceMode === 'monthly'
                                 ? "Enter a cue name, saved scene, time, and monthly day of month."
-                                : (recurrenceMode === 'weekly'
+                                : (recurrenceMode === 'monthlyweekday'
+                                    ? "Enter a cue name, saved scene, time, and monthly ordinal weekday."
+                                    : (recurrenceMode === 'weekly'
                                     ? "Enter a cue name, saved scene, time, and at least one weekday."
-                                    : "Enter a cue name, saved scene, and time.")));
+                                    : "Enter a cue name, saved scene, and time."))));
                         return;
                     }
                     if (!Number.isInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 30) {
@@ -2322,6 +2391,16 @@
                     if (!Number.isInteger(dayOfMonth) || dayOfMonth < 0 || dayOfMonth > 31 ||
                         (String(recurrence).toLowerCase() === 'monthly' && dayOfMonth < 1)) {
                         Dashboard.alert("Monthly recurrence requires a whole day of month from 1 to 31.");
+                        return;
+                    }
+                    if (!Number.isInteger(weekOfMonth) || weekOfMonth < -1 || weekOfMonth > 5 ||
+                        (recurrenceMode === 'monthlyweekday' && weekOfMonth !== -1 && weekOfMonth < 1)) {
+                        Dashboard.alert("Monthly weekday recurrence requires First through Fifth or Last.");
+                        return;
+                    }
+                    if (!Number.isInteger(dayOfWeek) || dayOfWeek < -1 || dayOfWeek > 6 ||
+                        (recurrenceMode === 'monthlyweekday' && dayOfWeek < 0)) {
+                        Dashboard.alert("Monthly weekday recurrence requires a weekday.");
                         return;
                     }
                     var select = page.querySelector('#sceneScheduleSelect');
@@ -2344,6 +2423,8 @@
                             durationSeconds: durationSeconds,
                             recurrence: recurrence,
                             dayOfMonth: dayOfMonth,
+                            weekOfMonth: weekOfMonth,
+                            dayOfWeek: dayOfWeek,
                             timeZoneId: timeZoneId,
                             runDate: runDate,
                             startDate: startDate,

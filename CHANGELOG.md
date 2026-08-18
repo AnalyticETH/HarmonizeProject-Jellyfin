@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.84] - 2026-08-18
+
+### Added
+- **Monthly weekday scheduled cues**: run a saved scene on the first through fifth or last matching weekday of each month, such as first Monday or last Friday
+- **Portable ordinal-weekday recurrence**: carry `weekOfMonth` and `dayOfWeek` through cue CRUD, readiness/status telemetry, upcoming previews, iCalendar output, and credential-safe backup/restore
+- **Administrator monthly-weekday editor**: choose the ordinal and weekday directly while existing daily, weekly, monthly-day, and one-time cues remain compatible
+
+### Security
+- Monthly-weekday metadata is limited to bounded ordinal and weekday integers; bridge credentials, connection details, and playback tokens remain excluded from cue/status/calendar/backup responses
+
 ## [1.5.83] - 2026-08-18
 
 ### Added
