@@ -30,11 +30,12 @@ namespace Jellyfin.Plugin.Hue.Api
         private readonly HueSceneAutomationService? _sceneAutomationService;
         private readonly IHueStreamTester? _streamTester;
         private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
+        private readonly HueDiagnosticsCancellationGate _diagnosticsCancellationGate;
         private readonly IHueEnvironmentProbe _environmentProbe;
         private readonly ILogger<HueApiController>? _logger;
 
         public HueApiController(HueClient hueClient, IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices)
-            : this(hueClient, hostedServices, null, null, null, null)
+            : this(hueClient, hostedServices, null, null, null, null, null)
         {
         }
 
@@ -45,6 +46,7 @@ namespace Jellyfin.Plugin.Hue.Api
             IHueStreamTester? streamTester,
             HueBridgeLifecycleGate? bridgeLifecycleGate = null,
             IHueEnvironmentProbe? environmentProbe = null,
+            HueDiagnosticsCancellationGate? diagnosticsCancellationGate = null,
             ILogger<HueApiController>? logger = null)
         {
             _hueClient = hueClient;
@@ -52,6 +54,7 @@ namespace Jellyfin.Plugin.Hue.Api
             _sceneAutomationService = hostedServices.OfType<HueSceneAutomationService>().FirstOrDefault();
             _streamTester = streamTester;
             _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
+            _diagnosticsCancellationGate = diagnosticsCancellationGate ?? new HueDiagnosticsCancellationGate();
             _environmentProbe = environmentProbe ?? new HueEnvironmentProbe();
             _logger = logger;
         }
@@ -1614,7 +1617,9 @@ namespace Jellyfin.Plugin.Hue.Api
         public async Task<ActionResult<HueDiagnosticsResult>> GetDiagnostics(
             CancellationToken cancellationToken = default)
         {
-            var environment = await _environmentProbe.CheckAsync(cancellationToken).ConfigureAwait(false);
+            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
+            var diagnosticsCancellationToken = diagnosticsOperation.Token;
+            var environment = await _environmentProbe.CheckAsync(diagnosticsCancellationToken).ConfigureAwait(false);
             var config = Plugin.Instance?.Configuration;
             var configurationErrors = new List<string>();
             if (config == null)
@@ -1697,6 +1702,8 @@ namespace Jellyfin.Plugin.Hue.Api
         public async Task<ActionResult<HueTargetDiagnosticsResult>> GetTargetDiagnostics(
             CancellationToken cancellationToken = default)
         {
+            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
+            var diagnosticsCancellationToken = diagnosticsOperation.Token;
             var config = Plugin.Instance?.Configuration;
             if (config == null)
             {
@@ -1710,12 +1717,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
             foreach (var target in targets)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                diagnosticsCancellationToken.ThrowIfCancellationRequested();
                 results.Add(await ValidateTargetAsync(
                     target,
                     areaRequests,
                     configurationRequests,
-                    cancellationToken).ConfigureAwait(false));
+                    diagnosticsCancellationToken).ConfigureAwait(false));
             }
 
             var readyCount = results.Count(result => result.Ready);
@@ -1727,6 +1734,25 @@ namespace Jellyfin.Plugin.Hue.Api
                 ReadyTargetCount = readyCount,
                 Targets = results,
                 CheckedAtUtc = DateTime.UtcNow
+            });
+        }
+
+        /// <summary>
+        /// Requests cancellation for active non-mutating administrator diagnostics. The
+        /// diagnostic request owns its normal disposal and returns no bridge credentials.
+        /// </summary>
+        [HttpPost("Diagnostics/Cancel")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<HueDiagnosticsCancellationResult> CancelDiagnostics()
+        {
+            var canceledCount = _diagnosticsCancellationGate.CancelActive();
+            return Ok(new HueDiagnosticsCancellationResult
+            {
+                Canceled = canceledCount > 0,
+                CanceledCount = canceledCount,
+                Message = canceledCount > 0
+                    ? $"Cancellation requested for {canceledCount} active diagnostic operation(s)."
+                    : "No active administrator diagnostics were found."
             });
         }
 
@@ -3545,6 +3571,16 @@ namespace Jellyfin.Plugin.Hue.Api
     public sealed class HueSceneScheduleCancellationResult
     {
         public bool Canceled { get; init; }
+        public string Message { get; init; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Sanitized result from requesting cancellation of active non-mutating diagnostics.
+    /// </summary>
+    public sealed class HueDiagnosticsCancellationResult
+    {
+        public bool Canceled { get; init; }
+        public int CanceledCount { get; init; }
         public string Message { get; init; } = string.Empty;
     }
 

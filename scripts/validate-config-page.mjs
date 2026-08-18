@@ -14,7 +14,8 @@ new vm.Script(scriptMatch[1], { filename: file });
 const requiredMarkup = [
     'id="cancelConnectionTestBtn"',
     'id="cancelMappingTestConnectionBtn"',
-    'id="cancelPreviewBtn"'
+    'id="cancelPreviewBtn"',
+    'id="cancelDiagnosticsBtn"'
 ];
 
 for (const marker of requiredMarkup) {
@@ -25,7 +26,10 @@ for (const marker of requiredMarkup) {
 
 const requiredScript = [
     "setDiagnosticBusy: function",
+    "setDiagnosticsBusy: function",
+    "HueConfigurationPage.cancelDiagnostics(e.target)",
     'url: ApiClient.getUrl("HueSync/Preview/Cancel")',
+    'url: ApiClient.getUrl("HueSync/Diagnostics/Cancel")',
     "HueConfigurationPage.cancelPreview(e.target)"
 ];
 
@@ -43,6 +47,17 @@ for (const functionName of ["testDefaultConnection", "testMappingConnection"]) {
         !functionBody.includes("setDiagnosticBusy(page, true)") ||
         !functionBody.includes("setDiagnosticBusy(page, false)")) {
         throw new Error(`${file} ${functionName} is missing cancellable diagnostic lifecycle wiring`);
+    }
+}
+
+for (const functionName of ["loadEnvironmentDiagnostics", "loadTargetDiagnostics"]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("ApiClient.ajax") ||
+        !functionBody.includes("page._hue") ||
+        !functionBody.includes("setDiagnosticsBusy(page)")) {
+        throw new Error(`${file} ${functionName} is missing cancellable diagnostics lifecycle wiring`);
     }
 }
 

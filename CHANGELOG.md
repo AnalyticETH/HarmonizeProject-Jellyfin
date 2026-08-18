@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.91] - 2026-08-18
+
+### Added
+- **Cancellable system diagnostics**: expose a shared Cancel Active Diagnostics action while FFmpeg/OpenSSL prerequisite checks or saved-target validation are running
+- **Diagnostic page-exit cleanup**: leaving the administrator page requests cancellation for in-flight non-mutating diagnostics, preserving the normal request and process cleanup path
+
+### Security
+- Diagnostic cancellation returns only a bounded status/count result; the existing prerequisite and target reports remain credential-free and never mutate Hue bridge state
+
 ## [1.5.90] - 2026-08-18
 
 ### Added

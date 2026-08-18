@@ -1990,8 +1990,25 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("app-secret", System.Text.Json.JsonSerializer.Serialize(diagnostics));
         Assert.DoesNotContain("client-secret", System.Text.Json.JsonSerializer.Serialize(diagnostics));
         probe.Verify(
-            environment => environment.CheckAsync(It.Is<CancellationToken>(token => token == cancellationSource.Token)),
+            environment => environment.CheckAsync(It.Is<CancellationToken>(token => token.CanBeCanceled)),
             Times.Once);
+    }
+
+    [Fact]
+    public void CancelDiagnostics_RequestsCancellationForActiveChecks()
+    {
+        var cancellationGate = new HueDiagnosticsCancellationGate();
+        using var operation = cancellationGate.Begin(CancellationToken.None);
+        var controller = CreateController(diagnosticsCancellationGate: cancellationGate);
+
+        var action = controller.CancelDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueDiagnosticsCancellationResult>(response.Value);
+        Assert.True(result.Canceled);
+        Assert.Equal(1, result.CanceledCount);
+        Assert.True(operation.Token.IsCancellationRequested);
+        Assert.Contains("Cancellation requested", result.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3166,6 +3183,7 @@ public sealed class HueApiControllerTests : IDisposable
         IHueStreamTester? streamTester = null,
         HueBridgeLifecycleGate? bridgeLifecycleGate = null,
         IHueEnvironmentProbe? environmentProbe = null,
+        HueDiagnosticsCancellationGate? diagnosticsCancellationGate = null,
         IEnumerable<IHostedService>? hostedServices = null)
     {
         var client = new HueClient(_httpClient, _loggerMock.Object);
@@ -3174,7 +3192,8 @@ public sealed class HueApiControllerTests : IDisposable
             hostedServices ?? Array.Empty<IHostedService>(),
             streamTester,
             bridgeLifecycleGate,
-            environmentProbe);
+            environmentProbe,
+            diagnosticsCancellationGate);
     }
 
     private static PluginConfiguration InstallConfiguration(PluginConfiguration configuration)

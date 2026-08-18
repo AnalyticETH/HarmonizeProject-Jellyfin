@@ -51,7 +51,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Discover Bridge** | Return every private bridge found by the Hue discovery service and bounded local mDNS (`_hue._tcp.local`); the address field offers all candidates so multi-room mappings can choose the correct bridge. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. While a probe is running, the page exposes **Cancel Active Diagnostic**; disconnecting, canceling, or leaving the page stops the diagnostic lifecycle safely. |
-| **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, active bridge lifecycle contention, and playback/diagnostic readiness. **Validate Saved Targets** additionally checks every enabled default/inherited/custom bridge mapping for reachability, selected-area presence, and controllable channels without opening a DTLS stream. |
+| **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, active bridge lifecycle contention, and playback/diagnostic readiness. **Validate Saved Targets** additionally checks every enabled default/inherited/custom bridge mapping for reachability, selected-area presence, and controllable channels without opening a DTLS stream. **Cancel Active Diagnostics** safely stops either long-running check, and leaving the page requests the same cancellation. |
 | **Backup and Restore** | Export global settings, per-user profiles, saved color scenes, and scheduled scene cues—including optional fade-in/fade-out transitions, one-time dates, optional per-cue hold durations, and recurring date windows—as a credential-safe JSON document. Import is atomic, preserves matching stored keys on the same server, and includes an in-page password-field wizard for explicit replacement keys during migrations. |
 | **Live Sync Status** | Show the active Jellyfin user, selected bridge/area, captured profiles, effective FPS, sent/skipped/failed stream updates, reconnect attempts, seek-recovery restarts, frame health, cleanup warnings, and safe per-session stop controls while playback is running. Distinct mapped bridges/areas can be streamed concurrently. |
 | **Recent Hue Sessions** | Review and filter the 25 most recent completed sync sessions, including outcome, target, duration, quality counters, and cleanup/error warnings. Export a credential-free JSON troubleshooting document, clear history without stopping playback, or optionally retain the sanitized window across Jellyfin restarts. |
@@ -177,6 +177,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `DELETE /HueSync/History` | Clear retained completed-session summaries and the status API's last-session pointer without stopping active playback. |
 | `GET /HueSync/Diagnostics` | Run a non-mutating, cancellation-aware local prerequisite check for configuration validity, FFmpeg/OpenSSL versions, bridge lifecycle contention, and playback/diagnostic readiness. No bridge credentials are returned. |
 | `GET /HueSync/TargetDiagnostics` | Validate every saved default, inherited, and enabled custom bridge target without mutating bridge state; reports reachability, selected-area presence, controllable channel counts, credential presence, and sanitized readiness messages. |
+| `POST /HueSync/Diagnostics/Cancel` | Request cancellation of active non-mutating System Diagnostics or saved-target validation checks. The bounded response reports whether any operation was found; the canceled request still owns its normal process/network cleanup. |
 | `GET /HueSync/Configuration/Export` | Download a credential-safe JSON backup containing global settings, per-user profile fields, target labels, credential-presence flags, the session/cue-history retention preferences, the recurring-automation pause preference, saved color scenes, and recurring or one-time scene cues. Secret values and persisted history entries are never included. |
 | `POST /HueSync/Configuration/Import` | Atomically restore an export document, including saved scene cues. Matching stored global/mapping keys are preserved when omitted; explicit global or mapping keys may be supplied for migration, and invalid documents leave the current configuration unchanged. The configuration page keeps replacement keys in memory only and sends them once in this request. Active playback must be stopped first. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. Pass `playSessionId` to stop one listed concurrent session. |
@@ -354,7 +355,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.90 (Current)
+### Version 1.5.91 (Current)
+- **Cancellable system diagnostics**: show **Cancel Active Diagnostics** while prerequisite or saved-target checks run, with cancellation status and page-leave cleanup
+- **Shared diagnostics cancellation**: cancel every active non-mutating check through a bounded server-side gate without exposing credentials or changing bridge state
+
+### Version 1.5.90
 - **Cancellable connection diagnostics**: show **Cancel Active Diagnostic** while default or per-user mapping Test Connection runs, with completion/error status and page-leave cleanup
 - **Shared restorative cancellation**: reuse the credential-free preview cancellation endpoint so diagnostics stop safely and restore captured light state before ending
 

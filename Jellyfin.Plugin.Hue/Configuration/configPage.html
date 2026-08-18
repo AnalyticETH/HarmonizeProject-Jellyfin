@@ -106,6 +106,9 @@
                         <button is="emby-button" type="button" class="raised" id="refreshTargetDiagnosticsBtn">
                             <span>Validate Saved Targets</span>
                         </button>
+                        <button is="emby-button" type="button" class="raised" id="cancelDiagnosticsBtn" style="display: none; background: #8a3d3d;">
+                            <span>Cancel Active Diagnostics</span>
+                        </button>
                     </div>
                     <div id="diagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Run diagnostics to verify FFmpeg, OpenSSL, and saved configuration.</div>
                     <div id="diagnosticsErrors" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
@@ -3307,16 +3310,85 @@
                         ? " · " + HueConfigurationPage.readStatusField(status, "Message", "")
                         : "");
                 },
+                setDiagnosticsBusy: function (page) {
+                    if (!page) return;
+                    var diagnosticsButton = page.querySelector('#refreshDiagnosticsBtn');
+                    var targetButton = page.querySelector('#refreshTargetDiagnosticsBtn');
+                    var cancelButton = page.querySelector('#cancelDiagnosticsBtn');
+                    var active = !!(page._hueDiagnosticsRequest || page._hueTargetDiagnosticsRequest);
+                    if (diagnosticsButton) diagnosticsButton.disabled = !!page._hueDiagnosticsLoading;
+                    if (targetButton) targetButton.disabled = !!page._hueTargetDiagnosticsLoading;
+                    if (cancelButton) {
+                        cancelButton.style.display = active ? "" : "none";
+                        cancelButton.disabled = !!page._hueDiagnosticsCancellationRequest || !!page._hueDiagnosticsCancellationRequested;
+                    }
+                },
+                cancelDiagnostics: function (page) {
+                    if (!page ||
+                        (!page._hueDiagnosticsRequest && !page._hueTargetDiagnosticsRequest) ||
+                        page._hueDiagnosticsCancellationRequest) {
+                        return;
+                    }
+
+                    page._hueDiagnosticsCancellationRequested = true;
+                    var diagnosticsMessage = page.querySelector('#diagnosticsMessage');
+                    var targetMessage = page.querySelector('#targetDiagnosticsMessage');
+                    if (diagnosticsMessage && page._hueDiagnosticsRequest) {
+                        diagnosticsMessage.textContent = "Requesting diagnostics cancellation...";
+                        diagnosticsMessage.style.color = "#f0ad4e";
+                    }
+                    if (targetMessage && page._hueTargetDiagnosticsRequest) {
+                        targetMessage.textContent = "Requesting saved-target validation cancellation...";
+                        targetMessage.style.color = "#f0ad4e";
+                    }
+
+                    page._hueDiagnosticsCancellationRequest = ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/Diagnostics/Cancel"),
+                        dataType: "json"
+                    }).then(function (response) {
+                        var canceled = HueConfigurationPage.readStatusField(response, "Canceled", false);
+                        var message = HueConfigurationPage.readStatusField(response, "Message", "");
+                        if (!canceled) {
+                            if (diagnosticsMessage && page._hueDiagnosticsRequest) {
+                                diagnosticsMessage.textContent = message || "No active diagnostics were found.";
+                            }
+                            if (targetMessage && page._hueTargetDiagnosticsRequest) {
+                                targetMessage.textContent = message || "No active diagnostics were found.";
+                            }
+                        }
+                    }).catch(function (err) {
+                        console.error("Diagnostics cancellation error:", err);
+                        if (diagnosticsMessage && page._hueDiagnosticsRequest) {
+                            diagnosticsMessage.textContent = "Unable to request diagnostics cancellation; the check may still be running.";
+                            diagnosticsMessage.style.color = "#d9534f";
+                        }
+                        if (targetMessage && page._hueTargetDiagnosticsRequest) {
+                            targetMessage.textContent = "Unable to request saved-target validation cancellation; the check may still be running.";
+                            targetMessage.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        page._hueDiagnosticsCancellationRequest = null;
+                        HueConfigurationPage.setDiagnosticsBusy(page);
+                    });
+                    HueConfigurationPage.setDiagnosticsBusy(page);
+                },
                 loadEnvironmentDiagnostics: function (page) {
                     if (!page || page._hueDiagnosticsLoading) {
                         return Promise.resolve();
                     }
 
                     page._hueDiagnosticsLoading = true;
-                    var button = page.querySelector('#refreshDiagnosticsBtn');
-                    if (button) button.disabled = true;
+                    HueConfigurationPage.setDiagnosticsBusy(page);
 
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/Diagnostics")).then(function (diagnostics) {
+                    var request = ApiClient.ajax({
+                        type: "GET",
+                        url: ApiClient.getUrl("HueSync/Diagnostics"),
+                        dataType: "json"
+                    });
+                    page._hueDiagnosticsRequest = request;
+                    HueConfigurationPage.setDiagnosticsBusy(page);
+                    return request.then(function (diagnostics) {
                         var configurationValid = HueConfigurationPage.readStatusField(diagnostics, "ConfigurationValid", false);
                         var ffmpeg = HueConfigurationPage.readStatusField(diagnostics, "Ffmpeg", {});
                         var openSsl = HueConfigurationPage.readStatusField(diagnostics, "OpenSsl", {});
@@ -3361,10 +3433,21 @@
                     }).catch(function (err) {
                         console.error("Failed to load Hue environment diagnostics:", err);
                         var message = page.querySelector('#diagnosticsMessage');
-                        if (message) message.textContent = "Unable to run diagnostics. Check the server log for details.";
+                        if (message) {
+                            message.textContent = page._hueDiagnosticsCancellationRequested
+                                ? "Diagnostics cancellation requested."
+                                : "Unable to run diagnostics. Check the server log for details.";
+                            message.style.color = page._hueDiagnosticsCancellationRequested ? "#f0ad4e" : "#d9534f";
+                        }
                     }).finally(function () {
-                        page._hueDiagnosticsLoading = false;
-                        if (button) button.disabled = false;
+                        if (page._hueDiagnosticsRequest === request) {
+                            page._hueDiagnosticsRequest = null;
+                            page._hueDiagnosticsLoading = false;
+                        }
+                        if (!page._hueDiagnosticsRequest && !page._hueTargetDiagnosticsRequest) {
+                            page._hueDiagnosticsCancellationRequested = false;
+                        }
+                        HueConfigurationPage.setDiagnosticsBusy(page);
                     });
                 },
                 loadTargetDiagnostics: function (page) {
@@ -3373,16 +3456,22 @@
                     }
 
                     page._hueTargetDiagnosticsLoading = true;
-                    var button = page.querySelector('#refreshTargetDiagnosticsBtn');
                     var message = page.querySelector('#targetDiagnosticsMessage');
                     var table = page.querySelector('#targetDiagnosticsTable');
-                    if (button) button.disabled = true;
+                    HueConfigurationPage.setDiagnosticsBusy(page);
                     if (message) {
                         message.textContent = "Validating saved bridge targets...";
                         message.style.color = "";
                     }
 
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/TargetDiagnostics")).then(function (diagnostics) {
+                    var request = ApiClient.ajax({
+                        type: "GET",
+                        url: ApiClient.getUrl("HueSync/TargetDiagnostics"),
+                        dataType: "json"
+                    });
+                    page._hueTargetDiagnosticsRequest = request;
+                    HueConfigurationPage.setDiagnosticsBusy(page);
+                    return request.then(function (diagnostics) {
                         diagnostics = diagnostics || {};
                         var targets = HueConfigurationPage.readStatusField(diagnostics, "Targets", []);
                         targets = Array.isArray(targets) ? targets : [];
@@ -3450,13 +3539,21 @@
                     }).catch(function (err) {
                         console.error("Failed to validate Hue bridge targets:", err);
                         if (message) {
-                            message.textContent = "Unable to validate saved targets. Check the server log and bridge access.";
-                            message.style.color = "#d9534f";
+                            message.textContent = page._hueDiagnosticsCancellationRequested
+                                ? "Saved-target validation cancellation requested."
+                                : "Unable to validate saved targets. Check the server log and bridge access.";
+                            message.style.color = page._hueDiagnosticsCancellationRequested ? "#f0ad4e" : "#d9534f";
                         }
                         if (table) table.innerHTML = "";
                     }).finally(function () {
-                        page._hueTargetDiagnosticsLoading = false;
-                        if (button) button.disabled = false;
+                        if (page._hueTargetDiagnosticsRequest === request) {
+                            page._hueTargetDiagnosticsRequest = null;
+                            page._hueTargetDiagnosticsLoading = false;
+                        }
+                        if (!page._hueDiagnosticsRequest && !page._hueTargetDiagnosticsRequest) {
+                            page._hueDiagnosticsCancellationRequested = false;
+                        }
+                        HueConfigurationPage.setDiagnosticsBusy(page);
                     });
                 },
                 stopRuntimeSync: function (page) {
@@ -4883,6 +4980,10 @@
                 HueConfigurationPage.loadTargetDiagnostics(this.closest('.page'));
             });
 
+            document.querySelector('#cancelDiagnosticsBtn').addEventListener('click', function () {
+                HueConfigurationPage.cancelDiagnostics(this.closest('.page'));
+            });
+
             document.querySelector('#exportConfigurationBtn').addEventListener('click', function () {
                 HueConfigurationPage.exportConfiguration(this.closest('.page'));
             });
@@ -4974,6 +5075,9 @@
                     }
                     if (e.target._hueSceneScheduleRequest) {
                         HueConfigurationPage.cancelSceneScheduleRun(e.target);
+                    }
+                    if (e.target._hueDiagnosticsRequest || e.target._hueTargetDiagnosticsRequest) {
+                        HueConfigurationPage.cancelDiagnostics(e.target);
                     }
                     HueConfigurationPage.stopRuntimeStatusPolling(e.target);
                 }

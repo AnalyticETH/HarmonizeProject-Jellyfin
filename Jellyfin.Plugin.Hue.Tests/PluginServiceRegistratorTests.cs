@@ -29,6 +29,8 @@ public class PluginServiceRegistratorTests
         Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
         var environmentDescriptor = Assert.Single(services, service => service.ServiceType == typeof(IHueEnvironmentProbe));
         Assert.Equal(ServiceLifetime.Singleton, environmentDescriptor.Lifetime);
+        var diagnosticsCancellationDescriptor = Assert.Single(services, service => service.ServiceType == typeof(HueDiagnosticsCancellationGate));
+        Assert.Equal(ServiceLifetime.Singleton, diagnosticsCancellationDescriptor.Lifetime);
         var localDiscoveryDescriptor = Assert.Single(services, service => service.ServiceType == typeof(IHueBridgeLocalDiscovery));
         Assert.Equal(ServiceLifetime.Singleton, localDiscoveryDescriptor.Lifetime);
 
@@ -39,6 +41,9 @@ public class PluginServiceRegistratorTests
         var firstProbe = provider.GetRequiredService<IHueEnvironmentProbe>();
         var secondProbe = provider.GetRequiredService<IHueEnvironmentProbe>();
         Assert.Same(firstProbe, secondProbe);
+        var firstDiagnosticsCancellation = provider.GetRequiredService<HueDiagnosticsCancellationGate>();
+        var secondDiagnosticsCancellation = provider.GetRequiredService<HueDiagnosticsCancellationGate>();
+        Assert.Same(firstDiagnosticsCancellation, secondDiagnosticsCancellation);
         var firstLocalDiscovery = provider.GetRequiredService<IHueBridgeLocalDiscovery>();
         var secondLocalDiscovery = provider.GetRequiredService<IHueBridgeLocalDiscovery>();
         Assert.Same(firstLocalDiscovery, secondLocalDiscovery);
