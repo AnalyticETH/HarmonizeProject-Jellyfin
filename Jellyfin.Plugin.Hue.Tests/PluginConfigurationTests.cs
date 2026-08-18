@@ -179,6 +179,67 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsMonthlyDayAndClampedShortMonths()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-monthly",
+                    Name = "Month end welcome",
+                    PresetName = "Evening",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
+                    DayOfMonth = 31,
+                    TimeOfDay = "20:00",
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsInvalidMonthlyRecurrence()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-monthly-invalid",
+                    Name = "Invalid monthly cue",
+                    PresetName = "Evening",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
+                    DayOfMonth = 0,
+                    TimeOfDay = "20:00",
+                    DaysOfWeekMask = 0
+                },
+                new()
+                {
+                    Id = "cue-recurrence-invalid",
+                    Name = "Invalid recurrence cue",
+                    PresetName = "Evening",
+                    Recurrence = "Daily",
+                    DayOfMonth = 1,
+                    TimeOfDay = "20:00",
+                    DaysOfWeekMask = 127
+                }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+
+        Assert.Contains(errors, error => error.Contains("monthly recurrence requires", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("recurrence must be Weekly or Monthly", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsDurationOverrideOutsideSupportedRange()
     {
         var config = new PluginConfiguration

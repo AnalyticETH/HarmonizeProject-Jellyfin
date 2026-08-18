@@ -196,6 +196,52 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void MonthlyCue_ClampsDayThirtyOneToShortMonths()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
+            DayOfMonth = 31,
+            DaysOfWeekMask = 0
+        };
+        var beforeJanuaryCueUtc = new DateTime(2026, 1, 30, 7, 0, 0, DateTimeKind.Utc);
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(beforeJanuaryCueUtc, TimeZoneInfo.Local),
+            maxOccurrences: 3,
+            horizonDays: 75);
+
+        Assert.Equal(
+            new[]
+            {
+                new DateTime(2026, 1, 31, 7, 5, 0, DateTimeKind.Utc),
+                new DateTime(2026, 2, 28, 7, 5, 0, DateTimeKind.Utc),
+                new DateTime(2026, 3, 31, 7, 5, 0, DateTimeKind.Utc)
+            },
+            occurrences.Select(occurrence => occurrence.UtcTime));
+        Assert.Equal(
+            new DateTime(2026, 1, 31, 7, 5, 0, DateTimeKind.Utc),
+            HueSceneAutomationService.GetNextRunUtc(
+                schedule,
+                TimeZoneInfo.ConvertTimeFromUtc(
+                    new DateTime(2026, 1, 1, 7, 0, 0, DateTimeKind.Utc),
+                    TimeZoneInfo.Local)));
+        Assert.True(HueSceneAutomationService.IsDue(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(
+                new DateTime(2026, 2, 28, 7, 5, 30, DateTimeKind.Utc),
+                TimeZoneInfo.Local)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(
+                new DateTime(2026, 2, 27, 7, 5, 30, DateTimeKind.Utc),
+                TimeZoneInfo.Local)));
+    }
+
+    [Fact]
     public void OneTimeCue_RunsOnlyOnConfiguredDateAndIgnoresWeekdayMask()
     {
         var schedule = new HueSceneSchedule
@@ -339,6 +385,15 @@ public sealed class HueSceneAutomationServiceTests
         var invalidDuration = HueSceneAutomationService.EvaluateReadiness(
             config,
             new HueSceneSchedule { Enabled = true, PresetName = "Evening", DurationSeconds = 31 });
+        var invalidMonthly = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule
+            {
+                Enabled = true,
+                PresetName = "Evening",
+                Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
+                DayOfMonth = 0
+            });
 
         Assert.False(invalidStart.Ready);
         Assert.Contains("start date", invalidStart.Message, StringComparison.OrdinalIgnoreCase);
@@ -350,6 +405,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Contains("run date", invalidRunDate.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(invalidDuration.Ready);
         Assert.Contains("duration", invalidDuration.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(invalidMonthly.Ready);
+        Assert.Contains("monthly", invalidMonthly.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

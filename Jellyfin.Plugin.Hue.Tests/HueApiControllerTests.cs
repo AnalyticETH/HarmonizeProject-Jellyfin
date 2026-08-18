@@ -1168,6 +1168,40 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_CrudPreservesMonthlyRecurrence()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Month End" } }
+        });
+        var controller = CreateController();
+
+        var action = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Month-end cue",
+            PresetName = "Month End",
+            TimeOfDay = "21:30",
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
+            DayOfMonth = 31,
+            DaysOfWeekMask = 0,
+            Enabled = true
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, result.Recurrence);
+        Assert.Equal(31, result.DayOfMonth);
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, saved.Recurrence);
+        Assert.Equal(31, saved.DayOfMonth);
+
+        var listedResponse = Assert.IsType<OkObjectResult>(controller.GetSceneSchedules().Result);
+        var listed = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleResult>>(listedResponse.Value));
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, listed.Recurrence);
+        Assert.Equal(31, listed.DayOfMonth);
+    }
+
+    [Fact]
     public void SceneScheduleTimeZones_ReturnsSystemChoicesWithoutCredentials()
     {
         InstallConfiguration(new PluginConfiguration
@@ -1218,6 +1252,29 @@ public sealed class HueApiControllerTests : IDisposable
             PresetName = "Evening",
             TimeOfDay = "20:00",
             DurationSeconds = PluginConfiguration.MaxPreviewDurationSeconds + 1,
+            DaysOfWeekMask = 127
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Empty(configuration.SceneSchedules);
+    }
+
+    [Fact]
+    public void SceneSchedules_RejectInvalidRecurrenceWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } }
+        });
+
+        var action = CreateController().SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Broken recurrence cue",
+            PresetName = "Evening",
+            TimeOfDay = "20:00",
+            Recurrence = "Daily",
+            DayOfMonth = 1,
             DaysOfWeekMask = 127
         });
 
@@ -1472,6 +1529,8 @@ public sealed class HueApiControllerTests : IDisposable
                     StartDate = "2026-08-01",
                     EndDate = "2026-12-31",
                     ExcludedDates = new List<string> { "2026-12-24" },
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
+                    DayOfMonth = 20,
                     DurationSeconds = 9,
                     DaysOfWeekMask = 127,
                     Enabled = true
@@ -1495,6 +1554,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("2026-08-01", schedule.StartDate);
         Assert.Equal("2026-12-31", schedule.EndDate);
         Assert.Equal(new[] { "2026-12-24" }, schedule.ExcludedDates);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, schedule.Recurrence);
+        Assert.Equal(20, schedule.DayOfMonth);
         Assert.Equal(9, schedule.DurationSeconds);
         Assert.NotNull(schedule.NextRunLocal);
         var serialized = System.Text.Json.JsonSerializer.Serialize(status);
@@ -1554,6 +1615,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(2, result.Occurrences.Count);
         Assert.True(result.Occurrences[0].UtcTime <= result.Occurrences[1].UtcTime);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.DurationSeconds == 7);
+        Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Recurrence == PluginConfiguration.SceneScheduleRecurrenceWeekly);
         Assert.Contains(result.Occurrences, occurrence => occurrence.TargetLabel == "Living Room");
         Assert.DoesNotContain(result.Occurrences, occurrence => occurrence.TargetLabel.Contains("secret", StringComparison.OrdinalIgnoreCase));
         var serialized = System.Text.Json.JsonSerializer.Serialize(result);
@@ -2069,6 +2131,8 @@ public sealed class HueApiControllerTests : IDisposable
                     StartDate = "2026-08-01",
                     EndDate = "2026-12-31",
                     ExcludedDates = new List<string> { "2026-12-24" },
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
+                    DayOfMonth = 31,
                     DurationSeconds = 11,
                     DaysOfWeekMask = 127
                 }
@@ -2095,6 +2159,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("2026-08-01", document.SceneSchedules[0].StartDate);
         Assert.Equal("2026-12-31", document.SceneSchedules[0].EndDate);
         Assert.Equal(new[] { "2026-12-24" }, document.SceneSchedules[0].ExcludedDates);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, document.SceneSchedules[0].Recurrence);
+        Assert.Equal(31, document.SceneSchedules[0].DayOfMonth);
         Assert.Equal(11, document.SceneSchedules[0].DurationSeconds);
         Assert.True(document.Configuration.PersistSessionHistory);
         Assert.Equal(false, document.Configuration.SceneAutomationEnabled);
@@ -2126,6 +2192,8 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeOfDay = "18:45",
                     TimeZoneId = TimeZoneInfo.Utc.Id,
                     RunDate = "2026-12-24",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
+                    DayOfMonth = 31,
                     DurationSeconds = 10,
                     DaysOfWeekMask = 0
                 }
@@ -2135,6 +2203,8 @@ public sealed class HueApiControllerTests : IDisposable
         var exported = HueConfigurationExportDocument.From(configuration);
         var exportedCue = Assert.Single(exported.SceneSchedules);
         Assert.Equal("2026-12-24", exportedCue.RunDate);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, exportedCue.Recurrence);
+        Assert.Equal(31, exportedCue.DayOfMonth);
         Assert.Equal(0, exportedCue.DaysOfWeekMask);
 
         var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
@@ -2155,6 +2225,8 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeOfDay = exportedCue.TimeOfDay,
                     TimeZoneId = exportedCue.TimeZoneId,
                     RunDate = exportedCue.RunDate,
+                    Recurrence = exportedCue.Recurrence,
+                    DayOfMonth = exportedCue.DayOfMonth,
                     DurationSeconds = exportedCue.DurationSeconds,
                     DaysOfWeekMask = exportedCue.DaysOfWeekMask,
                     Enabled = exportedCue.Enabled
@@ -2165,6 +2237,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(action.Result);
         var importedCue = Assert.Single(configuration.SceneSchedules);
         Assert.Equal("2026-12-24", importedCue.RunDate);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, importedCue.Recurrence);
+        Assert.Equal(31, importedCue.DayOfMonth);
         Assert.Equal(exportedCue.DurationSeconds, importedCue.DurationSeconds);
         Assert.Equal(0, importedCue.DaysOfWeekMask);
     }

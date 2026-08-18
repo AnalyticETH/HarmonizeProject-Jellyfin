@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.82] - 2026-08-18
+
+### Added
+- **Monthly scheduled cues**: run a saved scene on a selected calendar day each month alongside the existing weekly weekday mode
+- **Short-month handling**: monthly days beyond a month's length run on that month's final calendar day, so day 31 remains useful year-round
+- **Portable recurrence controls**: carry recurrence mode and day-of-month through cue CRUD, readiness/status telemetry, upcoming previews, iCalendar output, and credential-safe backup/restore
+
+### Security
+- Recurrence metadata is limited to bounded mode/day values; bridge credentials, connection details, and playback tokens remain excluded from cue/status/calendar/backup responses
+
 ## [1.5.81] - 2026-08-18
 
 ### Added

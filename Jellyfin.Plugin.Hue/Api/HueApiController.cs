@@ -443,6 +443,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetLabel = targetLabel,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
+                Recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
+                    schedule.Recurrence,
+                    out var normalizedRecurrence)
+                    ? normalizedRecurrence
+                    : schedule.Recurrence?.Trim() ?? string.Empty,
+                DayOfMonth = schedule.DayOfMonth,
                 DurationSeconds = schedule.DurationSeconds,
                 RunDate = schedule.RunDate?.Trim() ?? string.Empty,
                 StartDate = schedule.StartDate?.Trim() ?? string.Empty,
@@ -463,6 +469,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = schedule.TargetUserId,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId,
+                Recurrence = schedule.Recurrence,
+                DayOfMonth = schedule.DayOfMonth,
                 DurationSeconds = schedule.DurationSeconds,
                 RunDate = schedule.RunDate,
                 StartDate = schedule.StartDate,
@@ -972,8 +980,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Returns a bounded, credential-free preview of upcoming cue occurrences. The
-        /// calculation uses each cue's timezone, date window, exclusions, weekday mask,
-        /// and DST rules without contacting the bridge.
+        /// calculation uses each cue's timezone, date window, exclusions, weekly or monthly
+        /// recurrence, and DST rules without contacting the bridge.
         /// </summary>
         [HttpGet("SceneSchedules/Occurrences")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1074,6 +1082,12 @@ namespace Jellyfin.Plugin.Hue.Api
                         ScheduleId = occurrence.ScheduleId,
                         ScheduleName = occurrence.ScheduleName,
                         PresetName = occurrence.PresetName,
+                        Recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
+                            schedule.Recurrence,
+                            out var normalizedRecurrence)
+                            ? normalizedRecurrence
+                            : schedule.Recurrence?.Trim() ?? string.Empty,
+                        DayOfMonth = schedule.DayOfMonth,
                         DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(
                             schedule,
                             config.ColorPresets?.FirstOrDefault(preset =>
@@ -1227,8 +1241,8 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Saves or updates a scene cue. The cue references an existing saved scene and
         /// a global or per-user target; a populated run date makes it one-time, while a
-        /// blank run date keeps the recurring weekday behavior. Bridge credentials are
-        /// never accepted.
+        /// blank run date uses the requested weekly or monthly recurrence. Bridge credentials
+        /// are never accepted.
         /// </summary>
         [HttpPost("SceneSchedules")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1250,6 +1264,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 schedule.Id = Guid.NewGuid().ToString("N");
             if (PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalizedTime))
                 schedule.TimeOfDay = normalizedTime;
+            if (PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
+                schedule.Recurrence = normalizedRecurrence;
             if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.StartDate, out var normalizedStartDate))
                 schedule.StartDate = normalizedStartDate;
             if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.EndDate, out var normalizedEndDate))
@@ -1969,6 +1985,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.Id = Guid.NewGuid().ToString("N");
                 if (PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalizedTime))
                     schedule.TimeOfDay = normalizedTime;
+                if (PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
+                    schedule.Recurrence = normalizedRecurrence;
                 if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.StartDate, out var normalizedStartDate))
                     schedule.StartDate = normalizedStartDate;
                 if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.EndDate, out var normalizedEndDate))
@@ -2984,7 +3002,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Request shape for one saved-scene cue. TargetUserId is blank for the global bridge
-    /// target; runDate selects a one-time cue, otherwise weekday/date rules in the
+    /// target; runDate selects a one-time cue, otherwise weekly or monthly date rules in the
     /// selected cue timezone apply. DurationSeconds is zero to inherit the saved scene's
     /// duration or a bounded per-cue override. Bridge credentials are intentionally not accepted.
     /// </summary>
@@ -3007,6 +3025,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
+
+        [JsonPropertyName("recurrence")]
+        public string Recurrence { get; set; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;
+
+        [JsonPropertyName("dayOfMonth")]
+        public int DayOfMonth { get; set; }
 
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
@@ -3039,6 +3063,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = TargetUserId?.Trim() ?? string.Empty,
                 TimeOfDay = TimeOfDay?.Trim() ?? string.Empty,
                 TimeZoneId = TimeZoneId?.Trim() ?? string.Empty,
+                Recurrence = Recurrence?.Trim() ?? string.Empty,
+                DayOfMonth = DayOfMonth,
                 DurationSeconds = DurationSeconds,
                 RunDate = RunDate?.Trim() ?? string.Empty,
                 StartDate = StartDate?.Trim() ?? string.Empty,
@@ -3054,8 +3080,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Credential-free scene cue returned by the administrator API, including optional
-    /// per-cue duration override, one-time date, inclusive bounds, and normalized excluded
-    /// calendar dates.
+    /// per-cue duration override, weekly or monthly recurrence, one-time date, inclusive
+    /// bounds, and normalized excluded calendar dates.
     /// </summary>
     public sealed class HueSceneScheduleResult
     {
@@ -3079,6 +3105,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
+
+        [JsonPropertyName("recurrence")]
+        public string Recurrence { get; set; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;
+
+        [JsonPropertyName("dayOfMonth")]
+        public int DayOfMonth { get; set; }
 
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
@@ -3115,6 +3147,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetName")]
         public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("recurrence")]
+        public string Recurrence { get; set; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;
+
+        [JsonPropertyName("dayOfMonth")]
+        public int DayOfMonth { get; set; }
 
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
