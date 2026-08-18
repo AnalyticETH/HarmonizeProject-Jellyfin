@@ -609,7 +609,8 @@ public sealed class HueSceneAutomationServiceTests
                 30,
                 80,
                 7,
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                0))
             .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Displayed one-time scene." });
         var service = new HueSceneAutomationService(
             streamTester.Object,
