@@ -347,6 +347,11 @@
                         </div>
                         <div id="sceneScheduleRuntimeStatus" style="margin-top: 0.5em; overflow-x: auto;"></div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
+                            <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleOccurrencesBtn"><span>Refresh Upcoming Cues</span></button>
+                            <div id="sceneScheduleOccurrencesSummary" class="fieldDescription">Loading upcoming cue occurrences...</div>
+                        </div>
+                        <div id="sceneScheduleOccurrences" style="margin-top: 0.5em; overflow-x: auto;"></div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleHistoryBtn"><span>Refresh Cue History</span></button>
                             <button is="emby-button" type="button" class="raised" id="exportSceneScheduleHistoryBtn"><span>Export JSON</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSceneScheduleHistoryBtn"><span>Clear Cue History</span></button>
@@ -1818,7 +1823,99 @@
                     }).finally(function () {
                         page._hueSceneScheduleRuntimeStatusLoading = false;
                         if (button) button.disabled = false;
+                        HueConfigurationPage.loadSceneScheduleOccurrences(page);
                         HueConfigurationPage.loadSceneScheduleHistory(page);
+                    });
+                },
+                loadSceneScheduleOccurrences: function (page) {
+                    if (!page || page._hueSceneScheduleOccurrencesLoading) {
+                        return Promise.resolve();
+                    }
+
+                    page._hueSceneScheduleOccurrencesLoading = true;
+                    var button = page.querySelector('#refreshSceneScheduleOccurrencesBtn');
+                    var summary = page.querySelector('#sceneScheduleOccurrencesSummary');
+                    var container = page.querySelector('#sceneScheduleOccurrences');
+                    if (button) button.disabled = true;
+                    if (summary) {
+                        summary.textContent = "Loading upcoming cue occurrences...";
+                        summary.style.color = "";
+                    }
+
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/Occurrences?limit=50&days=31")).then(function (response) {
+                        var occurrences = HueConfigurationPage.readStatusField(response, "Occurrences", []);
+                        occurrences = Array.isArray(occurrences) ? occurrences : [];
+                        var horizonDays = HueConfigurationPage.readStatusField(response, "HorizonDays", 31);
+                        var generatedAt = HueConfigurationPage.readStatusField(response, "GeneratedAtUtc", null);
+                        var generatedText = generatedAt ? new Date(generatedAt).toLocaleTimeString() : "";
+                        if (summary) {
+                            summary.textContent = occurrences.length
+                                ? occurrences.length + " upcoming occurrence" + (occurrences.length === 1 ? "" : "s") +
+                                    " in the next " + String(horizonDays) + " days · updated " + generatedText
+                                : "No valid cue occurrences in the preview horizon.";
+                        }
+                        if (!container) return;
+                        container.textContent = "";
+                        if (occurrences.length === 0) {
+                            container.textContent = "Adjust the cue's days, dates, exclusions, or time zone to preview upcoming runs.";
+                            return;
+                        }
+
+                        var formatCueLocal = function (value) {
+                            if (!value) return "—";
+                            var match = String(value).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+                            return match ? match[1] + " " + match[2] : String(value);
+                        };
+                        var formatUtc = function (value) {
+                            if (!value) return "—";
+                            var parsed = new Date(value);
+                            return isNaN(parsed.getTime()) ? String(value) : parsed.toISOString().replace('T', ' ').slice(0, 16) + " UTC";
+                        };
+                        var table = document.createElement('table');
+                        table.style.width = '100%';
+                        table.style.borderCollapse = 'collapse';
+                        table.style.minWidth = '820px';
+                        var headerRow = document.createElement('tr');
+                        ["Cue", "Target", "Cue-local occurrence", "UTC occurrence", "Time zone"].forEach(function (heading) {
+                            var header = document.createElement('th');
+                            header.textContent = heading;
+                            header.style.textAlign = 'left';
+                            header.style.padding = '6px 8px';
+                            header.style.borderBottom = '1px solid rgba(255,255,255,.2)';
+                            headerRow.appendChild(header);
+                        });
+                        var head = document.createElement('thead');
+                        head.appendChild(headerRow);
+                        table.appendChild(head);
+                        var body = document.createElement('tbody');
+                        occurrences.forEach(function (occurrence) {
+                            var row = document.createElement('tr');
+                            row.style.borderBottom = '1px solid rgba(255,255,255,.08)';
+                            var addCell = function (text) {
+                                var cell = document.createElement('td');
+                                cell.textContent = text;
+                                cell.style.padding = '6px 8px';
+                                row.appendChild(cell);
+                            };
+                            addCell(String(HueConfigurationPage.readStatusField(occurrence, "ScheduleName", "Unnamed cue")));
+                            addCell(String(HueConfigurationPage.readStatusField(occurrence, "TargetLabel", "Default bridge target")));
+                            addCell(formatCueLocal(HueConfigurationPage.readStatusField(occurrence, "LocalTime", null)));
+                            addCell(formatUtc(HueConfigurationPage.readStatusField(occurrence, "UtcTime", null)));
+                            addCell(String(HueConfigurationPage.readStatusField(occurrence, "TimeZoneDisplayName", "Server local")));
+                            body.appendChild(row);
+                        });
+                        table.appendChild(body);
+                        container.appendChild(table);
+                    }).catch(function (err) {
+                        console.error("Failed to load upcoming scheduled cue occurrences:", err);
+                        if (summary) {
+                            summary.textContent = "Unable to preview upcoming cues. Check the server log.";
+                            summary.style.color = "#d9534f";
+                        }
+                        if (container) container.textContent = "";
+                    }).finally(function () {
+                        page._hueSceneScheduleOccurrencesLoading = false;
+                        if (button) button.disabled = false;
                     });
                 },
                 loadSceneScheduleHistory: function (page) {
@@ -4159,6 +4256,10 @@
 
             document.querySelector('#refreshSceneScheduleStatusBtn').addEventListener('click', function () {
                 HueConfigurationPage.loadSceneScheduleRuntimeStatus(this.closest('.page'));
+            });
+
+            document.querySelector('#refreshSceneScheduleOccurrencesBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadSceneScheduleOccurrences(this.closest('.page'));
             });
 
             document.querySelector('#refreshSceneScheduleHistoryBtn').addEventListener('click', function () {

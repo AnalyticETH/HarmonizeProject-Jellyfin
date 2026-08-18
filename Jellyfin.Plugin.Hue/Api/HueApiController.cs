@@ -964,6 +964,71 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Returns a bounded, credential-free preview of upcoming cue occurrences. The
+        /// calculation uses each cue's timezone, date window, exclusions, weekday mask,
+        /// and DST rules without contacting the bridge.
+        /// </summary>
+        [HttpGet("SceneSchedules/Occurrences")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HueSceneScheduleOccurrencesResult> GetSceneScheduleOccurrences(
+            [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule,
+            [FromQuery(Name = "days")] int days = HueSceneAutomationService.DefaultUpcomingHorizonDays,
+            [FromQuery(Name = "scheduleId")] string? scheduleId = null)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var boundedLimit = Math.Clamp(limit, 1, HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule);
+            var boundedDays = Math.Clamp(days, 1, HueSceneAutomationService.MaxUpcomingHorizonDays);
+            var normalizedScheduleId = string.IsNullOrWhiteSpace(scheduleId) ? null : scheduleId.Trim();
+            var serverLocalNow = DateTime.Now;
+            var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+                .Where(schedule => schedule != null)
+                .Where(schedule => string.IsNullOrWhiteSpace(normalizedScheduleId) ||
+                                   string.Equals(schedule.Id?.Trim(), normalizedScheduleId, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(schedule => schedule.TimeOfDay, StringComparer.Ordinal)
+                .ThenBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            var occurrences = schedules
+                .SelectMany(schedule => HueSceneAutomationService.GetUpcomingOccurrences(
+                        schedule,
+                        serverLocalNow,
+                        Math.Min(boundedLimit, HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule),
+                        boundedDays,
+                        includeFutureStartBeyondHorizon: false)
+                    .Select(occurrence => new HueSceneScheduleOccurrenceResult
+                    {
+                        ScheduleId = occurrence.ScheduleId,
+                        ScheduleName = occurrence.ScheduleName,
+                        PresetName = occurrence.PresetName,
+                        TargetLabel = ToSceneScheduleResult(schedule, config).TargetLabel,
+                        TimeZoneId = occurrence.TimeZoneId,
+                        TimeZoneDisplayName = occurrence.TimeZoneDisplayName,
+                        LocalTime = occurrence.LocalTime,
+                        UtcTime = occurrence.UtcTime
+                    }))
+                .OrderBy(occurrence => occurrence.UtcTime)
+                .ThenBy(occurrence => occurrence.ScheduleName, StringComparer.OrdinalIgnoreCase)
+                .Take(boundedLimit)
+                .ToArray();
+
+            return Ok(new HueSceneScheduleOccurrencesResult
+            {
+                ServiceAvailable = _sceneAutomationService != null,
+                GeneratedAtUtc = DateTime.UtcNow,
+                ServerLocalNow = DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified),
+                ServerTimeZoneId = TimeZoneInfo.Local.Id,
+                Limit = boundedLimit,
+                HorizonDays = boundedDays,
+                ScheduleIdFilter = normalizedScheduleId,
+                Occurrences = occurrences
+            });
+        }
+
+        /// <summary>
         /// Returns bounded sanitized run history for recurring scene cues. Bridge
         /// credentials and connection details are never retained or serialized.
         /// </summary>
@@ -2865,6 +2930,66 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("enabled")]
         public bool Enabled { get; set; }
+    }
+
+    /// <summary>
+    /// One credential-free upcoming recurring-cue occurrence returned by the preview API.
+    /// </summary>
+    public sealed class HueSceneScheduleOccurrenceResult
+    {
+        [JsonPropertyName("scheduleId")]
+        public string ScheduleId { get; set; } = string.Empty;
+
+        [JsonPropertyName("scheduleName")]
+        public string ScheduleName { get; set; } = string.Empty;
+
+        [JsonPropertyName("presetName")]
+        public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("targetLabel")]
+        public string TargetLabel { get; set; } = string.Empty;
+
+        [JsonPropertyName("timeZoneId")]
+        public string TimeZoneId { get; set; } = string.Empty;
+
+        [JsonPropertyName("timeZoneDisplayName")]
+        public string TimeZoneDisplayName { get; set; } = string.Empty;
+
+        [JsonPropertyName("localTime")]
+        public DateTime LocalTime { get; set; }
+
+        [JsonPropertyName("utcTime")]
+        public DateTime UtcTime { get; set; }
+    }
+
+    /// <summary>
+    /// Bounded credential-free upcoming-cue preview returned by the administrator API.
+    /// </summary>
+    public sealed class HueSceneScheduleOccurrencesResult
+    {
+        [JsonPropertyName("serviceAvailable")]
+        public bool ServiceAvailable { get; set; }
+
+        [JsonPropertyName("generatedAtUtc")]
+        public DateTime GeneratedAtUtc { get; set; }
+
+        [JsonPropertyName("serverLocalNow")]
+        public DateTime ServerLocalNow { get; set; }
+
+        [JsonPropertyName("serverTimeZoneId")]
+        public string ServerTimeZoneId { get; set; } = string.Empty;
+
+        [JsonPropertyName("limit")]
+        public int Limit { get; set; }
+
+        [JsonPropertyName("horizonDays")]
+        public int HorizonDays { get; set; }
+
+        [JsonPropertyName("scheduleIdFilter")]
+        public string? ScheduleIdFilter { get; set; }
+
+        [JsonPropertyName("occurrences")]
+        public IReadOnlyList<HueSceneScheduleOccurrenceResult> Occurrences { get; set; } = Array.Empty<HueSceneScheduleOccurrenceResult>();
     }
 
     /// <summary>

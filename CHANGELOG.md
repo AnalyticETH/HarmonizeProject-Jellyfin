@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.77] - 2026-08-17
+
+### Added
+- **Upcoming cue preview**: calculate a bounded list of future occurrences using each cue's timezone, DST behavior, weekday mask, date window, and exclusions
+- **Credential-free occurrence API**: add `GET /HueSync/SceneSchedules/Occurrences` with bounded horizon, limit, and cue filtering controls
+- **Administrator calendar visibility**: show the next 31 days of upcoming cue-local and UTC occurrences beside scheduler readiness and history
+
+### Security
+- Occurrence previews contain only cue names, saved-scene names, target labels, timezone metadata, and timestamps; bridge credentials and connection details remain excluded
+
 ## [1.5.76] - 2026-08-17
 
 ### Added

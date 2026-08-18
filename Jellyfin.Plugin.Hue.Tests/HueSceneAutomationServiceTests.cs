@@ -146,6 +146,36 @@ public sealed class HueSceneAutomationServiceTests
             schedule,
             TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 9, 8, 7, 0, 0, DateTimeKind.Utc), TimeZoneInfo.Local));
         Assert.Null(nextAfterEnd);
+
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(beforeStartUtc.AddMinutes(-1), TimeZoneInfo.Local),
+            maxOccurrences: 3,
+            horizonDays: 31);
+        Assert.Equal(2, occurrences.Count);
+        Assert.Equal(new DateTime(2026, 8, 31, 7, 5, 0), occurrences[0].LocalTime);
+        Assert.Equal(new DateTime(2026, 8, 31, 7, 5, 0, DateTimeKind.Utc), occurrences[0].UtcTime);
+        Assert.Equal(new DateTime(2026, 9, 7, 7, 5, 0, DateTimeKind.Utc), occurrences[1].UtcTime);
+
+        var futureSchedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            StartDate = "2099-01-01",
+            DaysOfWeekMask = 127
+        };
+        Assert.Empty(HueSceneAutomationService.GetUpcomingOccurrences(
+            futureSchedule,
+            TimeZoneInfo.ConvertTimeFromUtc(beforeStartUtc, TimeZoneInfo.Local),
+            maxOccurrences: 3,
+            horizonDays: 31,
+            includeFutureStartBeyondHorizon: false));
+        Assert.NotEmpty(HueSceneAutomationService.GetUpcomingOccurrences(
+            futureSchedule,
+            TimeZoneInfo.ConvertTimeFromUtc(beforeStartUtc, TimeZoneInfo.Local),
+            maxOccurrences: 1,
+            horizonDays: 31));
     }
 
     [Fact]

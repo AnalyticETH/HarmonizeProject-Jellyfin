@@ -1434,6 +1434,71 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetSceneScheduleOccurrences_ReturnsBoundedSortedPreviewWithoutSecrets()
+    {
+        var cueTime = DateTime.Now.AddMinutes(10).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-secret",
+            HueClientKey = "client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Evening" }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-1", UserName = "Living Room", SyncEnabled = true }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-1",
+                    Name = "Living cue",
+                    PresetName = "Evening",
+                    TargetUserId = "user-1",
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    DaysOfWeekMask = 127
+                },
+                new()
+                {
+                    Id = "cue-2",
+                    Name = "Default cue",
+                    PresetName = "Evening",
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    DaysOfWeekMask = 127
+                }
+            }
+        });
+
+        var action = CreateController().GetSceneScheduleOccurrences(limit: 2, days: 7);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleOccurrencesResult>(response.Value);
+        Assert.Equal(2, result.Limit);
+        Assert.Equal(7, result.HorizonDays);
+        Assert.Equal(2, result.Occurrences.Count);
+        Assert.True(result.Occurrences[0].UtcTime <= result.Occurrences[1].UtcTime);
+        Assert.Contains(result.Occurrences, occurrence => occurrence.TargetLabel == "Living Room");
+        Assert.DoesNotContain(result.Occurrences, occurrence => occurrence.TargetLabel.Contains("secret", StringComparison.OrdinalIgnoreCase));
+        var serialized = System.Text.Json.JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("client-secret", serialized, StringComparison.Ordinal);
+
+        var filtered = CreateController().GetSceneScheduleOccurrences(limit: 10, days: 7, scheduleId: "cue-1");
+        var filteredResponse = Assert.IsType<OkObjectResult>(filtered.Result);
+        var filteredResult = Assert.IsType<HueSceneScheduleOccurrencesResult>(filteredResponse.Value);
+        Assert.Equal("cue-1", filteredResult.ScheduleIdFilter);
+        Assert.NotEmpty(filteredResult.Occurrences);
+        Assert.All(filteredResult.Occurrences, occurrence => Assert.Equal("cue-1", occurrence.ScheduleId));
+        Assert.Equal(2, configuration.SceneSchedules.Count);
+    }
+
+    [Fact]
     public void GetSessionHistory_WithoutHostedSyncServiceReturnsBoundedEmptyHistory()
     {
         var controller = CreateController();
