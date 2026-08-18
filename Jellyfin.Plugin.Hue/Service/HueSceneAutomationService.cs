@@ -176,6 +176,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 DurationSeconds = GetEffectiveDurationSeconds(schedule, preset),
+                TransitionSeconds = GetEffectiveTransitionSeconds(schedule, preset),
                 Recurrence = recurrence,
                 RecurrenceInterval = schedule.RecurrenceInterval,
                 DayOfMonth = schedule.DayOfMonth,
@@ -256,6 +257,15 @@ public sealed class HueSceneAutomationService : BackgroundService
             PluginConfiguration.MaxPreviewDurationSeconds);
     }
 
+    internal static int GetEffectiveTransitionSeconds(HueSceneSchedule schedule, HueColorPreset? preset)
+    {
+        var transition = preset?.TransitionSeconds ?? PluginConfiguration.MinColorPresetTransitionSeconds;
+        return Math.Clamp(
+            transition,
+            PluginConfiguration.MinColorPresetTransitionSeconds,
+            Math.Min(GetEffectiveDurationSeconds(schedule, preset), PluginConfiguration.MaxColorPresetTransitionSeconds));
+    }
+
     /// <summary>
     /// Calculates a bounded preview of future cue occurrences. Calendar dates are
     /// evaluated in the cue's selected time zone, so one-time dates, date windows,
@@ -268,7 +278,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         DateTime serverLocalNow,
         int maxOccurrences = DefaultUpcomingOccurrencesPerSchedule,
         int horizonDays = DefaultUpcomingHorizonDays,
-        bool includeFutureStartBeyondHorizon = true)
+        bool includeFutureStartBeyondHorizon = true,
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds)
     {
         var occurrences = new List<HueSceneScheduleOccurrence>();
         var boundedOccurrences = Math.Clamp(
@@ -372,6 +383,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 DurationSeconds = schedule.DurationSeconds,
+                TransitionSeconds = Math.Clamp(
+                    transitionSeconds,
+                    PluginConfiguration.MinColorPresetTransitionSeconds,
+                    PluginConfiguration.MaxColorPresetTransitionSeconds),
                 RecurrenceInterval = schedule.RecurrenceInterval,
                 MonthOfYear = schedule.MonthOfYear,
                 WeekOfMonth = schedule.WeekOfMonth,
@@ -1116,7 +1131,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 preset.Blue,
                 preset.BrightnessPercent,
                 GetEffectiveDurationSeconds(schedule, preset),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                GetEffectiveTransitionSeconds(schedule, preset)).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1603,6 +1619,9 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("durationSeconds")]
     public int DurationSeconds { get; init; }
 
+    [JsonPropertyName("transitionSeconds")]
+    public int TransitionSeconds { get; init; }
+
     [JsonPropertyName("recurrenceInterval")]
     public int RecurrenceInterval { get; init; } = PluginConfiguration.MinSceneScheduleRecurrenceInterval;
 
@@ -1644,6 +1663,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("durationSeconds")]
     public int DurationSeconds { get; init; }
+
+    [JsonPropertyName("transitionSeconds")]
+    public int TransitionSeconds { get; init; }
 
     [JsonPropertyName("recurrence")]
     public string Recurrence { get; init; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;

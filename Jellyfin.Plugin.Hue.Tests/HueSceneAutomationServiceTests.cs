@@ -457,6 +457,28 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void GetEffectiveTransitionSeconds_ClampsToEffectiveCueDuration()
+    {
+        var preset = new HueColorPreset
+        {
+            Name = "Evening",
+            DurationSeconds = 8,
+            TransitionSeconds = 6
+        };
+
+        Assert.Equal(
+            6,
+            HueSceneAutomationService.GetEffectiveTransitionSeconds(
+                new HueSceneSchedule { DurationSeconds = 0 },
+                preset));
+        Assert.Equal(
+            3,
+            HueSceneAutomationService.GetEffectiveTransitionSeconds(
+                new HueSceneSchedule { DurationSeconds = 3 },
+                preset));
+    }
+
+    [Fact]
     public void MonthlyCue_ClampsDayThirtyOneToShortMonths()
     {
         var schedule = new HueSceneSchedule
@@ -786,7 +808,7 @@ public sealed class HueSceneAutomationServiceTests
             EntertainmentAreaId = "area-1",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Evening", Red = 12, Green = 34, Blue = 56, BrightnessPercent = 75, DurationSeconds = 8 }
+                new() { Name = "Evening", Red = 12, Green = 34, Blue = 56, BrightnessPercent = 75, DurationSeconds = 8, TransitionSeconds = 2 }
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
@@ -810,7 +832,8 @@ public sealed class HueSceneAutomationServiceTests
                 56,
                 75,
                 8,
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                2))
             .ReturnsAsync(new HueStreamProbeResult
             {
                 Succeeded = true,
@@ -840,6 +863,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.True(status.ServiceAvailable);
         Assert.False(status.AutomationEnabled);
         Assert.Equal("cue-1", runtime.ScheduleId);
+        Assert.Equal(2, runtime.TransitionSeconds);
         Assert.Equal(string.Empty, runtime.TimeZoneId);
         Assert.Contains("Server local", runtime.TimeZoneDisplayName, StringComparison.Ordinal);
         Assert.NotNull(runtime.NextRunUtc);

@@ -118,6 +118,57 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public void BuildTransitionColors_RampsAndClampsTargetFrames()
+    {
+        var target = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 0, 20, 40, 60, 100, 127 }
+        };
+
+        var midpoint = HueStreamTester.BuildTransitionColors(target, 0.5);
+        var completed = HueStreamTester.BuildTransitionColors(target, 2);
+        var initial = HueStreamTester.BuildTransitionColors(target, -1);
+
+        Assert.Equal(new byte[] { 0, 10, 20, 30, 50, 64 }, midpoint[1]);
+        Assert.Equal(target[1], completed[1]);
+        Assert.Equal(new byte[6], initial[1]);
+        Assert.NotSame(target[1], completed[1]);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RejectsTransitionLongerThanDurationWithoutTouchingBridge()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        using var httpClient = new HttpClient(handler.Object);
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>());
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
+        var tester = new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>());
+        using var document = JsonDocument.Parse("{\"channels\":[]}");
+
+        var result = await tester.PreviewAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            null,
+            255,
+            255,
+            255,
+            100,
+            4,
+            transitionSeconds: 5);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("cannot exceed", result.Message, StringComparison.OrdinalIgnoreCase);
+        handler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task TestAsync_WithMalformedAreaDoesNotTouchBridge()
     {
         var handler = new Mock<HttpMessageHandler>();

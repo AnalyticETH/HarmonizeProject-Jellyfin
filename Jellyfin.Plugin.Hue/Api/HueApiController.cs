@@ -402,7 +402,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 Green = preset.Green,
                 Blue = preset.Blue,
                 BrightnessPercent = preset.BrightnessPercent,
-                DurationSeconds = preset.DurationSeconds
+                DurationSeconds = preset.DurationSeconds,
+                TransitionSeconds = preset.TransitionSeconds
             };
         }
 
@@ -459,7 +460,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 EndDate = schedule.EndDate?.Trim() ?? string.Empty,
                 ExcludedDates = excludedDates,
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
-                Enabled = schedule.Enabled
+                Enabled = schedule.Enabled,
+                TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(
+                    schedule,
+                    config.ColorPresets?.FirstOrDefault(preset =>
+                        preset != null &&
+                        string.Equals(preset.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase)))
             };
         }
 
@@ -710,6 +716,15 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest($"Preview duration must be between {HueStreamTester.MinPreviewDurationSeconds} and {HueStreamTester.MaxPreviewDurationSeconds} seconds.");
             }
 
+            if (request.TransitionSeconds < PluginConfiguration.MinColorPresetTransitionSeconds ||
+                request.TransitionSeconds > PluginConfiguration.MaxColorPresetTransitionSeconds)
+            {
+                return BadRequest($"Preview transition must be between {PluginConfiguration.MinColorPresetTransitionSeconds} and {PluginConfiguration.MaxColorPresetTransitionSeconds} seconds.");
+            }
+
+            if (request.TransitionSeconds > request.DurationSeconds)
+                return BadRequest("Preview transition cannot exceed the preview duration.");
+
             if (_streamTester == null)
             {
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
@@ -780,7 +795,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     request.Blue,
                     request.BrightnessPercent,
                     request.DurationSeconds,
-                    cancellationToken);
+                    cancellationToken,
+                    request.TransitionSeconds);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -805,6 +821,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Blue = request.Blue,
                 BrightnessPercent = request.BrightnessPercent,
                 DurationSeconds = request.DurationSeconds,
+                TransitionSeconds = request.TransitionSeconds,
                 AvailableChannelCount = availableChannelIds.Count,
                 SelectedChannelCount = requestedChannelIds?.Count ?? availableChannelIds.Count
             });
@@ -1079,38 +1096,44 @@ namespace Jellyfin.Plugin.Hue.Api
                 .ToArray();
 
             return schedules
-                .SelectMany(schedule => HueSceneAutomationService.GetUpcomingOccurrences(
-                        schedule,
-                        serverLocalNow,
-                        Math.Min(boundedLimit, HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule),
-                        boundedDays,
-                        includeFutureStartBeyondHorizon: false)
-                    .Select(occurrence => new HueSceneScheduleOccurrenceResult
-                    {
-                        ScheduleId = occurrence.ScheduleId,
-                        ScheduleName = occurrence.ScheduleName,
-                        PresetName = occurrence.PresetName,
-                        Recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
-                            schedule.Recurrence,
-                            out var normalizedRecurrence)
-                            ? normalizedRecurrence
-                            : schedule.Recurrence?.Trim() ?? string.Empty,
-                        RecurrenceInterval = schedule.RecurrenceInterval,
-                        DayOfMonth = schedule.DayOfMonth,
-                        MonthOfYear = schedule.MonthOfYear,
-                        WeekOfMonth = schedule.WeekOfMonth,
-                        DayOfWeek = schedule.DayOfWeek,
-                        DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(
+                .SelectMany(schedule =>
+                {
+                    var preset = config.ColorPresets?.FirstOrDefault(candidate =>
+                        candidate != null &&
+                        string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
+                    var effectiveDuration = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset);
+                    var effectiveTransition = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset);
+                    return HueSceneAutomationService.GetUpcomingOccurrences(
                             schedule,
-                            config.ColorPresets?.FirstOrDefault(preset =>
-                                preset != null &&
-                                string.Equals(preset.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase))),
-                        TargetLabel = ToSceneScheduleResult(schedule, config).TargetLabel,
-                        TimeZoneId = occurrence.TimeZoneId,
-                        TimeZoneDisplayName = occurrence.TimeZoneDisplayName,
-                        LocalTime = occurrence.LocalTime,
-                        UtcTime = occurrence.UtcTime
-                    }))
+                            serverLocalNow,
+                            Math.Min(boundedLimit, HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule),
+                            boundedDays,
+                            includeFutureStartBeyondHorizon: false,
+                            transitionSeconds: effectiveTransition)
+                        .Select(occurrence => new HueSceneScheduleOccurrenceResult
+                        {
+                            ScheduleId = occurrence.ScheduleId,
+                            ScheduleName = occurrence.ScheduleName,
+                            PresetName = occurrence.PresetName,
+                            Recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
+                                schedule.Recurrence,
+                                out var normalizedRecurrence)
+                                ? normalizedRecurrence
+                                : schedule.Recurrence?.Trim() ?? string.Empty,
+                            RecurrenceInterval = schedule.RecurrenceInterval,
+                            DayOfMonth = schedule.DayOfMonth,
+                            MonthOfYear = schedule.MonthOfYear,
+                            WeekOfMonth = schedule.WeekOfMonth,
+                            DayOfWeek = schedule.DayOfWeek,
+                            DurationSeconds = effectiveDuration,
+                            TransitionSeconds = occurrence.TransitionSeconds,
+                            TargetLabel = ToSceneScheduleResult(schedule, config).TargetLabel,
+                            TimeZoneId = occurrence.TimeZoneId,
+                            TimeZoneDisplayName = occurrence.TimeZoneDisplayName,
+                            LocalTime = occurrence.LocalTime,
+                            UtcTime = occurrence.UtcTime
+                        });
+                })
                 .OrderBy(occurrence => occurrence.UtcTime)
                 .ThenBy(occurrence => occurrence.ScheduleName, StringComparer.OrdinalIgnoreCase)
                 .Take(boundedLimit)
@@ -1153,6 +1176,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "X-HUE-TIMEZONE", occurrence.TimeZoneId);
                 AppendIcsLine(builder, "X-HUE-RECURRENCE", occurrence.Recurrence);
                 AppendIcsLine(builder, "X-HUE-RECURRENCE-INTERVAL", occurrence.RecurrenceInterval.ToString(CultureInfo.InvariantCulture));
+                AppendIcsLine(builder, "X-HUE-TRANSITION-SECONDS", occurrence.TransitionSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "STATUS", "CONFIRMED");
                 AppendIcsLine(builder, "TRANSP", "TRANSPARENT");
                 AppendIcsLine(builder, "END", "VEVENT");
@@ -2740,7 +2764,8 @@ namespace Jellyfin.Plugin.Hue.Api
                         Green = preset.Green,
                         Blue = preset.Blue,
                         BrightnessPercent = preset.BrightnessPercent,
-                        DurationSeconds = preset.DurationSeconds
+                        DurationSeconds = preset.DurationSeconds,
+                        TransitionSeconds = preset.TransitionSeconds
                     })
                     .ToArray(),
                 SceneSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
@@ -2880,6 +2905,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; } = 5;
+
+        [JsonPropertyName("transitionSeconds")]
+        public int TransitionSeconds { get; set; }
     }
 
     public class HueConnectionTestResult
@@ -2953,6 +2981,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
 
+        [JsonPropertyName("transitionSeconds")]
+        public int TransitionSeconds { get; set; }
+
         [JsonPropertyName("availableChannelCount")]
         public int AvailableChannelCount { get; set; }
 
@@ -2980,6 +3011,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; } = 5;
 
+        [JsonPropertyName("transitionSeconds")]
+        public int TransitionSeconds { get; set; }
+
         public HueColorPreset ToConfigurationPreset()
         {
             return new HueColorPreset
@@ -2989,7 +3023,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 Green = Green,
                 Blue = Blue,
                 BrightnessPercent = BrightnessPercent,
-                DurationSeconds = DurationSeconds
+                DurationSeconds = DurationSeconds,
+                TransitionSeconds = TransitionSeconds
             };
         }
     }
@@ -3013,6 +3048,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
+
+        [JsonPropertyName("transitionSeconds")]
+        public int TransitionSeconds { get; set; }
     }
 
     /// <summary>
@@ -3022,7 +3060,8 @@ namespace Jellyfin.Plugin.Hue.Api
     /// controls the number of calendar units between runs and requires startDate when greater than one.
     /// DurationSeconds is zero
     /// to inherit the saved scene's
-    /// duration or a bounded per-cue override. Bridge credentials are intentionally not accepted.
+    /// duration or a bounded per-cue override; the saved scene's optional fade-in is inherited
+    /// and clamped to that effective duration. Bridge credentials are intentionally not accepted.
     /// </summary>
     public sealed class HueSceneScheduleRequest
     {
@@ -3113,8 +3152,8 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Credential-free scene cue returned by the administrator API, including optional
-    /// per-cue duration override, daily, weekly, monthly-day, monthly-weekday, or yearly recurrence,
+    /// Credential-free scene cue returned by the administrator API, including the effective
+    /// saved-scene fade-in, optional per-cue duration override, daily, weekly, monthly-day, monthly-weekday, or yearly recurrence,
     /// bounded recurrence intervals, one-time date, inclusive bounds, and normalized excluded calendar dates.
     /// </summary>
     public sealed class HueSceneScheduleResult
@@ -3160,6 +3199,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
+
+        [JsonPropertyName("transitionSeconds")]
+        public int TransitionSeconds { get; set; }
 
         [JsonPropertyName("runDate")]
         public string RunDate { get; set; } = string.Empty;
@@ -3214,6 +3256,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
+
+        [JsonPropertyName("transitionSeconds")]
+        public int TransitionSeconds { get; set; }
 
         [JsonPropertyName("targetLabel")]
         public string TargetLabel { get; set; } = string.Empty;

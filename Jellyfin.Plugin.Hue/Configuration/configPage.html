@@ -218,7 +218,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Solid Color Preview</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a single color on the default bridge target for a few seconds. The selected lights are saved and restored automatically. Stop active playback before previewing.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a single color on the default bridge target for a few seconds. The selected lights are saved and restored automatically. Use Fade in for a smooth transition from dark to the selected scene; saved scenes carry this setting into scheduled cues. Stop active playback before previewing.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="previewColor">Color</label>
@@ -231,6 +231,10 @@
                             <div style="min-width: 130px;">
                                 <label class="inputLabel inputLabelUnfocused" for="previewDuration">Duration (seconds)</label>
                                 <input id="previewDuration" type="number" min="1" max="30" value="5" is="emby-input" />
+                            </div>
+                            <div style="min-width: 130px;">
+                                <label class="inputLabel inputLabelUnfocused" for="previewTransitionSeconds">Fade in (seconds)</label>
+                                <input id="previewTransitionSeconds" type="number" min="0" max="30" value="0" is="emby-input" />
                             </div>
                             <button is="emby-button" type="button" class="raised" id="previewColorBtn">
                                 <span>Preview Default Target</span>
@@ -258,7 +262,7 @@
                                 <span>Delete Scene</span>
                             </button>
                         </div>
-                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, brightness, and duration as a reusable scene. Scenes contain no bridge credentials.</div>
+                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, brightness, duration, and optional fade-in as a reusable scene. Scenes contain no bridge credentials.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -1380,7 +1384,7 @@
                         dataType: "json"
                     });
                 },
-                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId) {
+                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId, transitionSeconds) {
                     var payload = {
                         ipAddress: bridgeIp,
                         appKey: appKey,
@@ -1391,7 +1395,8 @@
                         green: green,
                         blue: blue,
                         brightnessPercent: brightnessPercent,
-                        durationSeconds: durationSeconds
+                        durationSeconds: durationSeconds,
+                        transitionSeconds: transitionSeconds || 0
                     };
                     if (channelIds && channelIds.trim()) {
                         payload.channelIds = channelIds.trim();
@@ -1414,13 +1419,18 @@
 
                     var brightness = parseInt(page.querySelector('#previewBrightness').value, 10);
                     var duration = parseInt(page.querySelector('#previewDuration').value, 10);
+                    var transition = parseInt(page.querySelector('#previewTransitionSeconds').value, 10);
                     brightness = isNaN(brightness) ? 100 : brightness;
                     duration = isNaN(duration) ? 5 : duration;
+                    transition = isNaN(transition) ? 0 : transition;
                     if (brightness < 0 || brightness > 100) {
                         throw new Error("Preview brightness must be between 0 and 100 percent.");
                     }
                     if (duration < 1 || duration > 30) {
                         throw new Error("Preview duration must be between 1 and 30 seconds.");
+                    }
+                    if (transition < 0 || transition > 30 || transition > duration) {
+                        throw new Error("Fade-in must be between 0 and the preview duration (maximum 30 seconds).");
                     }
 
                     return {
@@ -1428,7 +1438,8 @@
                         green: parseInt(hex.substring(2, 4), 16),
                         blue: parseInt(hex.substring(4, 6), 16),
                         brightnessPercent: brightness,
-                        durationSeconds: duration
+                        durationSeconds: duration,
+                        transitionSeconds: transition
                     };
                 },
                 previewMessage: function (response) {
@@ -1476,7 +1487,9 @@
                         values.green,
                         values.blue,
                         values.brightnessPercent,
-                        values.durationSeconds)
+                        values.durationSeconds,
+                        undefined,
+                        values.transitionSeconds)
                         .then(function (response) {
                             var result = HueConfigurationPage.previewMessage(response);
                             statusEl.textContent = result.text;
@@ -1517,6 +1530,7 @@
                                 option.dataset.blue = String(preset.blue !== undefined ? preset.blue : preset.Blue);
                                 option.dataset.brightnessPercent = String(preset.brightnessPercent !== undefined ? preset.brightnessPercent : preset.BrightnessPercent);
                                 option.dataset.durationSeconds = String(preset.durationSeconds !== undefined ? preset.durationSeconds : preset.DurationSeconds);
+                                option.dataset.transitionSeconds = String(preset.transitionSeconds !== undefined ? preset.transitionSeconds : (preset.TransitionSeconds || 0));
                                 selectEl.appendChild(option);
                             });
                             if (selectedName) {
@@ -1554,11 +1568,13 @@
                     var blue = Number(option.dataset.blue);
                     var brightness = Number(option.dataset.brightnessPercent);
                     var duration = Number(option.dataset.durationSeconds);
+                    var transition = Number(option.dataset.transitionSeconds || 0);
                     page.querySelector('#previewColor').value = '#' + [red, green, blue].map(function (component) {
                         return component.toString(16).padStart(2, '0');
                     }).join('');
                     page.querySelector('#previewBrightness').value = brightness;
                     page.querySelector('#previewDuration').value = duration;
+                    page.querySelector('#previewTransitionSeconds').value = transition;
                     page.querySelector('#previewPresetName').value = option.value;
                     if (statusEl) {
                         statusEl.textContent = "Applied saved scene '" + option.value + "'. Preview it on the default target or current mapping.";
@@ -1598,7 +1614,8 @@
                             green: values.green,
                             blue: values.blue,
                             brightnessPercent: values.brightnessPercent,
-                            durationSeconds: values.durationSeconds
+                            durationSeconds: values.durationSeconds,
+                            transitionSeconds: values.transitionSeconds
                         }),
                         contentType: "application/json",
                         dataType: "json"
@@ -1740,6 +1757,7 @@
                             if (!id || !name) return;
                             var time = schedule.timeOfDay !== undefined ? schedule.timeOfDay : schedule.TimeOfDay;
                             var duration = schedule.durationSeconds !== undefined ? schedule.durationSeconds : schedule.DurationSeconds;
+                            var transition = schedule.transitionSeconds !== undefined ? schedule.transitionSeconds : schedule.TransitionSeconds;
                             var recurrence = schedule.recurrence !== undefined ? schedule.recurrence : schedule.Recurrence;
                             var dayOfMonth = schedule.dayOfMonth !== undefined ? schedule.dayOfMonth : schedule.DayOfMonth;
                             var monthOfYear = schedule.monthOfYear !== undefined ? schedule.monthOfYear : schedule.MonthOfYear;
@@ -1768,7 +1786,8 @@
                             var option = document.createElement('option');
                             option.value = id;
                             var durationLabel = Number(duration) > 0 ? ' · ' + Number(duration) + 's' : '';
-                            option.textContent = name + (time ? ' · ' + time : '') + durationLabel + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate) + dateRange + exclusionLabel;
+                            var transitionLabel = Number(transition) > 0 ? ' · fade ' + Number(transition) + 's' : '';
+                            option.textContent = name + (time ? ' · ' + time : '') + durationLabel + transitionLabel + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate) + dateRange + exclusionLabel;
                             scheduleSelect.appendChild(option);
                         });
 
@@ -1895,6 +1914,7 @@
                             var name = HueConfigurationPage.readStatusField(schedule, "ScheduleName", "Unnamed cue");
                             var preset = HueConfigurationPage.readStatusField(schedule, "PresetName", "—");
                             var duration = HueConfigurationPage.readStatusField(schedule, "DurationSeconds", 0);
+                            var transition = HueConfigurationPage.readStatusField(schedule, "TransitionSeconds", 0);
                             var recurrence = HueConfigurationPage.readStatusField(schedule, "Recurrence", "Weekly");
                             var recurrenceInterval = HueConfigurationPage.readStatusField(schedule, "RecurrenceInterval", 1);
                             var dayOfMonth = HueConfigurationPage.readStatusField(schedule, "DayOfMonth", 0);
@@ -1947,7 +1967,8 @@
                                 : (recurrenceMode === "monthlyweekday"
                                     ? formatMonthlyWeekday(weekOfMonth, dayOfWeek)
                                     : (recurrenceMode === "daily" ? "daily" : daysForMask(mask))));
-                            addCell(String(preset) + " · " + String(time) + " · " + String(duration || 0) + "s · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
+                            var transitionLabel = Number(transition) > 0 ? " · fade " + Number(transition) + "s" : "";
+                            addCell(String(preset) + " · " + String(time) + " · " + String(duration || 0) + "s" + transitionLabel + " · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
                             addCell(enabled ? (formatScheduleLocal(nextRun) + " · " + String(timeZone)) : "Disabled");
@@ -2048,7 +2069,9 @@
                                 cell.style.padding = '6px 8px';
                                 row.appendChild(cell);
                             };
-                            addCell(String(HueConfigurationPage.readStatusField(occurrence, "ScheduleName", "Unnamed cue")));
+                            var occurrenceName = String(HueConfigurationPage.readStatusField(occurrence, "ScheduleName", "Unnamed cue"));
+                            var occurrenceTransition = Number(HueConfigurationPage.readStatusField(occurrence, "TransitionSeconds", 0));
+                            addCell(occurrenceName + (occurrenceTransition > 0 ? " · fade " + occurrenceTransition + "s" : ""));
                             addCell(String(HueConfigurationPage.readStatusField(occurrence, "TargetLabel", "Default bridge target")));
                             addCell(formatCueLocal(HueConfigurationPage.readStatusField(occurrence, "LocalTime", null)));
                             addCell(formatUtc(HueConfigurationPage.readStatusField(occurrence, "UtcTime", null)));
@@ -3866,7 +3889,8 @@
                         values.blue,
                         values.brightnessPercent,
                         values.durationSeconds,
-                        target.userId)
+                        target.userId,
+                        values.transitionSeconds)
                         .then(function (response) {
                             var result = HueConfigurationPage.previewMessage(response);
                             if (statusEl) {

@@ -36,7 +36,8 @@ public interface IHueStreamTester
         int blue,
         int brightnessPercent,
         int durationSeconds,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds);
 }
 
 /// <summary>
@@ -56,6 +57,7 @@ public sealed class HueStreamProbeResult
 public sealed class HueStreamTester : IHueStreamTester
 {
     private const int EntertainmentAreaActivationDelayMs = 200;
+    private const int PreviewTransitionRefreshIntervalMs = 100;
     private const byte ProbeColor = 1;
     private const string DiagnosticBusyMessage = "Another Hue diagnostic is already running. Wait for it to finish before starting another probe or preview.";
     internal const int MinPreviewDurationSeconds = PluginConfiguration.MinPreviewDurationSeconds;
@@ -268,7 +270,8 @@ public sealed class HueStreamTester : IHueStreamTester
         int blue,
         int brightnessPercent,
         int durationSeconds,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds)
         => RunSerializedAsync(() => PreviewCoreAsync(
             bridgeIp,
             appKey,
@@ -281,7 +284,8 @@ public sealed class HueStreamTester : IHueStreamTester
             blue,
             brightnessPercent,
             durationSeconds,
-            cancellationToken));
+            cancellationToken,
+            transitionSeconds));
 
     private async Task<HueStreamProbeResult> PreviewCoreAsync(
         string bridgeIp,
@@ -295,6 +299,7 @@ public sealed class HueStreamTester : IHueStreamTester
         int blue,
         int brightnessPercent,
         int durationSeconds,
+        int transitionSeconds,
         CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
@@ -312,6 +317,15 @@ public sealed class HueStreamTester : IHueStreamTester
         {
             return Failure($"Preview duration must be between {MinPreviewDurationSeconds} and {MaxPreviewDurationSeconds} seconds.");
         }
+
+        if (transitionSeconds < PluginConfiguration.MinColorPresetTransitionSeconds ||
+            transitionSeconds > PluginConfiguration.MaxColorPresetTransitionSeconds)
+        {
+            return Failure($"Preview transition must be between {PluginConfiguration.MinColorPresetTransitionSeconds} and {PluginConfiguration.MaxColorPresetTransitionSeconds} seconds.");
+        }
+
+        if (transitionSeconds > durationSeconds)
+            return Failure("Preview transition cannot exceed the preview duration.");
 
         if (!TryBuildSolidColors(
                 areaConfiguration,
@@ -394,7 +408,6 @@ public sealed class HueStreamTester : IHueStreamTester
         }
 
         var previewResult = Failure("The solid color preview did not complete.");
-        var previewCompleted = false;
         try
         {
             await Task.Delay(EntertainmentAreaActivationDelayMs, cancellationToken).ConfigureAwait(false);
@@ -411,9 +424,14 @@ public sealed class HueStreamTester : IHueStreamTester
                 }
                 else
                 {
+                    var previewEndsAt = DateTime.UtcNow.AddSeconds(durationSeconds);
+                    var transitionEndsAt = DateTime.UtcNow.AddSeconds(transitionSeconds);
+                    var frame = transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds
+                        ? BuildTransitionColors(channelColors, 0)
+                        : channelColors;
                     var sent = await streamer.SendColors(
                         areaId,
-                        channelColors,
+                        frame,
                         cancellationToken: cancellationToken).ConfigureAwait(false);
                     if (!sent)
                     {
@@ -421,11 +439,51 @@ public sealed class HueStreamTester : IHueStreamTester
                     }
                     else
                     {
+                        var transitionFailed = false;
+                        while (transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds)
+                        {
+                            var remaining = transitionEndsAt - DateTime.UtcNow;
+                            if (remaining <= TimeSpan.Zero)
+                                break;
+
+                            await Task.Delay(
+                                remaining > TimeSpan.FromMilliseconds(PreviewTransitionRefreshIntervalMs)
+                                    ? TimeSpan.FromMilliseconds(PreviewTransitionRefreshIntervalMs)
+                                    : remaining,
+                                cancellationToken)
+                                .ConfigureAwait(false);
+
+                            var progress = Math.Clamp(
+                                (DateTime.UtcNow - (transitionEndsAt - TimeSpan.FromSeconds(transitionSeconds))).TotalSeconds /
+                                transitionSeconds,
+                                0d,
+                                1d);
+                            frame = BuildTransitionColors(channelColors, progress);
+                            if (!await streamer.SendColors(
+                                    areaId,
+                                    frame,
+                                    cancellationToken: cancellationToken).ConfigureAwait(false))
+                            {
+                                transitionFailed = true;
+                                previewResult = Failure("The DTLS stream stopped while fading in the preview color.");
+                                break;
+                            }
+                        }
+
+                        if (!transitionFailed && transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds &&
+                            !await streamer.SendColors(
+                                areaId,
+                                channelColors,
+                                cancellationToken: cancellationToken).ConfigureAwait(false))
+                        {
+                            transitionFailed = true;
+                            previewResult = Failure("The DTLS stream stopped while completing the preview transition.");
+                        }
+
                         // Hue bridges deactivate an entertainment area after a period of
                         // inactivity. Refresh the static packet once per second so a longer
                         // preview remains visible for its full requested duration.
-                        var previewEndsAt = DateTime.UtcNow.AddSeconds(durationSeconds);
-                        while (true)
+                        while (!transitionFailed)
                         {
                             var remaining = previewEndsAt - DateTime.UtcNow;
                             if (remaining <= TimeSpan.Zero)
@@ -442,18 +500,19 @@ public sealed class HueStreamTester : IHueStreamTester
                                     cancellationToken: cancellationToken).ConfigureAwait(false))
                             {
                                 previewResult = Failure("The DTLS stream stopped while holding the preview color.");
-                                previewCompleted = true;
+                                transitionFailed = true;
                                 break;
                             }
                         }
 
-                        if (previewResult.Succeeded == false && !previewCompleted)
+                        if (!transitionFailed)
                         {
-                            previewCompleted = true;
                             previewResult = new HueStreamProbeResult
                             {
                                 Succeeded = true,
-                                Message = $"Displayed the solid color preview for {durationSeconds} seconds across {channelColors.Count} channel(s)."
+                                Message = transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds
+                                    ? $"Displayed the solid color preview for {durationSeconds} seconds across {channelColors.Count} channel(s) with a {transitionSeconds}-second fade-in."
+                                    : $"Displayed the solid color preview for {durationSeconds} seconds across {channelColors.Count} channel(s)."
                             };
                         }
                     }
@@ -549,6 +608,33 @@ public sealed class HueStreamTester : IHueStreamTester
             Message = $"{probeResult.Message} Cleanup warning: {cleanupWarning}",
             CleanupWarning = cleanupWarning
         };
+    }
+
+    internal static Dictionary<int, byte[]> BuildTransitionColors(
+        IReadOnlyDictionary<int, byte[]> targetColors,
+        double progress)
+    {
+        ArgumentNullException.ThrowIfNull(targetColors);
+        var boundedProgress = Math.Clamp(progress, 0d, 1d);
+        var colors = new Dictionary<int, byte[]>(targetColors.Count);
+        foreach (var (channelId, target) in targetColors)
+        {
+            if (target == null || target.Length != 6)
+                throw new ArgumentException("Each Hue transition color must contain six RGB16 bytes.", nameof(targetColors));
+
+            var frame = new byte[target.Length];
+            for (var index = 0; index < target.Length; index++)
+            {
+                frame[index] = (byte)Math.Clamp(
+                    (int)Math.Round(target[index] * boundedProgress, MidpointRounding.AwayFromZero),
+                    byte.MinValue,
+                    byte.MaxValue);
+            }
+
+            colors[channelId] = frame;
+        }
+
+        return colors;
     }
 
     internal static bool TryBuildProbeColors(JsonElement areaConfiguration, out Dictionary<int, byte[]> channelColors)

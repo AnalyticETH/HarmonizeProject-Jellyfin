@@ -19,7 +19,8 @@ public class PluginConfigurationTests
                     Green = 90,
                     Blue = 35,
                     BrightnessPercent = 75,
-                    DurationSeconds = 8
+                    DurationSeconds = 8,
+                    TransitionSeconds = 3
                 }
             }
         };
@@ -35,7 +36,7 @@ public class PluginConfigurationTests
         {
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Accent", Red = 256, DurationSeconds = 0 },
+                new() { Name = "Accent", Red = 256, DurationSeconds = 0, TransitionSeconds = 31 },
                 new() { Name = " accent " }
             }
         };
@@ -44,7 +45,21 @@ public class PluginConfigurationTests
 
         Assert.Contains("Color preset 1 RGB values must be between 0 and 255", errors);
         Assert.Contains("Color preset 1 duration must be between 1 and 30 seconds", errors);
+        Assert.Contains("Color preset 1 transition must be between 0 and 30 seconds", errors);
         Assert.Contains("Color preset 2 duplicates another color preset name", errors);
+    }
+
+    [Fact]
+    public void ValidateColorPresets_RejectsTransitionLongerThanScene()
+    {
+        var errors = PluginConfiguration.ValidateColorPreset(new HueColorPreset
+        {
+            Name = "Slow fade",
+            DurationSeconds = 4,
+            TransitionSeconds = 5
+        });
+
+        Assert.Contains("transition cannot exceed the scene duration", errors);
     }
 
     [Fact]

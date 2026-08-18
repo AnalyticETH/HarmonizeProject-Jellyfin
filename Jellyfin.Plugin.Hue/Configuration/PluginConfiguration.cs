@@ -59,7 +59,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// <summary>
     /// A reusable solid-color preview scene. Presets intentionally contain no bridge
     /// credentials or target information; they can be applied to the default target or
-    /// any per-user mapping from the administrator configuration page.
+    /// any per-user mapping from the administrator configuration page. TransitionSeconds
+    /// optionally fades in the scene within the configured duration.
     /// </summary>
     public class HueColorPreset
     {
@@ -69,6 +70,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int Blue { get; set; } = 255;
         public int BrightnessPercent { get; set; } = 100;
         public int DurationSeconds { get; set; } = 5;
+        /// <summary>
+        /// Optional fade-in duration in seconds within the scene duration. Zero preserves
+        /// the original instantaneous preview behavior; the value may not exceed the duration.
+        /// </summary>
+        public int TransitionSeconds { get; set; }
     }
 
     /// <summary>
@@ -255,6 +261,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private const int MaxColorSmoothingPercent = 90;
         public const int MinPreviewDurationSeconds = 1;
         public const int MaxPreviewDurationSeconds = 30;
+        public const int MinColorPresetTransitionSeconds = 0;
+        public const int MaxColorPresetTransitionSeconds = MaxPreviewDurationSeconds;
         public const int MaxColorPresets = 50;
         public const int MaxColorPresetNameLength = 64;
         public const int MaxSceneSchedules = 50;
@@ -826,6 +834,16 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 preset.DurationSeconds > MaxPreviewDurationSeconds)
             {
                 errors.Add($"{label} duration must be between {MinPreviewDurationSeconds} and {MaxPreviewDurationSeconds} seconds");
+            }
+
+            if (preset.TransitionSeconds < MinColorPresetTransitionSeconds ||
+                preset.TransitionSeconds > MaxColorPresetTransitionSeconds)
+            {
+                errors.Add($"{label} transition must be between {MinColorPresetTransitionSeconds} and {MaxColorPresetTransitionSeconds} seconds");
+            }
+            else if (preset.TransitionSeconds > preset.DurationSeconds)
+            {
+                errors.Add($"{label} transition cannot exceed the scene duration");
             }
 
             return errors;

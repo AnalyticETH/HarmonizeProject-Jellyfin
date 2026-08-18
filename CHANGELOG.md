@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.87] - 2026-08-18
+
+### Added
+- **Saved-scene fade-in transitions**: optionally ramp each solid-color scene from dark to its target RGB16 values over 0-30 seconds within the configured scene duration
+- **Portable transition metadata**: carry `transitionSeconds` through preview requests/results, saved-scene CRUD, scheduler status, upcoming occurrences, iCalendar export, and credential-safe backup/restore
+- **Schedule-aware fade timing**: scheduled cues inherit the saved scene's fade and clamp it to a shorter per-cue duration when necessary; the administrator editor and runtime tables show the effective fade
+
+### Security
+- Fade durations are bounded integers that cannot exceed the scene or effective cue duration; credential-free scene, schedule, occurrence, calendar, and backup responses continue to omit bridge credentials and playback tokens
+
 ## [1.5.86] - 2026-08-18
 
 ### Added
