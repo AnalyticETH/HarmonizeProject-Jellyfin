@@ -443,6 +443,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetLabel = targetLabel,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
+                RunDate = schedule.RunDate?.Trim() ?? string.Empty,
                 StartDate = schedule.StartDate?.Trim() ?? string.Empty,
                 EndDate = schedule.EndDate?.Trim() ?? string.Empty,
                 ExcludedDates = excludedDates,
@@ -461,6 +462,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = schedule.TargetUserId,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId,
+                RunDate = schedule.RunDate,
                 StartDate = schedule.StartDate,
                 EndDate = schedule.EndDate,
                 ExcludedDates = schedule.ExcludedDates?.ToList() ?? new List<string>(),
@@ -901,7 +903,7 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Lists recurring scene cues without returning bridge credentials. Target user
+        /// Lists scene cues without returning bridge credentials. Target user
         /// IDs are retained so the configuration page can address a mapping, while the
         /// human-readable target label is derived from the current mapping.
         /// </summary>
@@ -922,7 +924,7 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Lists the system time zones available to recurring scene cues. IDs are the
+        /// Lists the system time zones available to scene cues. IDs are the
         /// exact values accepted by <see cref="TimeZoneInfo.FindSystemTimeZoneById"/>.
         /// </summary>
         [HttpGet("SceneSchedules/TimeZones")]
@@ -943,7 +945,7 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Returns next-run and last-run telemetry for recurring scene cues without
+        /// Returns next-run and last-run telemetry for scheduled scene cues without
         /// exposing bridge credentials or target connection details.
         /// </summary>
         [HttpGet("SceneSchedules/Status")]
@@ -1168,7 +1170,7 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Returns bounded sanitized run history for recurring scene cues. Bridge
+        /// Returns bounded sanitized run history for scheduled scene cues. Bridge
         /// credentials and connection details are never retained or serialized.
         /// </summary>
         [HttpGet("SceneSchedules/History")]
@@ -1220,8 +1222,10 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Saves or updates a recurring scene cue. The cue references an existing saved
-        /// scene and a global or per-user target; it never accepts bridge credentials.
+        /// Saves or updates a scene cue. The cue references an existing saved scene and
+        /// a global or per-user target; a populated run date makes it one-time, while a
+        /// blank run date keeps the recurring weekday behavior. Bridge credentials are
+        /// never accepted.
         /// </summary>
         [HttpPost("SceneSchedules")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1247,6 +1251,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 schedule.StartDate = normalizedStartDate;
             if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.EndDate, out var normalizedEndDate))
                 schedule.EndDate = normalizedEndDate;
+            if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.RunDate, out var normalizedRunDate))
+                schedule.RunDate = normalizedRunDate;
             if (PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
                     schedule.ExcludedDates,
                     out var normalizedExcludedDates))
@@ -1293,7 +1299,7 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Deletes one recurring scene cue by its stable ID.
+        /// Deletes one scene cue by its stable ID.
         /// </summary>
         [HttpDelete("SceneSchedules/{id}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1835,7 +1841,7 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Imports global settings, per-user profiles, color scenes, and recurring scene
+        /// Imports global settings, per-user profiles, color scenes, and scheduled scene
         /// cues atomically. Blank
         /// global or mapping keys preserve credentials already stored for the same target;
         /// secrets included explicitly in an import are accepted but never echoed back.
@@ -1964,6 +1970,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.StartDate = normalizedStartDate;
                 if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.EndDate, out var normalizedEndDate))
                     schedule.EndDate = normalizedEndDate;
+                if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.RunDate, out var normalizedRunDate))
+                    schedule.RunDate = normalizedRunDate;
                 if (PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
                         schedule.ExcludedDates,
                         out var normalizedExcludedDates))
@@ -2658,7 +2666,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Credential-safe backup document for settings, profiles, color scenes, and
-    /// recurring scene cues.
+    /// scheduled scene cues.
     /// </summary>
     public sealed class HueConfigurationExportDocument
     {
@@ -2972,9 +2980,9 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Request shape for one recurring saved-scene cue. TargetUserId is blank for the
-    /// global bridge target; optional date bounds/exclusions are calendar rules in the
-    /// selected cue timezone. Bridge credentials are intentionally not accepted here.
+    /// Request shape for one saved-scene cue. TargetUserId is blank for the global bridge
+    /// target; runDate selects a one-time cue, otherwise weekday/date rules in the
+    /// selected cue timezone apply. Bridge credentials are intentionally not accepted.
     /// </summary>
     public sealed class HueSceneScheduleRequest
     {
@@ -2995,6 +3003,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
+
+        [JsonPropertyName("runDate")]
+        public string RunDate { get; set; } = string.Empty;
 
         [JsonPropertyName("startDate")]
         public string StartDate { get; set; } = string.Empty;
@@ -3021,6 +3032,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = TargetUserId?.Trim() ?? string.Empty,
                 TimeOfDay = TimeOfDay?.Trim() ?? string.Empty,
                 TimeZoneId = TimeZoneId?.Trim() ?? string.Empty,
+                RunDate = RunDate?.Trim() ?? string.Empty,
                 StartDate = StartDate?.Trim() ?? string.Empty,
                 EndDate = EndDate?.Trim() ?? string.Empty,
                 ExcludedDates = (ExcludedDates ?? new List<string>())
@@ -3033,8 +3045,8 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Credential-free recurring scene cue returned by the administrator API, including
-    /// optional inclusive bounds and normalized excluded calendar dates.
+    /// Credential-free scene cue returned by the administrator API, including optional
+    /// one-time date, inclusive bounds, and normalized excluded calendar dates.
     /// </summary>
     public sealed class HueSceneScheduleResult
     {
@@ -3059,6 +3071,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
 
+        [JsonPropertyName("runDate")]
+        public string RunDate { get; set; } = string.Empty;
+
         [JsonPropertyName("startDate")]
         public string StartDate { get; set; } = string.Empty;
 
@@ -3076,7 +3091,7 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// One credential-free upcoming recurring-cue occurrence returned by the preview API.
+    /// One credential-free upcoming scene-cue occurrence returned by the preview API.
     /// </summary>
     public sealed class HueSceneScheduleOccurrenceResult
     {
@@ -3136,7 +3151,7 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Sanitized system time-zone choice for recurring scene cues.
+    /// Sanitized system time-zone choice for scene cues.
     /// </summary>
     public sealed class HueSceneScheduleTimeZoneResult
     {

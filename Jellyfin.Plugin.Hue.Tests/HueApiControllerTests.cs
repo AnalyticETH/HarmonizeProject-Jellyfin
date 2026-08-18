@@ -1127,6 +1127,43 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_SavesAndReturnsOneTimeCueWithoutWeekdayMask()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueAppKey = "one-time-app-secret",
+            HueClientKey = "one-time-client-secret",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Movie Night" } }
+        });
+        var controller = CreateController();
+
+        var action = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Premiere cue",
+            PresetName = "Movie Night",
+            TimeOfDay = "21:30",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            RunDate = " 2026-12-24 ",
+            DaysOfWeekMask = 0,
+            Enabled = true
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.Equal("2026-12-24", result.RunDate);
+        Assert.Equal(0, result.DaysOfWeekMask);
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal("2026-12-24", saved.RunDate);
+        Assert.Empty(saved.StartDate);
+        Assert.Empty(saved.EndDate);
+        Assert.Empty(saved.ExcludedDates);
+
+        var serialized = System.Text.Json.JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("one-time-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("one-time-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SceneScheduleTimeZones_ReturnsSystemChoicesWithoutCredentials()
     {
         InstallConfiguration(new PluginConfiguration
@@ -2021,6 +2058,62 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("Private viewer", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("PersistedSessionHistory", serialized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("secret-app", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConfigurationExportAndImport_PreservesOneTimeCueDate()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Accent", Red = 20, Green = 30, Blue = 40 } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "one-time-cue",
+                    Name = "Holiday cue",
+                    PresetName = "Accent",
+                    TimeOfDay = "18:45",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-12-24",
+                    DaysOfWeekMask = 0
+                }
+            }
+        });
+
+        var exported = HueConfigurationExportDocument.From(configuration);
+        var exportedCue = Assert.Single(exported.SceneSchedules);
+        Assert.Equal("2026-12-24", exportedCue.RunDate);
+        Assert.Equal(0, exportedCue.DaysOfWeekMask);
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            SchemaVersion = exported.SchemaVersion,
+            Configuration = exported.Configuration,
+            ColorPresets = new List<HueColorPresetRequest>
+            {
+                new() { Name = "Accent", Red = 20, Green = 30, Blue = 40 }
+            },
+            SceneSchedules = new List<HueSceneScheduleRequest>
+            {
+                new()
+                {
+                    Id = exportedCue.Id,
+                    Name = exportedCue.Name,
+                    PresetName = exportedCue.PresetName,
+                    TimeOfDay = exportedCue.TimeOfDay,
+                    TimeZoneId = exportedCue.TimeZoneId,
+                    RunDate = exportedCue.RunDate,
+                    DaysOfWeekMask = exportedCue.DaysOfWeekMask,
+                    Enabled = exportedCue.Enabled
+                }
+            }
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        var importedCue = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal("2026-12-24", importedCue.RunDate);
+        Assert.Equal(0, importedCue.DaysOfWeekMask);
     }
 
     [Fact]

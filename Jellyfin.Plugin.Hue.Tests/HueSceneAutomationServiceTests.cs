@@ -179,6 +179,114 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void OneTimeCue_RunsOnlyOnConfiguredDateAndIgnoresWeekdayMask()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            RunDate = "2026-08-18",
+            DaysOfWeekMask = 0
+        };
+
+        var beforeRunUtc = new DateTime(2026, 8, 17, 7, 0, 0, DateTimeKind.Utc);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+        var afterRunUtc = new DateTime(2026, 8, 19, 7, 0, 0, DateTimeKind.Utc);
+
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(beforeRunUtc, TimeZoneInfo.Local),
+            maxOccurrences: 5,
+            horizonDays: 31);
+
+        var occurrence = Assert.Single(occurrences);
+        Assert.Equal(new DateTime(2026, 8, 18, 7, 5, 0), occurrence.LocalTime);
+        Assert.Equal(new DateTime(2026, 8, 18, 7, 5, 0, DateTimeKind.Utc), occurrence.UtcTime);
+        Assert.False(HueSceneAutomationService.IsDue(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 8, 17, 7, 5, 30, DateTimeKind.Utc), TimeZoneInfo.Local)));
+        Assert.True(HueSceneAutomationService.IsDue(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(dueUtc, TimeZoneInfo.Local)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(afterRunUtc, TimeZoneInfo.Local)));
+        Assert.Null(HueSceneAutomationService.GetNextRunUtc(
+            schedule,
+            TimeZoneInfo.ConvertTimeFromUtc(afterRunUtc, TimeZoneInfo.Local)));
+    }
+
+    [Fact]
+    public async Task OneTimeCue_BackgroundRuntimePreservesDateThroughScheduleClone()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "one-time-app-secret",
+            HueClientKey = "one-time-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Evening", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "one-time-runtime",
+                    Name = "One-time runtime cue",
+                    PresetName = "Evening",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-08-18",
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                "192.168.1.100",
+                "one-time-app-secret",
+                "one-time-client-secret",
+                "area-1",
+                It.IsAny<JsonElement>(),
+                null,
+                10,
+                20,
+                30,
+                80,
+                1,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Displayed one-time scene." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+        await service.RunDueSchedulesAsync(
+            TimeZoneInfo.ConvertTimeFromUtc(dueUtc, TimeZoneInfo.Local),
+            CancellationToken.None);
+
+        streamTester.VerifyAll();
+        var runtime = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal("2026-08-18", runtime.RunDate);
+        Assert.False(runtime.Enabled);
+        Assert.Equal(1, runtime.RunCount);
+        Assert.True(runtime.LastSucceeded);
+        await service.RunDueSchedulesAsync(
+            TimeZoneInfo.ConvertTimeFromUtc(dueUtc, TimeZoneInfo.Local),
+            CancellationToken.None);
+        Assert.Single(streamTester.Invocations);
+    }
+
+    [Fact]
     public void EvaluateReadiness_RejectsInvalidDateWindowWithoutCredentials()
     {
         var config = new PluginConfiguration
@@ -206,6 +314,9 @@ public sealed class HueSceneAutomationServiceTests
                 PresetName = "Evening",
                 ExcludedDates = new List<string> { "2026-02-30" }
             });
+        var invalidRunDate = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule { Enabled = true, PresetName = "Evening", RunDate = "2026-02-30", DaysOfWeekMask = 0 });
 
         Assert.False(invalidStart.Ready);
         Assert.Contains("start date", invalidStart.Message, StringComparison.OrdinalIgnoreCase);
@@ -213,6 +324,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Contains("before", reversed.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(invalidExcluded.Ready);
         Assert.Contains("excluded", invalidExcluded.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(invalidRunDate.Ready);
+        Assert.Contains("run date", invalidRunDate.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

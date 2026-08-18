@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.80] - 2026-08-18
+
+### Added
+- **One-time scheduled cues**: schedule a saved scene for one exact calendar date in the cue's selected time zone without manufacturing a weekday mask or date window; successful automatic runs disable the cue so restarts cannot repeat it
+- **Portable one-time automation**: carry one-time dates through cue CRUD, readiness/status telemetry, occurrence previews, iCalendar downloads, and credential-safe backup/restore
+- **Administrator one-time editor**: add a one-time date control that disables conflicting recurring date rules and weekday selection
+
+### Security
+- One-time cue metadata contains only a bounded calendar date and existing credential-free scene/target labels; bridge credentials, connection details, and playback tokens remain excluded
+
 ## [1.5.79] - 2026-08-18
 
 ### Added

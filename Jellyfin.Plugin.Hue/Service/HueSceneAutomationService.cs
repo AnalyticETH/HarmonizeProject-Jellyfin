@@ -13,7 +13,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Hue.Service;
 
 /// <summary>
-/// Runs recurring, credential-free color-scene cues. Each cue reuses the existing
+/// Runs credential-free scheduled color-scene cues. Each cue reuses the existing
 /// non-destructive preview lifecycle, so the selected lights are captured, displayed for
 /// the saved scene duration, deactivated, and restored automatically.
 /// </summary>
@@ -177,6 +177,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 TimeZoneDisplayName = string.IsNullOrWhiteSpace(schedule.TimeZoneId)
                     ? $"Server local ({timeZone.DisplayName})"
                     : timeZone.DisplayName,
+                RunDate = schedule.RunDate?.Trim() ?? string.Empty,
                 StartDate = schedule.StartDate?.Trim() ?? string.Empty,
                 EndDate = schedule.EndDate?.Trim() ?? string.Empty,
                 ExcludedDates = PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
@@ -231,8 +232,8 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     /// <summary>
     /// Calculates a bounded preview of future cue occurrences. Calendar dates are
-    /// evaluated in the cue's selected time zone, so date windows, exclusions, DST
-    /// gaps, and weekday masks use the same rules as the hosted scheduler.
+    /// evaluated in the cue's selected time zone, so one-time dates, date windows,
+    /// exclusions, DST gaps, and weekday masks use the same rules as the hosted scheduler.
     /// </summary>
     internal static IReadOnlyList<HueSceneScheduleOccurrence> GetUpcomingOccurrences(
         HueSceneSchedule schedule,
@@ -252,19 +253,38 @@ public sealed class HueSceneAutomationService : BackgroundService
             MaxUpcomingHorizonDays);
 
         if (schedule == null || !schedule.Enabled ||
-            (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0 ||
             !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized) ||
             !PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var timeZone) ||
             !TryGetScheduleLocalNow(schedule, serverLocalNow, out var scheduleNow, out var serverUtcNow) ||
             !TryGetScheduleDateBounds(schedule, out var startDate, out var endDate) ||
-            !PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(schedule.ExcludedDates, out _))
+            !PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(schedule.ExcludedDates, out _) ||
+            !TryGetScheduleRunDate(schedule, out var runDate))
+        {
+            return occurrences;
+        }
+
+        if (!runDate.HasValue &&
+            (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0)
         {
             return occurrences;
         }
 
         var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
         var firstCandidateDate = scheduleNow.Date;
-        if (startDate.HasValue && firstCandidateDate < startDate.Value)
+        if (runDate.HasValue)
+        {
+            if (runDate.Value < firstCandidateDate)
+                return occurrences;
+
+            if (!includeFutureStartBeyondHorizon &&
+                (runDate.Value - firstCandidateDate).TotalDays >= boundedHorizon)
+            {
+                return occurrences;
+            }
+
+            firstCandidateDate = runDate.Value;
+        }
+        else if (startDate.HasValue && firstCandidateDate < startDate.Value)
         {
             if (!includeFutureStartBeyondHorizon &&
                 (startDate.Value - firstCandidateDate).TotalDays >= boundedHorizon)
@@ -277,14 +297,17 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         for (var dayOffset = 0; dayOffset < boundedHorizon; dayOffset++)
         {
+            if (runDate.HasValue && dayOffset > 0)
+                break;
+
             var candidateDate = firstCandidateDate.AddDays(dayOffset);
             if (endDate.HasValue && candidateDate > endDate.Value)
                 break;
             if (!IsScheduleDateAllowed(schedule, candidateDate))
                 continue;
 
-            var dayBit = 1 << (int)candidateDate.DayOfWeek;
-            if ((schedule.DaysOfWeekMask & dayBit) == 0)
+            if (!runDate.HasValue &&
+                (schedule.DaysOfWeekMask & (1 << (int)candidateDate.DayOfWeek)) == 0)
                 continue;
 
             var candidateLocal = DateTime.SpecifyKind(candidateDate.Add(expectedTime), DateTimeKind.Unspecified);
@@ -350,28 +373,39 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     /// <summary>
     /// Determines whether a schedule is due in the supplied server-local minute after
-    /// converting that instant into the cue's configured time zone.
-    /// Sunday is bit 0 and Saturday is bit 6 in <see cref="HueSceneSchedule.DaysOfWeekMask"/>.
+    /// converting that instant into the cue's configured time zone. One-time cues match
+    /// their RunDate; recurring cues use Sunday=1 through Saturday=64 bits.
     /// </summary>
     internal static bool IsDue(HueSceneSchedule schedule, DateTime localNow)
     {
         if (schedule == null || !schedule.Enabled ||
             !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized) ||
-            !TryGetScheduleLocalNow(schedule, localNow, out var scheduleNow, out _))
+            !TryGetScheduleLocalNow(schedule, localNow, out var scheduleNow, out _) ||
+            !TryGetScheduleRunDate(schedule, out var runDate))
+            return false;
+
+        if (!runDate.HasValue &&
+            (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0)
             return false;
 
         if (!IsScheduleDateAllowed(schedule, scheduleNow.Date))
             return false;
 
         var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
-        var dayBit = 1 << (int)scheduleNow.DayOfWeek;
-        return (schedule.DaysOfWeekMask & dayBit) != 0 &&
+        return (runDate.HasValue ||
+                (schedule.DaysOfWeekMask & (1 << (int)scheduleNow.DayOfWeek)) != 0) &&
                scheduleNow.Hour == expectedTime.Hours &&
                scheduleNow.Minute == expectedTime.Minutes;
     }
 
     private static bool IsScheduleDateAllowed(HueSceneSchedule schedule, DateTime scheduleDate)
     {
+        if (!TryGetScheduleRunDate(schedule, out var runDate))
+            return false;
+
+        if (runDate.HasValue && scheduleDate.Date != runDate.Value)
+            return false;
+
         if (!TryGetScheduleDateBounds(schedule, out var startDate, out var endDate))
             return false;
 
@@ -424,6 +458,22 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         date = DateTime.ParseExact(normalized, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        return true;
+    }
+
+    private static bool TryGetScheduleRunDate(HueSceneSchedule? schedule, out DateTime? runDate)
+    {
+        runDate = null;
+        if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule?.RunDate, out var normalized))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(normalized))
+            return true;
+
+        runDate = DateTime.ParseExact(
+            normalized,
+            "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture);
         return true;
     }
 
@@ -540,6 +590,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (!PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
             return new HueSceneScheduleReadiness(false, "The scheduled time zone is not available on this server.");
 
+        if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.RunDate, out var normalizedRunDate))
+            return new HueSceneScheduleReadiness(false, "The one-time run date is invalid.");
+
         if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.StartDate, out _))
             return new HueSceneScheduleReadiness(false, "The schedule start date is invalid.");
 
@@ -553,6 +606,18 @@ public sealed class HueSceneAutomationService : BackgroundService
             return new HueSceneScheduleReadiness(false, "The schedule end date is before the start date.");
         }
 
+        if (!string.IsNullOrWhiteSpace(normalizedRunDate))
+        {
+            if (!string.IsNullOrWhiteSpace(schedule.StartDate) ||
+                !string.IsNullOrWhiteSpace(schedule.EndDate))
+            {
+                return new HueSceneScheduleReadiness(false, "A one-time cue cannot also have a start or end date.");
+            }
+
+            if (schedule.ExcludedDates?.Any(value => !string.IsNullOrWhiteSpace(value)) == true)
+                return new HueSceneScheduleReadiness(false, "A one-time cue cannot also have excluded dates.");
+        }
+
         if (!PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
                 schedule.ExcludedDates,
                 out _))
@@ -560,7 +625,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             return new HueSceneScheduleReadiness(false, "One or more schedule excluded dates are invalid or exceed the limit.");
         }
 
-        if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > PluginConfiguration.AllSceneScheduleDaysMask)
+        if (string.IsNullOrWhiteSpace(normalizedRunDate) &&
+            (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > PluginConfiguration.AllSceneScheduleDaysMask))
             return new HueSceneScheduleReadiness(false, "At least one valid day must be selected.");
 
         var preset = config.ColorPresets?.FirstOrDefault(candidate =>
@@ -721,6 +787,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             var result = await RunScheduleTrackedAsync(config, schedule, cancellationToken).ConfigureAwait(false);
             if (result.Succeeded)
             {
+                DisableCompletedOneTimeSchedule(config, schedule);
                 _logger.LogInformation(
                     "Hue scene schedule {0} displayed preset {1} for target {2}",
                     schedule.Name,
@@ -734,6 +801,28 @@ public sealed class HueSceneAutomationService : BackgroundService
                     schedule.Name,
                     result.Message);
             }
+        }
+    }
+
+    private void DisableCompletedOneTimeSchedule(PluginConfiguration config, HueSceneSchedule schedule)
+    {
+        if (string.IsNullOrWhiteSpace(schedule.RunDate))
+            return;
+
+        var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Id?.Trim(), schedule.Id?.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (configuredSchedule == null || !configuredSchedule.Enabled)
+            return;
+
+        configuredSchedule.Enabled = false;
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "One-time Hue scene schedule {0} ran but could not persist its completed state", schedule.Name);
         }
     }
 
@@ -1145,6 +1234,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserId = source.TargetUserId,
             TimeOfDay = source.TimeOfDay,
             TimeZoneId = source.TimeZoneId,
+            RunDate = source.RunDate,
             StartDate = source.StartDate,
             EndDate = source.EndDate,
             ExcludedDates = source.ExcludedDates?.ToList() ?? new List<string>(),
@@ -1223,7 +1313,7 @@ internal sealed class HueSceneAutomationTargetDescription
 }
 
 /// <summary>
-/// Sanitized result returned by an immediate or recurring scene cue run.
+/// Sanitized result returned by an immediate or scheduled scene cue run.
 /// </summary>
 public sealed class HueSceneAutomationRunResult
 {
@@ -1256,7 +1346,7 @@ public sealed class HueSceneAutomationRunResult
 }
 
 /// <summary>
-/// Credential-free upcoming occurrence for one recurring scene cue.
+/// Credential-free upcoming occurrence for one scene cue.
 /// </summary>
 public sealed class HueSceneScheduleOccurrence
 {
@@ -1283,7 +1373,7 @@ public sealed class HueSceneScheduleOccurrence
 }
 
 /// <summary>
-/// Sanitized status for one configured recurring scene cue.
+/// Sanitized status for one configured scene cue.
 /// </summary>
 public sealed class HueSceneScheduleRuntimeStatus
 {
@@ -1307,6 +1397,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("timeZoneDisplayName")]
     public string TimeZoneDisplayName { get; init; } = string.Empty;
+
+    [JsonPropertyName("runDate")]
+    public string RunDate { get; init; } = string.Empty;
 
     [JsonPropertyName("startDate")]
     public string StartDate { get; init; } = string.Empty;
@@ -1355,7 +1448,7 @@ public sealed class HueSceneScheduleRuntimeStatus
 }
 
 /// <summary>
-/// Sanitized administrator-facing status for the recurring scene automation service.
+/// Sanitized administrator-facing status for the scheduled scene automation service.
 /// </summary>
 public sealed class HueSceneAutomationStatus
 {

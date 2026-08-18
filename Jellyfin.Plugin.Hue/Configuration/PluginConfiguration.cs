@@ -72,10 +72,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
-    /// A recurring, credential-free cue that displays one saved color scene at a
-    /// selected time-zone wall-clock time. Optional date bounds and exclusions control
-    /// its calendar recurrence. The target is resolved from the global bridge or a
-    /// persisted user mapping when the cue runs; credentials are never stored here.
+    /// A credential-free cue that displays one saved color scene at a selected time-zone
+    /// wall-clock time. It can run once on RunDate or recur with optional date bounds and
+    /// exclusions. The target is resolved from the global bridge or a persisted user
+    /// mapping when the cue runs; credentials are never stored here.
     /// </summary>
     public sealed class HueSceneSchedule
     {
@@ -89,6 +89,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// server-local behavior and is resolved from <see cref="TimeZoneInfo.Local"/>.
         /// </summary>
         public string TimeZoneId { get; set; } = string.Empty;
+        /// <summary>
+        /// Optional one-time calendar date in the cue's selected time zone, formatted as
+        /// yyyy-MM-dd. When set, the cue runs once on this date and ignores its weekday
+        /// mask; blank preserves the recurring schedule behavior.
+        /// </summary>
+        public string RunDate { get; set; } = string.Empty;
         /// <summary>
         /// Optional inclusive first calendar date in the cue's time zone, formatted as
         /// yyyy-MM-dd. Blank means the cue has no lower date bound.
@@ -791,9 +797,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
-        /// Validates one recurring scene cue. Times use the Jellyfin server's local
-        /// clock and are stored in 24-hour HH:mm form; days use Sunday=1 through
-        /// Saturday=64 bit flags.
+        /// Validates one scene cue. Times use the selected cue timezone and are stored in
+        /// 24-hour HH:mm form. A populated RunDate makes the cue one-time and ignores
+        /// weekday flags; blank RunDate keeps the recurring Sunday=1 through Saturday=64
+        /// bit-mask behavior.
         /// </summary>
         public static List<string> ValidateSceneSchedule(
             HueSceneSchedule? schedule,
@@ -836,6 +843,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (!TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
                 errors.Add($"{label} time zone is not available on this server");
 
+            if (!TryNormalizeSceneScheduleDate(schedule.RunDate, out var normalizedRunDate))
+                errors.Add($"{label} run date must use yyyy-MM-dd format");
+
             if (!TryNormalizeSceneScheduleDate(schedule.StartDate, out var normalizedStartDate))
                 errors.Add($"{label} start date must use yyyy-MM-dd format");
 
@@ -850,6 +860,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
             }
 
             var excludedDates = schedule.ExcludedDates ?? new List<string>();
+            if (!string.IsNullOrWhiteSpace(normalizedRunDate))
+            {
+                if (!string.IsNullOrWhiteSpace(normalizedStartDate) ||
+                    !string.IsNullOrWhiteSpace(normalizedEndDate))
+                {
+                    errors.Add($"{label} one-time run date cannot be combined with a start or end date");
+                }
+
+                if (excludedDates.Any(value => !string.IsNullOrWhiteSpace(value)))
+                    errors.Add($"{label} one-time run date cannot be combined with excluded dates");
+            }
+
             if (excludedDates.Count > MaxSceneScheduleExcludedDates)
                 errors.Add($"{label} may exclude no more than {MaxSceneScheduleExcludedDates} dates");
 
@@ -870,7 +892,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 }
             }
 
-            if (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > AllSceneScheduleDaysMask)
+            if (string.IsNullOrWhiteSpace(normalizedRunDate) &&
+                (schedule.DaysOfWeekMask < 1 || schedule.DaysOfWeekMask > AllSceneScheduleDaysMask))
                 errors.Add($"{label} must select at least one day of the week");
 
             if (!string.IsNullOrWhiteSpace(schedule.TargetUserId))

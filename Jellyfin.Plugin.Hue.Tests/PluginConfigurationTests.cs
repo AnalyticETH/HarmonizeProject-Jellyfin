@@ -121,6 +121,59 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsOneTimeRunDateWithoutWeekdayMask()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-once",
+                    Name = "Movie night",
+                    PresetName = "Evening",
+                    TimeOfDay = "21:15",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = " 2026-12-24 ",
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+        Assert.True(PluginConfiguration.TryNormalizeSceneScheduleDate(config.SceneSchedules[0].RunDate, out var normalized));
+        Assert.Equal("2026-12-24", normalized);
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsOneTimeDateWithRecurringDateRules()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-once-conflict",
+                    Name = "Conflicting cue",
+                    PresetName = "Evening",
+                    RunDate = "2026-12-24",
+                    StartDate = "2026-12-01",
+                    ExcludedDates = new List<string> { "2026-12-25" },
+                    DaysOfWeekMask = 127
+                }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+
+        Assert.Contains(errors, error => error.Contains("one-time run date cannot be combined with a start or end date", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("one-time run date cannot be combined with excluded dates", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsInvalidAndReversedDateWindows()
     {
         var config = new PluginConfiguration
