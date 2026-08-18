@@ -908,6 +908,49 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunSchedule_CancelScheduleStopsManualRunAndReleasesCancellationSlot()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-secret",
+            HueClientKey = "client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Cue", DurationSeconds = 8 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "cue-1", Name = "Cue", PresetName = "Cue" }
+            }
+        });
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new BlockingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var runTask = service.RunScheduleAsync("cue-1");
+        await streamTester.PreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(service.CancelSchedule(" cue-1 "));
+        var result = await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("canceled", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(service.CancelSchedule("cue-1"));
+        var runtime = Assert.Single(service.GetStatus().Schedules);
+        Assert.False(runtime.IsRunning);
+        Assert.Equal(1, runtime.RunCount);
+        var history = Assert.Single(service.GetHistory());
+        Assert.Contains("canceled", history.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task PausedAutomation_SkipsDueCueWithoutClaimingOrRunningIt()
     {
         var now = DateTime.Now;
@@ -1032,6 +1075,58 @@ public sealed class HueSceneAutomationServiceTests
                     Encoding.UTF8,
                     "application/json")
             });
+        }
+    }
+
+    private sealed class BlockingStreamTester : IHueStreamTester
+    {
+        public TaskCompletionSource<bool> PreviewStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "Not used by this test."
+            });
+
+        public Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds)
+        {
+            PreviewStarted.TrySetResult(true);
+            return WaitForCancellationAsync(cancellationToken);
+        }
+
+        public bool CancelActiveDiagnostic() => false;
+
+        private static async Task<HueStreamProbeResult> WaitForCancellationAsync(CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Unexpected completion."
+            };
         }
     }
 }

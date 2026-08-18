@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.89] - 2026-08-18
+
+### Added
+- **Cancellable administrator previews**: expose a visible Cancel Active Preview action for solid-color and channel-mapping previews, including automatic cancellation when the configuration page is left
+- **Cancellable manual scene cues**: expose a visible Cancel Running Cue action and a sanitized `POST /HueSync/SceneSchedules/{id}/Cancel` endpoint for long Run Now operations
+- **Restorative cancellation lifecycle**: cancellation flows through the linked request token so entertainment areas are deactivated and captured light states are restored before a preview or cue ends
+
+### Security
+- Cancellation endpoints return only bounded status and message DTOs; bridge credentials, connection details, and playback tokens remain excluded from administrator responses
+
 ## [1.5.88] - 2026-08-18
 
 ### Added

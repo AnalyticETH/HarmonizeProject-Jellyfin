@@ -840,6 +840,29 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Requests cancellation of the active administrator preview or diagnostic. The
+        /// active lifecycle still deactivates the entertainment area and restores captured
+        /// light state before completing.
+        /// </summary>
+        [HttpPost("Preview/Cancel")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public ActionResult<HuePreviewCancellationResult> CancelPreview()
+        {
+            if (_streamTester == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
+
+            var canceled = _streamTester.CancelActiveDiagnostic();
+            return Ok(new HuePreviewCancellationResult
+            {
+                Canceled = canceled,
+                Message = canceled
+                    ? "Cancellation requested; the preview will restore the bridge state before ending."
+                    : "No active Hue preview or diagnostic is running."
+            });
+        }
+
+        /// <summary>
         /// Lists reusable solid-color preview scenes. Presets contain only visual
         /// values and never include bridge credentials or per-user targets.
         /// </summary>
@@ -1426,6 +1449,38 @@ namespace Jellyfin.Plugin.Hue.Api
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
 
             return Ok(await _sceneAutomationService.RunScheduleAsync(id, cancellationToken).ConfigureAwait(false));
+        }
+
+        /// <summary>
+        /// Requests cancellation of a manually started scene cue. The active cue continues
+        /// through the normal bridge deactivation and light-restoration cleanup lifecycle.
+        /// </summary>
+        [HttpPost("SceneSchedules/{id}/Cancel")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public ActionResult<HueSceneScheduleCancellationResult> CancelSceneSchedule(string id)
+        {
+            if (Plugin.Instance?.Configuration == null)
+                return NotFound("Plugin configuration not available.");
+
+            if (_sceneAutomationService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+
+            var scheduleExists = Plugin.Instance.Configuration.SceneSchedules?.Any(schedule =>
+                schedule != null &&
+                string.Equals(schedule.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase)) == true;
+            if (!scheduleExists)
+                return NotFound("Scene schedule not found.");
+
+            var canceled = _sceneAutomationService.CancelSchedule(id);
+            return Ok(new HueSceneScheduleCancellationResult
+            {
+                Canceled = canceled,
+                Message = canceled
+                    ? "Cancellation requested; the scene will restore the bridge state before ending."
+                    : "No manually started scene run is active for this cue."
+            });
         }
 
         [HttpGet("Status")]
@@ -3014,6 +3069,15 @@ namespace Jellyfin.Plugin.Hue.Api
         public int SelectedChannelCount { get; set; }
     }
 
+    /// <summary>
+    /// Sanitized result from requesting cancellation of an administrator preview.
+    /// </summary>
+    public sealed class HuePreviewCancellationResult
+    {
+        public bool Canceled { get; init; }
+        public string Message { get; init; } = string.Empty;
+    }
+
     public class HueColorPresetRequest
     {
         [JsonPropertyName("name")]
@@ -3473,6 +3537,15 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? ScheduleIdFilter { get; init; }
         public DateTime GeneratedAtUtc { get; init; }
         public IReadOnlyList<HueSceneAutomationRunResult> Runs { get; init; } = Array.Empty<HueSceneAutomationRunResult>();
+    }
+
+    /// <summary>
+    /// Sanitized result from requesting cancellation of a manually started scene cue.
+    /// </summary>
+    public sealed class HueSceneScheduleCancellationResult
+    {
+        public bool Canceled { get; init; }
+        public string Message { get; init; } = string.Empty;
     }
 
     /// <summary>

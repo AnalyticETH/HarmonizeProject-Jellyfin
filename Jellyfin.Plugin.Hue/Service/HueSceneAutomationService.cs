@@ -25,6 +25,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     private readonly ILogger<HueSceneAutomationService> _logger;
     private readonly object _runSlotLock = new();
     private readonly Dictionary<string, DateTime> _lastRunSlots = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _manualRunCancellationLock = new();
+    private readonly Dictionary<string, CancellationTokenSource> _manualRunCancellations = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _runtimeStateLock = new();
     private readonly Dictionary<string, HueSceneScheduleRuntimeState> _runtimeStates = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _historyLock = new();
@@ -444,7 +446,67 @@ public sealed class HueSceneAutomationService : BackgroundService
                 "The requested scene schedule was not found.");
         }
 
-        return await RunScheduleTrackedAsync(config!, schedule, cancellationToken).ConfigureAwait(false);
+        var key = schedule.Id?.Trim() ?? string.Empty;
+        using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lock (_manualRunCancellationLock)
+        {
+            if (_manualRunCancellations.ContainsKey(key))
+            {
+                return Failure(
+                    scheduleId,
+                    "The requested scene schedule is already running.",
+                    schedule);
+            }
+
+            _manualRunCancellations[key] = runCancellation;
+        }
+
+        try
+        {
+            try
+            {
+                return await RunScheduleTrackedAsync(config!, schedule, runCancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (
+                runCancellation.IsCancellationRequested &&
+                !cancellationToken.IsCancellationRequested)
+            {
+                var canceled = Failure(schedule.Id, "The scene cue run was canceled.", schedule);
+                canceled.RunCount = GetRuntimeState(schedule.Id).RunCount;
+                return canceled;
+            }
+        }
+        finally
+        {
+            lock (_manualRunCancellationLock)
+            {
+                if (_manualRunCancellations.TryGetValue(key, out var active) &&
+                    ReferenceEquals(active, runCancellation))
+                {
+                    _manualRunCancellations.Remove(key);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Requests cancellation of a manually started cue. The active stream tester and
+    /// bridge cleanup lifecycle receive the cancellation through the linked run token.
+    /// </summary>
+    public bool CancelSchedule(string scheduleId)
+    {
+        var key = scheduleId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(key))
+            return false;
+
+        lock (_manualRunCancellationLock)
+        {
+            if (!_manualRunCancellations.TryGetValue(key, out var cancellation))
+                return false;
+
+            cancellation.Cancel();
+            return true;
+        }
     }
 
     /// <summary>

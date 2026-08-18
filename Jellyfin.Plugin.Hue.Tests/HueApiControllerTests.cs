@@ -820,6 +820,33 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void CancelPreview_RequestsCancellationAndReturnsSanitizedResult()
+    {
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.CancelActiveDiagnostic())
+            .Returns(true);
+        var controller = CreateController(streamTester.Object);
+
+        var action = controller.CancelPreview();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HuePreviewCancellationResult>(response.Value);
+        Assert.True(result.Canceled);
+        Assert.Contains("restore", result.Message, StringComparison.OrdinalIgnoreCase);
+        streamTester.Verify(tester => tester.CancelActiveDiagnostic(), Times.Once);
+    }
+
+    [Fact]
+    public void CancelPreview_WithoutPreviewServiceReturnsUnavailable()
+    {
+        var action = CreateController().CancelPreview();
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Preview_BlankRedactedCredentialsUsesStoredGlobalKeys()
     {
         InstallConfiguration(new PluginConfiguration
@@ -1522,6 +1549,32 @@ public sealed class HueApiControllerTests : IDisposable
 
         var response = Assert.IsType<ObjectResult>(action.Result);
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
+        Assert.Single(configuration.SceneSchedules);
+    }
+
+    [Fact]
+    public void CancelSceneSchedule_WhenNoManualRunIsActiveReturnsFalseResult()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Cue" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "cue-1", Name = "Cue", PresetName = "Cue" }
+            }
+        });
+        var sceneService = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new IHostedService[] { sceneService });
+
+        var action = controller.CancelSceneSchedule(" cue-1 ");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleCancellationResult>(response.Value);
+        Assert.False(result.Canceled);
+        Assert.Contains("no manually", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Single(configuration.SceneSchedules);
     }
 

@@ -279,7 +279,7 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
-    public async Task TestAsync_WhenCanceledDuringCaptureDoesNotActivateBridge()
+    public async Task TestAsync_CancelActiveDiagnosticDuringCaptureDoesNotActivateBridge()
     {
         var handler = new Mock<HttpMessageHandler>();
         var requestStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -310,17 +310,15 @@ public sealed class HueStreamTesterTests
             Mock.Of<ILogger<HueStreamTester>>());
         using var document = JsonDocument.Parse(
             "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
-        using var cancellationSource = new CancellationTokenSource();
-
         var probeTask = tester.TestAsync(
             "192.168.1.100",
             "app-key",
             "client-key",
             "area-id",
             document.RootElement,
-            cancellationToken: cancellationSource.Token);
+            cancellationToken: CancellationToken.None);
         await requestStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        cancellationSource.Cancel();
+        Assert.True(tester.CancelActiveDiagnostic());
 
         var result = await probeTask;
 
@@ -338,6 +336,7 @@ public sealed class HueStreamTesterTests
             Times.Never(),
             ItExpr.Is<HttpRequestMessage>(request => request.Method == HttpMethod.Put),
             ItExpr.IsAny<CancellationToken>());
+        Assert.False(tester.CancelActiveDiagnostic());
     }
 
     [Fact]

@@ -243,6 +243,9 @@
                             <button is="emby-button" type="button" class="raised" id="previewColorBtn">
                                 <span>Preview Default Target</span>
                             </button>
+                            <button is="emby-button" type="button" class="raised" id="cancelPreviewBtn" style="display: none; background: #8a3d3d;">
+                                <span>Cancel Active Preview</span>
+                            </button>
                         </div>
                         <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the default bridge, area, and global channel profile above.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 1em;">
@@ -280,6 +283,7 @@
                                 </select>
                             </div>
                             <button is="emby-button" type="button" class="raised" id="runSceneScheduleBtn" disabled><span>Run Now</span></button>
+                            <button is="emby-button" type="button" class="raised" id="cancelSceneScheduleRunBtn" style="display: none; background: #8a3d3d;"><span>Cancel Running Cue</span></button>
                             <button is="emby-button" type="button" class="raised" id="deleteSceneScheduleBtn" disabled><span>Delete Cue</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSceneScheduleBtn"><span>New Cue</span></button>
                         </div>
@@ -1461,7 +1465,52 @@
                         text: message || (succeeded ? "Color preview completed." : "Color preview failed.")
                     };
                 },
+                setPreviewBusy: function (page, busy) {
+                    var cancelButton = page && page.querySelector('#cancelPreviewBtn');
+                    var defaultButton = page && page.querySelector('#previewColorBtn');
+                    var mappingButton = page && page.querySelector('#mappingPreviewColorBtn');
+                    if (defaultButton) defaultButton.disabled = busy;
+                    if (mappingButton) mappingButton.disabled = busy;
+                    if (cancelButton) {
+                        cancelButton.style.display = busy ? "" : "none";
+                        cancelButton.disabled = false;
+                    }
+                },
+                cancelPreview: function (page) {
+                    if (!page || !page._huePreviewRequest || page._huePreviewCancellationRequest) return;
+                    var cancelButton = page.querySelector('#cancelPreviewBtn');
+                    var statusEl = page._huePreviewStatusElement || page.querySelector('#previewColorStatus');
+                    if (cancelButton) cancelButton.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Requesting preview cancellation; restoring the selected lights...";
+                        statusEl.style.color = "#f0ad4e";
+                    }
+                    page._huePreviewCancellationRequest = ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/Preview/Cancel"),
+                        dataType: "json"
+                    }).then(function (response) {
+                        var canceled = response && (response.canceled !== undefined ? response.canceled : response.Canceled);
+                        var message = response && (response.message || response.Message);
+                        if (!canceled && statusEl) {
+                            statusEl.textContent = message || "No active preview was found.";
+                            statusEl.style.color = "#f0ad4e";
+                        }
+                    }).catch(function (err) {
+                        console.error("Preview cancellation error:", err);
+                        if (statusEl) {
+                            statusEl.textContent = "Unable to request cancellation. The preview may still be running; wait for it to finish and verify light restoration.";
+                            statusEl.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        page._huePreviewCancellationRequest = null;
+                    });
+                },
                 previewDefaultColor: function (page) {
+                    if (page._huePreviewRequest) {
+                        Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
+                        return;
+                    }
                     var button = page.querySelector('#previewColorBtn');
                     var statusEl = page.querySelector('#previewColorStatus');
                     var bridgeIp = page.querySelector('#hueBridgeIp').value.trim();
@@ -1485,10 +1534,11 @@
                     }
 
                     button.disabled = true;
+                    page._huePreviewStatusElement = statusEl;
                     statusEl.textContent = "Saving light state and sending preview...";
                     statusEl.style.color = "";
                     Dashboard.showLoadingMsg();
-                    HueConfigurationPage.fetchColorPreview(
+                    var request = HueConfigurationPage.fetchColorPreview(
                         bridgeIp,
                         appKey,
                         clientKey,
@@ -1501,7 +1551,10 @@
                         values.durationSeconds,
                         undefined,
                         values.transitionSeconds,
-                        values.transitionOutSeconds)
+                        values.transitionOutSeconds);
+                    page._huePreviewRequest = request;
+                    HueConfigurationPage.setPreviewBusy(page, true);
+                    request
                         .then(function (response) {
                             var result = HueConfigurationPage.previewMessage(response);
                             statusEl.textContent = result.text;
@@ -1513,7 +1566,11 @@
                             statusEl.style.color = "#d9534f";
                         })
                         .finally(function () {
-                            button.disabled = false;
+                            if (page._huePreviewRequest === request) {
+                                page._huePreviewRequest = null;
+                                page._huePreviewStatusElement = null;
+                                HueConfigurationPage.setPreviewBusy(page, false);
+                            }
                             Dashboard.hideLoadingMsg();
                         });
                 },
@@ -2394,8 +2451,14 @@
                     var hasSelection = !!(select && select.value);
                     var deleteButton = page && page.querySelector('#deleteSceneScheduleBtn');
                     var runButton = page && page.querySelector('#runSceneScheduleBtn');
+                    var cancelButton = page && page.querySelector('#cancelSceneScheduleRunBtn');
+                    var runActive = !!(page && page._hueSceneScheduleRequest);
                     if (deleteButton) deleteButton.disabled = !hasSelection;
-                    if (runButton) runButton.disabled = !hasSelection;
+                    if (runButton) runButton.disabled = !hasSelection || runActive;
+                    if (cancelButton) {
+                        cancelButton.style.display = runActive ? "" : "none";
+                        cancelButton.disabled = !!(page && page._hueSceneScheduleCancellationRequest);
+                    }
                 },
                 applySceneSchedule: function (page, scheduleId) {
                     var schedule = (page._hueSceneSchedules || []).find(function (candidate) {
@@ -2623,6 +2686,10 @@
                     });
                 },
                 runSceneSchedule: function (page) {
+                    if (page._hueSceneScheduleRequest) {
+                        Dashboard.alert("A scheduled cue is already running. Cancel it or wait for it to finish first.");
+                        return;
+                    }
                     var select = page.querySelector('#sceneScheduleSelect');
                     var scheduleId = select && select.value;
                     var statusEl = page.querySelector('#sceneScheduleStatus');
@@ -2633,11 +2700,14 @@
                     var button = page.querySelector('#runSceneScheduleBtn');
                     button.disabled = true;
                     if (statusEl) statusEl.textContent = "Running scheduled scene...";
-                    ApiClient.ajax({
+                    var request = ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/SceneSchedules/" + encodeURIComponent(scheduleId) + "/Run"),
                         dataType: "json"
-                    }).then(function (result) {
+                    });
+                    page._hueSceneScheduleRequest = request;
+                    HueConfigurationPage.updateSceneScheduleButtons(page);
+                    request.then(function (result) {
                         var succeeded = result && (result.succeeded !== undefined ? result.succeeded : result.Succeeded);
                         var message = result && (result.message || result.Message) || "Scene cue completed.";
                         if (statusEl) {
@@ -2651,7 +2721,42 @@
                             statusEl.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        button.disabled = false;
+                        if (page._hueSceneScheduleRequest === request) {
+                            page._hueSceneScheduleRequest = null;
+                            HueConfigurationPage.updateSceneScheduleButtons(page);
+                        }
+                    });
+                },
+                cancelSceneScheduleRun: function (page) {
+                    if (!page || !page._hueSceneScheduleRequest || page._hueSceneScheduleCancellationRequest) return;
+                    var select = page.querySelector('#sceneScheduleSelect');
+                    var scheduleId = select && select.value;
+                    var statusEl = page.querySelector('#sceneScheduleStatus');
+                    if (!scheduleId) return;
+                    if (statusEl) {
+                        statusEl.textContent = "Requesting cue cancellation; restoring the selected lights...";
+                        statusEl.style.color = "#f0ad4e";
+                    }
+                    page._hueSceneScheduleCancellationRequest = ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/SceneSchedules/" + encodeURIComponent(scheduleId) + "/Cancel"),
+                        dataType: "json"
+                    }).then(function (response) {
+                        var canceled = response && (response.canceled !== undefined ? response.canceled : response.Canceled);
+                        var message = response && (response.message || response.Message);
+                        if (!canceled && statusEl) {
+                            statusEl.textContent = message || "No manually started run is active for this cue.";
+                            statusEl.style.color = "#f0ad4e";
+                        }
+                    }).catch(function (err) {
+                        console.error("Scene schedule cancellation error:", err);
+                        if (statusEl) {
+                            statusEl.textContent = "Unable to request cue cancellation. Verify the scheduler status and light restoration manually.";
+                            statusEl.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        page._hueSceneScheduleCancellationRequest = null;
+                        HueConfigurationPage.updateSceneScheduleButtons(page);
                     });
                 },
                 connectionTestMessage: function (response, areaId) {
@@ -3872,6 +3977,10 @@
                 },
 
                 previewMappingColor: function (page) {
+                    if (page._huePreviewRequest) {
+                        Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
+                        return;
+                    }
                     var target = HueConfigurationPage.getEffectiveMappingTarget(page);
                     var channelIdsEl = document.getElementById('mappingChannelIdsOverride');
                     var globalChannelIdsEl = document.getElementById('channelIds');
@@ -3898,12 +4007,13 @@
                     }
 
                     button.disabled = true;
+                    page._huePreviewStatusElement = statusEl;
                     if (statusEl) {
                         statusEl.textContent = "Saving mapping lights and sending preview...";
                         statusEl.style.background = "#3f51b5";
                     }
                     Dashboard.showLoadingMsg();
-                    HueConfigurationPage.fetchColorPreview(
+                    var request = HueConfigurationPage.fetchColorPreview(
                         target.bridgeIp,
                         target.appKey,
                         target.clientKey,
@@ -3916,7 +4026,10 @@
                         values.durationSeconds,
                         target.userId,
                         values.transitionSeconds,
-                        values.transitionOutSeconds)
+                        values.transitionOutSeconds);
+                    page._huePreviewRequest = request;
+                    HueConfigurationPage.setPreviewBusy(page, true);
+                    request
                         .then(function (response) {
                             var result = HueConfigurationPage.previewMessage(response);
                             if (statusEl) {
@@ -3932,7 +4045,11 @@
                             }
                         })
                         .finally(function () {
-                            button.disabled = false;
+                            if (page._huePreviewRequest === request) {
+                                page._huePreviewRequest = null;
+                                page._huePreviewStatusElement = null;
+                                HueConfigurationPage.setPreviewBusy(page, false);
+                            }
                             Dashboard.hideLoadingMsg();
                         });
                 },
@@ -4607,6 +4724,10 @@
                 HueConfigurationPage.previewDefaultColor(this.closest('.page'));
             });
 
+            document.querySelector('#cancelPreviewBtn').addEventListener('click', function () {
+                HueConfigurationPage.cancelPreview(this.closest('.page'));
+            });
+
             document.querySelector('#previewPresetSelect').addEventListener('change', function () {
                 HueConfigurationPage.updatePresetButtons(this.closest('.page'));
             });
@@ -4649,6 +4770,10 @@
 
             document.querySelector('#runSceneScheduleBtn').addEventListener('click', function () {
                 HueConfigurationPage.runSceneSchedule(this.closest('.page'));
+            });
+
+            document.querySelector('#cancelSceneScheduleRunBtn').addEventListener('click', function () {
+                HueConfigurationPage.cancelSceneScheduleRun(this.closest('.page'));
             });
 
             document.querySelector('#refreshSceneScheduleStatusBtn').addEventListener('click', function () {
@@ -4785,6 +4910,12 @@
 
             document.addEventListener('pagehide', function (e) {
                 if (e.target.classList && e.target.classList.contains('pluginConfigurationPage')) {
+                    if (e.target._huePreviewRequest) {
+                        HueConfigurationPage.cancelPreview(e.target);
+                    }
+                    if (e.target._hueSceneScheduleRequest) {
+                        HueConfigurationPage.cancelSceneScheduleRun(e.target);
+                    }
                     HueConfigurationPage.stopRuntimeStatusPolling(e.target);
                 }
             });

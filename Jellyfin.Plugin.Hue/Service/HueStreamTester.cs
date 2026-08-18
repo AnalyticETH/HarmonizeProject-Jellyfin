@@ -39,6 +39,12 @@ public interface IHueStreamTester
         CancellationToken cancellationToken = default,
         int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
         int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds);
+
+    /// <summary>
+    /// Cancels the active diagnostic or preview, if one is running. Cleanup continues
+    /// through the normal state-restoring lifecycle.
+    /// </summary>
+    bool CancelActiveDiagnostic();
 }
 
 /// <summary>
@@ -68,6 +74,8 @@ public sealed class HueStreamTester : IHueStreamTester
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<HueStreamTester> _logger;
     private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
+    private readonly object _activeOperationLock = new();
+    private CancellationTokenSource? _activeOperationCancellation;
 
     public HueStreamTester(
         HueClient hueClient,
@@ -89,14 +97,14 @@ public sealed class HueStreamTester : IHueStreamTester
         JsonElement areaConfiguration,
         IReadOnlySet<int>? channelIds = null,
         CancellationToken cancellationToken = default)
-        => RunSerializedAsync(() => TestCoreAsync(
+        => RunSerializedAsync(operationCancellation => TestCoreAsync(
             bridgeIp,
             appKey,
             clientKey,
             areaId,
             areaConfiguration,
             channelIds,
-            cancellationToken));
+            operationCancellation), cancellationToken);
 
     private async Task<HueStreamProbeResult> TestCoreAsync(
         string bridgeIp,
@@ -274,7 +282,7 @@ public sealed class HueStreamTester : IHueStreamTester
         CancellationToken cancellationToken = default,
         int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
         int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds)
-        => RunSerializedAsync(() => PreviewCoreAsync(
+        => RunSerializedAsync(operationCancellation => PreviewCoreAsync(
             bridgeIp,
             appKey,
             clientKey,
@@ -288,7 +296,7 @@ public sealed class HueStreamTester : IHueStreamTester
             durationSeconds,
             transitionSeconds,
             transitionOutSeconds,
-            cancellationToken));
+            operationCancellation), cancellationToken);
 
     private async Task<HueStreamProbeResult> PreviewCoreAsync(
         string bridgeIp,
@@ -618,18 +626,44 @@ public sealed class HueStreamTester : IHueStreamTester
         return previewResult;
     }
 
-    private async Task<HueStreamProbeResult> RunSerializedAsync(Func<Task<HueStreamProbeResult>> operation)
+    public bool CancelActiveDiagnostic()
+    {
+        lock (_activeOperationLock)
+        {
+            if (_activeOperationCancellation == null)
+                return false;
+
+            _activeOperationCancellation.Cancel();
+            return true;
+        }
+    }
+
+    private async Task<HueStreamProbeResult> RunSerializedAsync(
+        Func<CancellationToken, Task<HueStreamProbeResult>> operation,
+        CancellationToken requestCancellation)
     {
         var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
         if (lifecycleLease == null)
             return Failure(DiagnosticBusyMessage);
 
+        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
+        lock (_activeOperationLock)
+        {
+            _activeOperationCancellation = operationCancellation;
+        }
+
         try
         {
-            return await operation().ConfigureAwait(false);
+            return await operation(operationCancellation.Token).ConfigureAwait(false);
         }
         finally
         {
+            lock (_activeOperationLock)
+            {
+                if (ReferenceEquals(_activeOperationCancellation, operationCancellation))
+                    _activeOperationCancellation = null;
+            }
+
             lifecycleLease.Dispose();
         }
     }
