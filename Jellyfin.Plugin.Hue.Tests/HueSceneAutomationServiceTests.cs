@@ -179,6 +179,23 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void GetEffectiveDurationSeconds_UsesCueOverrideAndFallsBackToSavedScene()
+    {
+        var preset = new HueColorPreset { Name = "Evening", DurationSeconds = 6 };
+
+        Assert.Equal(
+            12,
+            HueSceneAutomationService.GetEffectiveDurationSeconds(
+                new HueSceneSchedule { DurationSeconds = 12 },
+                preset));
+        Assert.Equal(
+            6,
+            HueSceneAutomationService.GetEffectiveDurationSeconds(
+                new HueSceneSchedule { DurationSeconds = 0 },
+                preset));
+    }
+
+    [Fact]
     public void OneTimeCue_RunsOnlyOnConfiguredDateAndIgnoresWeekdayMask()
     {
         var schedule = new HueSceneSchedule
@@ -241,6 +258,7 @@ public sealed class HueSceneAutomationServiceTests
                     TimeOfDay = "07:05",
                     TimeZoneId = TimeZoneInfo.Utc.Id,
                     RunDate = "2026-08-18",
+                    DurationSeconds = 7,
                     DaysOfWeekMask = 0
                 }
             }
@@ -261,7 +279,7 @@ public sealed class HueSceneAutomationServiceTests
                 20,
                 30,
                 80,
-                1,
+                7,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Displayed one-time scene." });
         var service = new HueSceneAutomationService(
@@ -278,6 +296,7 @@ public sealed class HueSceneAutomationServiceTests
         var runtime = Assert.Single(service.GetStatus().Schedules);
         Assert.Equal("2026-08-18", runtime.RunDate);
         Assert.False(runtime.Enabled);
+        Assert.Equal(7, runtime.DurationSeconds);
         Assert.Equal(1, runtime.RunCount);
         Assert.True(runtime.LastSucceeded);
         await service.RunDueSchedulesAsync(
@@ -317,6 +336,9 @@ public sealed class HueSceneAutomationServiceTests
         var invalidRunDate = HueSceneAutomationService.EvaluateReadiness(
             config,
             new HueSceneSchedule { Enabled = true, PresetName = "Evening", RunDate = "2026-02-30", DaysOfWeekMask = 0 });
+        var invalidDuration = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule { Enabled = true, PresetName = "Evening", DurationSeconds = 31 });
 
         Assert.False(invalidStart.Ready);
         Assert.Contains("start date", invalidStart.Message, StringComparison.OrdinalIgnoreCase);
@@ -326,6 +348,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Contains("excluded", invalidExcluded.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(invalidRunDate.Ready);
         Assert.Contains("run date", invalidRunDate.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(invalidDuration.Ready);
+        Assert.Contains("duration", invalidDuration.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

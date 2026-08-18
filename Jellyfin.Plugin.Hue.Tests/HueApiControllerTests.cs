@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Reflection;
 using System.Text;
@@ -1083,6 +1084,7 @@ public sealed class HueApiControllerTests : IDisposable
             EndDate = "2026-12-31",
             ExcludedDates = new List<string> { "2026-12-31", " 2026-12-24 ", "2026-12-31" },
             DaysOfWeekMask = 1 | 32,
+            DurationSeconds = 12,
             Enabled = true
         });
 
@@ -1095,7 +1097,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("2026-08-01", savedResult.StartDate);
         Assert.Equal("2026-12-31", savedResult.EndDate);
         Assert.Equal(new[] { "2026-12-24", "2026-12-31" }, savedResult.ExcludedDates);
+        Assert.Equal(12, savedResult.DurationSeconds);
         Assert.Equal(new[] { "2026-12-24", "2026-12-31" }, configuration.SceneSchedules[0].ExcludedDates);
+        Assert.Equal(12, configuration.SceneSchedules[0].DurationSeconds);
         Assert.Single(configuration.SceneSchedules);
 
         var updated = controller.SaveSceneSchedule(new HueSceneScheduleRequest
@@ -1193,6 +1197,28 @@ public sealed class HueApiControllerTests : IDisposable
             TimeOfDay = "25:00",
             ExcludedDates = new List<string> { "2026-02-30" },
             DaysOfWeekMask = 0
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Empty(configuration.SceneSchedules);
+    }
+
+    [Fact]
+    public void SceneSchedules_RejectInvalidDurationOverrideWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } }
+        });
+
+        var action = CreateController().SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Broken duration cue",
+            PresetName = "Evening",
+            TimeOfDay = "20:00",
+            DurationSeconds = PluginConfiguration.MaxPreviewDurationSeconds + 1,
+            DaysOfWeekMask = 127
         });
 
         var response = Assert.IsType<BadRequestObjectResult>(action.Result);
@@ -1446,6 +1472,7 @@ public sealed class HueApiControllerTests : IDisposable
                     StartDate = "2026-08-01",
                     EndDate = "2026-12-31",
                     ExcludedDates = new List<string> { "2026-12-24" },
+                    DurationSeconds = 9,
                     DaysOfWeekMask = 127,
                     Enabled = true
                 }
@@ -1468,6 +1495,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("2026-08-01", schedule.StartDate);
         Assert.Equal("2026-12-31", schedule.EndDate);
         Assert.Equal(new[] { "2026-12-24" }, schedule.ExcludedDates);
+        Assert.Equal(9, schedule.DurationSeconds);
         Assert.NotNull(schedule.NextRunLocal);
         var serialized = System.Text.Json.JsonSerializer.Serialize(status);
         Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);
@@ -1502,6 +1530,7 @@ public sealed class HueApiControllerTests : IDisposable
                     TargetUserId = "user-1",
                     TimeOfDay = cueTime,
                     TimeZoneId = TimeZoneInfo.Local.Id,
+                    DurationSeconds = 7,
                     DaysOfWeekMask = 127
                 },
                 new()
@@ -1524,6 +1553,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(7, result.HorizonDays);
         Assert.Equal(2, result.Occurrences.Count);
         Assert.True(result.Occurrences[0].UtcTime <= result.Occurrences[1].UtcTime);
+        Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.DurationSeconds == 7);
         Assert.Contains(result.Occurrences, occurrence => occurrence.TargetLabel == "Living Room");
         Assert.DoesNotContain(result.Occurrences, occurrence => occurrence.TargetLabel.Contains("secret", StringComparison.OrdinalIgnoreCase));
         var serialized = System.Text.Json.JsonSerializer.Serialize(result);
@@ -1562,6 +1592,7 @@ public sealed class HueApiControllerTests : IDisposable
                     PresetName = "Evening",
                     TimeOfDay = cueTime,
                     TimeZoneId = TimeZoneInfo.Local.Id,
+                    DurationSeconds = 4,
                     DaysOfWeekMask = 127
                 }
             }
@@ -1579,6 +1610,23 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("SUMMARY:Movie\\, Night\\; Cue\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("DTSTART:", calendar, StringComparison.Ordinal);
         Assert.Contains("DTEND:", calendar, StringComparison.Ordinal);
+        var startText = calendar.Split("\r\n", StringSplitOptions.None)
+            .Single(line => line.StartsWith("DTSTART:", StringComparison.Ordinal))
+            .Substring("DTSTART:".Length);
+        var endText = calendar.Split("\r\n", StringSplitOptions.None)
+            .Single(line => line.StartsWith("DTEND:", StringComparison.Ordinal))
+            .Substring("DTEND:".Length);
+        var start = DateTime.ParseExact(
+            startText,
+            "yyyyMMdd'T'HHmmss'Z'",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        var end = DateTime.ParseExact(
+            endText,
+            "yyyyMMdd'T'HHmmss'Z'",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        Assert.Equal(TimeSpan.FromSeconds(4), end - start);
         Assert.Contains("X-HUE-TIMEZONE:", calendar, StringComparison.Ordinal);
         Assert.Contains("TRANSP:TRANSPARENT\r\n", calendar, StringComparison.Ordinal);
         Assert.Equal(1, calendar.Split("BEGIN:VEVENT", StringSplitOptions.None).Length - 1);
@@ -2021,6 +2069,7 @@ public sealed class HueApiControllerTests : IDisposable
                     StartDate = "2026-08-01",
                     EndDate = "2026-12-31",
                     ExcludedDates = new List<string> { "2026-12-24" },
+                    DurationSeconds = 11,
                     DaysOfWeekMask = 127
                 }
             }
@@ -2046,6 +2095,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("2026-08-01", document.SceneSchedules[0].StartDate);
         Assert.Equal("2026-12-31", document.SceneSchedules[0].EndDate);
         Assert.Equal(new[] { "2026-12-24" }, document.SceneSchedules[0].ExcludedDates);
+        Assert.Equal(11, document.SceneSchedules[0].DurationSeconds);
         Assert.True(document.Configuration.PersistSessionHistory);
         Assert.Equal(false, document.Configuration.SceneAutomationEnabled);
 
@@ -2076,6 +2126,7 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeOfDay = "18:45",
                     TimeZoneId = TimeZoneInfo.Utc.Id,
                     RunDate = "2026-12-24",
+                    DurationSeconds = 10,
                     DaysOfWeekMask = 0
                 }
             }
@@ -2104,6 +2155,7 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeOfDay = exportedCue.TimeOfDay,
                     TimeZoneId = exportedCue.TimeZoneId,
                     RunDate = exportedCue.RunDate,
+                    DurationSeconds = exportedCue.DurationSeconds,
                     DaysOfWeekMask = exportedCue.DaysOfWeekMask,
                     Enabled = exportedCue.Enabled
                 }
@@ -2113,6 +2165,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(action.Result);
         var importedCue = Assert.Single(configuration.SceneSchedules);
         Assert.Equal("2026-12-24", importedCue.RunDate);
+        Assert.Equal(exportedCue.DurationSeconds, importedCue.DurationSeconds);
         Assert.Equal(0, importedCue.DaysOfWeekMask);
     }
 

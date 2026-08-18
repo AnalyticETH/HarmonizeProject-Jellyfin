@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.81] - 2026-08-18
+
+### Added
+- **Per-cue hold duration overrides**: schedule one saved scene at different event lengths without duplicating the scene; blank or `0` inherits the saved scene's duration, while `1-30` seconds applies only to that cue
+- **Portable duration metadata**: carry the override through cue CRUD, effective status and occurrence previews, iCalendar event lengths, and credential-safe backup/restore
+- **Administrator duration controls**: edit, preview, and monitor each cue's effective hold duration directly from the scheduler page
+
+### Security
+- Duration metadata is a bounded integer only; bridge credentials, connection details, and playback tokens remain excluded from cue/status/calendar/backup responses
+
 ## [1.5.80] - 2026-08-18
 
 ### Added

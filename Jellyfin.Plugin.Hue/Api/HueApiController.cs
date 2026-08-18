@@ -443,6 +443,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetLabel = targetLabel,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
+                DurationSeconds = schedule.DurationSeconds,
                 RunDate = schedule.RunDate?.Trim() ?? string.Empty,
                 StartDate = schedule.StartDate?.Trim() ?? string.Empty,
                 EndDate = schedule.EndDate?.Trim() ?? string.Empty,
@@ -462,6 +463,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = schedule.TargetUserId,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId,
+                DurationSeconds = schedule.DurationSeconds,
                 RunDate = schedule.RunDate,
                 StartDate = schedule.StartDate,
                 EndDate = schedule.EndDate,
@@ -1038,7 +1040,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 boundedLimit,
                 boundedDays,
                 normalizedScheduleId);
-            var calendar = BuildSceneScheduleCalendar(config, occurrences, generatedAtUtc, boundedDays);
+            var calendar = BuildSceneScheduleCalendar(occurrences, generatedAtUtc, boundedDays);
             return File(
                 Encoding.UTF8.GetBytes(calendar),
                 "text/calendar; charset=utf-8",
@@ -1072,6 +1074,11 @@ namespace Jellyfin.Plugin.Hue.Api
                         ScheduleId = occurrence.ScheduleId,
                         ScheduleName = occurrence.ScheduleName,
                         PresetName = occurrence.PresetName,
+                        DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(
+                            schedule,
+                            config.ColorPresets?.FirstOrDefault(preset =>
+                                preset != null &&
+                                string.Equals(preset.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase))),
                         TargetLabel = ToSceneScheduleResult(schedule, config).TargetLabel,
                         TimeZoneId = occurrence.TimeZoneId,
                         TimeZoneDisplayName = occurrence.TimeZoneDisplayName,
@@ -1085,7 +1092,6 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         private static string BuildSceneScheduleCalendar(
-            PluginConfiguration config,
             IReadOnlyList<HueSceneScheduleOccurrenceResult> occurrences,
             DateTime generatedAtUtc,
             int horizonDays)
@@ -1102,10 +1108,7 @@ namespace Jellyfin.Plugin.Hue.Api
             foreach (var occurrence in occurrences)
             {
                 var utcStart = DateTime.SpecifyKind(occurrence.UtcTime, DateTimeKind.Utc);
-                var durationSeconds = config.ColorPresets?
-                    .FirstOrDefault(preset => preset != null &&
-                        string.Equals(preset.Name?.Trim(), occurrence.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase))?
-                    .DurationSeconds ?? PluginConfiguration.MinPreviewDurationSeconds;
+                var durationSeconds = occurrence.DurationSeconds;
                 durationSeconds = Math.Clamp(
                     durationSeconds,
                     PluginConfiguration.MinPreviewDurationSeconds,
@@ -2982,7 +2985,8 @@ namespace Jellyfin.Plugin.Hue.Api
     /// <summary>
     /// Request shape for one saved-scene cue. TargetUserId is blank for the global bridge
     /// target; runDate selects a one-time cue, otherwise weekday/date rules in the
-    /// selected cue timezone apply. Bridge credentials are intentionally not accepted.
+    /// selected cue timezone apply. DurationSeconds is zero to inherit the saved scene's
+    /// duration or a bounded per-cue override. Bridge credentials are intentionally not accepted.
     /// </summary>
     public sealed class HueSceneScheduleRequest
     {
@@ -3003,6 +3007,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
+
+        [JsonPropertyName("durationSeconds")]
+        public int DurationSeconds { get; set; }
 
         [JsonPropertyName("runDate")]
         public string RunDate { get; set; } = string.Empty;
@@ -3032,6 +3039,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = TargetUserId?.Trim() ?? string.Empty,
                 TimeOfDay = TimeOfDay?.Trim() ?? string.Empty,
                 TimeZoneId = TimeZoneId?.Trim() ?? string.Empty,
+                DurationSeconds = DurationSeconds,
                 RunDate = RunDate?.Trim() ?? string.Empty,
                 StartDate = StartDate?.Trim() ?? string.Empty,
                 EndDate = EndDate?.Trim() ?? string.Empty,
@@ -3046,7 +3054,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Credential-free scene cue returned by the administrator API, including optional
-    /// one-time date, inclusive bounds, and normalized excluded calendar dates.
+    /// per-cue duration override, one-time date, inclusive bounds, and normalized excluded
+    /// calendar dates.
     /// </summary>
     public sealed class HueSceneScheduleResult
     {
@@ -3070,6 +3079,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
+
+        [JsonPropertyName("durationSeconds")]
+        public int DurationSeconds { get; set; }
 
         [JsonPropertyName("runDate")]
         public string RunDate { get; set; } = string.Empty;
@@ -3103,6 +3115,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetName")]
         public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("durationSeconds")]
+        public int DurationSeconds { get; set; }
 
         [JsonPropertyName("targetLabel")]
         public string TargetLabel { get; set; } = string.Empty;

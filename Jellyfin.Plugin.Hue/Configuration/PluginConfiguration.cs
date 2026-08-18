@@ -74,7 +74,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// <summary>
     /// A credential-free cue that displays one saved color scene at a selected time-zone
     /// wall-clock time. It can run once on RunDate or recur with optional date bounds and
-    /// exclusions. The target is resolved from the global bridge or a persisted user
+    /// exclusions. A cue can optionally override the saved scene's hold duration for
+    /// this event only. The target is resolved from the global bridge or a persisted user
     /// mapping when the cue runs; credentials are never stored here.
     /// </summary>
     public sealed class HueSceneSchedule
@@ -89,6 +90,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// server-local behavior and is resolved from <see cref="TimeZoneInfo.Local"/>.
         /// </summary>
         public string TimeZoneId { get; set; } = string.Empty;
+        /// <summary>
+        /// Optional per-cue hold duration in seconds. Zero inherits the selected saved
+        /// scene's duration; a non-zero value overrides it for this cue only.
+        /// </summary>
+        public int DurationSeconds { get; set; }
         /// <summary>
         /// Optional one-time calendar date in the cue's selected time zone, formatted as
         /// yyyy-MM-dd. When set, the cue runs once on this date and ignores its weekday
@@ -842,6 +848,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
                 errors.Add($"{label} time zone is not available on this server");
+
+            if (schedule.DurationSeconds != 0 &&
+                (schedule.DurationSeconds < MinPreviewDurationSeconds ||
+                 schedule.DurationSeconds > MaxPreviewDurationSeconds))
+            {
+                errors.Add($"{label} duration override must be 0 (inherit scene duration) or between {MinPreviewDurationSeconds} and {MaxPreviewDurationSeconds} seconds");
+            }
 
             if (!TryNormalizeSceneScheduleDate(schedule.RunDate, out var normalizedRunDate))
                 errors.Add($"{label} run date must use yyyy-MM-dd format");

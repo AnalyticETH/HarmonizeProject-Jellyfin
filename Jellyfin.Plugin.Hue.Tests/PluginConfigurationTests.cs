@@ -147,6 +147,70 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsDurationOverrideAndSceneDefault()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-duration",
+                    Name = "Longer welcome",
+                    PresetName = "Evening",
+                    TimeOfDay = "20:00",
+                    DurationSeconds = 12,
+                    DaysOfWeekMask = 127
+                },
+                new()
+                {
+                    Id = "cue-default-duration",
+                    Name = "Scene default welcome",
+                    PresetName = "Evening",
+                    TimeOfDay = "20:15",
+                    DurationSeconds = 0,
+                    DaysOfWeekMask = 127
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsDurationOverrideOutsideSupportedRange()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-short-duration",
+                    Name = "Too short",
+                    PresetName = "Evening",
+                    DurationSeconds = -1,
+                    DaysOfWeekMask = 127
+                },
+                new()
+                {
+                    Id = "cue-long-duration",
+                    Name = "Too long",
+                    PresetName = "Evening",
+                    DurationSeconds = PluginConfiguration.MaxPreviewDurationSeconds + 1,
+                    DaysOfWeekMask = 127
+                }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+
+        Assert.Equal(2, errors.Count(error => error.Contains("duration override", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsOneTimeDateWithRecurringDateRules()
     {
         var config = new PluginConfiguration

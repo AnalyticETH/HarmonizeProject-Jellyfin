@@ -163,6 +163,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             var runtime = GetRuntimeState(schedule.Id);
             var readiness = EvaluateReadiness(config, schedule);
+            var preset = config?.ColorPresets?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
             var timeZone = PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var resolvedTimeZone)
                 ? resolvedTimeZone
                 : TimeZoneInfo.Local;
@@ -171,6 +174,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleId = schedule.Id?.Trim() ?? string.Empty,
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
+                DurationSeconds = GetEffectiveDurationSeconds(schedule, preset),
                 TargetLabel = ResolveTargetLabel(config, schedule),
                 TimeOfDay = schedule.TimeOfDay?.Trim() ?? string.Empty,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
@@ -231,6 +235,21 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Resolves the hold duration used by a scheduled cue. A zero schedule value keeps
+    /// the saved scene's duration so existing configurations remain unchanged.
+    /// </summary>
+    internal static int GetEffectiveDurationSeconds(HueSceneSchedule schedule, HueColorPreset? preset)
+    {
+        var duration = schedule?.DurationSeconds > 0
+            ? schedule.DurationSeconds
+            : preset?.DurationSeconds ?? PluginConfiguration.MinPreviewDurationSeconds;
+        return Math.Clamp(
+            duration,
+            PluginConfiguration.MinPreviewDurationSeconds,
+            PluginConfiguration.MaxPreviewDurationSeconds);
+    }
+
+    /// <summary>
     /// Calculates a bounded preview of future cue occurrences. Calendar dates are
     /// evaluated in the cue's selected time zone, so one-time dates, date windows,
     /// exclusions, DST gaps, and weekday masks use the same rules as the hosted scheduler.
@@ -255,6 +274,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (schedule == null || !schedule.Enabled ||
             !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized) ||
             !PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var timeZone) ||
+            (schedule.DurationSeconds != 0 &&
+             (schedule.DurationSeconds < PluginConfiguration.MinPreviewDurationSeconds ||
+              schedule.DurationSeconds > PluginConfiguration.MaxPreviewDurationSeconds)) ||
             !TryGetScheduleLocalNow(schedule, serverLocalNow, out var scheduleNow, out var serverUtcNow) ||
             !TryGetScheduleDateBounds(schedule, out var startDate, out var endDate) ||
             !PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(schedule.ExcludedDates, out _) ||
@@ -334,6 +356,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleId = schedule.Id?.Trim() ?? string.Empty,
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
+                DurationSeconds = schedule.DurationSeconds,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
                 TimeZoneDisplayName = string.IsNullOrWhiteSpace(schedule.TimeZoneId)
                     ? $"Server local ({timeZone.DisplayName})"
@@ -589,6 +612,13 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         if (!PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
             return new HueSceneScheduleReadiness(false, "The scheduled time zone is not available on this server.");
+
+        if (schedule.DurationSeconds != 0 &&
+            (schedule.DurationSeconds < PluginConfiguration.MinPreviewDurationSeconds ||
+             schedule.DurationSeconds > PluginConfiguration.MaxPreviewDurationSeconds))
+        {
+            return new HueSceneScheduleReadiness(false, "The cue duration override is invalid.");
+        }
 
         if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.RunDate, out var normalizedRunDate))
             return new HueSceneScheduleReadiness(false, "The one-time run date is invalid.");
@@ -881,7 +911,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 preset.Green,
                 preset.Blue,
                 preset.BrightnessPercent,
-                preset.DurationSeconds,
+                GetEffectiveDurationSeconds(schedule, preset),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1234,6 +1264,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserId = source.TargetUserId,
             TimeOfDay = source.TimeOfDay,
             TimeZoneId = source.TimeZoneId,
+            DurationSeconds = source.DurationSeconds,
             RunDate = source.RunDate,
             StartDate = source.StartDate,
             EndDate = source.EndDate,
@@ -1359,6 +1390,9 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("presetName")]
     public string PresetName { get; init; } = string.Empty;
 
+    [JsonPropertyName("durationSeconds")]
+    public int DurationSeconds { get; init; }
+
     [JsonPropertyName("timeZoneId")]
     public string TimeZoneId { get; init; } = string.Empty;
 
@@ -1385,6 +1419,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("presetName")]
     public string PresetName { get; init; } = string.Empty;
+
+    [JsonPropertyName("durationSeconds")]
+    public int DurationSeconds { get; init; }
 
     [JsonPropertyName("targetLabel")]
     public string TargetLabel { get; init; } = string.Empty;

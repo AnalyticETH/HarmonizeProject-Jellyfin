@@ -263,7 +263,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can also use optional inclusive start/end dates and exclusions. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can also use optional inclusive start/end dates and exclusions. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -289,6 +289,11 @@
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTime">Cue time</label>
                                 <input id="sceneScheduleTime" type="time" value="20:00" is="emby-input" />
+                            </div>
+                            <div>
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleDuration">Hold duration (optional)</label>
+                                <input id="sceneScheduleDuration" type="number" min="0" max="30" is="emby-input" placeholder="Scene default" />
+                                <div class="fieldDescription">Blank or 0 uses the saved scene duration; 1-30 seconds overrides it for this cue.</div>
                             </div>
                             <div style="flex: 1 1 280px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTimeZone">Time zone</label>
@@ -1658,6 +1663,7 @@
                             var name = schedule && (schedule.name !== undefined ? schedule.name : schedule.Name);
                             if (!id || !name) return;
                             var time = schedule.timeOfDay !== undefined ? schedule.timeOfDay : schedule.TimeOfDay;
+                            var duration = schedule.durationSeconds !== undefined ? schedule.durationSeconds : schedule.DurationSeconds;
                             var runDate = schedule.runDate !== undefined ? schedule.runDate : schedule.RunDate;
                             var startDate = schedule.startDate !== undefined ? schedule.startDate : schedule.StartDate;
                             var endDate = schedule.endDate !== undefined ? schedule.endDate : schedule.EndDate;
@@ -1671,7 +1677,8 @@
                             var exclusionLabel = excludedCount ? ' · ' + excludedCount + ' excluded' : '';
                             var option = document.createElement('option');
                             option.value = id;
-                            option.textContent = name + (time ? ' · ' + time : '') + dateRange + exclusionLabel;
+                            var durationLabel = Number(duration) > 0 ? ' · ' + Number(duration) + 's' : '';
+                            option.textContent = name + (time ? ' · ' + time : '') + durationLabel + dateRange + exclusionLabel;
                             scheduleSelect.appendChild(option);
                         });
 
@@ -1782,6 +1789,7 @@
                         schedules.forEach(function (schedule) {
                             var name = HueConfigurationPage.readStatusField(schedule, "ScheduleName", "Unnamed cue");
                             var preset = HueConfigurationPage.readStatusField(schedule, "PresetName", "—");
+                            var duration = HueConfigurationPage.readStatusField(schedule, "DurationSeconds", 0);
                             var target = HueConfigurationPage.readStatusField(schedule, "TargetLabel", "Default bridge target");
                             var time = HueConfigurationPage.readStatusField(schedule, "TimeOfDay", "—");
                             var timeZone = HueConfigurationPage.readStatusField(schedule, "TimeZoneDisplayName", "Server local");
@@ -1820,7 +1828,7 @@
                                 : "";
                             addCell(String(name) + (enabled ? "" : " (disabled)"));
                             addCell(String(target));
-                            addCell(String(preset) + " · " + String(time) + " · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + daysForMask(mask)));
+                            addCell(String(preset) + " · " + String(time) + " · " + String(duration || 0) + "s · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + daysForMask(mask)));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
                             addCell(enabled ? (formatScheduleLocal(nextRun) + " · " + String(timeZone)) : "Disabled");
@@ -2191,6 +2199,7 @@
                     page.querySelector('#sceneScheduleName').value = get('Name', 'name', '');
                     page.querySelector('#sceneSchedulePresetSelect').value = get('PresetName', 'presetName', '');
                     page.querySelector('#sceneScheduleTime').value = get('TimeOfDay', 'timeOfDay', '20:00');
+                    page.querySelector('#sceneScheduleDuration').value = get('DurationSeconds', 'durationSeconds', 0) || '';
                     page.querySelector('#sceneScheduleRunDate').value = get('RunDate', 'runDate', '');
                     page.querySelector('#sceneScheduleStartDate').value = get('StartDate', 'startDate', '');
                     page.querySelector('#sceneScheduleEndDate').value = get('EndDate', 'endDate', '');
@@ -2219,6 +2228,7 @@
                     page.querySelector('#sceneScheduleName').value = '';
                     page.querySelector('#sceneSchedulePresetSelect').value = '';
                     page.querySelector('#sceneScheduleTime').value = '20:00';
+                    page.querySelector('#sceneScheduleDuration').value = '';
                     page.querySelector('#sceneScheduleTimeZone').value = '';
                     page.querySelector('#sceneScheduleRunDate').value = '';
                     page.querySelector('#sceneScheduleStartDate').value = '';
@@ -2234,6 +2244,8 @@
                     var name = page.querySelector('#sceneScheduleName').value.trim();
                     var presetName = page.querySelector('#sceneSchedulePresetSelect').value;
                     var timeOfDay = page.querySelector('#sceneScheduleTime').value;
+                    var durationText = page.querySelector('#sceneScheduleDuration').value.trim();
+                    var durationSeconds = durationText ? Number(durationText) : 0;
                     var timeZoneId = page.querySelector('#sceneScheduleTimeZone').value;
                     var runDate = page.querySelector('#sceneScheduleRunDate').value;
                     var startDate = page.querySelector('#sceneScheduleStartDate').value;
@@ -2247,6 +2259,10 @@
                         Dashboard.alert(runDate
                             ? "Enter a cue name, saved scene, time, and one-time date."
                             : "Enter a cue name, saved scene, time, and at least one day.");
+                        return;
+                    }
+                    if (!Number.isInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 30) {
+                        Dashboard.alert("Hold duration must be blank, 0 (scene default), or a whole number from 1 to 30 seconds.");
                         return;
                     }
                     var select = page.querySelector('#sceneScheduleSelect');
@@ -2266,6 +2282,7 @@
                             presetName: presetName,
                             targetUserId: page.querySelector('#sceneScheduleTarget').value || '',
                             timeOfDay: timeOfDay,
+                            durationSeconds: durationSeconds,
                             timeZoneId: timeZoneId,
                             runDate: runDate,
                             startDate: startDate,
