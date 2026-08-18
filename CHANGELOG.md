@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.90] - 2026-08-18
+
+### Added
+- **Cancellable connection diagnostics**: expose the shared Cancel Active Diagnostic action while default and per-user mapping Test Connection probes are running, including clear cancellation, completion, and failure status feedback
+- **Page-exit diagnostic cleanup**: leaving the administrator page now requests cancellation for an in-flight Test Connection probe just as it does for previews and manual scene cues
+
+### Security
+- Test Connection cancellation continues to use the credential-free `POST /HueSync/Preview/Cancel` response and the restorative bridge lifecycle; no bridge credentials or playback tokens are exposed to the administrator page
+
 ## [1.5.89] - 2026-08-18
 
 ### Added

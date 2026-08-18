@@ -44,6 +44,9 @@ jobs:
     - name: Run tests
       run: dotnet test --configuration ${{ env.BUILD_CONFIGURATION }} --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage" --results-directory ./TestResults
 
+    - name: Validate administrator configuration page
+      run: node scripts/validate-config-page.mjs
+
     - name: Upload test results
       uses: actions/upload-artifact@v4
       if: always()

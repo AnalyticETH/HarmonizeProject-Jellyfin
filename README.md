@@ -50,7 +50,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Hue Bridge Address** | The private/local IP address of your bridge (or a .local mDNS host name). |
 | **Discover Bridge** | Return every private bridge found by the Hue discovery service and bounded local mDNS (`_hue._tcp.local`); the address field offers all candidates so multi-room mappings can choose the correct bridge. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
-| **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. Disconnecting or canceling the request stops the diagnostic lifecycle safely. |
+| **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. While a probe is running, the page exposes **Cancel Active Diagnostic**; disconnecting, canceling, or leaving the page stops the diagnostic lifecycle safely. |
 | **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, active bridge lifecycle contention, and playback/diagnostic readiness. **Validate Saved Targets** additionally checks every enabled default/inherited/custom bridge mapping for reachability, selected-area presence, and controllable channels without opening a DTLS stream. |
 | **Backup and Restore** | Export global settings, per-user profiles, saved color scenes, and scheduled scene cues—including optional fade-in/fade-out transitions, one-time dates, optional per-cue hold durations, and recurring date windows—as a credential-safe JSON document. Import is atomic, preserves matching stored keys on the same server, and includes an in-page password-field wizard for explicit replacement keys during migrations. |
 | **Live Sync Status** | Show the active Jellyfin user, selected bridge/area, captured profiles, effective FPS, sent/skipped/failed stream updates, reconnect attempts, seek-recovery restarts, frame health, cleanup warnings, and safe per-session stop controls while playback is running. Distinct mapped bridges/areas can be streamed concurrently. |
@@ -155,7 +155,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/EntertainmentChannels` | Load the selected area's channel IDs with `{ "ipAddress": "...", "appKey": "", "userId": "...", "entertainmentAreaId": "..." }`; stored credentials remain server-side when the target matches. |
 | `POST /HueSync/TestConnection` | Verify bridge credentials and optional entertainment-area readiness. Supplying `clientKey` also runs a short activate/send/stop DTLS probe with light-state restoration; supplying `channelIds` (comma-separated) validates and probes only that channel profile. `userId` enables matching redacted custom mapping credentials. |
 | `POST /HueSync/Preview` | Display a bounded solid color and restore the selected lights. Request fields include `ipAddress`, `appKey`, `clientKey`, optional `userId`, `entertainmentAreaId`, optional `channelIds`, `red`, `green`, `blue` (0-255), `brightnessPercent` (0-100), `durationSeconds` (1-30), and optional `transitionSeconds`/`transitionOutSeconds` (0-30, with their sum no greater than the duration). Active playback must be stopped first; matching stored mapping credentials may be used without sending secrets to the browser. |
-| `POST /HueSync/Preview/Cancel` | Request cancellation of the active administrator preview or DTLS diagnostic. The response is credential-free; the linked operation deactivates the entertainment area and restores captured light state before ending. |
+| `POST /HueSync/Preview/Cancel` | Request cancellation of the active administrator preview or DTLS diagnostic. The configuration page exposes this action for previews and default/per-user Test Connection probes. The response is credential-free; the linked operation deactivates the entertainment area and restores captured light state before ending. |
 | `GET /HueSync/ColorPresets` | List saved, credential-free color scenes sorted by name. |
 | `POST /HueSync/ColorPresets` | Save or update a named color scene with `name`, RGB values, `brightnessPercent`, `durationSeconds`, and optional `transitionSeconds`/`transitionOutSeconds` (0-30, with their sum no greater than the scene duration); names are case-insensitive and values are validated. |
 | `DELETE /HueSync/ColorPresets/{name}` | Delete one saved color scene by name; returns a conflict while any scheduled cue still references it. |
@@ -354,7 +354,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.89 (Current)
+### Version 1.5.90 (Current)
+- **Cancellable connection diagnostics**: show **Cancel Active Diagnostic** while default or per-user mapping Test Connection runs, with completion/error status and page-leave cleanup
+- **Shared restorative cancellation**: reuse the credential-free preview cancellation endpoint so diagnostics stop safely and restore captured light state before ending
+
+### Version 1.5.89
 - **Cancellable administrator previews**: add visible cancellation for default and mapping previews, with page-leave cleanup and serialized-operation guards
 - **Cancellable manual scene cues**: add a Run Now cancellation button and `POST /HueSync/SceneSchedules/{id}/Cancel` endpoint with linked token cleanup
 - **Sanitized cancellation responses**: expose only bounded status/message results while preserving bridge deactivation and captured-light restoration

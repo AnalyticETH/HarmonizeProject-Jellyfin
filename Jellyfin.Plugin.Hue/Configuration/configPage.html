@@ -161,6 +161,10 @@
                                 style="margin-bottom: 20px;">
                                 <span>Test Connection</span>
                             </button>
+                            <button is="emby-button" type="button" class="raised" id="cancelConnectionTestBtn"
+                                style="display: none; margin-bottom: 20px; background: #8a3d3d;">
+                                <span>Cancel Active Diagnostic</span>
+                            </button>
                             <div id="bridgeStatus" style="flex: 1 1 200px; color: #fff; padding: 6px 10px; border-radius: 6px; background: #3f51b5;">
                                 Enter bridge address and keys, then refresh to test.
                             </div>
@@ -815,6 +819,9 @@
                                 </button>
                                 <button is="emby-button" type="button" class="raised" id="mappingTestConnectionBtn" style="margin-bottom: 20px;">
                                     <span>Test Connection</span>
+                                </button>
+                                <button is="emby-button" type="button" class="raised" id="cancelMappingTestConnectionBtn" style="display: none; margin-bottom: 20px; background: #8a3d3d;">
+                                    <span>Cancel Active Diagnostic</span>
                                 </button>
                                 <button is="emby-button" type="button" class="raised" id="mappingPreviewColorBtn" style="margin-bottom: 20px;">
                                     <span>Preview Current Color</span>
@@ -1476,14 +1483,30 @@
                         cancelButton.disabled = false;
                     }
                 },
+                setDiagnosticBusy: function (page, busy) {
+                    var defaultButton = page && page.querySelector('#testConnectionBtn');
+                    var mappingButton = page && page.querySelector('#mappingTestConnectionBtn');
+                    var cancelButtons = page
+                        ? page.querySelectorAll('#cancelConnectionTestBtn, #cancelMappingTestConnectionBtn')
+                        : [];
+                    if (defaultButton) defaultButton.disabled = busy;
+                    if (mappingButton) mappingButton.disabled = busy;
+                    Array.prototype.forEach.call(cancelButtons, function (button) {
+                        button.style.display = busy ? "" : "none";
+                        button.disabled = false;
+                    });
+                },
                 cancelPreview: function (page) {
                     if (!page || !page._huePreviewRequest || page._huePreviewCancellationRequest) return;
-                    var cancelButton = page.querySelector('#cancelPreviewBtn');
+                    var cancelButtons = page.querySelectorAll('#cancelPreviewBtn, #cancelConnectionTestBtn, #cancelMappingTestConnectionBtn');
                     var statusEl = page._huePreviewStatusElement || page.querySelector('#previewColorStatus');
-                    if (cancelButton) cancelButton.disabled = true;
+                    Array.prototype.forEach.call(cancelButtons, function (button) {
+                        button.disabled = true;
+                    });
                     if (statusEl) {
-                        statusEl.textContent = "Requesting preview cancellation; restoring the selected lights...";
+                        statusEl.textContent = "Requesting cancellation; restoring the selected lights...";
                         statusEl.style.color = "#f0ad4e";
+                        statusEl.style.background = "#8a6d3b";
                     }
                     page._huePreviewCancellationRequest = ApiClient.ajax({
                         type: "POST",
@@ -1493,14 +1516,16 @@
                         var canceled = response && (response.canceled !== undefined ? response.canceled : response.Canceled);
                         var message = response && (response.message || response.Message);
                         if (!canceled && statusEl) {
-                            statusEl.textContent = message || "No active preview was found.";
+                            statusEl.textContent = message || "No active preview or diagnostic was found.";
                             statusEl.style.color = "#f0ad4e";
+                            statusEl.style.background = "#8a6d3b";
                         }
                     }).catch(function (err) {
                         console.error("Preview cancellation error:", err);
                         if (statusEl) {
-                            statusEl.textContent = "Unable to request cancellation. The preview may still be running; wait for it to finish and verify light restoration.";
+                            statusEl.textContent = "Unable to request cancellation. The operation may still be running; wait for it to finish and verify light restoration.";
                             statusEl.style.color = "#d9534f";
+                            statusEl.style.background = "#8a3d3d";
                         }
                     }).finally(function () {
                         page._huePreviewCancellationRequest = null;
@@ -3582,6 +3607,10 @@
                     });
                 },
                 testDefaultConnection: function (page) {
+                    if (page._huePreviewRequest) {
+                        Dashboard.alert("A Hue diagnostic is already running. Cancel it or wait for it to finish first.");
+                        return;
+                    }
                     var button = page.querySelector('#testConnectionBtn');
                     var bridgeIp = page.querySelector('#hueBridgeIp').value.trim();
                     var appKey = page.querySelector('#hueAppKey').value.trim();
@@ -3598,7 +3627,11 @@
                     button.disabled = true;
                     HueConfigurationPage.refreshStatus(page, "Testing bridge connection...", "info");
                     Dashboard.showLoadingMsg();
-                    HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey, channelIds)
+                    var request = HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey, channelIds);
+                    page._huePreviewRequest = request;
+                    page._huePreviewStatusElement = page.querySelector('#bridgeStatus');
+                    HueConfigurationPage.setDiagnosticBusy(page, true);
+                    request
                         .then(function (response) {
                             var result = HueConfigurationPage.connectionTestMessage(response, areaId);
                             HueConfigurationPage.refreshStatus(page, result.text, result.tone);
@@ -3608,7 +3641,11 @@
                             HueConfigurationPage.refreshStatus(page, "Bridge connection failed. Verify the address, app key, and network access.", "error");
                         })
                         .finally(function () {
-                            button.disabled = false;
+                            if (page._huePreviewRequest === request) {
+                                page._huePreviewRequest = null;
+                                page._huePreviewStatusElement = null;
+                                HueConfigurationPage.setDiagnosticBusy(page, false);
+                            }
                             Dashboard.hideLoadingMsg();
                         });
                 },
@@ -3929,6 +3966,12 @@
 
                 testMappingConnection: function () {
                     var page = document.querySelector('.pluginConfigurationPage');
+                    if (!page || page._huePreviewRequest) {
+                        if (page && page._huePreviewRequest) {
+                            Dashboard.alert("A Hue diagnostic is already running. Cancel it or wait for it to finish first.");
+                        }
+                        return;
+                    }
                     var button = document.getElementById('mappingTestConnectionBtn');
                     var statusEl = document.getElementById('mappingBridgeStatus');
                     var target = HueConfigurationPage.getEffectiveMappingTarget(page);
@@ -3950,7 +3993,11 @@
                         statusEl.style.background = "#3f51b5";
                     }
                     Dashboard.showLoadingMsg();
-                    HueConfigurationPage.fetchConnectionTest(target.bridgeIp, target.appKey, target.areaId, target.clientKey, channelIds, target.userId)
+                    var request = HueConfigurationPage.fetchConnectionTest(target.bridgeIp, target.appKey, target.areaId, target.clientKey, channelIds, target.userId);
+                    page._huePreviewRequest = request;
+                    page._huePreviewStatusElement = statusEl;
+                    HueConfigurationPage.setDiagnosticBusy(page, true);
+                    request
                         .then(function (response) {
                             var result = HueConfigurationPage.connectionTestMessage(response, target.areaId);
                             if (statusEl) {
@@ -3971,7 +4018,11 @@
                             }
                         })
                         .finally(function () {
-                            button.disabled = false;
+                            if (page._huePreviewRequest === request) {
+                                page._huePreviewRequest = null;
+                                page._huePreviewStatusElement = null;
+                                HueConfigurationPage.setDiagnosticBusy(page, false);
+                            }
                             Dashboard.hideLoadingMsg();
                         });
                 },
@@ -4716,6 +4767,10 @@
                 HueConfigurationPage.testDefaultConnection(this.closest('.page'));
             });
 
+            document.querySelector('#cancelConnectionTestBtn').addEventListener('click', function () {
+                HueConfigurationPage.cancelPreview(this.closest('.page'));
+            });
+
             document.querySelector('#loadChannelsBtn').addEventListener('click', function () {
                 HueConfigurationPage.loadDefaultChannels(this.closest('.page'));
             });
@@ -4862,6 +4917,10 @@
 
             document.querySelector('#mappingTestConnectionBtn').addEventListener('click', function () {
                 HueConfigurationPage.testMappingConnection();
+            });
+
+            document.querySelector('#cancelMappingTestConnectionBtn').addEventListener('click', function () {
+                HueConfigurationPage.cancelPreview(this.closest('.page'));
             });
 
             document.querySelector('#mappingPreviewColorBtn').addEventListener('click', function () {
