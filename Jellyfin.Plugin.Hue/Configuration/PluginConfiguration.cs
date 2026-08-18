@@ -239,6 +239,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public List<HueSceneSchedule> SceneSchedules { get; set; } = new List<HueSceneSchedule>();
 
         /// <summary>
+        /// Controls whether configured scene cues run automatically. Existing
+        /// configurations remain enabled by default; manual Run Now requests are
+        /// still allowed while recurring automation is paused.
+        /// </summary>
+        public bool SceneAutomationEnabled { get; set; } = true;
+
+        /// <summary>
         /// Retains the bounded, sanitized scheduled-scene run history in plugin
         /// configuration. Disabled by default because cue and target labels may be
         /// private metadata.

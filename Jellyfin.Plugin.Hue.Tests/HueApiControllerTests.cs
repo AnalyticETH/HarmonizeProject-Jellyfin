@@ -1368,6 +1368,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "app-secret",
             HueClientKey = "client-secret",
+            SceneAutomationEnabled = false,
             SceneSchedules = new List<HueSceneSchedule>
             {
                 new() { Id = "cue-1", Name = "Evening cue", PresetName = "Evening" }
@@ -1379,6 +1380,7 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var status = Assert.IsType<HueSceneAutomationStatus>(response.Value);
         Assert.False(status.ServiceAvailable);
+        Assert.False(status.AutomationEnabled);
         Assert.Empty(status.Schedules);
         var serialized = System.Text.Json.JsonSerializer.Serialize(status);
         Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);
@@ -1394,6 +1396,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "app-secret",
             HueClientKey = "client-secret",
             EntertainmentAreaId = "area-1",
+            SceneAutomationEnabled = false,
             ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
             SceneSchedules = new List<HueSceneSchedule>
             {
@@ -1422,6 +1425,7 @@ public sealed class HueApiControllerTests : IDisposable
         var status = Assert.IsType<HueSceneAutomationStatus>(response.Value);
         var schedule = Assert.Single(status.Schedules);
         Assert.True(status.ServiceAvailable);
+        Assert.False(status.AutomationEnabled);
         Assert.Equal("cue-1", schedule.ScheduleId);
         Assert.Equal("Default bridge target", schedule.TargetLabel);
         Assert.Equal("2026-08-01", schedule.StartDate);
@@ -1845,6 +1849,7 @@ public sealed class HueApiControllerTests : IDisposable
             NetworkRetryAttempts = 6,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
             PersistSessionHistory = true,
+            SceneAutomationEnabled = false,
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -1879,6 +1884,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(6, settings.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, settings.PauseBehavior);
         Assert.True(settings.PersistSessionHistory);
+        Assert.Equal(false, settings.SceneAutomationEnabled);
         var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
         Assert.DoesNotContain("default-app-key", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("default-client-key", serialized, StringComparison.Ordinal);
@@ -1896,6 +1902,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "default-app-secret",
             HueClientKey = "default-client-secret",
             EntertainmentAreaId = "area-1",
+            SceneAutomationEnabled = false,
             PersistSessionHistory = true,
             PersistedSessionHistory = new List<HueSessionHistoryEntry>
             {
@@ -1956,6 +1963,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("2026-12-31", document.SceneSchedules[0].EndDate);
         Assert.Equal(new[] { "2026-12-24" }, document.SceneSchedules[0].ExcludedDates);
         Assert.True(document.Configuration.PersistSessionHistory);
+        Assert.Equal(false, document.Configuration.SceneAutomationEnabled);
 
         var serialized = System.Text.Json.JsonSerializer.Serialize(document);
         Assert.DoesNotContain("default-app-secret", serialized, StringComparison.Ordinal);
@@ -1978,6 +1986,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "default-app-secret",
             HueClientKey = "default-client-secret",
             EntertainmentAreaId = "area-1",
+            SceneAutomationEnabled = false,
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -2049,6 +2058,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(1, result.SceneSchedulesImported);
         Assert.Equal("default-app-secret", configuration.HueAppKey);
         Assert.Equal("default-client-secret", configuration.HueClientKey);
+        Assert.False(configuration.SceneAutomationEnabled);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
@@ -2177,7 +2187,8 @@ public sealed class HueApiControllerTests : IDisposable
             NetworkRetryAttempts = 4,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
             PersistSessionHistory = true,
-            PersistSceneScheduleHistory = true
+            PersistSceneScheduleHistory = true,
+            SceneAutomationEnabled = false
         });
 
         Assert.IsType<OkObjectResult>(action.Result);
@@ -2198,6 +2209,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, configuration.PauseBehavior);
         Assert.True(configuration.PersistSessionHistory);
         Assert.True(configuration.PersistSceneScheduleHistory);
+        Assert.False(configuration.SceneAutomationEnabled);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);

@@ -202,6 +202,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         return new HueSceneAutomationStatus
         {
             ServiceAvailable = true,
+            AutomationEnabled = config?.SceneAutomationEnabled ?? true,
             GeneratedAtUtc = DateTime.UtcNow,
             ServerLocalNow = DateTime.SpecifyKind(localNow, DateTimeKind.Unspecified),
             ServerTimeZoneId = TimeZoneInfo.Local.Id,
@@ -698,14 +699,17 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
-    private async Task RunDueSchedulesAsync(DateTime localNow, CancellationToken cancellationToken)
+    internal async Task RunDueSchedulesAsync(DateTime localNow, CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration;
+        if (config == null || !config.SceneAutomationEnabled)
+            return;
+
         var schedules = config?.SceneSchedules?
             .Where(schedule => schedule != null)
             .Select(CloneSchedule)
             .ToArray();
-        if (config == null || schedules == null || schedules.Length == 0)
+        if (schedules == null || schedules.Length == 0)
             return;
 
         foreach (var schedule in schedules)
@@ -1357,6 +1361,9 @@ public sealed class HueSceneAutomationStatus
 {
     [JsonPropertyName("serviceAvailable")]
     public bool ServiceAvailable { get; init; }
+
+    [JsonPropertyName("automationEnabled")]
+    public bool AutomationEnabled { get; init; } = true;
 
     [JsonPropertyName("generatedAtUtc")]
     public DateTime GeneratedAtUtc { get; init; }

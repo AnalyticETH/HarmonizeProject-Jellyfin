@@ -289,6 +289,7 @@ public sealed class HueSceneAutomationServiceTests
     {
         InstallConfiguration(new PluginConfiguration
         {
+            SceneAutomationEnabled = false,
             PersistSceneScheduleHistory = true,
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "app-secret",
@@ -348,6 +349,7 @@ public sealed class HueSceneAutomationServiceTests
         var status = service.GetStatus();
         var runtime = Assert.Single(status.Schedules);
         Assert.True(status.ServiceAvailable);
+        Assert.False(status.AutomationEnabled);
         Assert.Equal("cue-1", runtime.ScheduleId);
         Assert.Equal(string.Empty, runtime.TimeZoneId);
         Assert.Contains("Server local", runtime.TimeZoneDisplayName, StringComparison.Ordinal);
@@ -363,6 +365,43 @@ public sealed class HueSceneAutomationServiceTests
         Assert.DoesNotContain("client-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("app-secret", JsonSerializer.Serialize(status), StringComparison.Ordinal);
         Assert.DoesNotContain("client-secret", JsonSerializer.Serialize(status), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PausedAutomation_SkipsDueCueWithoutClaimingOrRunningIt()
+    {
+        var now = DateTime.Now;
+        var streamTester = new Mock<IHueStreamTester>();
+        InstallConfiguration(new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "paused-cue",
+                    Name = "Paused cue",
+                    Enabled = true,
+                    TimeOfDay = now.ToString("HH:mm"),
+                    DaysOfWeekMask = 1 << (int)now.DayOfWeek
+                }
+            }
+        });
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await service.RunDueSchedulesAsync(now, CancellationToken.None);
+
+        streamTester.VerifyNoOtherCalls();
+        var status = service.GetStatus();
+        Assert.False(status.AutomationEnabled);
+        var runtime = Assert.Single(status.Schedules);
+        Assert.Equal(0, runtime.RunCount);
+        Assert.Null(runtime.LastSucceeded);
     }
 
     [Fact]

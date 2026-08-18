@@ -336,6 +336,13 @@
                         <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule timing/date rules, and target mapping IDs; bridge credentials remain server-side.</div>
                         <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top: 0.75em;">
                             <label>
+                                <input is="emby-checkbox" type="checkbox" id="sceneAutomationEnabled" checked />
+                                <span>Run recurring scene cues automatically</span>
+                            </label>
+                            <div class="fieldDescription">Pause recurring automation without deleting cues or changing their schedules. Upcoming previews and readiness remain available, and <strong>Run Now</strong> still runs an individual cue while automation is paused.</div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top: 0.75em;">
+                            <label>
                                 <input is="emby-checkbox" type="checkbox" id="persistSceneScheduleHistory" />
                                 <span>Retain cue history across Jellyfin restarts</span>
                             </label>
@@ -986,6 +993,7 @@
                         page.querySelector('#networkRetryAttempts').value = getConfigValue('NetworkRetryAttempts', 3);
                         page.querySelector('#persistSessionHistory').checked = !!getConfigValue('PersistSessionHistory', false);
                         page.querySelector('#persistSceneScheduleHistory').checked = !!getConfigValue('PersistSceneScheduleHistory', false);
+                        page.querySelector('#sceneAutomationEnabled').checked = getConfigValue('SceneAutomationEnabled', true) !== false;
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                         HueConfigurationPage.loadColorPresets(page);
                         HueConfigurationPage.loadSceneSchedules(page);
@@ -1035,7 +1043,8 @@
                         ColorChangeThreshold: parseNumberOrDefault('#colorChangeThreshold', 10),
                         NetworkRetryAttempts: parseNumberOrDefault('#networkRetryAttempts', 3),
                         PersistSessionHistory: page.querySelector('#persistSessionHistory').checked,
-                        PersistSceneScheduleHistory: page.querySelector('#persistSceneScheduleHistory').checked
+                        PersistSceneScheduleHistory: page.querySelector('#persistSceneScheduleHistory').checked,
+                        SceneAutomationEnabled: page.querySelector('#sceneAutomationEnabled').checked
                     };
 
                     return ApiClient.ajax({
@@ -1694,6 +1703,7 @@
 
                     return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/Status")).then(function (response) {
                         var serviceAvailable = HueConfigurationPage.readStatusField(response, "ServiceAvailable", false);
+                        var automationEnabled = HueConfigurationPage.readStatusField(response, "AutomationEnabled", true) !== false;
                         var schedules = HueConfigurationPage.readStatusField(response, "Schedules", []);
                         schedules = Array.isArray(schedules) ? schedules : [];
                         if (!serviceAvailable) {
@@ -1712,12 +1722,15 @@
                                 !HueConfigurationPage.readStatusField(schedule, "Ready", false);
                         }).length;
                         if (summary) {
-                            summary.textContent = schedules.length === 0
+                            var cueSummary = schedules.length === 0
                                 ? "No scheduled cues configured."
                                 : schedules.length + " cue" + (schedules.length === 1 ? "" : "s") +
-                                    (notReadyCount ? " · " + notReadyCount + " not ready" : " · all enabled cues ready") +
-                                    " · updated " + generatedText;
-                            summary.style.color = "";
+                                    (notReadyCount ? " · " + notReadyCount + " not ready" : " · all enabled cues ready");
+                            summary.textContent = (automationEnabled
+                                ? cueSummary
+                                : "Recurring cue automation is paused · " + cueSummary + " · Run Now remains available") +
+                                " · updated " + generatedText;
+                            summary.style.color = automationEnabled ? "" : "#f0ad4e";
                         }
                         if (!container) return;
                         container.textContent = "";

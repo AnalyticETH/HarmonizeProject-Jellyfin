@@ -953,6 +953,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 return Ok(new HueSceneAutomationStatus
                 {
                     ServiceAvailable = false,
+                    AutomationEnabled = Plugin.Instance?.Configuration?.SceneAutomationEnabled ?? true,
                     GeneratedAtUtc = DateTime.UtcNow,
                     ServerLocalNow = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified),
                     ServerTimeZoneId = TimeZoneInfo.Local.Id,
@@ -2294,6 +2295,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool ClearStoredCredentials { get; set; }
         public bool? PersistSessionHistory { get; set; }
         public bool? PersistSceneScheduleHistory { get; set; }
+        public bool? SceneAutomationEnabled { get; set; }
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string ChannelIds { get; set; } = string.Empty;
         public bool UseCinemaMode { get; set; } = true;
@@ -2333,6 +2335,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 HasClientKey = !string.IsNullOrWhiteSpace(config.HueClientKey),
                 PersistSessionHistory = config.PersistSessionHistory,
                 PersistSceneScheduleHistory = config.PersistSceneScheduleHistory,
+                SceneAutomationEnabled = config.SceneAutomationEnabled,
                 EntertainmentAreaId = config.EntertainmentAreaId,
                 ChannelIds = config.ChannelIds,
                 UseCinemaMode = config.UseCinemaMode,
@@ -2390,6 +2393,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (!config.PersistSceneScheduleHistory)
                     config.PersistedSceneScheduleHistory?.Clear();
             }
+            if (SceneAutomationEnabled.HasValue)
+                config.SceneAutomationEnabled = SceneAutomationEnabled.Value;
             config.EntertainmentAreaId = EntertainmentAreaId?.Trim() ?? string.Empty;
             config.ChannelIds = ChannelIds?.Trim() ?? string.Empty;
             config.UseCinemaMode = UseCinemaMode;
