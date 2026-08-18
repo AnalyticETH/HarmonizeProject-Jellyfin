@@ -284,8 +284,8 @@ public sealed class HueStreamTester : IHueStreamTester
             blue,
             brightnessPercent,
             durationSeconds,
-            cancellationToken,
-            transitionSeconds));
+            transitionSeconds,
+            cancellationToken));
 
     private async Task<HueStreamProbeResult> PreviewCoreAsync(
         string bridgeIp,
