@@ -59,7 +59,7 @@ public class PluginConfigurationTests
             TransitionSeconds = 5
         });
 
-        Assert.Contains("transition cannot exceed the scene duration", errors);
+        Assert.Contains("Color preset transition cannot exceed the scene duration", errors);
     }
 
     [Fact]
