@@ -177,6 +177,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 DurationSeconds = GetEffectiveDurationSeconds(schedule, preset),
                 Recurrence = recurrence,
+                RecurrenceInterval = schedule.RecurrenceInterval,
                 DayOfMonth = schedule.DayOfMonth,
                 MonthOfYear = schedule.MonthOfYear,
                 WeekOfMonth = schedule.WeekOfMonth,
@@ -258,8 +259,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// <summary>
     /// Calculates a bounded preview of future cue occurrences. Calendar dates are
     /// evaluated in the cue's selected time zone, so one-time dates, date windows,
-    /// exclusions, daily/weekly/monthly-day/monthly-weekday/yearly recurrence, DST gaps, and weekday
-    /// masks use the same
+    /// exclusions, daily/weekly/monthly-day/monthly-weekday/yearly recurrence, bounded
+    /// recurrence intervals, DST gaps, and weekday masks use the same
     /// rules as the hosted scheduler.
     /// </summary>
     internal static IReadOnlyList<HueSceneScheduleOccurrence> GetUpcomingOccurrences(
@@ -302,7 +303,8 @@ public sealed class HueSceneAutomationService : BackgroundService
              (string.Equals(normalizedRecurrence, PluginConfiguration.SceneScheduleRecurrenceYearly, StringComparison.Ordinal) &&
               !IsYearlyConfigurationValid(schedule)) ||
              (string.Equals(normalizedRecurrence, PluginConfiguration.SceneScheduleRecurrenceWeekly, StringComparison.Ordinal) &&
-              (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0)))
+              (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0) ||
+             !IsRecurrenceIntervalConfigurationValid(schedule, runDate)))
             return occurrences;
 
         var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
@@ -370,6 +372,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 DurationSeconds = schedule.DurationSeconds,
+                RecurrenceInterval = schedule.RecurrenceInterval,
                 MonthOfYear = schedule.MonthOfYear,
                 WeekOfMonth = schedule.WeekOfMonth,
                 DayOfWeek = schedule.DayOfWeek,
@@ -433,7 +436,8 @@ public sealed class HueSceneAutomationService : BackgroundService
              (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceYearly, StringComparison.Ordinal) &&
               !IsYearlyConfigurationValid(schedule)) ||
              (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceWeekly, StringComparison.Ordinal) &&
-              (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0)))
+              (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0) ||
+             !IsRecurrenceIntervalConfigurationValid(schedule, runDate)))
             return false;
 
         if (!PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
@@ -454,7 +458,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         DateTime scheduleDate)
     {
         if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceDaily, StringComparison.Ordinal))
-            return true;
+            return IsScheduleIntervalDateAllowed(schedule, recurrence, scheduleDate);
 
         if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, StringComparison.Ordinal))
         {
@@ -466,10 +470,12 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             if (schedule.WeekOfMonth == PluginConfiguration.SceneScheduleLastWeekOfMonth)
             {
-                return scheduleDate.Day + 7 > DateTime.DaysInMonth(scheduleDate.Year, scheduleDate.Month);
+                return scheduleDate.Day + 7 > DateTime.DaysInMonth(scheduleDate.Year, scheduleDate.Month) &&
+                       IsScheduleIntervalDateAllowed(schedule, recurrence, scheduleDate);
             }
 
-            return ((scheduleDate.Day - 1) / 7) + 1 == schedule.WeekOfMonth;
+            return ((scheduleDate.Day - 1) / 7) + 1 == schedule.WeekOfMonth &&
+                   IsScheduleIntervalDateAllowed(schedule, recurrence, scheduleDate);
         }
 
         if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceYearly, StringComparison.Ordinal))
@@ -479,7 +485,8 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             return scheduleDate.Day == Math.Min(
                 schedule.DayOfMonth,
-                DateTime.DaysInMonth(scheduleDate.Year, scheduleDate.Month));
+                DateTime.DaysInMonth(scheduleDate.Year, scheduleDate.Month)) &&
+                IsScheduleIntervalDateAllowed(schedule, recurrence, scheduleDate);
         }
 
         if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceMonthly, StringComparison.Ordinal))
@@ -489,10 +496,12 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             return scheduleDate.Day == Math.Min(
                 schedule.DayOfMonth,
-                DateTime.DaysInMonth(scheduleDate.Year, scheduleDate.Month));
+                DateTime.DaysInMonth(scheduleDate.Year, scheduleDate.Month)) &&
+                IsScheduleIntervalDateAllowed(schedule, recurrence, scheduleDate);
         }
 
-        return (schedule.DaysOfWeekMask & (1 << (int)scheduleDate.DayOfWeek)) != 0;
+        return (schedule.DaysOfWeekMask & (1 << (int)scheduleDate.DayOfWeek)) != 0 &&
+               IsScheduleIntervalDateAllowed(schedule, recurrence, scheduleDate);
     }
 
     private static bool IsMonthlyWeekdayConfigurationValid(HueSceneSchedule schedule)
@@ -510,6 +519,60 @@ public sealed class HueSceneAutomationService : BackgroundService
                schedule.MonthOfYear <= PluginConfiguration.MaxSceneScheduleMonthOfYear &&
                schedule.DayOfMonth >= 1 &&
                schedule.DayOfMonth <= 31;
+    }
+
+    private static bool IsRecurrenceIntervalConfigurationValid(
+        HueSceneSchedule schedule,
+        DateTime? runDate)
+    {
+        if (runDate.HasValue)
+            return true;
+
+        return schedule.RecurrenceInterval >= PluginConfiguration.MinSceneScheduleRecurrenceInterval &&
+               schedule.RecurrenceInterval <= PluginConfiguration.MaxSceneScheduleRecurrenceInterval &&
+               (schedule.RecurrenceInterval == PluginConfiguration.MinSceneScheduleRecurrenceInterval ||
+                TryParseScheduleDate(schedule.StartDate, out _));
+    }
+
+    private static bool IsScheduleIntervalDateAllowed(
+        HueSceneSchedule schedule,
+        string recurrence,
+        DateTime scheduleDate)
+    {
+        var interval = schedule.RecurrenceInterval;
+        if (interval == PluginConfiguration.MinSceneScheduleRecurrenceInterval)
+            return true;
+
+        if (!TryParseScheduleDate(schedule.StartDate, out var anchorDate))
+            return false;
+
+        var candidateDate = scheduleDate.Date;
+        anchorDate = anchorDate.Date;
+        if (candidateDate < anchorDate)
+            return false;
+
+        if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceDaily, StringComparison.Ordinal))
+            return (candidateDate - anchorDate).Days % interval == 0;
+
+        if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceWeekly, StringComparison.Ordinal))
+        {
+            var anchorWeek = anchorDate.AddDays(-(int)anchorDate.DayOfWeek);
+            var candidateWeek = candidateDate.AddDays(-(int)candidateDate.DayOfWeek);
+            return ((candidateWeek - anchorWeek).Days / 7) % interval == 0;
+        }
+
+        if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceMonthly, StringComparison.Ordinal) ||
+            string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, StringComparison.Ordinal))
+        {
+            var monthDelta = (candidateDate.Year - anchorDate.Year) * 12 +
+                             candidateDate.Month - anchorDate.Month;
+            return monthDelta >= 0 && monthDelta % interval == 0;
+        }
+
+        if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceYearly, StringComparison.Ordinal))
+            return (candidateDate.Year - anchorDate.Year) % interval == 0;
+
+        return true;
     }
 
     private static bool IsScheduleDateAllowed(HueSceneSchedule schedule, DateTime scheduleDate)
@@ -727,7 +790,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.RunDate, out var normalizedRunDate))
             return new HueSceneScheduleReadiness(false, "The one-time run date is invalid.");
 
-        if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.StartDate, out _))
+        if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.StartDate, out var normalizedStartDate))
             return new HueSceneScheduleReadiness(false, "The schedule start date is invalid.");
 
         if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.EndDate, out _))
@@ -738,6 +801,19 @@ public sealed class HueSceneAutomationService : BackgroundService
             endDate < startDate)
         {
             return new HueSceneScheduleReadiness(false, "The schedule end date is before the start date.");
+        }
+
+        if (schedule.RecurrenceInterval < PluginConfiguration.MinSceneScheduleRecurrenceInterval ||
+            schedule.RecurrenceInterval > PluginConfiguration.MaxSceneScheduleRecurrenceInterval)
+        {
+            return new HueSceneScheduleReadiness(false, "The recurrence interval is outside the supported range.");
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedRunDate) &&
+            schedule.RecurrenceInterval > PluginConfiguration.MinSceneScheduleRecurrenceInterval &&
+            string.IsNullOrWhiteSpace(normalizedStartDate))
+        {
+            return new HueSceneScheduleReadiness(false, "A recurrence interval greater than one requires a start date anchor.");
         }
 
         if (!string.IsNullOrWhiteSpace(normalizedRunDate))
@@ -1393,6 +1469,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TimeOfDay = source.TimeOfDay,
             TimeZoneId = source.TimeZoneId,
             Recurrence = source.Recurrence,
+            RecurrenceInterval = source.RecurrenceInterval,
             DayOfMonth = source.DayOfMonth,
             MonthOfYear = source.MonthOfYear,
             WeekOfMonth = source.WeekOfMonth,
@@ -1526,6 +1603,9 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("durationSeconds")]
     public int DurationSeconds { get; init; }
 
+    [JsonPropertyName("recurrenceInterval")]
+    public int RecurrenceInterval { get; init; } = PluginConfiguration.MinSceneScheduleRecurrenceInterval;
+
     [JsonPropertyName("monthOfYear")]
     public int MonthOfYear { get; init; }
 
@@ -1567,6 +1647,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("recurrence")]
     public string Recurrence { get; init; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;
+
+    [JsonPropertyName("recurrenceInterval")]
+    public int RecurrenceInterval { get; init; } = PluginConfiguration.MinSceneScheduleRecurrenceInterval;
 
     [JsonPropertyName("dayOfMonth")]
     public int DayOfMonth { get; init; }

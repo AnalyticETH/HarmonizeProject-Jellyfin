@@ -1284,8 +1284,10 @@ public sealed class HueApiControllerTests : IDisposable
             PresetName = "Annual",
             TimeOfDay = "23:30",
             Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+            RecurrenceInterval = 2,
             MonthOfYear = 12,
             DayOfMonth = 31,
+            StartDate = "2026-01-01",
             DaysOfWeekMask = 0,
             Enabled = true
         });
@@ -1293,15 +1295,18 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
         Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceYearly, result.Recurrence);
+        Assert.Equal(2, result.RecurrenceInterval);
         Assert.Equal(12, result.MonthOfYear);
         Assert.Equal(31, result.DayOfMonth);
         var saved = Assert.Single(configuration.SceneSchedules);
         Assert.Equal(12, saved.MonthOfYear);
         Assert.Equal(31, saved.DayOfMonth);
+        Assert.Equal(2, saved.RecurrenceInterval);
 
         var listedResponse = Assert.IsType<OkObjectResult>(controller.GetSceneSchedules().Result);
         var listed = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleResult>>(listedResponse.Value));
         Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceYearly, listed.Recurrence);
+        Assert.Equal(2, listed.RecurrenceInterval);
         Assert.Equal(12, listed.MonthOfYear);
         Assert.Equal(31, listed.DayOfMonth);
     }
@@ -1795,6 +1800,7 @@ public sealed class HueApiControllerTests : IDisposable
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
         Assert.Equal(TimeSpan.FromSeconds(4), end - start);
         Assert.Contains("X-HUE-TIMEZONE:", calendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-RECURRENCE-INTERVAL:1\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("TRANSP:TRANSPARENT\r\n", calendar, StringComparison.Ordinal);
         Assert.Equal(1, calendar.Split("BEGIN:VEVENT", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("calendar-app-secret", calendar, StringComparison.Ordinal);
@@ -2367,8 +2373,10 @@ public sealed class HueApiControllerTests : IDisposable
                     PresetName = "Annual",
                     TimeOfDay = "23:30",
                     Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+                    RecurrenceInterval = 2,
                     MonthOfYear = 12,
                     DayOfMonth = 31,
+                    StartDate = "2026-01-01",
                     DaysOfWeekMask = 0
                 }
             }
@@ -2377,8 +2385,10 @@ public sealed class HueApiControllerTests : IDisposable
         var exported = HueConfigurationExportDocument.From(configuration);
         var exportedCue = Assert.Single(exported.SceneSchedules);
         Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceYearly, exportedCue.Recurrence);
+        Assert.Equal(2, exportedCue.RecurrenceInterval);
         Assert.Equal(12, exportedCue.MonthOfYear);
         Assert.Equal(31, exportedCue.DayOfMonth);
+        Assert.Equal("2026-01-01", exportedCue.StartDate);
 
         var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
         {
@@ -2397,8 +2407,10 @@ public sealed class HueApiControllerTests : IDisposable
                     PresetName = exportedCue.PresetName,
                     TimeOfDay = exportedCue.TimeOfDay,
                     Recurrence = exportedCue.Recurrence,
+                    RecurrenceInterval = exportedCue.RecurrenceInterval,
                     MonthOfYear = exportedCue.MonthOfYear,
                     DayOfMonth = exportedCue.DayOfMonth,
+                    StartDate = exportedCue.StartDate,
                     DaysOfWeekMask = exportedCue.DaysOfWeekMask,
                     Enabled = exportedCue.Enabled
                 }
@@ -2408,6 +2420,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(action.Result);
         var importedCue = Assert.Single(configuration.SceneSchedules);
         Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceYearly, importedCue.Recurrence);
+        Assert.Equal(2, importedCue.RecurrenceInterval);
         Assert.Equal(12, importedCue.MonthOfYear);
         Assert.Equal(31, importedCue.DayOfMonth);
     }

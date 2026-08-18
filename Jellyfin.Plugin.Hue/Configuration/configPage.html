@@ -263,7 +263,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date, with optional inclusive start/end dates and exclusions. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -304,6 +304,11 @@
                                     <option value="MonthlyWeekday">Monthly weekday</option>
                                     <option value="Yearly">Yearly</option>
                                 </select>
+                            </div>
+                            <div id="sceneScheduleRecurrenceIntervalContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleRecurrenceInterval">Every</label>
+                                <input id="sceneScheduleRecurrenceInterval" type="number" min="1" max="365" value="1" is="emby-input" />
+                                <div class="fieldDescription">1 keeps the normal cadence. Higher values require Start date as the anchor.</div>
                             </div>
                             <div id="sceneScheduleDayOfMonthContainer" style="display: none;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleDayOfMonth">Day of month</label>
@@ -395,7 +400,7 @@
                                 <option value="32" selected>Friday</option>
                                 <option value="64" selected>Saturday</option>
                             </select>
-                            <div class="fieldDescription">Daily cues run on every calendar date; weekly cues choose one or more weekdays; monthly-day cues use the Day of month field; monthly-weekday cues use the ordinal weekday selector; yearly cues use the month and Day of month fields. Setting a one-time date disables recurring date rules and recurrence controls. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default. Dates are calendar dates in the selected cue time zone and include both endpoints. Enter excluded dates as comma-separated <code>yyyy-MM-dd</code> values to skip holidays or blackout days.</div>
+                            <div class="fieldDescription">Daily cues run on every calendar date; weekly cues choose one or more weekdays; monthly-day cues use the Day of month field; monthly-weekday cues use the ordinal weekday selector; yearly cues use the month and Day of month fields. The Every value multiplies the selected recurrence unit (days, weeks, months, or years); intervals above 1 use Start date as the stable anchor. Setting a one-time date disables recurring date rules and recurrence controls. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default. Dates are calendar dates in the selected cue time zone and include both endpoints. Enter excluded dates as comma-separated <code>yyyy-MM-dd</code> values to skip holidays or blackout days.</div>
                         </div>
                         <button is="emby-button" type="button" class="raised button-submit" id="saveSceneScheduleBtn" style="margin-top: 0.5em;"><span>Save Scheduled Cue</span></button>
                         <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule timing/date rules, and target mapping IDs; bridge credentials remain server-side.</div>
@@ -1722,6 +1727,12 @@
                             var months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                             return (months[Number(monthOfYear)] || "month") + " " + String(Number(dayOfMonth || 0));
                         };
+                        var formatRecurrenceInterval = function (recurrence, interval, runDate) {
+                            var value = Number(interval || 1);
+                            if (runDate || value <= 1) return "";
+                            var units = { daily: "days", weekly: "weeks", monthly: "months", monthlyweekday: "months", yearly: "years" };
+                            return " · every " + value + " " + (units[String(recurrence || "weekly").toLowerCase()] || "units");
+                        };
                         scheduleSelect.innerHTML = '<option value="">Choose a scheduled cue...</option>';
                         schedules.forEach(function (schedule) {
                             var id = schedule && (schedule.id !== undefined ? schedule.id : schedule.Id);
@@ -1734,6 +1745,7 @@
                             var monthOfYear = schedule.monthOfYear !== undefined ? schedule.monthOfYear : schedule.MonthOfYear;
                             var weekOfMonth = schedule.weekOfMonth !== undefined ? schedule.weekOfMonth : schedule.WeekOfMonth;
                             var dayOfWeek = schedule.dayOfWeek !== undefined ? schedule.dayOfWeek : schedule.DayOfWeek;
+                            var recurrenceInterval = schedule.recurrenceInterval !== undefined ? schedule.recurrenceInterval : schedule.RecurrenceInterval;
                             var recurrenceMode = String(recurrence || 'Weekly').toLowerCase();
                             var recurrenceLabel = recurrenceMode === 'monthly'
                                 ? ' · monthly ' + Number(dayOfMonth || 0)
@@ -1756,7 +1768,7 @@
                             var option = document.createElement('option');
                             option.value = id;
                             var durationLabel = Number(duration) > 0 ? ' · ' + Number(duration) + 's' : '';
-                            option.textContent = name + (time ? ' · ' + time : '') + durationLabel + recurrenceLabel + dateRange + exclusionLabel;
+                            option.textContent = name + (time ? ' · ' + time : '') + durationLabel + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate) + dateRange + exclusionLabel;
                             scheduleSelect.appendChild(option);
                         });
 
@@ -1848,6 +1860,12 @@
                             var months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                             return (months[Number(monthOfYear)] || "month") + " " + String(Number(dayOfMonth || 0));
                         };
+                        var formatRecurrenceInterval = function (recurrence, interval, runDate) {
+                            var value = Number(interval || 1);
+                            if (runDate || value <= 1) return "";
+                            var units = { daily: "days", weekly: "weeks", monthly: "months", monthlyweekday: "months", yearly: "years" };
+                            return " · every " + value + " " + (units[String(recurrence || "weekly").toLowerCase()] || "units");
+                        };
                         var formatLocal = function (value) {
                             return value ? new Date(value).toLocaleString() : "—";
                         };
@@ -1878,6 +1896,7 @@
                             var preset = HueConfigurationPage.readStatusField(schedule, "PresetName", "—");
                             var duration = HueConfigurationPage.readStatusField(schedule, "DurationSeconds", 0);
                             var recurrence = HueConfigurationPage.readStatusField(schedule, "Recurrence", "Weekly");
+                            var recurrenceInterval = HueConfigurationPage.readStatusField(schedule, "RecurrenceInterval", 1);
                             var dayOfMonth = HueConfigurationPage.readStatusField(schedule, "DayOfMonth", 0);
                             var monthOfYear = HueConfigurationPage.readStatusField(schedule, "MonthOfYear", 0);
                             var weekOfMonth = HueConfigurationPage.readStatusField(schedule, "WeekOfMonth", 0);
@@ -1928,7 +1947,7 @@
                                 : (recurrenceMode === "monthlyweekday"
                                     ? formatMonthlyWeekday(weekOfMonth, dayOfWeek)
                                     : (recurrenceMode === "daily" ? "daily" : daysForMask(mask))));
-                            addCell(String(preset) + " · " + String(time) + " · " + String(duration || 0) + "s · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel));
+                            addCell(String(preset) + " · " + String(time) + " · " + String(duration || 0) + "s · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
                             addCell(enabled ? (formatScheduleLocal(nextRun) + " · " + String(timeZone)) : "Disabled");
@@ -2262,6 +2281,8 @@
                     var startDate = page.querySelector('#sceneScheduleStartDate');
                     var endDate = page.querySelector('#sceneScheduleEndDate');
                     var excludedDates = page.querySelector('#sceneScheduleExcludedDates');
+                    var recurrenceInterval = page.querySelector('#sceneScheduleRecurrenceInterval');
+                    var recurrenceIntervalContainer = page.querySelector('#sceneScheduleRecurrenceIntervalContainer');
                     var days = page.querySelector('#sceneScheduleDays');
                     var recurrence = page.querySelector('#sceneScheduleRecurrence');
                     var dayOfMonth = page.querySelector('#sceneScheduleDayOfMonth');
@@ -2282,6 +2303,7 @@
                         if (startDate) startDate.value = '';
                         if (endDate) endDate.value = '';
                         if (excludedDates) excludedDates.value = '';
+                        if (recurrenceInterval) recurrenceInterval.value = '1';
                     }
                     if (!oneTime && clearRecurringRules && !monthlyDate && !monthlyWeekday)
                         HueConfigurationPage.setSceneScheduleDaysMask(page, 127);
@@ -2302,7 +2324,7 @@
                         if (weekOfMonth && !weekOfMonth.value) weekOfMonth.value = '1';
                         if (dayOfWeek && (!dayOfWeek.value || Number(dayOfWeek.value) < 0)) dayOfWeek.value = '1';
                     }
-                    [startDate, endDate, excludedDates, days, recurrence, dayOfMonth, monthOfYear, weekOfMonth, dayOfWeek].forEach(function (control) {
+                    [startDate, endDate, excludedDates, days, recurrence, recurrenceInterval, dayOfMonth, monthOfYear, weekOfMonth, dayOfWeek].forEach(function (control) {
                         if (control) control.disabled = oneTime;
                     });
                     if (days) {
@@ -2313,9 +2335,11 @@
                     if (monthOfYear) monthOfYear.disabled = oneTime || !yearly;
                     if (weekOfMonth) weekOfMonth.disabled = oneTime || !monthlyWeekday;
                     if (dayOfWeek) dayOfWeek.disabled = oneTime || !monthlyWeekday;
+                    if (recurrenceInterval) recurrenceInterval.disabled = oneTime;
                     if (dayOfMonthContainer) dayOfMonthContainer.style.display = monthlyDate ? '' : 'none';
                     if (yearlyMonthContainer) yearlyMonthContainer.style.display = yearly ? '' : 'none';
                     if (monthlyWeekdayContainer) monthlyWeekdayContainer.style.display = monthlyWeekday ? '' : 'none';
+                    if (recurrenceIntervalContainer) recurrenceIntervalContainer.style.display = oneTime ? 'none' : '';
                 },
                 updateSceneScheduleButtons: function (page) {
                     var select = page && page.querySelector('#sceneScheduleSelect');
@@ -2342,6 +2366,7 @@
                     page.querySelector('#sceneScheduleTime').value = get('TimeOfDay', 'timeOfDay', '20:00');
                     page.querySelector('#sceneScheduleDuration').value = get('DurationSeconds', 'durationSeconds', 0) || '';
                     page.querySelector('#sceneScheduleRecurrence').value = get('Recurrence', 'recurrence', 'Weekly') || 'Weekly';
+                    page.querySelector('#sceneScheduleRecurrenceInterval').value = get('RecurrenceInterval', 'recurrenceInterval', 1) || '1';
                     page.querySelector('#sceneScheduleDayOfMonth').value = get('DayOfMonth', 'dayOfMonth', 0) || '';
                     page.querySelector('#sceneScheduleMonthOfYear').value = get('MonthOfYear', 'monthOfYear', 1) || '1';
                     page.querySelector('#sceneScheduleWeekOfMonth').value = get('WeekOfMonth', 'weekOfMonth', 1) || '1';
@@ -2376,6 +2401,7 @@
                     page.querySelector('#sceneScheduleTime').value = '20:00';
                     page.querySelector('#sceneScheduleDuration').value = '';
                     page.querySelector('#sceneScheduleRecurrence').value = 'Weekly';
+                    page.querySelector('#sceneScheduleRecurrenceInterval').value = '1';
                     page.querySelector('#sceneScheduleDayOfMonth').value = '';
                     page.querySelector('#sceneScheduleMonthOfYear').value = '1';
                     page.querySelector('#sceneScheduleWeekOfMonth').value = '1';
@@ -2398,6 +2424,8 @@
                     var durationText = page.querySelector('#sceneScheduleDuration').value.trim();
                     var durationSeconds = durationText ? Number(durationText) : 0;
                     var recurrence = page.querySelector('#sceneScheduleRecurrence').value || 'Weekly';
+                    var recurrenceIntervalText = page.querySelector('#sceneScheduleRecurrenceInterval').value.trim();
+                    var recurrenceInterval = recurrenceIntervalText ? Number(recurrenceIntervalText) : 1;
                     var dayOfMonthText = page.querySelector('#sceneScheduleDayOfMonth').value.trim();
                     var dayOfMonth = dayOfMonthText ? Number(dayOfMonthText) : 0;
                     var monthOfYearText = page.querySelector('#sceneScheduleMonthOfYear').value;
@@ -2436,6 +2464,14 @@
                     }
                     if (!Number.isInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 30) {
                         Dashboard.alert("Hold duration must be blank, 0 (scene default), or a whole number from 1 to 30 seconds.");
+                        return;
+                    }
+                    if (!Number.isInteger(recurrenceInterval) || recurrenceInterval < 1 || recurrenceInterval > 365) {
+                        Dashboard.alert("Recurrence interval must be a whole number from 1 to 365.");
+                        return;
+                    }
+                    if (!runDate && recurrenceInterval > 1 && !startDate) {
+                        Dashboard.alert("Intervals greater than 1 require a start date anchor.");
                         return;
                     }
                     if (!Number.isInteger(dayOfMonth) || dayOfMonth < 0 || dayOfMonth > 31 ||
@@ -2477,6 +2513,7 @@
                             timeOfDay: timeOfDay,
                             durationSeconds: durationSeconds,
                             recurrence: recurrence,
+                            recurrenceInterval: recurrenceInterval,
                             dayOfMonth: dayOfMonth,
                             monthOfYear: monthOfYear,
                             weekOfMonth: weekOfMonth,

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.86] - 2026-08-18
+
+### Added
+- **Bounded scheduled-cue intervals**: run daily, weekly, monthly, monthly-weekday, or yearly cues every N calendar units, from 1 through 365
+- **Deterministic cadence anchors**: intervals greater than one use the recurring cue's `startDate` as the portable day, week, month, or year anchor while existing windows, exclusions, timezone, DST, and short-month rules continue to apply
+- **Portable interval metadata**: carry `recurrenceInterval` through the administrator editor, CRUD, readiness/status telemetry, upcoming previews, iCalendar output, and credential-safe backup/restore
+
+### Security
+- Recurrence intervals are bounded integers and credential-free responses continue to exclude bridge credentials, connection details, and playback tokens
+
 ## [1.5.85] - 2026-08-18
 
 ### Added

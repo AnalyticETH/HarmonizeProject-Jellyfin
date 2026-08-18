@@ -75,7 +75,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// A credential-free cue that displays one saved color scene at a selected time-zone
     /// wall-clock time. It can run once on RunDate or recur daily, weekly, monthly-day,
     /// monthly-weekday, or yearly with
-    /// optional date bounds and exclusions. A cue can optionally override the saved
+    /// optional date bounds and exclusions. Recurring cues can optionally run every N
+    /// calendar days, weeks, months, or years; intervals greater than one use StartDate
+    /// as the cadence anchor. A cue can optionally override the saved
     /// scene's hold duration for this event only. The target is resolved from the global
     /// bridge or a persisted user mapping when the cue runs; credentials are never stored here.
     /// </summary>
@@ -103,6 +105,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// One-time cues ignore this value.
         /// </summary>
         public string Recurrence { get; set; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;
+        /// <summary>
+        /// Number of recurrence units between runs. One preserves the original cadence.
+        /// Values greater than one require <see cref="StartDate"/> so the cadence remains
+        /// deterministic when configurations move between servers.
+        /// </summary>
+        public int RecurrenceInterval { get; set; } = 1;
         /// <summary>
         /// Calendar day for monthly recurrence, from 1 through 31. Values above a month's
         /// length run on that month's final calendar day. Yearly recurrence uses the same
@@ -263,6 +271,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxSceneScheduleWeekOfMonth = 5;
         public const int MinSceneScheduleMonthOfYear = 1;
         public const int MaxSceneScheduleMonthOfYear = 12;
+        public const int MinSceneScheduleRecurrenceInterval = 1;
+        public const int MaxSceneScheduleRecurrenceInterval = 365;
         public const int MaxSessionHistoryCount = 25;
         public const int MaxSceneScheduleHistoryCount = 100;
 
@@ -852,7 +862,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// 24-hour HH:mm form. A populated RunDate makes the cue one-time and ignores
         /// recurrence fields; blank RunDate uses either the recurring Sunday=1 through
         /// Saturday=64 bit-mask behavior, every calendar day, a monthly calendar day, a monthly
-        /// ordinal weekday, or a yearly calendar date.
+        /// ordinal weekday, or a yearly calendar date. RecurrenceInterval controls the number
+        /// of calendar units between recurring runs and values above one require StartDate as
+        /// the cadence anchor.
         /// </summary>
         public static List<string> ValidateSceneSchedule(
             HueSceneSchedule? schedule,
@@ -898,6 +910,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (!TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
                 errors.Add($"{label} recurrence must be Daily, Weekly, Monthly, MonthlyWeekday, or Yearly");
 
+            if (schedule.RecurrenceInterval < MinSceneScheduleRecurrenceInterval ||
+                schedule.RecurrenceInterval > MaxSceneScheduleRecurrenceInterval)
+            {
+                errors.Add($"{label} recurrence interval must be between {MinSceneScheduleRecurrenceInterval} and {MaxSceneScheduleRecurrenceInterval}");
+            }
+
             if (schedule.DayOfMonth < 0 || schedule.DayOfMonth > 31)
                 errors.Add($"{label} day of month must be between 1 and 31 for monthly recurrence");
 
@@ -922,6 +940,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 string.CompareOrdinal(normalizedStartDate, normalizedEndDate) > 0)
             {
                 errors.Add($"{label} end date must be on or after the start date");
+            }
+
+            if (string.IsNullOrWhiteSpace(normalizedRunDate) &&
+                schedule.RecurrenceInterval > MinSceneScheduleRecurrenceInterval &&
+                string.IsNullOrWhiteSpace(normalizedStartDate))
+            {
+                errors.Add($"{label} recurrence intervals greater than {MinSceneScheduleRecurrenceInterval} require a start date anchor");
             }
 
             var excludedDates = schedule.ExcludedDates ?? new List<string>();

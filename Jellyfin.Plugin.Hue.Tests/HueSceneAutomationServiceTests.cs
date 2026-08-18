@@ -70,6 +70,130 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void RecurrenceInterval_UsesStartDateAnchorAcrossCalendarUnits()
+    {
+        var daily = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            RecurrenceInterval = 2,
+            StartDate = "2026-08-17",
+            DaysOfWeekMask = 0
+        };
+
+        Assert.True(HueSceneAutomationService.IsDue(
+            daily,
+            new DateTime(2026, 8, 17, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            daily,
+            new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.True(HueSceneAutomationService.IsDue(
+            daily,
+            new DateTime(2026, 8, 19, 7, 5, 30, DateTimeKind.Utc)));
+
+        var dailyOccurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            daily,
+            new DateTime(2026, 8, 16, 6, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 3,
+            horizonDays: 6);
+        Assert.Equal(
+            new[]
+            {
+                new DateTime(2026, 8, 17, 7, 5, 0),
+                new DateTime(2026, 8, 19, 7, 5, 0),
+                new DateTime(2026, 8, 21, 7, 5, 0)
+            },
+            dailyOccurrences.Select(occurrence => occurrence.LocalTime));
+        Assert.All(dailyOccurrences, occurrence => Assert.Equal(2, occurrence.RecurrenceInterval));
+
+        var weekly = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceWeekly,
+            RecurrenceInterval = 2,
+            StartDate = "2026-08-17",
+            DaysOfWeekMask = 1 << (int)DayOfWeek.Monday
+        };
+        Assert.True(HueSceneAutomationService.IsDue(
+            weekly,
+            new DateTime(2026, 8, 17, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            weekly,
+            new DateTime(2026, 8, 24, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.True(HueSceneAutomationService.IsDue(
+            weekly,
+            new DateTime(2026, 8, 31, 7, 5, 30, DateTimeKind.Utc)));
+
+        var monthly = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
+            RecurrenceInterval = 2,
+            DayOfMonth = 31,
+            StartDate = "2026-01-01",
+            DaysOfWeekMask = 0
+        };
+        Assert.True(HueSceneAutomationService.IsDue(
+            monthly,
+            new DateTime(2026, 1, 31, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            monthly,
+            new DateTime(2026, 2, 28, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.True(HueSceneAutomationService.IsDue(
+            monthly,
+            new DateTime(2026, 3, 31, 7, 5, 30, DateTimeKind.Utc)));
+
+        var monthlyWeekday = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday,
+            RecurrenceInterval = 2,
+            StartDate = "2026-01-01",
+            WeekOfMonth = 1,
+            DayOfWeek = (int)DayOfWeek.Monday
+        };
+        Assert.True(HueSceneAutomationService.IsDue(
+            monthlyWeekday,
+            new DateTime(2026, 1, 5, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            monthlyWeekday,
+            new DateTime(2026, 2, 2, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.True(HueSceneAutomationService.IsDue(
+            monthlyWeekday,
+            new DateTime(2026, 3, 2, 7, 5, 30, DateTimeKind.Utc)));
+
+        var yearly = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+            RecurrenceInterval = 2,
+            MonthOfYear = 12,
+            DayOfMonth = 31,
+            StartDate = "2026-01-01",
+            DaysOfWeekMask = 0
+        };
+        Assert.True(HueSceneAutomationService.IsDue(
+            yearly,
+            new DateTime(2026, 12, 31, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.False(HueSceneAutomationService.IsDue(
+            yearly,
+            new DateTime(2027, 12, 31, 7, 5, 30, DateTimeKind.Utc)));
+        Assert.True(HueSceneAutomationService.IsDue(
+            yearly,
+            new DateTime(2028, 12, 31, 7, 5, 30, DateTimeKind.Utc)));
+    }
+
+    [Fact]
     public void MonthlyWeekdayRecurrence_MatchesFirstAndLastWeekday()
     {
         var firstMonday = new HueSceneSchedule
@@ -551,6 +675,14 @@ public sealed class HueSceneAutomationServiceTests
                 MonthOfYear = 0,
                 DayOfMonth = 31
             });
+        var invalidInterval = HueSceneAutomationService.EvaluateReadiness(
+            config,
+            new HueSceneSchedule
+            {
+                Enabled = true,
+                PresetName = "Evening",
+                RecurrenceInterval = 2
+            });
 
         Assert.False(invalidStart.Ready);
         Assert.Contains("start date", invalidStart.Message, StringComparison.OrdinalIgnoreCase);
@@ -568,6 +700,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Contains("monthly-weekday", invalidMonthlyWeekday.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(invalidYearly.Ready);
         Assert.Contains("yearly", invalidYearly.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(invalidInterval.Ready);
+        Assert.Contains("interval", invalidInterval.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

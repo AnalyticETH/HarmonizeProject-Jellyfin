@@ -286,6 +286,69 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsBoundedRecurrenceIntervalWithAnchor()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Every Other Day" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-interval",
+                    Name = "Every other day",
+                    PresetName = "Every Other Day",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    RecurrenceInterval = 2,
+                    StartDate = "2026-08-17",
+                    TimeOfDay = "07:05",
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsUnanchoredOrOutOfRangeInterval()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-unanchored",
+                    Name = "Unanchored interval",
+                    PresetName = "Evening",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    RecurrenceInterval = 2,
+                    TimeOfDay = "20:00",
+                    DaysOfWeekMask = 0
+                },
+                new()
+                {
+                    Id = "cue-too-large",
+                    Name = "Too-large interval",
+                    PresetName = "Evening",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    RecurrenceInterval = PluginConfiguration.MaxSceneScheduleRecurrenceInterval + 1,
+                    StartDate = "2026-08-17",
+                    TimeOfDay = "20:00",
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+
+        Assert.Contains(errors, error => error.Contains("require a start date anchor", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("recurrence interval must be between", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsInvalidMonthlyRecurrence()
     {
         var config = new PluginConfiguration
