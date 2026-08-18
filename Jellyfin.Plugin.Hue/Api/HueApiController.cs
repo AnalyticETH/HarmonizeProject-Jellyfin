@@ -396,7 +396,7 @@ namespace Jellyfin.Plugin.Hue.Api
             return channelIds;
         }
 
-        private static HueColorPresetResult ToColorPresetResult(HueColorPreset preset)
+        internal static HueColorPresetResult ToColorPresetResult(HueColorPreset preset)
         {
             PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
             return new HueColorPresetResult
