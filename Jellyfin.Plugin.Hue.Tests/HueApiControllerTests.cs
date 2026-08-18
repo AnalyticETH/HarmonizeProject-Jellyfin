@@ -772,7 +772,8 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>(),
                 It.IsAny<int>(),
-                It.IsAny<int>()))
+                It.IsAny<int>(),
+                PluginConfiguration.ColorPresetEffectSolid))
             .ReturnsAsync(new HueStreamProbeResult
             {
                 Succeeded = true,
@@ -816,7 +817,8 @@ public sealed class HueApiControllerTests : IDisposable
             4,
             It.IsAny<CancellationToken>(),
             2,
-            1), Times.Once);
+            1,
+            PluginConfiguration.ColorPresetEffectSolid), Times.Once);
     }
 
     [Fact]
@@ -932,7 +934,8 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>(),
                 0,
-                0))
+                0,
+                PluginConfiguration.ColorPresetEffectSolid))
             .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Preview sent." });
         var controller = CreateController(streamTester.Object);
 
@@ -963,7 +966,8 @@ public sealed class HueApiControllerTests : IDisposable
             2,
             It.IsAny<CancellationToken>(),
             0,
-            0), Times.Once);
+            0,
+            PluginConfiguration.ColorPresetEffectSolid), Times.Once);
     }
 
     [Fact]
@@ -1003,7 +1007,8 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>(),
                 0,
-                0))
+                0,
+                PluginConfiguration.ColorPresetEffectSolid))
             .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Preview sent." });
         var controller = CreateController(streamTester.Object);
 
@@ -1035,7 +1040,8 @@ public sealed class HueApiControllerTests : IDisposable
             2,
             It.IsAny<CancellationToken>(),
             0,
-            0), Times.Once);
+            0,
+            PluginConfiguration.ColorPresetEffectSolid), Times.Once);
     }
 
     [Fact]

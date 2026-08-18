@@ -634,7 +634,8 @@ public sealed class HueSceneAutomationServiceTests
                 7,
                 It.IsAny<CancellationToken>(),
                 0,
-                0))
+                0,
+                PluginConfiguration.ColorPresetEffectSolid))
             .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Displayed one-time scene." });
         var service = new HueSceneAutomationService(
             streamTester.Object,
