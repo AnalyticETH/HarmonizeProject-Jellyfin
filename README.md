@@ -73,7 +73,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Solid Color Preview** | Choose a color, brightness, and 1-30 second duration to preview the default target (or the current mapping target). The plugin captures and restores the selected lights automatically, stops promptly when canceled, and refuses to overlap active playback. |
 | **Cleanup diagnostics** | Light capture and restoration retry each light using the captured network policy. Playback, probes, and previews refuse to activate when the snapshot is incomplete; one shared bridge lease also prevents playback and diagnostics from overlapping. Partial restoration or failed entertainment-area deactivation remains visible as a sanitized warning in Live Sync Status and probe/preview results. DTLS startup, writes, and reconnects stop with playback or diagnostic cancellation. |
 | **Saved Color Scenes** | Save up to 50 named color, brightness, and duration presets. Apply a saved scene to the default target or the current mapping; presets contain no bridge credentials. |
-| **Scheduled Scene Cues** | Run a saved scene automatically on selected days and a chosen time zone, against the global target or an enabled user mapping. Optional inclusive start/end windows and up to 100 excluded calendar dates handle finite runs, holidays, and blackout days. Pause or resume all recurring automation without deleting cues; individual **Run Now** remains available while paused. Every cue is a short restorative preview, active playback wins, duplicate polling within a selected-zone minute is suppressed, and DST transitions are handled deterministically. The scheduler monitor reports readiness, automation state, cue-local/UTC next run, a 31-day upcoming occurrence preview, active state, run count, last outcome, cleanup warnings, and an optional bounded cue-run history that can survive Jellyfin restarts. |
+| **Scheduled Scene Cues** | Run a saved scene automatically on selected days and a chosen time zone, against the global target or an enabled user mapping. Optional inclusive start/end windows and up to 100 excluded calendar dates handle finite runs, holidays, and blackout days. Pause or resume all recurring automation without deleting cues; individual **Run Now** remains available while paused. Every cue is a short restorative preview, active playback wins, duplicate polling within a selected-zone minute is suppressed, and DST transitions are handled deterministically. The scheduler monitor reports readiness, automation state, cue-local/UTC next run, a 31-day upcoming occurrence preview, a credential-free iCalendar download, active state, run count, last outcome, cleanup warnings, and an optional bounded cue-run history that can survive Jellyfin restarts. |
 | **Restore Light State After Sync** | Save and restore each light's original state after playback. Per-user mappings can override this policy while blank fields inherit the global setting. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
 | **RGB Channel Gains** | Independently scale red, green, and blue channels from 50-200% (default: 100%) for room-specific white-balance correction before saturation and hue processing. |
@@ -165,6 +165,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/SceneSchedules/TimeZones` | List the Jellyfin host's available system time zones for schedule selection, including stable IDs, display names, and base UTC offsets. |
 | `GET /HueSync/SceneSchedules/Status` | Read credential-free scheduler telemetry for the global automation state and every configured cue: preflight readiness and reason, selected time zone, optional date window and excluded dates, cue-local and UTC next run, active state, run count, last run/outcome/message, and cleanup warning. Readiness validates saved configuration locally without contacting the bridge. |
 | `GET /HueSync/SceneSchedules/Occurrences?limit=50&days=31&scheduleId=...` | Preview bounded upcoming cue occurrences in UTC and the cue-local wall clock, applying timezone/DST rules, weekday masks, date windows, and exclusions without contacting the bridge. `limit` is capped at 50 per response and `days` at 366. |
+| `GET /HueSync/SceneSchedules/Calendar?limit=50&days=31&scheduleId=...` | Download the same bounded upcoming occurrences as an RFC 5545 iCalendar feed with UTC event times, cue timezone metadata, target/scene descriptions, and preset durations; `limit` is capped at 50 and `days` at 366, and no bridge credentials are included. |
 | `GET /HueSync/SceneSchedules/History?limit=100&scheduleId=...` | Read the newest sanitized scheduled-cue runs, optionally filtered by stable cue ID; results include cue/scene/target labels, outcome, message, cleanup warning, timestamp, and retained run count. |
 | `GET /HueSync/SceneSchedules/History/Export?limit=100` | Download the same credential-free scheduled-cue history document used by the administrator Export JSON action. |
 | `DELETE /HueSync/SceneSchedules/History` | Clear retained scheduled-cue run summaries and reset last-run pointers without stopping an active cue. |
@@ -351,7 +352,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.78 (Current)
+### Version 1.5.79 (Current)
+- **Calendar interoperability**: download the bounded upcoming scene-cue preview as a credential-free iCalendar feed with UTC event times and cue timezone metadata
+- **Administrator calendar action**: add a one-click `.ics` download beside the existing upcoming-occurrence preview
+
+### Version 1.5.78
 - **Global scheduled-automation pause**: pause or resume recurring scene cues without changing individual cue definitions while keeping **Run Now** available for manual checks
 - **Pause-aware status**: expose the automation state through scheduler telemetry and the administrator configuration summary
 

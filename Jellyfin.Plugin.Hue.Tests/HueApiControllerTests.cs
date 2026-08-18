@@ -1503,6 +1503,53 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetSceneScheduleCalendar_ReturnsBoundedUtcEventsWithEscapedCredentialFreeMetadata()
+    {
+        var cueTime = DateTime.Now.AddMinutes(10).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "calendar-app-secret",
+            HueClientKey = "calendar-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Evening", DurationSeconds = 8 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "calendar-cue",
+                    Name = "Movie, Night; Cue",
+                    PresetName = "Evening",
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    DaysOfWeekMask = 127
+                }
+            }
+        });
+
+        var action = CreateController().GetSceneScheduleCalendar(limit: 1, days: 7);
+
+        var response = Assert.IsType<FileContentResult>(action);
+        Assert.Equal("text/calendar; charset=utf-8", response.ContentType);
+        Assert.Equal("jellyfin-hue-scene-cues.ics", response.FileDownloadName);
+        var calendar = Encoding.UTF8.GetString(response.FileContents);
+        Assert.Contains("BEGIN:VCALENDAR\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("VERSION:2.0\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("BEGIN:VEVENT\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("SUMMARY:Movie\\, Night\\; Cue\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("DTSTART:", calendar, StringComparison.Ordinal);
+        Assert.Contains("DTEND:", calendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-TIMEZONE:", calendar, StringComparison.Ordinal);
+        Assert.Contains("TRANSP:TRANSPARENT\r\n", calendar, StringComparison.Ordinal);
+        Assert.Equal(1, calendar.Split("BEGIN:VEVENT", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("calendar-app-secret", calendar, StringComparison.Ordinal);
+        Assert.DoesNotContain("calendar-client-secret", calendar, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetSessionHistory_WithoutHostedSyncServiceReturnsBoundedEmptyHistory()
     {
         var controller = CreateController();

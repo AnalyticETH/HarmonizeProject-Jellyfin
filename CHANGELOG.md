@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.79] - 2026-08-18
+
+### Added
+- **Calendar interoperability**: export the bounded upcoming scheduled-cue preview as an RFC 5545 iCalendar feed with UTC event times and cue timezone metadata
+- **Administrator calendar action**: add a one-click `.ics` download beside the upcoming-occurrence table
+
+### Security
+- Calendar events contain only cue names, saved-scene names, target labels, timezone metadata, and timestamps; bridge credentials and connection details remain excluded
+
 ## [1.5.78] - 2026-08-18
 
 ### Added

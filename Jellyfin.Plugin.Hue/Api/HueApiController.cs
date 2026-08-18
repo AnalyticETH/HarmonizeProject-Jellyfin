@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Mime;
+using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -985,6 +987,69 @@ namespace Jellyfin.Plugin.Hue.Api
             var boundedDays = Math.Clamp(days, 1, HueSceneAutomationService.MaxUpcomingHorizonDays);
             var normalizedScheduleId = string.IsNullOrWhiteSpace(scheduleId) ? null : scheduleId.Trim();
             var serverLocalNow = DateTime.Now;
+            var occurrences = BuildUpcomingSceneScheduleOccurrences(
+                config,
+                serverLocalNow,
+                boundedLimit,
+                boundedDays,
+                normalizedScheduleId);
+
+            return Ok(new HueSceneScheduleOccurrencesResult
+            {
+                ServiceAvailable = _sceneAutomationService != null,
+                GeneratedAtUtc = DateTime.UtcNow,
+                ServerLocalNow = DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified),
+                ServerTimeZoneId = TimeZoneInfo.Local.Id,
+                Limit = boundedLimit,
+                HorizonDays = boundedDays,
+                ScheduleIdFilter = normalizedScheduleId,
+                Occurrences = occurrences
+            });
+        }
+
+        /// <summary>
+        /// Returns the same bounded, credential-free cue preview as the JSON endpoint
+        /// in iCalendar format for calendar clients. Events use UTC instants while the
+        /// cue's configured timezone is retained as metadata, so DST behavior cannot
+        /// drift between the preview and an imported calendar.
+        /// </summary>
+        [HttpGet("SceneSchedules/Calendar")]
+        [Produces("text/calendar")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public IActionResult GetSceneScheduleCalendar(
+            [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule,
+            [FromQuery(Name = "days")] int days = HueSceneAutomationService.DefaultUpcomingHorizonDays,
+            [FromQuery(Name = "scheduleId")] string? scheduleId = null)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var boundedLimit = Math.Clamp(limit, 1, HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule);
+            var boundedDays = Math.Clamp(days, 1, HueSceneAutomationService.MaxUpcomingHorizonDays);
+            var normalizedScheduleId = string.IsNullOrWhiteSpace(scheduleId) ? null : scheduleId.Trim();
+            var generatedAtUtc = DateTime.UtcNow;
+            var occurrences = BuildUpcomingSceneScheduleOccurrences(
+                config,
+                DateTime.Now,
+                boundedLimit,
+                boundedDays,
+                normalizedScheduleId);
+            var calendar = BuildSceneScheduleCalendar(config, occurrences, generatedAtUtc, boundedDays);
+            return File(
+                Encoding.UTF8.GetBytes(calendar),
+                "text/calendar; charset=utf-8",
+                "jellyfin-hue-scene-cues.ics");
+        }
+
+        private static IReadOnlyList<HueSceneScheduleOccurrenceResult> BuildUpcomingSceneScheduleOccurrences(
+            PluginConfiguration config,
+            DateTime serverLocalNow,
+            int boundedLimit,
+            int boundedDays,
+            string? normalizedScheduleId)
+        {
             var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
                 .Where(schedule => schedule != null)
                 .Where(schedule => string.IsNullOrWhiteSpace(normalizedScheduleId) ||
@@ -993,7 +1058,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 .ThenBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            var occurrences = schedules
+            return schedules
                 .SelectMany(schedule => HueSceneAutomationService.GetUpcomingOccurrences(
                         schedule,
                         serverLocalNow,
@@ -1015,18 +1080,91 @@ namespace Jellyfin.Plugin.Hue.Api
                 .ThenBy(occurrence => occurrence.ScheduleName, StringComparer.OrdinalIgnoreCase)
                 .Take(boundedLimit)
                 .ToArray();
+        }
 
-            return Ok(new HueSceneScheduleOccurrencesResult
+        private static string BuildSceneScheduleCalendar(
+            PluginConfiguration config,
+            IReadOnlyList<HueSceneScheduleOccurrenceResult> occurrences,
+            DateTime generatedAtUtc,
+            int horizonDays)
+        {
+            var builder = new StringBuilder();
+            AppendIcsLine(builder, "BEGIN", "VCALENDAR");
+            AppendIcsLine(builder, "VERSION", "2.0");
+            AppendIcsLine(builder, "PRODID", "-//MCP Capital LLC//Jellyfin Hue Sync//EN");
+            AppendIcsLine(builder, "CALSCALE", "GREGORIAN");
+            AppendIcsLine(builder, "METHOD", "PUBLISH");
+            AppendIcsLine(builder, "X-WR-CALNAME", "Jellyfin Hue Scene Cues");
+            AppendIcsLine(builder, "X-WR-CALDESC", $"Upcoming credential-free Hue scene cues for the next {horizonDays} days.");
+
+            foreach (var occurrence in occurrences)
             {
-                ServiceAvailable = _sceneAutomationService != null,
-                GeneratedAtUtc = DateTime.UtcNow,
-                ServerLocalNow = DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified),
-                ServerTimeZoneId = TimeZoneInfo.Local.Id,
-                Limit = boundedLimit,
-                HorizonDays = boundedDays,
-                ScheduleIdFilter = normalizedScheduleId,
-                Occurrences = occurrences
-            });
+                var utcStart = DateTime.SpecifyKind(occurrence.UtcTime, DateTimeKind.Utc);
+                var durationSeconds = config.ColorPresets?
+                    .FirstOrDefault(preset => preset != null &&
+                        string.Equals(preset.Name?.Trim(), occurrence.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase))?
+                    .DurationSeconds ?? PluginConfiguration.MinPreviewDurationSeconds;
+                durationSeconds = Math.Clamp(
+                    durationSeconds,
+                    PluginConfiguration.MinPreviewDurationSeconds,
+                    PluginConfiguration.MaxPreviewDurationSeconds);
+
+                AppendIcsLine(builder, "BEGIN", "VEVENT");
+                AppendIcsLine(builder, "UID", BuildIcsUid(occurrence.ScheduleId, utcStart));
+                AppendIcsLine(builder, "DTSTAMP", FormatIcsUtc(generatedAtUtc));
+                AppendIcsLine(builder, "DTSTART", FormatIcsUtc(utcStart));
+                AppendIcsLine(builder, "DTEND", FormatIcsUtc(utcStart.AddSeconds(durationSeconds)));
+                AppendIcsLine(builder, "SUMMARY", occurrence.ScheduleName);
+                AppendIcsLine(
+                    builder,
+                    "DESCRIPTION",
+                    $"Scene: {occurrence.PresetName}; Target: {occurrence.TargetLabel}; Time zone: {occurrence.TimeZoneDisplayName}");
+                AppendIcsLine(builder, "X-HUE-TIMEZONE", occurrence.TimeZoneId);
+                AppendIcsLine(builder, "STATUS", "CONFIRMED");
+                AppendIcsLine(builder, "TRANSP", "TRANSPARENT");
+                AppendIcsLine(builder, "END", "VEVENT");
+            }
+
+            AppendIcsLine(builder, "END", "VCALENDAR");
+            return builder.ToString();
+        }
+
+        private static string BuildIcsUid(string? scheduleId, DateTime utcStart)
+        {
+            var encodedId = Convert.ToBase64String(Encoding.UTF8.GetBytes(scheduleId?.Trim() ?? string.Empty))
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+            return $"{(string.IsNullOrWhiteSpace(encodedId) ? "cue" : encodedId)}-{utcStart.Ticks}@jellyfin-hue";
+        }
+
+        private static string FormatIcsUtc(DateTime value)
+        {
+            return DateTime.SpecifyKind(value, DateTimeKind.Utc)
+                .ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture);
+        }
+
+        private static void AppendIcsLine(StringBuilder builder, string name, string? value)
+        {
+            var line = $"{name}:{EscapeIcsText(value)}";
+            while (line.Length > 75)
+            {
+                builder.Append(line, 0, 75).Append("\r\n");
+                line = " " + line[75..];
+            }
+
+            builder.Append(line).Append("\r\n");
+        }
+
+        private static string EscapeIcsText(string? value)
+        {
+            return (value ?? string.Empty)
+                .Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace(";", "\\;", StringComparison.Ordinal)
+                .Replace(",", "\\,", StringComparison.Ordinal)
+                .Replace("\r\n", "\\n", StringComparison.Ordinal)
+                .Replace("\r", "\\n", StringComparison.Ordinal)
+                .Replace("\n", "\\n", StringComparison.Ordinal);
         }
 
         /// <summary>

@@ -705,7 +705,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (config == null || !config.SceneAutomationEnabled)
             return;
 
-        var schedules = config?.SceneSchedules?
+        var schedules = config.SceneSchedules?
             .Where(schedule => schedule != null)
             .Select(CloneSchedule)
             .ToArray();
