@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.111] - 2026-08-19
+
+### Added
+- **Reference-safe saved-scene deletion**: reject deletion while a saved playlist or scheduled cue still references the scene
+- **Dependency-aware administrator feedback**: return sanitized counts for dependent playlists and scheduled cues so administrators know exactly what must be changed first
+
+### Security
+- Dependency results contain only counts and never expose bridge addresses, app keys, client keys, playback tokens, or private user data
+
 ## [1.5.110] - 2026-08-19
 
 ### Added

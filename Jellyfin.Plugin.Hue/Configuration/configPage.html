@@ -301,7 +301,7 @@
                                 <span>Delete Scene</span>
                             </button>
                         </div>
-                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Preview Saved Scene runs the selected saved scene through the server-side target profile; Preview Saved Scene on All Targets runs it sequentially on every distinct enabled target. Use Duplicate Scene to create a safe editable variant. Scenes contain no bridge credentials.</div>
+                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Preview Saved Scene runs the selected saved scene through the server-side target profile; Preview Saved Scene on All Targets runs it sequentially on every distinct enabled target. Use Duplicate Scene to create a safe editable variant. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -2114,7 +2114,7 @@
                         }).catch(function (err) {
                             console.error("Failed to delete color preset:", err);
                             if (statusEl) {
-                                statusEl.textContent = "Unable to delete the saved scene.";
+                                statusEl.textContent = "Unable to delete the saved scene. It may still be used by a playlist or scheduled cue.";
                                 statusEl.style.color = "#d9534f";
                             }
                             HueConfigurationPage.updatePresetButtons(page);

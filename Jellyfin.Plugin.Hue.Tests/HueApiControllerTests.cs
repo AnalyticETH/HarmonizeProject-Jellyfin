@@ -2758,6 +2758,38 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void DeleteColorPreset_ProtectsPlaylistReferencesAndReportsAllDependencies()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Accent" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-1", Name = "Accent sequence", PresetNames = new List<string> { "Accent" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "cue-1", Name = "Accent cue", PresetName = "Accent" }
+            }
+        });
+        var controller = CreateController();
+
+        var action = controller.DeleteColorPreset(" accent ");
+
+        var response = Assert.IsType<ConflictObjectResult>(action);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        var message = Assert.IsType<string>(response.Value);
+        Assert.Contains("1 playlist(s)", message, StringComparison.Ordinal);
+        Assert.Contains("1 scheduled cue(s)", message, StringComparison.Ordinal);
+        Assert.Single(configuration.ColorPresets);
+
+        Assert.IsType<OkObjectResult>(controller.DeleteSceneSchedule("cue-1"));
+        Assert.IsType<OkObjectResult>(controller.DeleteScenePlaylist("Accent sequence"));
+        Assert.IsType<OkObjectResult>(controller.DeleteColorPreset("Accent"));
+        Assert.Empty(configuration.ColorPresets);
+    }
+
+    [Fact]
     public async Task RunSceneSchedule_WithoutHostedAutomationServiceReturnsUnavailable()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

@@ -1448,7 +1448,9 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Deletes one reusable preview scene by name.
+        /// Deletes one reusable preview scene by name. A scene that is referenced by a
+        /// saved playlist or scheduled cue is retained until those references are removed
+        /// or changed, preventing an otherwise valid configuration from being broken.
         /// </summary>
         [HttpDelete("ColorPresets/{name}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1463,18 +1465,29 @@ namespace Jellyfin.Plugin.Hue.Api
             if (config == null)
                 return NotFound("Plugin configuration not available.");
 
+            var normalizedName = name.Trim();
+            var referencedPlaylistCount = config.ScenePlaylists?.Count(playlist =>
+                playlist != null &&
+                playlist.PresetNames?.Any(presetName =>
+                    string.Equals(presetName?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase)) == true) ?? 0;
             var referencedScheduleCount = config.SceneSchedules?.Count(schedule =>
                 schedule != null &&
-                string.Equals(schedule.PresetName?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase)) ?? 0;
-            if (referencedScheduleCount > 0)
+                string.Equals(schedule.PresetName?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase)) ?? 0;
+            if (referencedPlaylistCount > 0 || referencedScheduleCount > 0)
             {
-                return Conflict($"The saved scene is used by {referencedScheduleCount} scheduled cue(s). Delete or update those cues first.");
+                var dependencies = new List<string>();
+                if (referencedPlaylistCount > 0)
+                    dependencies.Add($"{referencedPlaylistCount} playlist(s)");
+                if (referencedScheduleCount > 0)
+                    dependencies.Add($"{referencedScheduleCount} scheduled cue(s)");
+                return Conflict(
+                    $"The saved scene is referenced by {string.Join(" and ", dependencies)}. Delete or update those references first.");
             }
 
             config.ColorPresets ??= new List<HueColorPreset>();
             var removed = config.ColorPresets.RemoveAll(existing =>
                 existing != null &&
-                string.Equals(existing.Name?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
+                string.Equals(existing.Name?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase));
             if (removed == 0)
                 return NotFound("Color preset not found.");
 
