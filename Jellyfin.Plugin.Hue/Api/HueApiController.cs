@@ -2099,6 +2099,137 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Deletes several saved-scene playlists by stable ID in one administrator
+        /// operation. Every selected playlist is resolved and checked for scheduled-cue
+        /// references before mutation; any missing ID, dependency, or persistence failure
+        /// leaves the complete playlist collection unchanged.
+        /// </summary>
+        [HttpPost("ScenePlaylists/BulkDelete")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueScenePlaylistBulkDeleteResult> DeleteScenePlaylistsBulk(
+            [FromBody] HueScenePlaylistBulkDeleteRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A playlist selection is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var playlistIds = (request.PlaylistIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (playlistIds.Length == 0)
+                return BadRequest("Select at least one scene playlist.");
+            if (playlistIds.Length > PluginConfiguration.MaxScenePlaylists)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxScenePlaylists} scene playlists at once.");
+            }
+
+            config.ScenePlaylists ??= new List<HueScenePlaylist>();
+            var selectedPlaylists = playlistIds
+                .Select(id => config.ScenePlaylists.FirstOrDefault(playlist =>
+                    playlist != null &&
+                    string.Equals(playlist.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingIds = playlistIds
+                .Where((_, index) => selectedPlaylists[index] == null)
+                .ToArray();
+            if (missingIds.Length > 0)
+            {
+                return NotFound(new HueScenePlaylistBulkDeleteResult
+                {
+                    RequestedCount = playlistIds.Length,
+                    Message = $"The requested scene playlist(s) were not found: {string.Join(", ", missingIds)}."
+                });
+            }
+
+            var playlists = selectedPlaylists
+                .Where(playlist => playlist != null)
+                .Cast<HueScenePlaylist>()
+                .ToArray();
+            var blockedPlaylists = playlists
+                .Select(playlist =>
+                {
+                    var normalizedName = playlist.Name?.Trim() ?? string.Empty;
+                    var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+                        .Where(schedule => schedule != null &&
+                            string.Equals(schedule.PlaylistName?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase))
+                        .Select(schedule => new HueScenePlaylistScheduleDependencyResult
+                        {
+                            Id = schedule.Id?.Trim() ?? string.Empty,
+                            Name = schedule.Name?.Trim() ?? string.Empty,
+                            Enabled = schedule.Enabled
+                        })
+                        .OrderBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                    return schedules.Length == 0
+                        ? null
+                        : new HueScenePlaylistDependenciesResult
+                        {
+                            Id = playlist.Id?.Trim() ?? string.Empty,
+                            Name = normalizedName,
+                            CanDelete = false,
+                            ScheduledCueCount = schedules.Length,
+                            ScheduledCues = schedules
+                        };
+                })
+                .Where(dependencies => dependencies != null)
+                .Cast<HueScenePlaylistDependenciesResult>()
+                .ToArray();
+            if (blockedPlaylists.Length > 0)
+            {
+                return Conflict(new HueScenePlaylistBulkDeleteResult
+                {
+                    RequestedCount = playlists.Length,
+                    Message = "One or more selected scene playlists are used by scheduled cues. Delete or update those cues first; no playlists were deleted.",
+                    BlockedPlaylists = blockedPlaylists
+                });
+            }
+
+            var previousPlaylists = config.ScenePlaylists;
+            var selectedIds = new HashSet<string>(playlistIds, StringComparer.OrdinalIgnoreCase);
+            var candidatePlaylists = previousPlaylists
+                .Where(playlist => playlist == null || !selectedIds.Contains(playlist.Id?.Trim() ?? string.Empty))
+                .ToList();
+            var deletedCount = previousPlaylists.Count - candidatePlaylists.Count;
+            var deletedResults = playlists
+                .Select(playlist => ToScenePlaylistResult(playlist, config))
+                .ToArray();
+            config.ScenePlaylists = candidatePlaylists;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ScenePlaylists = previousPlaylists;
+                _logger?.LogError(ex, "Could not persist bulk deletion of Hue scene playlists");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The selected scene playlists could not be deleted; no changes were retained.");
+            }
+
+            return Ok(new HueScenePlaylistBulkDeleteResult
+            {
+                RequestedCount = playlists.Length,
+                DeletedCount = deletedCount,
+                RemainingCount = config.ScenePlaylists.Count,
+                Message = $"Deleted {deletedCount} scene playlist(s); scheduled-cue references were checked atomically.",
+                Playlists = deletedResults
+            });
+        }
+
+        /// <summary>
         /// Lists scene cues without returning bridge credentials. Target user
         /// IDs are retained so the configuration page can address a mapping, while the
         /// human-readable target label is derived from the current mapping.
@@ -6222,6 +6353,39 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("scheduledCues")]
         public IReadOnlyList<HueScenePlaylistScheduleDependencyResult> ScheduledCues { get; init; } =
             Array.Empty<HueScenePlaylistScheduleDependencyResult>();
+    }
+
+    /// <summary>
+    /// Request shape for atomically deleting several saved-scene playlists by stable ID.
+    /// </summary>
+    public sealed class HueScenePlaylistBulkDeleteRequest
+    {
+        [JsonPropertyName("playlistIds")]
+        public List<string> PlaylistIds { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic saved-scene playlist deletion operation.
+    /// </summary>
+    public sealed class HueScenePlaylistBulkDeleteResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("deletedCount")]
+        public int DeletedCount { get; set; }
+
+        [JsonPropertyName("remainingCount")]
+        public int RemainingCount { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("playlists")]
+        public IReadOnlyList<HueScenePlaylistResult> Playlists { get; set; } = Array.Empty<HueScenePlaylistResult>();
+
+        [JsonPropertyName("blockedPlaylists")]
+        public IReadOnlyList<HueScenePlaylistDependenciesResult> BlockedPlaylists { get; set; } = Array.Empty<HueScenePlaylistDependenciesResult>();
     }
 
     /// <summary>

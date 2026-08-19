@@ -1602,6 +1602,87 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ScenePlaylists_BulkDeleteRemovesSelectedPlaylistsById()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueAppKey = "bulk-playlist-app-secret",
+            HueClientKey = "bulk-playlist-client-secret",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm" }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-one", Name = "One", PresetNames = new List<string> { "Warm" } },
+                new() { Id = "playlist-two", Name = "Two", PresetNames = new List<string> { "Warm" } },
+                new() { Id = "playlist-keep", Name = "Keep", PresetNames = new List<string> { "Warm" } }
+            }
+        });
+
+        var action = CreateController().DeleteScenePlaylistsBulk(new HueScenePlaylistBulkDeleteRequest
+        {
+            PlaylistIds = new List<string> { " playlist-one ", "PLAYLIST-TWO" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueScenePlaylistBulkDeleteResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.DeletedCount);
+        Assert.Equal(1, result.RemainingCount);
+        Assert.Equal(new[] { "One", "Two" }, result.Playlists.Select(playlist => playlist.Name));
+        Assert.Equal("Keep", Assert.Single(configuration.ScenePlaylists).Name);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("bulk-playlist-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-playlist-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ScenePlaylists_BulkDeleteRefusesDependenciesAndMissingIdsAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm" }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-dependent", Name = "Dependent", PresetNames = new List<string> { "Warm" } },
+                new() { Id = "playlist-free", Name = "Free", PresetNames = new List<string> { "Warm" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "playlist-reference", Name = "Uses dependent", PlaylistName = " dependent " }
+            }
+        });
+        var controller = CreateController();
+
+        var blocked = controller.DeleteScenePlaylistsBulk(new HueScenePlaylistBulkDeleteRequest
+        {
+            PlaylistIds = new List<string> { "playlist-dependent", "playlist-free" }
+        });
+
+        var blockedResponse = Assert.IsType<ConflictObjectResult>(blocked.Result);
+        var blockedResult = Assert.IsType<HueScenePlaylistBulkDeleteResult>(blockedResponse.Value);
+        Assert.Equal(2, blockedResult.RequestedCount);
+        var dependency = Assert.Single(blockedResult.BlockedPlaylists);
+        Assert.Equal("playlist-dependent", dependency.Id);
+        Assert.Equal(1, dependency.ScheduledCueCount);
+        Assert.Equal(2, configuration.ScenePlaylists.Count);
+
+        var missing = controller.DeleteScenePlaylistsBulk(new HueScenePlaylistBulkDeleteRequest
+        {
+            PlaylistIds = new List<string> { "playlist-free", "missing-playlist" }
+        });
+
+        var missingResponse = Assert.IsType<NotFoundObjectResult>(missing.Result);
+        var missingResult = Assert.IsType<HueScenePlaylistBulkDeleteResult>(missingResponse.Value);
+        Assert.Equal(2, missingResult.RequestedCount);
+        Assert.Equal(2, configuration.ScenePlaylists.Count);
+    }
+
+    [Fact]
     public async Task ScenePlaylists_AllTargetsAggregatesEachStepAndNeverLeaksMappingCredentials()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

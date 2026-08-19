@@ -339,6 +339,18 @@
                             <button is="emby-button" type="button" class="raised" id="clearScenePlaylistBtn"><span>New Playlist</span></button>
                         </div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-start; flex-wrap: wrap; margin-top: 0.75em;">
+                            <div style="flex: 1 1 280px;">
+                                <label class="inputLabel inputLabelUnfocused" for="scenePlaylistBulkSelect">Bulk playlist selection</label>
+                                <select id="scenePlaylistBulkSelect" is="emby-select" multiple size="5" style="width: 100%;"></select>
+                            </div>
+                            <div style="display: flex; gap: 0.5em; flex-wrap: wrap; align-items: flex-start;">
+                                <button is="emby-button" type="button" class="raised" id="selectAllScenePlaylistsBtn" disabled><span>Select All</span></button>
+                                <button is="emby-button" type="button" class="raised" id="clearSelectedScenePlaylistsBtn" disabled><span>Clear Selection</span></button>
+                                <button is="emby-button" type="button" class="raised" id="deleteSelectedScenePlaylistsBtn" disabled><span>Delete Selected</span></button>
+                            </div>
+                            <div id="scenePlaylistBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select playlists to delete them together. Any playlist referenced by a scheduled cue blocks the complete operation.</div>
+                        </div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-start; flex-wrap: wrap; margin-top: 0.75em;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="scenePlaylistName">Playlist Name</label>
                                 <input id="scenePlaylistName" type="text" maxlength="64" is="emby-input" placeholder="e.g. Movie night sequence" />
@@ -2441,7 +2453,9 @@
                 loadScenePlaylists: function (page, selectedName) {
                     var playlistSelect = page && page.querySelector('#scenePlaylistSelect');
                     if (!playlistSelect) return Promise.resolve();
+                    var bulkSelect = page.querySelector('#scenePlaylistBulkSelect');
                     playlistSelect.disabled = true;
+                    if (bulkSelect) bulkSelect.disabled = true;
                     return Promise.all([
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/ScenePlaylists")),
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets")),
@@ -2465,6 +2479,21 @@
                             option.textContent = name + " (" + itemCount + " scene" + (itemCount === 1 ? "" : "s") + ", " + repeatCount + " pass" + (Number(repeatCount) === 1 ? "" : "es") + ")";
                             playlistSelect.appendChild(option);
                         });
+
+                        if (bulkSelect) {
+                            bulkSelect.innerHTML = '';
+                            playlists.forEach(function (playlist) {
+                                if (!playlist) return;
+                                var id = playlist.id !== undefined ? playlist.id : playlist.Id;
+                                var name = playlist.name !== undefined ? playlist.name : playlist.Name;
+                                if (!id || !name) return;
+                                var itemCount = playlist.presetNames !== undefined ? playlist.presetNames.length : (playlist.PresetNames || []).length;
+                                var option = document.createElement('option');
+                                option.value = id;
+                                option.textContent = name + " (" + itemCount + " scene" + (itemCount === 1 ? "" : "s") + ")";
+                                bulkSelect.appendChild(option);
+                            });
+                        }
 
                         var sourceSelect = page.querySelector('#scenePlaylistSourceSelect');
                         if (sourceSelect) {
@@ -2502,12 +2531,16 @@
                             HueConfigurationPage.clearScenePlaylist(page, false);
                         }
                         HueConfigurationPage.updateScenePlaylistButtons(page);
+                        HueConfigurationPage.updateScenePlaylistBulkButtons(page);
                     }).catch(function (err) {
                         console.error("Failed to load scene playlists:", err);
                         playlistSelect.innerHTML = '<option value="">Unable to load saved playlists</option>';
+                        if (bulkSelect) bulkSelect.innerHTML = '';
                         HueConfigurationPage.clearScenePlaylist(page, false);
                     }).finally(function () {
                         playlistSelect.disabled = false;
+                        if (bulkSelect) bulkSelect.disabled = false;
+                        HueConfigurationPage.updateScenePlaylistBulkButtons(page);
                     });
                 },
                 renderScenePlaylistItems: function (page) {
@@ -2578,6 +2611,79 @@
                     if (inspect) inspect.disabled = !hasSelection;
                     if (deleteButton) deleteButton.disabled = !hasSelection;
                     if (add) add.disabled = !source || !source.value || items.length >= 20;
+                },
+                getSelectedScenePlaylistBulkIds: function (page) {
+                    var select = page && page.querySelector('#scenePlaylistBulkSelect');
+                    if (!select) return [];
+                    return Array.prototype.slice.call(select.selectedOptions || [])
+                        .map(function (option) { return option && option.value ? option.value : ''; })
+                        .filter(Boolean);
+                },
+                updateScenePlaylistBulkButtons: function (page) {
+                    var select = page && page.querySelector('#scenePlaylistBulkSelect');
+                    var hasSelection = HueConfigurationPage.getSelectedScenePlaylistBulkIds(page).length > 0;
+                    var hasPlaylists = !!(select && select.options && select.options.length);
+                    var selectAll = page && page.querySelector('#selectAllScenePlaylistsBtn');
+                    var clear = page && page.querySelector('#clearSelectedScenePlaylistsBtn');
+                    var deleteButton = page && page.querySelector('#deleteSelectedScenePlaylistsBtn');
+                    if (selectAll) selectAll.disabled = !hasPlaylists;
+                    if (clear) clear.disabled = !hasSelection;
+                    if (deleteButton) deleteButton.disabled = !hasSelection;
+                },
+                selectAllScenePlaylists: function (page) {
+                    var select = page && page.querySelector('#scenePlaylistBulkSelect');
+                    if (!select) return;
+                    Array.prototype.forEach.call(select.options || [], function (option) { option.selected = true; });
+                    HueConfigurationPage.updateScenePlaylistBulkButtons(page);
+                },
+                clearSelectedScenePlaylists: function (page) {
+                    var select = page && page.querySelector('#scenePlaylistBulkSelect');
+                    if (!select) return;
+                    Array.prototype.forEach.call(select.options || [], function (option) { option.selected = false; });
+                    HueConfigurationPage.updateScenePlaylistBulkButtons(page);
+                },
+                deleteScenePlaylistsBulk: function (page) {
+                    var ids = HueConfigurationPage.getSelectedScenePlaylistBulkIds(page);
+                    var status = page && page.querySelector('#scenePlaylistBulkStatus');
+                    if (!ids.length) {
+                        Dashboard.alert("Select at least one saved playlist.");
+                        return;
+                    }
+                    Dashboard.confirm("Delete " + ids.length + " selected saved playlist" + (ids.length === 1 ? "" : "s") + "? Playlists referenced by scheduled cues will block the entire operation.", "Delete Selected Playlists", function (confirmed) {
+                        if (!confirmed) return;
+                        var button = page.querySelector('#deleteSelectedScenePlaylistsBtn');
+                        if (button) button.disabled = true;
+                        if (status) {
+                            status.textContent = "Deleting selected playlists atomically...";
+                            status.style.color = '';
+                        }
+                        ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("HueSync/ScenePlaylists/BulkDelete"),
+                            data: JSON.stringify({ playlistIds: ids }),
+                            contentType: "application/json",
+                            dataType: "json"
+                        }).then(function (response) {
+                            var deletedCount = response && (response.deletedCount !== undefined ? response.deletedCount : response.DeletedCount);
+                            if (status) {
+                                status.textContent = (response && (response.message || response.Message)) || ("Deleted " + deletedCount + " selected playlist(s). Scheduled-cue references were checked atomically.");
+                                status.style.color = "#8bc34a";
+                            }
+                            HueConfigurationPage.clearScenePlaylist(page, true);
+                            return HueConfigurationPage.loadScenePlaylists(page).then(function () {
+                                return HueConfigurationPage.loadSceneSchedules(page);
+                            });
+                        }).catch(function (err) {
+                            console.error("Failed to bulk delete scene playlists:", err);
+                            if (status) {
+                                status.textContent = "Unable to delete the selected playlists. A scheduled-cue reference, missing playlist, or persistence failure left the selection unchanged.";
+                                status.style.color = "#d9534f";
+                            }
+                        }).finally(function () {
+                            if (button) button.disabled = false;
+                            HueConfigurationPage.updateScenePlaylistBulkButtons(page);
+                        });
+                    });
                 },
                 applyScenePlaylist: function (page, name) {
                     var playlists = Array.isArray(page && page._hueScenePlaylists) ? page._hueScenePlaylists : [];
@@ -7108,6 +7214,10 @@
                 HueConfigurationPage.updateScenePlaylistButtons(this.closest('.page'));
             });
 
+            document.querySelector('#scenePlaylistBulkSelect').addEventListener('change', function () {
+                HueConfigurationPage.updateScenePlaylistBulkButtons(this.closest('.page'));
+            });
+
             document.querySelector('#previewScenePlaylistBtn').addEventListener('click', function () {
                 HueConfigurationPage.previewScenePlaylist(this.closest('.page'), false);
             });
@@ -7134,6 +7244,18 @@
 
             document.querySelector('#deleteScenePlaylistBtn').addEventListener('click', function () {
                 HueConfigurationPage.deleteScenePlaylist(this.closest('.page'));
+            });
+
+            document.querySelector('#selectAllScenePlaylistsBtn').addEventListener('click', function () {
+                HueConfigurationPage.selectAllScenePlaylists(this.closest('.page'));
+            });
+
+            document.querySelector('#clearSelectedScenePlaylistsBtn').addEventListener('click', function () {
+                HueConfigurationPage.clearSelectedScenePlaylists(this.closest('.page'));
+            });
+
+            document.querySelector('#deleteSelectedScenePlaylistsBtn').addEventListener('click', function () {
+                HueConfigurationPage.deleteScenePlaylistsBulk(this.closest('.page'));
             });
 
             document.querySelector('#clearScenePlaylistBtn').addEventListener('click', function () {

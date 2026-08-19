@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.135] - 2026-08-19
+
+### Added
+- **Atomic bulk playlist deletion**: remove up to 50 selected saved-scene playlists by stable ID in one administrator operation
+- **Dependency-safe cleanup**: scheduled-cue references, missing IDs, and persistence failures block the complete selection and leave every playlist unchanged
+- **Administrator multi-selection**: add Select All, Clear Selection, and Delete Selected controls with credential-free refresh of playlists and dependent cues
+
 ## [1.5.134] - 2026-08-19
 
 ### Added
