@@ -300,11 +300,14 @@
                             <button is="emby-button" type="button" class="raised" id="renamePreviewPresetBtn" disabled>
                                 <span>Rename Scene</span>
                             </button>
+                            <button is="emby-button" type="button" class="raised" id="inspectPreviewPresetBtn" disabled>
+                                <span>View References</span>
+                            </button>
                             <button is="emby-button" type="button" class="raised" id="deletePreviewPresetBtn" disabled>
                                 <span>Delete Scene</span>
                             </button>
                         </div>
-                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Preview Saved Scene runs the selected saved scene through the server-side target profile; Preview Saved Scene on All Targets runs it sequentially on every distinct enabled target. Use Duplicate Scene to create a safe editable variant, or enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
+                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Preview Saved Scene runs the selected saved scene through the server-side target profile; Preview Saved Scene on All Targets runs it sequentially on every distinct enabled target. Use Duplicate Scene to create a safe editable variant, enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically, or use View References before changing/deleting a scene. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -1939,6 +1942,7 @@
                     var deleteBtn = page.querySelector('#deletePreviewPresetBtn');
                     var duplicateBtn = page.querySelector('#duplicatePreviewPresetBtn');
                     var renameBtn = page.querySelector('#renamePreviewPresetBtn');
+                    var inspectBtn = page.querySelector('#inspectPreviewPresetBtn');
                     if (deleteBtn) {
                         deleteBtn.disabled = !selectEl || !selectEl.value;
                     }
@@ -1947,6 +1951,9 @@
                     }
                     if (renameBtn) {
                         renameBtn.disabled = !selectEl || !selectEl.value;
+                    }
+                    if (inspectBtn) {
+                        inspectBtn.disabled = !selectEl || !selectEl.value;
                     }
                 },
                 applyColorPreset: function (page) {
@@ -2082,6 +2089,66 @@
                     }).finally(function () {
                         HueConfigurationPage.updatePresetButtons(page);
                     });
+                },
+                inspectColorPresetDependencies: function (page) {
+                    var selectEl = page.querySelector('#previewPresetSelect');
+                    var statusEl = page.querySelector('#previewPresetStatus');
+                    var name = selectEl ? selectEl.value : '';
+                    if (!name) {
+                        Dashboard.alert("Choose a saved scene first.");
+                        return;
+                    }
+
+                    var button = page.querySelector('#inspectPreviewPresetBtn');
+                    if (button) button.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Checking saved-scene references...";
+                        statusEl.style.color = "";
+                    }
+                    ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Dependencies"))
+                        .then(function (response) {
+                            var resultName = response && (response.name || response.Name) || name;
+                            var playlists = response && (response.playlists || response.Playlists) || [];
+                            var schedules = response && (response.scheduledCues || response.ScheduledCues) || [];
+                            var canDelete = response && (response.canDelete !== undefined ? response.canDelete : response.CanDelete);
+                            var playlistCount = response && (response.playlistCount !== undefined ? response.playlistCount : response.PlaylistCount);
+                            var scheduleCount = response && (response.scheduledCueCount !== undefined ? response.scheduledCueCount : response.ScheduledCueCount);
+                            var details = ["Saved scene: " + resultName];
+                            if (canDelete) {
+                                details.push("No playlist or direct scheduled-cue references were found. The scene can be deleted safely.");
+                            } else {
+                                details.push("References: " + playlistCount + " playlist(s), " + scheduleCount + " direct scheduled cue(s).");
+                                playlists.forEach(function (playlist) {
+                                    if (!playlist) return;
+                                    var playlistName = playlist.name !== undefined ? playlist.name : playlist.Name;
+                                    var referenceCount = playlist.referenceCount !== undefined ? playlist.referenceCount : playlist.ReferenceCount;
+                                    details.push("Playlist: " + (playlistName || "Unnamed") + " (" + referenceCount + " step(s))");
+                                });
+                                schedules.forEach(function (schedule) {
+                                    if (!schedule) return;
+                                    var scheduleName = schedule.name !== undefined ? schedule.name : schedule.Name;
+                                    var enabled = schedule.enabled !== undefined ? schedule.enabled : schedule.Enabled;
+                                    details.push("Scheduled cue: " + (scheduleName || "Unnamed") + (enabled ? " (enabled)" : " (disabled)"));
+                                });
+                            }
+                            Dashboard.alert(details.join("\n"));
+                            if (statusEl) {
+                                statusEl.textContent = canDelete
+                                    ? "No saved-scene references found; the scene can be deleted safely."
+                                    : "This scene is referenced by " + playlistCount + " playlist(s) and " + scheduleCount + " direct scheduled cue(s).";
+                                statusEl.style.color = canDelete ? "#8bc34a" : "#f0ad4e";
+                            }
+                        })
+                        .catch(function (err) {
+                            console.error("Failed to inspect color preset dependencies:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "Unable to inspect saved-scene references. Check the server log.";
+                                statusEl.style.color = "#d9534f";
+                            }
+                        })
+                        .finally(function () {
+                            HueConfigurationPage.updatePresetButtons(page);
+                        });
                 },
                 saveColorPreset: function (page) {
                     var nameEl = page.querySelector('#previewPresetName');
@@ -6034,6 +6101,10 @@
 
             document.querySelector('#renamePreviewPresetBtn').addEventListener('click', function () {
                 HueConfigurationPage.renameColorPreset(this.closest('.page'));
+            });
+
+            document.querySelector('#inspectPreviewPresetBtn').addEventListener('click', function () {
+                HueConfigurationPage.inspectColorPresetDependencies(this.closest('.page'));
             });
 
             document.querySelector('#deletePreviewPresetBtn').addEventListener('click', function () {

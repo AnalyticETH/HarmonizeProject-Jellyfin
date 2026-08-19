@@ -1322,6 +1322,68 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Lists the credential-free playlist and direct scheduled-cue references for
+        /// one saved scene so administrators can review dependencies before changing or
+        /// deleting it. Bridge credentials and target details are never included.
+        /// </summary>
+        [HttpGet("ColorPresets/{name}/Dependencies")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HueColorPresetDependenciesResult> GetColorPresetDependencies(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return NotFound("Color preset not found.");
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var normalizedName = name.Trim();
+            var source = config.ColorPresets?.FirstOrDefault(preset =>
+                preset != null &&
+                string.Equals(preset.Name?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase));
+            if (source == null)
+                return NotFound("Color preset not found.");
+
+            var playlists = (config.ScenePlaylists ?? new List<HueScenePlaylist>())
+                .Where(playlist => playlist != null &&
+                    playlist.PresetNames?.Any(presetName =>
+                        string.Equals(presetName?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase)) == true)
+                .Select(playlist => new HueColorPresetPlaylistDependencyResult
+                {
+                    Id = playlist.Id?.Trim() ?? string.Empty,
+                    Name = playlist.Name?.Trim() ?? string.Empty,
+                    ReferenceCount = playlist.PresetNames?.Count(presetName =>
+                        string.Equals(presetName?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase)) ?? 0
+                })
+                .OrderBy(playlist => playlist.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(playlist => playlist.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+                .Where(schedule => schedule != null &&
+                    string.Equals(schedule.PresetName?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase))
+                .Select(schedule => new HueColorPresetScheduleDependencyResult
+                {
+                    Id = schedule.Id?.Trim() ?? string.Empty,
+                    Name = schedule.Name?.Trim() ?? string.Empty,
+                    Enabled = schedule.Enabled
+                })
+                .OrderBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            return Ok(new HueColorPresetDependenciesResult
+            {
+                Name = source.Name?.Trim() ?? normalizedName,
+                CanDelete = playlists.Length == 0 && schedules.Length == 0,
+                PlaylistCount = playlists.Length,
+                ScheduledCueCount = schedules.Length,
+                Playlists = playlists,
+                ScheduledCues = schedules
+            });
+        }
+
+        /// <summary>
         /// Saves or updates a reusable preview scene by case-insensitive name.
         /// </summary>
         [HttpPost("ColorPresets")]
@@ -4629,6 +4691,62 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("transitionOutSeconds")]
         public int TransitionOutSeconds { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free dependency summary for one saved scene.
+    /// </summary>
+    public sealed class HueColorPresetDependenciesResult
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = string.Empty;
+
+        [JsonPropertyName("canDelete")]
+        public bool CanDelete { get; init; }
+
+        [JsonPropertyName("playlistCount")]
+        public int PlaylistCount { get; init; }
+
+        [JsonPropertyName("scheduledCueCount")]
+        public int ScheduledCueCount { get; init; }
+
+        [JsonPropertyName("playlists")]
+        public IReadOnlyList<HueColorPresetPlaylistDependencyResult> Playlists { get; init; } =
+            Array.Empty<HueColorPresetPlaylistDependencyResult>();
+
+        [JsonPropertyName("scheduledCues")]
+        public IReadOnlyList<HueColorPresetScheduleDependencyResult> ScheduledCues { get; init; } =
+            Array.Empty<HueColorPresetScheduleDependencyResult>();
+    }
+
+    /// <summary>
+    /// One saved-playlist reference to a scene, including repeated step count.
+    /// </summary>
+    public sealed class HueColorPresetPlaylistDependencyResult
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = string.Empty;
+
+        [JsonPropertyName("referenceCount")]
+        public int ReferenceCount { get; init; }
+    }
+
+    /// <summary>
+    /// One direct scheduled-cue reference to a scene.
+    /// </summary>
+    public sealed class HueColorPresetScheduleDependencyResult
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = string.Empty;
+
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; init; }
     }
 
     /// <summary>

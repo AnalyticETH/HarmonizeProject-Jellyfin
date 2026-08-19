@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.113] - 2026-08-19
+
+### Added
+- **Saved-scene dependency audit**: inspect dependent playlists, repeated scene-step counts, and direct scheduled cues before changing or deleting a scene through `GET /HueSync/ColorPresets/{name}/Dependencies`
+- **Administrator reference inspection**: add View References to the Saved Scene editor so dependency-protected deletion is explainable before an action is attempted
+
+### Security
+- Dependency results contain only saved-scene, playlist, and cue labels/counts plus enabled state; bridge addresses, app keys, client keys, playback tokens, and private target details remain server-side
+
 ## [1.5.112] - 2026-08-19
 
 ### Added

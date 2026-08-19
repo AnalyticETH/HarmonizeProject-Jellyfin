@@ -1892,6 +1892,50 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetColorPresetDependencies_ReturnsCredentialFreeReferenceDetails()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueAppKey = "secret-app-key",
+            HueClientKey = "secret-client-key",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Accent" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-1",
+                    Name = "Opening",
+                    PresetNames = new List<string> { "Accent", " accent " }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "cue-1", Name = "Opening cue", PresetName = " accent ", Enabled = true }
+            }
+        });
+
+        var action = CreateController().GetColorPresetDependencies(" accent ");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueColorPresetDependenciesResult>(response.Value);
+        Assert.Equal("Accent", result.Name);
+        Assert.False(result.CanDelete);
+        Assert.Equal(1, result.PlaylistCount);
+        Assert.Equal(1, result.ScheduledCueCount);
+        var playlist = Assert.Single(result.Playlists);
+        Assert.Equal("playlist-1", playlist.Id);
+        Assert.Equal("Opening", playlist.Name);
+        Assert.Equal(2, playlist.ReferenceCount);
+        var schedule = Assert.Single(result.ScheduledCues);
+        Assert.Equal("cue-1", schedule.Id);
+        Assert.Equal("Opening cue", schedule.Name);
+        Assert.True(schedule.Enabled);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("secret-app-key", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-client-key", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SaveColorPreset_InvalidValuesReturnsBadRequestWithoutSaving()
     {
         var configuration = InstallConfiguration(new PluginConfiguration());
