@@ -903,9 +903,10 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Displays a bounded scene-effect preview through the configured entertainment
         /// area. When targetAllEnabledMappings is enabled, the same preview runs
-        /// sequentially on each distinct enabled configured target. The stream tester
-        /// captures and restores the selected lights so this diagnostic never leaves a
-        /// manual scene behind.
+        /// sequentially on each distinct enabled configured target; selected target IDs
+        /// can instead fan out to a deliberate subset and optionally include the default
+        /// bridge. The stream tester captures and restores the selected lights so this
+        /// diagnostic never leaves a manual scene behind.
         /// </summary>
         [HttpPost("Preview")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -918,8 +919,15 @@ namespace Jellyfin.Plugin.Hue.Api
             CancellationToken cancellationToken = default)
         {
             var broadcast = request?.TargetAllEnabledMappings == true;
+            var selectedTargetUserIds = request?.TargetUserIds?
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .ToList();
+            var includeDefaultTarget = request?.IncludeDefaultTarget == true;
+            var hasSelectedTargetOverride = includeDefaultTarget || (selectedTargetUserIds?.Count > 0);
+            var multiTarget = broadcast || hasSelectedTargetOverride;
             if (request == null ||
-                (!broadcast &&
+                (!multiTarget &&
                  (!HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
                   string.IsNullOrWhiteSpace(request.EntertainmentAreaId))))
             {
@@ -929,7 +937,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var bridgeIp = string.Empty;
             var appKey = string.Empty;
             var clientKey = string.Empty;
-            if (!broadcast &&
+            if (!multiTarget &&
                 (!TryResolveCredentials(
                     request.IpAddress,
                     request.AppKey,
@@ -991,6 +999,9 @@ namespace Jellyfin.Plugin.Hue.Api
             if (request.TransitionSeconds + request.TransitionOutSeconds > request.DurationSeconds)
                 return BadRequest("Preview fade-in and fade-out cannot exceed the preview duration together.");
 
+            if (broadcast && hasSelectedTargetOverride)
+                return BadRequest("A broadcast preview cannot also select a specific or selected target.");
+
             if (_streamTester == null)
             {
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
@@ -1001,7 +1012,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 return Conflict("Stop active playback before running a Hue scene preview.");
             }
 
-            if (broadcast)
+            if (multiTarget)
             {
                 if (!string.IsNullOrWhiteSpace(request.ChannelIds))
                 {
@@ -1024,7 +1035,9 @@ namespace Jellyfin.Plugin.Hue.Api
                     Id = "administrator-preview",
                     Name = "Administrator preview",
                     PresetName = "Administrator preview",
-                    TargetAllEnabledMappings = true,
+                    TargetUserIds = selectedTargetUserIds ?? new List<string>(),
+                    IncludeDefaultTarget = includeDefaultTarget,
+                    TargetAllEnabledMappings = broadcast && !hasSelectedTargetOverride,
                     DurationSeconds = request.DurationSeconds
                 };
                 if (!HueSceneAutomationService.TryResolveTargets(config, previewSchedule, out _, out var targetError))
@@ -7788,6 +7801,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetAllEnabledMappings")]
         public bool TargetAllEnabledMappings { get; set; }
+
+        [JsonPropertyName("targetUserIds")]
+        public List<string>? TargetUserIds { get; set; }
+
+        [JsonPropertyName("includeDefaultTarget")]
+        public bool? IncludeDefaultTarget { get; set; }
     }
 
     /// <summary>

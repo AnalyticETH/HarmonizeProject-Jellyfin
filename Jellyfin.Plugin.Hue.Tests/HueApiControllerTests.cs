@@ -1155,6 +1155,88 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_SelectedTargetsUsesConfiguredProfilesWithoutDirectCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "selected-preview-global-app-secret",
+            HueClientKey = "selected-preview-global-client-secret",
+            EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-kitchen",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "selected-preview-kitchen-app-secret",
+                    HueClientKey = "selected-preview-kitchen-client-secret",
+                    EntertainmentAreaId = "kitchen-area",
+                    ChannelIdsOverride = "1"
+                },
+                new()
+                {
+                    UserId = "user-office",
+                    UserName = "Office",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "selected-preview-office-app-secret",
+                    HueClientKey = "selected-preview-office-client-secret",
+                    EntertainmentAreaId = "office-area"
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0},{\"channel_id\":1}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(), 12, 34, 56, 80, 4, It.IsAny<CancellationToken>(), 1, 1,
+                PluginConfiguration.ColorPresetEffectPulse, 150))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Selected preview completed." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var action = await controller.Preview(new HuePreviewRequest
+        {
+            TargetUserIds = new List<string> { " user-kitchen " },
+            IncludeDefaultTarget = true,
+            Effect = "Pulse",
+            EffectSpeedPercent = 150,
+            Red = 12,
+            Green = 34,
+            Blue = 56,
+            BrightnessPercent = 80,
+            DurationSeconds = 4,
+            TransitionSeconds = 1,
+            TransitionOutSeconds = 1
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HuePreviewResult>(response.Value);
+        Assert.True(result.Succeeded);
+        Assert.False(result.TargetAllEnabledMappings);
+        Assert.Equal(new[] { "user-kitchen" }, result.TargetUserIds);
+        Assert.True(result.IncludeDefaultTarget);
+        Assert.Equal(new[] { "Default bridge target", "Kitchen" }, result.TargetResults.Select(target => target.TargetLabel));
+        Assert.Equal(2, streamTester.Invocations.Count(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync)));
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("selected-preview-global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected-preview-global-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected-preview-kitchen-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected-preview-kitchen-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected-preview-office-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected-preview-office-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PreviewColorPreset_ResolvesSavedSceneAgainstDefaultTargetWithoutCredentials()
     {
         InstallConfiguration(new PluginConfiguration

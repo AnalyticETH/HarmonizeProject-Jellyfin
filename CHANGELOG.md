@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.148] - 2026-08-19
+
+### Added
+- **Raw preview target parity**: run administrator color previews on the default bridge, every enabled target, or a deliberate subset of enabled mappings with optional default-bridge inclusion
+- **Credential-free raw preview execution**: selected-target previews resolve persisted credentials and channel profiles server-side and return selected IDs, default inclusion, and per-target outcomes without secrets
+- **Administrator target picker**: add a multi-select target control to the raw color preview while retaining explicit all-target broadcast controls
+
 ## [1.5.147] - 2026-08-19
 
 ### Added
