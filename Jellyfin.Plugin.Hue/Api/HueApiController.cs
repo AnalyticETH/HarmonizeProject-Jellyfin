@@ -5309,6 +5309,14 @@ namespace Jellyfin.Plugin.Hue.Api
             if (mapping == null)
                 return NotFound("Mapping not found for the specified user.");
 
+            return Ok(BuildUserMappingDependenciesResult(mapping, config));
+        }
+
+        private static HueUserMappingDependenciesResult BuildUserMappingDependenciesResult(
+            UserBridgeMapping mapping,
+            PluginConfiguration config)
+        {
+            var normalizedUserId = mapping.UserId?.Trim() ?? string.Empty;
             var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
                 .Where(schedule => schedule != null &&
                     string.Equals(schedule.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase))
@@ -5322,7 +5330,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 .ThenBy(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            return Ok(new HueUserMappingDependenciesResult
+            return new HueUserMappingDependenciesResult
             {
                 UserId = mapping.UserId?.Trim() ?? normalizedUserId,
                 UserName = mapping.UserName?.Trim() ?? string.Empty,
@@ -5331,7 +5339,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 CanDelete = schedules.Length == 0,
                 ScheduledCueCount = schedules.Length,
                 ScheduledCues = schedules
-            });
+            };
         }
 
         /// <summary>
@@ -5550,6 +5558,113 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             return Ok(new { message = "Mapping deleted successfully." });
+        }
+
+        /// <summary>
+        /// Deletes several per-user bridge mappings by user ID in one administrator
+        /// operation. Every selected mapping is resolved and checked for scheduled-cue
+        /// references before mutation; any missing ID, dependency, or persistence failure
+        /// leaves the complete mapping collection unchanged.
+        /// </summary>
+        [HttpPost("UserMappings/BulkDelete")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueUserMappingBulkDeleteResult> DeleteUserMappingsBulk(
+            [FromBody] HueUserMappingBulkDeleteRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A user-mapping selection is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var userIds = (request.UserIds ?? new List<string>())
+                .Where(userId => !string.IsNullOrWhiteSpace(userId))
+                .Select(userId => userId.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (userIds.Length == 0)
+                return BadRequest("Select at least one user mapping.");
+            if (userIds.Length > PluginConfiguration.MaxBulkUserMappingDeletes)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxBulkUserMappingDeletes} user mappings at once.");
+            }
+
+            config.UserMappings ??= new List<UserBridgeMapping>();
+            var selectedMappings = userIds
+                .Select(userId => config.UserMappings.FirstOrDefault(mapping =>
+                    mapping != null &&
+                    string.Equals(mapping.UserId?.Trim(), userId, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingUserIds = userIds
+                .Where((_, index) => selectedMappings[index] == null)
+                .ToArray();
+            if (missingUserIds.Length > 0)
+            {
+                return NotFound(new HueUserMappingBulkDeleteResult
+                {
+                    RequestedCount = userIds.Length,
+                    MissingUserIds = missingUserIds,
+                    Message = $"The requested user mapping(s) were not found: {string.Join(", ", missingUserIds)}."
+                });
+            }
+
+            var mappings = selectedMappings
+                .Where(mapping => mapping != null)
+                .Cast<UserBridgeMapping>()
+                .ToArray();
+            var blockedMappings = mappings
+                .Select(mapping => BuildUserMappingDependenciesResult(mapping, config))
+                .Where(dependencies => !dependencies.CanDelete)
+                .ToArray();
+            if (blockedMappings.Length > 0)
+            {
+                return Conflict(new HueUserMappingBulkDeleteResult
+                {
+                    RequestedCount = userIds.Length,
+                    Message = "One or more selected user mappings are used by scheduled cues. Delete or update those cues first; no mappings were deleted.",
+                    BlockedMappings = blockedMappings
+                });
+            }
+
+            var previousMappings = config.UserMappings;
+            var selectedIds = new HashSet<string>(userIds, StringComparer.OrdinalIgnoreCase);
+            var candidateMappings = previousMappings
+                .Where(mapping => mapping == null || !selectedIds.Contains(mapping.UserId?.Trim() ?? string.Empty))
+                .ToList();
+            var deletedCount = previousMappings.Count - candidateMappings.Count;
+            var deletedResults = previousMappings
+                .Where(mapping => mapping != null && selectedIds.Contains(mapping.UserId?.Trim() ?? string.Empty))
+                .Select(UserBridgeMappingSummary.From)
+                .ToArray();
+            config.UserMappings = candidateMappings;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.UserMappings = previousMappings;
+                _logger?.LogError(ex, "Could not persist bulk deletion of Hue user mappings");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The selected user mappings could not be deleted; no changes were retained.");
+            }
+
+            return Ok(new HueUserMappingBulkDeleteResult
+            {
+                RequestedCount = userIds.Length,
+                DeletedCount = deletedCount,
+                RemainingCount = config.UserMappings.Count,
+                Message = $"Deleted {deletedCount} user mapping(s); scheduled-cue references were checked atomically.",
+                Mappings = deletedResults
+            });
         }
 
         private sealed class HueConfigurationImportPlan
@@ -5850,6 +5965,43 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("enabled")]
         public bool Enabled { get; init; }
+    }
+
+    /// <summary>
+    /// Request shape for atomically deleting several per-user bridge mappings by user ID.
+    /// </summary>
+    public sealed class HueUserMappingBulkDeleteRequest
+    {
+        [JsonPropertyName("userIds")]
+        public List<string> UserIds { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic per-user mapping deletion operation.
+    /// </summary>
+    public sealed class HueUserMappingBulkDeleteResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("deletedCount")]
+        public int DeletedCount { get; set; }
+
+        [JsonPropertyName("remainingCount")]
+        public int RemainingCount { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("mappings")]
+        public IReadOnlyList<UserBridgeMappingSummary> Mappings { get; set; } = Array.Empty<UserBridgeMappingSummary>();
+
+        [JsonPropertyName("missingUserIds")]
+        public IReadOnlyList<string> MissingUserIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("blockedMappings")]
+        public IReadOnlyList<HueUserMappingDependenciesResult> BlockedMappings { get; set; } =
+            Array.Empty<HueUserMappingDependenciesResult>();
     }
 
     /// <summary>

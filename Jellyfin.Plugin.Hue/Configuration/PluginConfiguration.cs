@@ -389,6 +389,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int DefaultColorPresetEffectSpeedPercent = 100;
         public const int MaxColorPresets = 50;
         public const int MaxColorPresetNameLength = 64;
+        public const int MaxBulkUserMappingDeletes = 50;
         public const int MaxScenePlaylists = 50;
         public const int MaxScenePlaylistItems = 20;
         public const int MaxScenePlaylistTotalDurationSeconds = MaxScenePlaylistItems * MaxPreviewDurationSeconds;

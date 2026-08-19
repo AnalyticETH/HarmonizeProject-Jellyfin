@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.137] - 2026-08-19
+
+### Added
+- **Atomic bulk mapping deletion**: remove up to 50 selected per-user bridge mappings by user ID in one administrator operation
+- **Dependency-safe mapping cleanup**: scheduled-cue references, missing user IDs, and persistence failures block the complete selection and leave every mapping unchanged
+- **Administrator multi-selection**: add Select All, Clear Selection, and Delete Selected mapping controls with credential-free results and refresh
+
 ## [1.5.136] - 2026-08-19
 
 ### Added

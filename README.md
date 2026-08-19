@@ -102,7 +102,7 @@ To configure per-user mappings:
 5. Select the entertainment area for that bridge
 6. Click **Add User Mapping**
 
-Users without a mapping will use the default bridge settings configured above.
+Users without a mapping will use the default bridge settings configured above. The administrator mapping multi-selection controls can delete up to 50 dependency-free mappings atomically; any scheduled-cue reference blocks the complete selection.
 
 When different viewers are watching at the same time, sessions mapped to different
 bridge/entertainment-area targets run independent FFmpeg and DTLS pipelines concurrently.
@@ -219,6 +219,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback-media-scope/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |
 | `GET /HueSync/UserMappings/{userId}/Dependencies` | Inspect one mapping's credential-free scheduled-cue dependencies before disabling or deleting it. Returns `canDisable`, `canDelete`, the dependent cue count, and cue IDs/names/enabled state; bridge credentials and target details are never returned. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
+| `POST /HueSync/UserMappings/BulkDelete` | Atomically delete up to 50 selected user IDs with `{ "userIds": ["..."] }`. Every ID is resolved before mutation; any missing ID, scheduled-cue dependency, or save failure leaves the complete mapping collection unchanged. The credential-free response includes deleted mapping summaries, remaining count, missing IDs, and blocked dependency details. |
 
 ### Generating Hue Credentials (Manual Fallback)
 If the **Link Bridge** button doesn't work for you, you can generate keys manually:
@@ -389,7 +390,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.136 (Current)
+### Version 1.5.137 (Current)
+- **Atomic bulk mapping deletion**: remove up to 50 selected per-user bridge mappings by user ID while preserving every dependent scheduled cue when references block the operation
+- **All-or-nothing dependency safety**: missing IDs, scheduled-cue references, and persistence failures leave the full mapping collection unchanged with sanitized details
+- **Administrator mapping cleanup**: add select-all, clear-selection, and Delete Selected controls with credential-free refresh
+
+### Version 1.5.136
 - **Atomic bulk scene deletion**: remove up to 50 selected saved scenes by normalized name while preserving every dependent playlist and cue when references block the operation
 - **All-or-nothing dependency safety**: missing names, direct or playlist-backed scheduled-cue references, and persistence failures leave the full scene collection unchanged with sanitized details
 - **Administrator scene cleanup**: add select-all, clear-selection, and Delete Selected controls with post-action playlist and schedule refresh

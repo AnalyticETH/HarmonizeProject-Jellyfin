@@ -4729,6 +4729,116 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void UserMappings_BulkDeleteRemovesSelectedMappingsByUserId()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-one",
+                    UserName = "One",
+                    SyncEnabled = true,
+                    HueAppKey = "bulk-mapping-app-secret",
+                    HueClientKey = "bulk-mapping-client-secret",
+                    HueBridgeIp = "192.168.1.101",
+                    EntertainmentAreaId = "area-one"
+                },
+                new() { UserId = "user-two", UserName = "Two", SyncEnabled = false },
+                new() { UserId = "user-keep", UserName = "Keep", SyncEnabled = false }
+            }
+        });
+
+        var action = CreateController().DeleteUserMappingsBulk(new HueUserMappingBulkDeleteRequest
+        {
+            UserIds = new List<string> { " USER-ONE ", "USER-TWO" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingBulkDeleteResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.DeletedCount);
+        Assert.Equal(1, result.RemainingCount);
+        Assert.Equal(new[] { "user-one", "user-two" }, result.Mappings.Select(mapping => mapping.UserId));
+        Assert.Equal("user-keep", Assert.Single(configuration.UserMappings).UserId);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("bulk-mapping-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-mapping-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("HueAppKey", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HueClientKey", serialized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UserMappings_BulkDeleteRefusesDependenciesAndMissingIdsAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-dependent", UserName = "Dependent", SyncEnabled = true },
+                new() { UserId = "user-free", UserName = "Free", SyncEnabled = false },
+                new() { UserId = "user-keep", UserName = "Keep", SyncEnabled = false }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "mapping-bulk-cue", Name = "Dependent cue", TargetUserId = " USER-DEPENDENT " }
+            }
+        });
+        var controller = CreateController();
+
+        var blocked = controller.DeleteUserMappingsBulk(new HueUserMappingBulkDeleteRequest
+        {
+            UserIds = new List<string> { "user-dependent", "user-free" }
+        });
+
+        var blockedResponse = Assert.IsType<ConflictObjectResult>(blocked.Result);
+        var blockedResult = Assert.IsType<HueUserMappingBulkDeleteResult>(blockedResponse.Value);
+        Assert.Equal(2, blockedResult.RequestedCount);
+        var dependency = Assert.Single(blockedResult.BlockedMappings);
+        Assert.Equal("user-dependent", dependency.UserId);
+        Assert.Equal(1, dependency.ScheduledCueCount);
+        Assert.Equal(3, configuration.UserMappings.Count);
+
+        var missing = controller.DeleteUserMappingsBulk(new HueUserMappingBulkDeleteRequest
+        {
+            UserIds = new List<string> { "user-free", "missing-user" }
+        });
+
+        var missingResponse = Assert.IsType<NotFoundObjectResult>(missing.Result);
+        var missingResult = Assert.IsType<HueUserMappingBulkDeleteResult>(missingResponse.Value);
+        Assert.Equal(2, missingResult.RequestedCount);
+        Assert.Equal(new[] { "missing-user" }, missingResult.MissingUserIds);
+        Assert.Equal(3, configuration.UserMappings.Count);
+    }
+
+    [Fact]
+    public void UserMappings_BulkDeletePersistenceFailureRestoresCollection()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("bulk mapping persistence failed"));
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-remove", UserName = "Remove", SyncEnabled = false },
+                new() { UserId = "user-keep", UserName = "Keep", SyncEnabled = false }
+            }
+        }, serializer.Object);
+
+        var action = CreateController().DeleteUserMappingsBulk(new HueUserMappingBulkDeleteRequest
+        {
+            UserIds = new List<string> { "user-remove" }
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Equal(new[] { "user-remove", "user-keep" }, configuration.UserMappings.Select(mapping => mapping.UserId));
+    }
+
+    [Fact]
     public void GetConfiguration_ExcludesPerUserMappings()
     {
         InstallConfiguration(new PluginConfiguration

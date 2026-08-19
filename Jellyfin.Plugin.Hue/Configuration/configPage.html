@@ -788,6 +788,19 @@
                             <!-- User mappings will be rendered here -->
                         </div>
 
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-start; flex-wrap: wrap; margin-top: 0.75em;">
+                            <div style="flex: 1 1 280px;">
+                                <label class="inputLabel inputLabelUnfocused" for="userMappingBulkSelect">Bulk mapping selection</label>
+                                <select id="userMappingBulkSelect" is="emby-select" multiple size="5" style="width: 100%;"></select>
+                            </div>
+                            <div style="display: flex; gap: 0.5em; flex-wrap: wrap; align-items: flex-start;">
+                                <button is="emby-button" type="button" class="raised" id="selectAllUserMappingsBtn" disabled><span>Select All</span></button>
+                                <button is="emby-button" type="button" class="raised" id="clearSelectedUserMappingsBtn" disabled><span>Clear Selection</span></button>
+                                <button is="emby-button" type="button" class="raised" id="deleteSelectedUserMappingsBtn" disabled><span>Delete Selected</span></button>
+                            </div>
+                            <div id="userMappingBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select user mappings to delete them together. Any scheduled-cue reference blocks the complete operation.</div>
+                        </div>
+
                         <fieldset class="verticalSection" style="background: rgba(255,255,255,0.05); padding: 1em; border-radius: 6px; margin-top: 1em;">
                             <legend id="mappingFormLegend">Add New User Mapping</legend>
                             <div class="inputContainer">
@@ -6142,15 +6155,20 @@
 
                 loadUserMappings: function (page) {
                     var container = page.querySelector('#userMappingsList');
+                    var bulkSelect = page.querySelector('#userMappingBulkSelect');
+                    if (bulkSelect) bulkSelect.disabled = true;
 
                     ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings")).then(function (mappings) {
                         mappings = Array.isArray(mappings) ? mappings : [];
 
                         if (mappings.length === 0) {
                             container.innerHTML = '<div style="color: #888; padding: 1em;">No user mappings configured. All users will use the default bridge settings.</div>';
+                            if (bulkSelect) bulkSelect.innerHTML = '';
+                            HueConfigurationPage.updateUserMappingBulkButtons(page);
                             return;
                         }
 
+                        if (bulkSelect) bulkSelect.innerHTML = '';
                         var html = '<table style="width: 100%; border-collapse: collapse;">';
                         html += '<thead><tr style="border-bottom: 1px solid #444;">';
                         html += '<th style="text-align: left; padding: 8px;">User</th>';
@@ -6164,6 +6182,12 @@
 
                         mappings.forEach(function (mapping) {
                             var userId = mapping.UserId || mapping.userId || '';
+                            if (bulkSelect && userId) {
+                                var bulkOption = document.createElement('option');
+                                bulkOption.value = userId;
+                                bulkOption.textContent = mapping.UserName || mapping.userName || userId;
+                                bulkSelect.appendChild(bulkOption);
+                            }
                             var syncEnabled = typeof mapping.SyncEnabled !== 'undefined'
                                 ? mapping.SyncEnabled !== false
                                 : mapping.syncEnabled !== false;
@@ -6252,9 +6276,86 @@
 
                         html += '</tbody></table>';
                         container.innerHTML = html;
+                        HueConfigurationPage.updateUserMappingBulkButtons(page);
                     }).catch(function (err) {
                         console.error("Failed to load user mappings:", err);
                         container.innerHTML = '<div style="color: #d9534f; padding: 1em;">Failed to load user mappings.</div>';
+                        if (bulkSelect) bulkSelect.innerHTML = '';
+                        HueConfigurationPage.updateUserMappingBulkButtons(page);
+                    }).finally(function () {
+                        if (bulkSelect) bulkSelect.disabled = false;
+                        HueConfigurationPage.updateUserMappingBulkButtons(page);
+                    });
+                },
+
+                getSelectedUserMappingBulkIds: function (page) {
+                    var bulkSelect = page.querySelector('#userMappingBulkSelect');
+                    if (!bulkSelect) return [];
+                    return Array.prototype.slice.call(bulkSelect.options)
+                        .filter(function (option) { return option.selected && option.value; })
+                        .map(function (option) { return option.value; });
+                },
+                updateUserMappingBulkButtons: function (page) {
+                    var bulkSelect = page.querySelector('#userMappingBulkSelect');
+                    var selectedCount = HueConfigurationPage.getSelectedUserMappingBulkIds(page).length;
+                    var hasOptions = !!bulkSelect && bulkSelect.options.length > 0;
+                    var selectAllBtn = page.querySelector('#selectAllUserMappingsBtn');
+                    var clearBtn = page.querySelector('#clearSelectedUserMappingsBtn');
+                    var deleteBtn = page.querySelector('#deleteSelectedUserMappingsBtn');
+                    if (selectAllBtn) selectAllBtn.disabled = !hasOptions || selectedCount === bulkSelect.options.length;
+                    if (clearBtn) clearBtn.disabled = selectedCount === 0;
+                    if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
+                },
+                selectAllUserMappings: function (page) {
+                    var bulkSelect = page.querySelector('#userMappingBulkSelect');
+                    if (!bulkSelect) return;
+                    Array.prototype.forEach.call(bulkSelect.options, function (option) { option.selected = true; });
+                    HueConfigurationPage.updateUserMappingBulkButtons(page);
+                },
+                clearSelectedUserMappings: function (page) {
+                    var bulkSelect = page.querySelector('#userMappingBulkSelect');
+                    if (!bulkSelect) return;
+                    Array.prototype.forEach.call(bulkSelect.options, function (option) { option.selected = false; });
+                    HueConfigurationPage.updateUserMappingBulkButtons(page);
+                },
+                deleteUserMappingsBulk: function (page) {
+                    var userIds = HueConfigurationPage.getSelectedUserMappingBulkIds(page);
+                    var statusEl = page.querySelector('#userMappingBulkStatus');
+                    if (!userIds.length) {
+                        Dashboard.alert("Select at least one user mapping first.");
+                        return;
+                    }
+
+                    Dashboard.confirm("Delete " + userIds.length + " selected user mapping(s)? Any scheduled-cue dependency blocks the complete operation.", "Delete Selected Mappings", function (confirmed) {
+                        if (!confirmed) return;
+                        var button = page.querySelector('#deleteSelectedUserMappingsBtn');
+                        if (button) button.disabled = true;
+                        if (statusEl) {
+                            statusEl.textContent = "Checking scheduled-cue dependencies and deleting the selected mappings atomically...";
+                            statusEl.style.color = "";
+                        }
+                        ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("HueSync/UserMappings/BulkDelete"),
+                            data: JSON.stringify({ userIds: userIds }),
+                            contentType: "application/json",
+                            dataType: "json"
+                        }).then(function (response) {
+                            var deletedCount = response && (response.deletedCount !== undefined ? response.deletedCount : response.DeletedCount) || userIds.length;
+                            if (statusEl) {
+                                statusEl.textContent = "Deleted " + deletedCount + " user mapping(s).";
+                                statusEl.style.color = "#8bc34a";
+                            }
+                            HueConfigurationPage.clearSelectedUserMappings(page);
+                            HueConfigurationPage.loadUserMappings(page);
+                        }).catch(function (err) {
+                            console.error("Failed to bulk delete user mappings:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "No mappings were deleted. A scheduled-cue dependency, missing mapping, or persistence failure blocked the atomic operation.";
+                                statusEl.style.color = "#d9534f";
+                            }
+                            HueConfigurationPage.updateUserMappingBulkButtons(page);
+                        });
                     });
                 },
 
@@ -7637,6 +7738,22 @@
 
             document.querySelector('#addMappingBtn').addEventListener('click', function () {
                 HueConfigurationPage.addUserMapping();
+            });
+
+            document.querySelector('#userMappingBulkSelect').addEventListener('change', function () {
+                HueConfigurationPage.updateUserMappingBulkButtons(this.closest('.page'));
+            });
+
+            document.querySelector('#selectAllUserMappingsBtn').addEventListener('click', function () {
+                HueConfigurationPage.selectAllUserMappings(this.closest('.page'));
+            });
+
+            document.querySelector('#clearSelectedUserMappingsBtn').addEventListener('click', function () {
+                HueConfigurationPage.clearSelectedUserMappings(this.closest('.page'));
+            });
+
+            document.querySelector('#deleteSelectedUserMappingsBtn').addEventListener('click', function () {
+                HueConfigurationPage.deleteUserMappingsBulk(this.closest('.page'));
             });
 
             document.querySelector('#cancelMappingEditBtn').addEventListener('click', function () {
