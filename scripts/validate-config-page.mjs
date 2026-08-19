@@ -16,6 +16,7 @@ const requiredMarkup = [
     'id="cancelMappingTestConnectionBtn"',
     'id="cancelPreviewBtn"',
     'id="cancelDiagnosticsBtn"',
+    'id="exportSupportBundleBtn"',
     'id="previewEffect"',
     'id="previewEffectSpeed"',
     'id="exportSceneScheduleConflictsBtn"',
@@ -38,9 +39,11 @@ for (const marker of requiredMarkup) {
 const requiredScript = [
     "setDiagnosticBusy: function",
     "setDiagnosticsBusy: function",
+    "exportSupportBundle: function",
     "HueConfigurationPage.cancelDiagnostics(e.target)",
     'url: ApiClient.getUrl("HueSync/Preview/Cancel")',
     'url: ApiClient.getUrl("HueSync/Diagnostics/Cancel")',
+    'ApiClient.getUrl("HueSync/Diagnostics/SupportBundle")',
     "HueConfigurationPage.cancelPreview(e.target)",
     '["Solid", "Pulse", "Rainbow", "Candle"]',
     'effect: effect || "Solid"',
@@ -96,6 +99,18 @@ for (const functionName of ["exportSceneScheduleConflicts", "exportSceneSchedule
         !functionBody.includes("downloadJsonDocument") ||
         !functionBody.includes("scheduleQuery")) {
         throw new Error(`${file} ${functionName} is missing credential-free schedule report export wiring`);
+    }
+}
+
+{
+    const functionName = "exportSupportBundle";
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("Diagnostics/SupportBundle") ||
+        !functionBody.includes("downloadJsonDocument") ||
+        !functionBody.includes("_hueSupportBundleRequest")) {
+        throw new Error(`${file} ${functionName} is missing support bundle export wiring`);
     }
 }
 

@@ -3688,6 +3688,48 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task ExportSupportBundle_CombinesDiagnosticsAndNeverSerializesCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "support-app-secret",
+            HueClientKey = "support-client-secret",
+            EntertainmentAreaId = "area-1"
+        });
+        SetupHttpResponse(HttpStatusCode.OK, "{\"data\":[]}");
+        var probe = new Mock<IHueEnvironmentProbe>();
+        probe
+            .Setup(environment => environment.CheckAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueEnvironmentProbeResult
+            {
+                Ffmpeg = new HueToolStatus { Available = true, Version = "ffmpeg test" },
+                OpenSsl = new HueToolStatus { Available = true, Version = "openssl test" }
+            });
+
+        var action = await CreateController(environmentProbe: probe.Object).ExportSupportBundle();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var bundle = Assert.IsType<HueSupportBundle>(response.Value);
+        Assert.Equal(HueSupportBundle.CurrentSchemaVersion, bundle.SchemaVersion);
+        Assert.NotEqual(default, bundle.GeneratedAtUtc);
+        Assert.True(bundle.Diagnostics.ConfigurationValid);
+        Assert.Equal(1, bundle.TargetDiagnostics.TargetCount);
+        Assert.False(bundle.TargetDiagnostics.AllTargetsReady);
+        Assert.False(bundle.Configuration.CredentialsIncluded);
+        Assert.True(bundle.Configuration.Configuration.HasAppKey);
+        Assert.True(bundle.Configuration.Configuration.HasClientKey);
+        Assert.Empty(bundle.Configuration.Configuration.HueAppKey);
+        Assert.Empty(bundle.Configuration.Configuration.HueClientKey);
+
+        var serialized = JsonSerializer.Serialize(bundle);
+        Assert.DoesNotContain("support-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("support-client-secret", serialized, StringComparison.Ordinal);
+        probe.Verify(environment => environment.CheckAsync(It.Is<CancellationToken>(token => token.CanBeCanceled)), Times.Once);
+    }
+
+    [Fact]
     public async Task TargetDiagnostics_ValidatesDefaultInheritedAndCustomTargetsWithoutSecrets()
     {
         InstallConfiguration(new PluginConfiguration

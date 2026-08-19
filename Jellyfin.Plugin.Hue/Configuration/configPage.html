@@ -86,7 +86,7 @@
                 </fieldset>
                 <fieldset class="verticalSection" id="environmentDiagnosticsSection">
                     <legend>System Diagnostics</legend>
-                    <div class="fieldDescription" style="margin-bottom: 0.75em;">Check local playback prerequisites and bridge lifecycle contention without changing bridge state.</div>
+                    <div class="fieldDescription" style="margin-bottom: 0.75em;">Check local playback prerequisites and bridge lifecycle contention without changing bridge state. Export Support Bundle collects these results, credential-free configuration metadata, runtime telemetry, and bounded playback/scheduler history in one reviewable JSON document; labels and media metadata may be private.</div>
                     <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
                         <div style="flex: 1 1 280px;">
                             <div><strong>Plugin configuration:</strong> <span id="diagnosticsConfiguration">—</span></div>
@@ -105,6 +105,9 @@
                         </button>
                         <button is="emby-button" type="button" class="raised" id="refreshTargetDiagnosticsBtn">
                             <span>Validate Saved Targets</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="exportSupportBundleBtn">
+                            <span>Export Support Bundle</span>
                         </button>
                         <button is="emby-button" type="button" class="raised" id="cancelDiagnosticsBtn" style="display: none; background: #8a3d3d;">
                             <span>Cancel Active Diagnostics</span>
@@ -4921,10 +4924,12 @@
                     if (!page) return;
                     var diagnosticsButton = page.querySelector('#refreshDiagnosticsBtn');
                     var targetButton = page.querySelector('#refreshTargetDiagnosticsBtn');
+                    var supportButton = page.querySelector('#exportSupportBundleBtn');
                     var cancelButton = page.querySelector('#cancelDiagnosticsBtn');
-                    var active = !!(page._hueDiagnosticsRequest || page._hueTargetDiagnosticsRequest);
+                    var active = !!(page._hueDiagnosticsRequest || page._hueTargetDiagnosticsRequest || page._hueSupportBundleRequest);
                     if (diagnosticsButton) diagnosticsButton.disabled = !!page._hueDiagnosticsLoading;
                     if (targetButton) targetButton.disabled = !!page._hueTargetDiagnosticsLoading;
+                    if (supportButton) supportButton.disabled = !!page._hueSupportBundleRequest;
                     if (cancelButton) {
                         cancelButton.style.display = active ? "" : "none";
                         cancelButton.disabled = !!page._hueDiagnosticsCancellationRequest || !!page._hueDiagnosticsCancellationRequested;
@@ -4932,7 +4937,7 @@
                 },
                 cancelDiagnostics: function (page) {
                     if (!page ||
-                        (!page._hueDiagnosticsRequest && !page._hueTargetDiagnosticsRequest) ||
+                        (!page._hueDiagnosticsRequest && !page._hueTargetDiagnosticsRequest && !page._hueSupportBundleRequest) ||
                         page._hueDiagnosticsCancellationRequest) {
                         return;
                     }
@@ -4947,6 +4952,10 @@
                     if (targetMessage && page._hueTargetDiagnosticsRequest) {
                         targetMessage.textContent = "Requesting saved-target validation cancellation...";
                         targetMessage.style.color = "#f0ad4e";
+                    }
+                    if (diagnosticsMessage && page._hueSupportBundleRequest) {
+                        diagnosticsMessage.textContent = "Requesting support bundle cancellation...";
+                        diagnosticsMessage.style.color = "#f0ad4e";
                     }
 
                     page._hueDiagnosticsCancellationRequest = ApiClient.ajax({
@@ -4963,6 +4972,9 @@
                             if (targetMessage && page._hueTargetDiagnosticsRequest) {
                                 targetMessage.textContent = message || "No active diagnostics were found.";
                             }
+                            if (diagnosticsMessage && page._hueSupportBundleRequest) {
+                                diagnosticsMessage.textContent = message || "No active diagnostics were found.";
+                            }
                         }
                     }).catch(function (err) {
                         console.error("Diagnostics cancellation error:", err);
@@ -4973,6 +4985,10 @@
                         if (targetMessage && page._hueTargetDiagnosticsRequest) {
                             targetMessage.textContent = "Unable to request saved-target validation cancellation; the check may still be running.";
                             targetMessage.style.color = "#d9534f";
+                        }
+                        if (diagnosticsMessage && page._hueSupportBundleRequest) {
+                            diagnosticsMessage.textContent = "Unable to request support bundle cancellation; the check may still be running.";
+                            diagnosticsMessage.style.color = "#d9534f";
                         }
                     }).finally(function () {
                         page._hueDiagnosticsCancellationRequest = null;
@@ -5163,6 +5179,47 @@
                         if (!page._hueDiagnosticsRequest && !page._hueTargetDiagnosticsRequest) {
                             page._hueDiagnosticsCancellationRequested = false;
                         }
+                        HueConfigurationPage.setDiagnosticsBusy(page);
+                    });
+                },
+                exportSupportBundle: function (page) {
+                    if (!page || page._hueSupportBundleRequest) {
+                        return Promise.resolve();
+                    }
+
+                    var button = page.querySelector('#exportSupportBundleBtn');
+                    var message = page.querySelector('#diagnosticsMessage');
+                    if (button) button.disabled = true;
+                    if (message) {
+                        message.textContent = "Collecting a credential-free support bundle and validating saved targets...";
+                        message.style.color = "";
+                    }
+
+                    var request = ApiClient.getJSON(ApiClient.getUrl("HueSync/Diagnostics/SupportBundle"));
+                    page._hueSupportBundleRequest = request;
+                    HueConfigurationPage.setDiagnosticsBusy(page);
+                    return request.then(function (bundle) {
+                        HueConfigurationPage.downloadJsonDocument(bundle, "jellyfin-hue-support-bundle.json");
+                        if (message) {
+                            message.textContent = "Support bundle exported. Bridge credentials and playback tokens were omitted; review private labels before sharing.";
+                            message.style.color = "#4caf50";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to export Hue support bundle:", err);
+                        if (message) {
+                            message.textContent = page._hueDiagnosticsCancellationRequested
+                                ? "Support bundle cancellation requested."
+                                : "Unable to export the support bundle. Check the server log and bridge access.";
+                            message.style.color = page._hueDiagnosticsCancellationRequested ? "#f0ad4e" : "#d9534f";
+                        }
+                    }).finally(function () {
+                        if (page._hueSupportBundleRequest === request) {
+                            page._hueSupportBundleRequest = null;
+                        }
+                        if (!page._hueDiagnosticsRequest && !page._hueTargetDiagnosticsRequest && !page._hueSupportBundleRequest) {
+                            page._hueDiagnosticsCancellationRequested = false;
+                        }
+                        if (button) button.disabled = false;
                         HueConfigurationPage.setDiagnosticsBusy(page);
                     });
                 },
@@ -6751,6 +6808,10 @@
                 HueConfigurationPage.loadTargetDiagnostics(this.closest('.page'));
             });
 
+            document.querySelector('#exportSupportBundleBtn').addEventListener('click', function () {
+                HueConfigurationPage.exportSupportBundle(this.closest('.page'));
+            });
+
             document.querySelector('#cancelDiagnosticsBtn').addEventListener('click', function () {
                 HueConfigurationPage.cancelDiagnostics(this.closest('.page'));
             });
@@ -6851,7 +6912,7 @@
                     if (e.target._hueSceneScheduleRequest) {
                         HueConfigurationPage.cancelSceneScheduleRun(e.target);
                     }
-                    if (e.target._hueDiagnosticsRequest || e.target._hueTargetDiagnosticsRequest) {
+                    if (e.target._hueDiagnosticsRequest || e.target._hueTargetDiagnosticsRequest || e.target._hueSupportBundleRequest) {
                         HueConfigurationPage.cancelDiagnostics(e.target);
                     }
                     HueConfigurationPage.stopRuntimeStatusPolling(e.target);

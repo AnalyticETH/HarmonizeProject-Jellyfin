@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.127] - 2026-08-19
+
+### Added
+- **Credential-safe support bundle**: add `GET /HueSync/Diagnostics/SupportBundle` and an administrator download action that combines local prerequisites, saved-target validation, runtime telemetry, playback and scheduled-cue history, scheduler status, and redacted configuration metadata into one reviewable JSON document
+- **Cancellation-aware collection**: the support bundle reuses the administrator diagnostics cancellation lifecycle while target checks run, and clearly warns that private labels and media metadata may remain even though bridge credentials and playback tokens are omitted
+
 ## [1.5.126] - 2026-08-19
 
 ### Added

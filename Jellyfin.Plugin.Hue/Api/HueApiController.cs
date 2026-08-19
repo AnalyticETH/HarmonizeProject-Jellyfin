@@ -3248,6 +3248,87 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Collects a consolidated, credential-safe administrator support document.
+        /// The bundle combines local prerequisites, saved-target validation, runtime
+        /// telemetry, playback and scene-cue history, scheduler status, and the same
+        /// redacted configuration export used by Backup and Restore. It never contains
+        /// bridge keys or playback tokens; labels and media metadata may still be
+        /// private, so administrators should review the file before sharing it.
+        /// </summary>
+        [HttpGet("Diagnostics/SupportBundle")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<HueSupportBundle>> ExportSupportBundle(
+            CancellationToken cancellationToken = default)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+            {
+                return NotFound("Plugin configuration not available.");
+            }
+
+            var diagnosticsAction = await GetDiagnostics(cancellationToken).ConfigureAwait(false);
+            var diagnostics = ReadActionValue(diagnosticsAction) ?? new HueDiagnosticsResult
+            {
+                PluginVersion = typeof(Plugin).Assembly.GetName().Version?.ToString(),
+                ConfigurationValid = false,
+                ConfigurationErrors = new[] { "Diagnostics did not return a result." },
+                CheckedAtUtc = DateTime.UtcNow
+            };
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var targetDiagnosticsAction = await GetTargetDiagnostics(cancellationToken).ConfigureAwait(false);
+            var targetDiagnostics = ReadActionValue(targetDiagnosticsAction) ?? new HueTargetDiagnosticsResult
+            {
+                CheckedAtUtc = DateTime.UtcNow
+            };
+
+            var generatedAtUtc = DateTime.UtcNow;
+            var sessionHistory = BuildSessionHistoryResult(HueSyncService.MaxSessionHistoryCount, null);
+            var scheduleHistory = new HueSceneScheduleHistoryResult
+            {
+                ServiceAvailable = _sceneAutomationService != null,
+                PersistenceEnabled = config.PersistSceneScheduleHistory,
+                Limit = HueSceneAutomationService.MaxSceneScheduleHistoryCount,
+                GeneratedAtUtc = generatedAtUtc,
+                Runs = _sceneAutomationService?.GetHistory(HueSceneAutomationService.MaxSceneScheduleHistoryCount)
+                    ?? Array.Empty<HueSceneAutomationRunResult>()
+            };
+            var runtime = ReadActionValue(GetStatus()) ?? new HueSyncStatus
+            {
+                ServiceAvailable = false,
+                State = "Unavailable",
+                StatusMessage = "Sync service is not available."
+            };
+
+            return Ok(new HueSupportBundle
+            {
+                SchemaVersion = HueSupportBundle.CurrentSchemaVersion,
+                GeneratedAtUtc = generatedAtUtc,
+                PluginVersion = typeof(Plugin).Assembly.GetName().Version?.ToString() ?? string.Empty,
+                Diagnostics = diagnostics,
+                TargetDiagnostics = targetDiagnostics,
+                Runtime = runtime,
+                SessionHistory = sessionHistory,
+                SceneAutomation = _sceneAutomationService?.GetStatus() ?? new HueSceneAutomationStatus
+                {
+                    ServiceAvailable = false,
+                    GeneratedAtUtc = generatedAtUtc,
+                    ServerLocalNow = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified),
+                    ServerTimeZoneId = TimeZoneInfo.Local.Id
+                },
+                SceneScheduleHistory = scheduleHistory,
+                Configuration = HueConfigurationExportDocument.From(config)
+            });
+        }
+
+        private static T? ReadActionValue<T>(ActionResult<T> action)
+            where T : class
+        {
+            return action.Value ?? (action.Result as ObjectResult)?.Value as T;
+        }
+
+        /// <summary>
         /// Requests cancellation for active non-mutating administrator diagnostics. The
         /// diagnostic request owns its normal disposal and returns no bridge credentials.
         /// </summary>
@@ -5906,6 +5987,27 @@ namespace Jellyfin.Plugin.Hue.Api
         public int ReadyTargetCount { get; init; }
         public IReadOnlyList<HueTargetDiagnostic> Targets { get; init; } = Array.Empty<HueTargetDiagnostic>();
         public DateTime CheckedAtUtc { get; init; }
+    }
+
+    /// <summary>
+    /// Consolidated, credential-safe administrator support document. The nested
+    /// diagnostics and history types are already redacted for API consumers; this
+    /// envelope makes it possible to collect the same evidence in one download.
+    /// </summary>
+    public sealed class HueSupportBundle
+    {
+        public const int CurrentSchemaVersion = 1;
+
+        public int SchemaVersion { get; init; } = CurrentSchemaVersion;
+        public DateTime GeneratedAtUtc { get; init; }
+        public string PluginVersion { get; init; } = string.Empty;
+        public HueDiagnosticsResult Diagnostics { get; init; } = new();
+        public HueTargetDiagnosticsResult TargetDiagnostics { get; init; } = new();
+        public HueSyncStatus Runtime { get; init; } = new();
+        public HueSessionHistoryResult SessionHistory { get; init; } = new();
+        public HueSceneAutomationStatus SceneAutomation { get; init; } = new();
+        public HueSceneScheduleHistoryResult SceneScheduleHistory { get; init; } = new();
+        public HueConfigurationExportDocument Configuration { get; init; } = new();
     }
 
     /// <summary>
