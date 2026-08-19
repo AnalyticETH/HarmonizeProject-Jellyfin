@@ -39,7 +39,8 @@ public interface IHueStreamTester
         CancellationToken cancellationToken = default,
         int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
         int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
-        string effect = PluginConfiguration.ColorPresetEffectSolid);
+        string effect = PluginConfiguration.ColorPresetEffectSolid,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent);
 
     /// <summary>
     /// Cancels the active diagnostic or preview, if one is running. Cleanup continues
@@ -283,7 +284,8 @@ public sealed class HueStreamTester : IHueStreamTester
         CancellationToken cancellationToken = default,
         int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
         int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
-        string effect = PluginConfiguration.ColorPresetEffectSolid)
+        string effect = PluginConfiguration.ColorPresetEffectSolid,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
         => RunSerializedAsync(operationCancellation => PreviewCoreAsync(
             bridgeIp,
             appKey,
@@ -299,6 +301,7 @@ public sealed class HueStreamTester : IHueStreamTester
             transitionSeconds,
             transitionOutSeconds,
             effect,
+            effectSpeedPercent,
             operationCancellation), cancellationToken);
 
     private async Task<HueStreamProbeResult> PreviewCoreAsync(
@@ -316,6 +319,7 @@ public sealed class HueStreamTester : IHueStreamTester
         int transitionSeconds,
         int transitionOutSeconds,
         string effect,
+        int effectSpeedPercent,
         CancellationToken cancellationToken)
     {
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
@@ -324,6 +328,12 @@ public sealed class HueStreamTester : IHueStreamTester
         effect = normalizedEffect;
         if (cancellationToken.IsCancellationRequested)
             return Failure($"The {effect.ToLowerInvariant()} preview request was canceled.");
+
+        if (effectSpeedPercent < PluginConfiguration.MinColorPresetEffectSpeedPercent ||
+            effectSpeedPercent > PluginConfiguration.MaxColorPresetEffectSpeedPercent)
+        {
+            return Failure($"Preview effect speed must be between {PluginConfiguration.MinColorPresetEffectSpeedPercent} and {PluginConfiguration.MaxColorPresetEffectSpeedPercent} percent.");
+        }
 
         if (string.IsNullOrWhiteSpace(bridgeIp) ||
             string.IsNullOrWhiteSpace(appKey) ||
@@ -465,7 +475,8 @@ public sealed class HueStreamTester : IHueStreamTester
                         channelColors,
                         effect,
                         0,
-                        durationSeconds);
+                        durationSeconds,
+                        effectSpeedPercent);
                     if (transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds)
                         frame = BuildTransitionColors(frame, 0);
                     var sent = await streamer.SendColors(
@@ -499,7 +510,7 @@ public sealed class HueStreamTester : IHueStreamTester
                                 1d);
                             var elapsedSeconds = (DateTime.UtcNow - previewStartedAt).TotalSeconds;
                             frame = BuildTransitionColors(
-                                BuildEffectColors(channelColors, effect, elapsedSeconds, durationSeconds),
+                                BuildEffectColors(channelColors, effect, elapsedSeconds, durationSeconds, effectSpeedPercent),
                                 progress);
                             if (!await streamer.SendColors(
                                     areaId,
@@ -519,7 +530,8 @@ public sealed class HueStreamTester : IHueStreamTester
                                     channelColors,
                                     effect,
                                     (DateTime.UtcNow - previewStartedAt).TotalSeconds,
-                                    durationSeconds),
+                                    durationSeconds,
+                                    effectSpeedPercent),
                                 cancellationToken: cancellationToken).ConfigureAwait(false))
                         {
                             transitionFailed = true;
@@ -553,7 +565,8 @@ public sealed class HueStreamTester : IHueStreamTester
                                         channelColors,
                                         effect,
                                         (DateTime.UtcNow - previewStartedAt).TotalSeconds,
-                                        durationSeconds),
+                                        durationSeconds,
+                                        effectSpeedPercent),
                                     1d - fadeOutProgress);
                                 if (!await streamer.SendColors(
                                         areaId,
@@ -594,7 +607,8 @@ public sealed class HueStreamTester : IHueStreamTester
                                         channelColors,
                                         effect,
                                         (DateTime.UtcNow - previewStartedAt).TotalSeconds,
-                                        durationSeconds),
+                                        durationSeconds,
+                                        effectSpeedPercent),
                                     cancellationToken: cancellationToken).ConfigureAwait(false))
                             {
                                 previewResult = Failure("The DTLS stream stopped while holding the preview color.");
@@ -607,7 +621,7 @@ public sealed class HueStreamTester : IHueStreamTester
                             !await streamer.SendColors(
                                 areaId,
                                 BuildTransitionColors(
-                                    BuildEffectColors(channelColors, effect, durationSeconds, durationSeconds),
+                                    BuildEffectColors(channelColors, effect, durationSeconds, durationSeconds, effectSpeedPercent),
                                     0),
                                 cancellationToken: cancellationToken).ConfigureAwait(false))
                         {
@@ -794,7 +808,8 @@ public sealed class HueStreamTester : IHueStreamTester
         IReadOnlyDictionary<int, byte[]> targetColors,
         string effect,
         double elapsedSeconds,
-        double durationSeconds)
+        double durationSeconds,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
     {
         ArgumentNullException.ThrowIfNull(targetColors);
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
@@ -802,6 +817,10 @@ public sealed class HueStreamTester : IHueStreamTester
 
         var elapsed = Math.Max(0d, elapsedSeconds);
         var duration = Math.Max(1d, durationSeconds);
+        var speedMultiplier = Math.Clamp(
+            effectSpeedPercent,
+            PluginConfiguration.MinColorPresetEffectSpeedPercent,
+            PluginConfiguration.MaxColorPresetEffectSpeedPercent) / 100d;
         var colors = new Dictionary<int, byte[]>(targetColors.Count);
         foreach (var (channelId, target) in targetColors)
         {
@@ -816,7 +835,8 @@ public sealed class HueStreamTester : IHueStreamTester
 
             if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectPulse, StringComparison.Ordinal))
             {
-                var phase = (elapsed % 2.4d) / 2.4d;
+                var pulsePeriod = 2.4d / speedMultiplier;
+                var phase = (elapsed % pulsePeriod) / pulsePeriod;
                 var wave = 0.5d + 0.5d * Math.Sin((phase * 2d * Math.PI) - (Math.PI / 2d));
                 var multiplier = 0.2d + (0.8d * wave);
                 colors[channelId] = ScaleFrame(target, multiplier);
@@ -837,8 +857,8 @@ public sealed class HueStreamTester : IHueStreamTester
                 candleGreen = (candleGreen * (1d - warmMix)) + (candleValue * 0.62d * warmMix);
                 candleBlue = (candleBlue * (1d - warmMix)) + (candleValue * 0.14d * warmMix);
                 var flicker = 0.62d +
-                    (0.28d * (0.5d + 0.5d * Math.Sin((elapsed * 5.5d) + (channelId * 0.731d)))) +
-                    (0.10d * (0.5d + 0.5d * Math.Sin((elapsed * 13d) + (channelId * 1.17d) + 0.9d)));
+                    (0.28d * (0.5d + 0.5d * Math.Sin((elapsed * 5.5d * speedMultiplier) + (channelId * 0.731d)))) +
+                    (0.10d * (0.5d + 0.5d * Math.Sin((elapsed * 13d * speedMultiplier) + (channelId * 1.17d) + 0.9d)));
                 colors[channelId] = new[]
                 {
                     ToRgb16Byte(candleRed * flicker), ToRgb16Byte(candleRed * flicker),
@@ -853,7 +873,7 @@ public sealed class HueStreamTester : IHueStreamTester
             var blue = target[4] / 127d;
             var value = Math.Clamp(Math.Max(red, Math.Max(green, blue)), 0d, 1d);
             var baseHue = RgbToHue(red, green, blue);
-            var hue = (baseHue + ((elapsed / duration) * 360d)) % 360d;
+            var hue = (baseHue + ((elapsed / duration) * 360d * speedMultiplier)) % 360d;
             var (rainbowRed, rainbowGreen, rainbowBlue) = HsvToRgb(hue, 1d, value);
             colors[channelId] = new[]
             {

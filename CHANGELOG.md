@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.94] - 2026-08-19
+
+### Added
+- **Configurable animated speed**: set a bounded 25-400% rate for Pulse, Rainbow, and Candle previews and saved scenes while Solid remains unchanged
+- **Portable speed metadata**: preserve the selected rate through scene CRUD, scheduled execution, status, upcoming occurrences, iCalendar, history, and credential-safe backup/restore
+- **Speed-aware administrator surfaces**: edit, apply, and inspect effect speed in the preview controls, scheduled-cue lists, runtime telemetry, upcoming runs, and retained history
+
+### Security
+- Effect speed is bounded and validated at every API/configuration boundary; animated frames continue through the serialized, cancellable DTLS lifecycle with captured-light restoration
+
 ## [1.5.93] - 2026-08-19
 
 ### Added

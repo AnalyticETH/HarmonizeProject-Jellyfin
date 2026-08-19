@@ -635,7 +635,8 @@ public sealed class HueSceneAutomationServiceTests
                 It.IsAny<CancellationToken>(),
                 0,
                 0,
-                PluginConfiguration.ColorPresetEffectSolid))
+                PluginConfiguration.ColorPresetEffectSolid,
+                PluginConfiguration.DefaultColorPresetEffectSpeedPercent))
             .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Displayed one-time scene." });
         var service = new HueSceneAutomationService(
             streamTester.Object,
@@ -834,7 +835,7 @@ public sealed class HueSceneAutomationServiceTests
             EntertainmentAreaId = "area-1",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Evening", Effect = PluginConfiguration.ColorPresetEffectPulse, Red = 12, Green = 34, Blue = 56, BrightnessPercent = 75, DurationSeconds = 8, TransitionSeconds = 2, TransitionOutSeconds = 1 }
+                new() { Name = "Evening", Effect = PluginConfiguration.ColorPresetEffectPulse, EffectSpeedPercent = 150, Red = 12, Green = 34, Blue = 56, BrightnessPercent = 75, DurationSeconds = 8, TransitionSeconds = 2, TransitionOutSeconds = 1 }
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
@@ -861,7 +862,8 @@ public sealed class HueSceneAutomationServiceTests
                 It.IsAny<CancellationToken>(),
                 2,
                 1,
-                PluginConfiguration.ColorPresetEffectPulse))
+                PluginConfiguration.ColorPresetEffectPulse,
+                150))
             .ReturnsAsync(new HueStreamProbeResult
             {
                 Succeeded = true,
@@ -879,6 +881,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("Evening cue", result.ScheduleName);
         Assert.Equal("Evening", result.PresetName);
         Assert.Equal(PluginConfiguration.ColorPresetEffectPulse, result.Effect);
+        Assert.Equal(150, result.EffectSpeedPercent);
         Assert.Equal("Default bridge target", result.TargetLabel);
         Assert.Equal(1, result.RunCount);
         var persisted = Assert.Single(Plugin.Instance!.Configuration.PersistedSceneScheduleHistory);
@@ -1116,7 +1119,8 @@ public sealed class HueSceneAutomationServiceTests
             CancellationToken cancellationToken = default,
             int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
             int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
-            string effect = PluginConfiguration.ColorPresetEffectSolid)
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
         {
             PreviewStarted.TrySetResult(true);
             return WaitForCancellationAsync(cancellationToken);

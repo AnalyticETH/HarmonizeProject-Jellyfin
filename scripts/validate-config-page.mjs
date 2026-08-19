@@ -16,7 +16,8 @@ const requiredMarkup = [
     'id="cancelMappingTestConnectionBtn"',
     'id="cancelPreviewBtn"',
     'id="cancelDiagnosticsBtn"',
-    'id="previewEffect"'
+    'id="previewEffect"',
+    'id="previewEffectSpeed"'
 ];
 
 for (const marker of requiredMarkup) {
@@ -34,6 +35,8 @@ const requiredScript = [
     "HueConfigurationPage.cancelPreview(e.target)",
     '["Solid", "Pulse", "Rainbow", "Candle"]',
     'effect: effect || "Solid"',
+    'effectSpeedPercent: effectSpeedPercent || 100',
+    'effectSpeedPercent: values.effectSpeedPercent',
     "effect: values.effect"
 ];
 

@@ -61,7 +61,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// target information; they can be applied to the default target or any per-user
     /// mapping from the administrator configuration page. TransitionSeconds and
     /// TransitionOutSeconds optionally fade the scene in and out within the configured
-    /// duration. Effect selects the bounded frame pattern used during the hold.
+    /// duration. Effect selects the bounded frame pattern used during the hold, and
+    /// EffectSpeedPercent controls the animation rate for non-solid effects.
     /// </summary>
     public class HueColorPreset
     {
@@ -71,6 +72,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// <see cref="PluginConfiguration.ColorPresetEffectSolid"/>.
         /// </summary>
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
+        /// <summary>
+        /// Animation speed for Pulse, Rainbow, and Candle effects. Missing values in
+        /// older configurations deserialize to the neutral 100 percent rate.
+        /// </summary>
+        public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public int Red { get; set; } = 255;
         public int Green { get; set; } = 255;
         public int Blue { get; set; } = 255;
@@ -220,6 +226,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string ScheduleName { get; set; } = string.Empty;
         public string PresetName { get; set; } = string.Empty;
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
+        public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public string? TargetLabel { get; set; }
         public bool Succeeded { get; set; }
         public string Message { get; set; } = string.Empty;
@@ -282,6 +289,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxColorPresetTransitionSeconds = MaxPreviewDurationSeconds;
         public const int MinColorPresetTransitionOutSeconds = 0;
         public const int MaxColorPresetTransitionOutSeconds = MaxPreviewDurationSeconds;
+        public const int MinColorPresetEffectSpeedPercent = 25;
+        public const int MaxColorPresetEffectSpeedPercent = 400;
+        public const int DefaultColorPresetEffectSpeedPercent = 100;
         public const int MaxColorPresets = 50;
         public const int MaxColorPresetNameLength = 64;
         public const int MaxSceneSchedules = 50;
@@ -335,6 +345,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
             return true;
         }
 
+        /// <summary>
+        /// Clamps persisted or telemetry-only effect speed values to the supported range.
+        /// Request and configuration validation still rejects out-of-range user input.
+        /// </summary>
+        public static int ClampColorPresetEffectSpeedPercent(int value)
+            => Math.Clamp(value, MinColorPresetEffectSpeedPercent, MaxColorPresetEffectSpeedPercent);
+
         public bool SyncEnabled { get; set; } = false;
 
         // Default/fallback bridge settings (used when no user mapping exists)
@@ -352,8 +369,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public List<UserBridgeMapping> UserMappings { get; set; } = new List<UserBridgeMapping>();
 
         /// <summary>
-        /// Named solid-color scenes available to the administrator preview controls.
-        /// Presets are global and do not contain bridge credentials or channel targets.
+        /// Named visual scenes available to the administrator preview controls.
+        /// Presets are global, carry only bounded visual metadata, and do not contain
+        /// bridge credentials or channel targets.
         /// </summary>
         public List<HueColorPreset> ColorPresets { get; set; } = new List<HueColorPreset>();
 
@@ -870,6 +888,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!TryNormalizeColorPresetEffect(preset.Effect, out _))
                 errors.Add($"{label} effect must be one of {string.Join(", ", ColorPresetEffects)}");
+
+            if (preset.EffectSpeedPercent < MinColorPresetEffectSpeedPercent ||
+                preset.EffectSpeedPercent > MaxColorPresetEffectSpeedPercent)
+            {
+                errors.Add($"{label} effect speed must be between {MinColorPresetEffectSpeedPercent} and {MaxColorPresetEffectSpeedPercent} percent");
+            }
 
             if (preset.Red < MinByteSetting || preset.Red > MaxByteSetting ||
                 preset.Green < MinByteSetting || preset.Green > MaxByteSetting ||

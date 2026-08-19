@@ -403,6 +403,7 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 Name = preset.Name,
                 Effect = effect,
+                EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                 Red = preset.Red,
                 Green = preset.Green,
                 Blue = preset.Blue,
@@ -451,6 +452,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 Name = schedule.Name,
                 PresetName = schedule.PresetName,
                 Effect = effect,
+                EffectSpeedPercent = preset == null
+                    ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
+                    : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                 TargetUserId = targetUserId,
                 TargetLabel = targetLabel,
                 TimeOfDay = schedule.TimeOfDay,
@@ -723,6 +727,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest($"Preview effect must be one of {PluginConfiguration.ColorPresetEffectSolid}, {PluginConfiguration.ColorPresetEffectPulse}, {PluginConfiguration.ColorPresetEffectRainbow}, or {PluginConfiguration.ColorPresetEffectCandle}.");
             }
 
+            if (request.EffectSpeedPercent < PluginConfiguration.MinColorPresetEffectSpeedPercent ||
+                request.EffectSpeedPercent > PluginConfiguration.MaxColorPresetEffectSpeedPercent)
+            {
+                return BadRequest($"Preview effect speed must be between {PluginConfiguration.MinColorPresetEffectSpeedPercent} and {PluginConfiguration.MaxColorPresetEffectSpeedPercent} percent.");
+            }
+
             if (request.DurationSeconds < HueStreamTester.MinPreviewDurationSeconds ||
                 request.DurationSeconds > HueStreamTester.MaxPreviewDurationSeconds)
             {
@@ -820,7 +830,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     cancellationToken,
                     request.TransitionSeconds,
                     request.TransitionOutSeconds,
-                    effect);
+                    effect,
+                    request.EffectSpeedPercent);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -844,6 +855,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Green = request.Green,
                 Blue = request.Blue,
                 Effect = effect,
+                EffectSpeedPercent = request.EffectSpeedPercent,
                 BrightnessPercent = request.BrightnessPercent,
                 DurationSeconds = request.DurationSeconds,
                 TransitionSeconds = request.TransitionSeconds,
@@ -1161,13 +1173,19 @@ namespace Jellyfin.Plugin.Hue.Api
                             boundedDays,
                             includeFutureStartBeyondHorizon: false,
                             transitionSeconds: effectiveTransition,
-                            transitionOutSeconds: effectiveTransitionOut)
+                            transitionOutSeconds: effectiveTransitionOut,
+                            effectSpeedPercent: preset == null
+                                ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
+                                : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent))
                         .Select(occurrence => new HueSceneScheduleOccurrenceResult
                         {
                             ScheduleId = occurrence.ScheduleId,
                             ScheduleName = occurrence.ScheduleName,
                             PresetName = occurrence.PresetName,
                             Effect = effect,
+                            EffectSpeedPercent = preset == null
+                                ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
+                                : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                             Recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
                                 schedule.Recurrence,
                                 out var normalizedRecurrence)
@@ -1231,6 +1249,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "X-HUE-RECURRENCE", occurrence.Recurrence);
                 AppendIcsLine(builder, "X-HUE-RECURRENCE-INTERVAL", occurrence.RecurrenceInterval.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-EFFECT", occurrence.Effect);
+                AppendIcsLine(builder, "X-HUE-EFFECT-SPEED-PERCENT", occurrence.EffectSpeedPercent.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-SECONDS", occurrence.TransitionSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-OUT-SECONDS", occurrence.TransitionOutSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "STATUS", "CONFIRMED");
@@ -2996,6 +3015,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("effect")]
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
 
+        [JsonPropertyName("effectSpeedPercent")]
+        public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
         [JsonPropertyName("red")]
         public int Red { get; set; } = 255;
 
@@ -3077,6 +3099,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("effect")]
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
 
+        [JsonPropertyName("effectSpeedPercent")]
+        public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
         [JsonPropertyName("red")]
         public int Red { get; set; }
 
@@ -3122,6 +3147,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("effect")]
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
 
+        [JsonPropertyName("effectSpeedPercent")]
+        public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
         [JsonPropertyName("red")]
         public int Red { get; set; }
 
@@ -3152,6 +3180,7 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 Name = Name?.Trim() ?? string.Empty,
                 Effect = normalizedEffect,
+                EffectSpeedPercent = EffectSpeedPercent,
                 Red = Red,
                 Green = Green,
                 Blue = Blue,
@@ -3170,6 +3199,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("effect")]
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
+
+        [JsonPropertyName("effectSpeedPercent")]
+        public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
         [JsonPropertyName("red")]
         public int Red { get; set; }
@@ -3311,6 +3343,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("effect")]
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
 
+        [JsonPropertyName("effectSpeedPercent")]
+        public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
 
@@ -3385,6 +3420,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("effect")]
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
+
+        [JsonPropertyName("effectSpeedPercent")]
+        public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
         [JsonPropertyName("recurrence")]
         public string Recurrence { get; set; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;

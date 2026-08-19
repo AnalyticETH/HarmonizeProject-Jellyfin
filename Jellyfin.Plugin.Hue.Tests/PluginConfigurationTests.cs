@@ -87,6 +87,26 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateColorPreset_RejectsEffectSpeedOutsideBounds()
+    {
+        var tooSlow = PluginConfiguration.ValidateColorPreset(new HueColorPreset
+        {
+            Name = "Too slow",
+            Effect = PluginConfiguration.ColorPresetEffectPulse,
+            EffectSpeedPercent = PluginConfiguration.MinColorPresetEffectSpeedPercent - 1
+        });
+        var tooFast = PluginConfiguration.ValidateColorPreset(new HueColorPreset
+        {
+            Name = "Too fast",
+            Effect = PluginConfiguration.ColorPresetEffectRainbow,
+            EffectSpeedPercent = PluginConfiguration.MaxColorPresetEffectSpeedPercent + 1
+        });
+
+        Assert.Contains("effect speed must be between 25 and 400 percent", tooSlow);
+        Assert.Contains("effect speed must be between 25 and 400 percent", tooFast);
+    }
+
+    [Fact]
     public void ValidateColorPresets_RejectsTransitionLongerThanScene()
     {
         var errors = PluginConfiguration.ValidateColorPreset(new HueColorPreset

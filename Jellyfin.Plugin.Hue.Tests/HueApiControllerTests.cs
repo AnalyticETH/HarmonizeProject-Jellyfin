@@ -773,7 +773,8 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<CancellationToken>(),
                 It.IsAny<int>(),
                 It.IsAny<int>(),
-                PluginConfiguration.ColorPresetEffectSolid))
+                PluginConfiguration.ColorPresetEffectSolid,
+                PluginConfiguration.DefaultColorPresetEffectSpeedPercent))
             .ReturnsAsync(new HueStreamProbeResult
             {
                 Succeeded = true,
@@ -818,7 +819,8 @@ public sealed class HueApiControllerTests : IDisposable
             It.IsAny<CancellationToken>(),
             2,
             1,
-            PluginConfiguration.ColorPresetEffectSolid), Times.Once);
+            PluginConfiguration.ColorPresetEffectSolid,
+            PluginConfiguration.DefaultColorPresetEffectSpeedPercent), Times.Once);
     }
 
     [Fact]
@@ -844,7 +846,8 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<CancellationToken>(),
                 It.IsAny<int>(),
                 It.IsAny<int>(),
-                PluginConfiguration.ColorPresetEffectRainbow))
+                PluginConfiguration.ColorPresetEffectRainbow,
+                175))
             .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Rainbow preview sent." });
         var controller = CreateController(streamTester.Object);
 
@@ -855,12 +858,14 @@ public sealed class HueApiControllerTests : IDisposable
             ClientKey = "client-key",
             EntertainmentAreaId = "area-1",
             Effect = " rainbow ",
-            DurationSeconds = 3
+            DurationSeconds = 3,
+            EffectSpeedPercent = 175
         });
 
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var result = Assert.IsType<HuePreviewResult>(response.Value);
         Assert.Equal(PluginConfiguration.ColorPresetEffectRainbow, result.Effect);
+        Assert.Equal(175, result.EffectSpeedPercent);
         streamTester.Verify(tester => tester.PreviewAsync(
             "192.168.1.100",
             "app-key",
@@ -876,7 +881,8 @@ public sealed class HueApiControllerTests : IDisposable
             It.IsAny<CancellationToken>(),
             0,
             0,
-            PluginConfiguration.ColorPresetEffectRainbow), Times.Once);
+            PluginConfiguration.ColorPresetEffectRainbow,
+            175), Times.Once);
     }
 
     [Fact]
@@ -935,7 +941,8 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<CancellationToken>(),
                 0,
                 0,
-                PluginConfiguration.ColorPresetEffectSolid))
+                PluginConfiguration.ColorPresetEffectSolid,
+                PluginConfiguration.DefaultColorPresetEffectSpeedPercent))
             .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Preview sent." });
         var controller = CreateController(streamTester.Object);
 
@@ -967,7 +974,8 @@ public sealed class HueApiControllerTests : IDisposable
             It.IsAny<CancellationToken>(),
             0,
             0,
-            PluginConfiguration.ColorPresetEffectSolid), Times.Once);
+            PluginConfiguration.ColorPresetEffectSolid,
+            PluginConfiguration.DefaultColorPresetEffectSpeedPercent), Times.Once);
     }
 
     [Fact]
@@ -1008,7 +1016,8 @@ public sealed class HueApiControllerTests : IDisposable
                 It.IsAny<CancellationToken>(),
                 0,
                 0,
-                PluginConfiguration.ColorPresetEffectSolid))
+                PluginConfiguration.ColorPresetEffectSolid,
+                PluginConfiguration.DefaultColorPresetEffectSpeedPercent))
             .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Preview sent." });
         var controller = CreateController(streamTester.Object);
 
@@ -1041,7 +1050,8 @@ public sealed class HueApiControllerTests : IDisposable
             It.IsAny<CancellationToken>(),
             0,
             0,
-            PluginConfiguration.ColorPresetEffectSolid), Times.Once);
+            PluginConfiguration.ColorPresetEffectSolid,
+            PluginConfiguration.DefaultColorPresetEffectSpeedPercent), Times.Once);
     }
 
     [Fact]
@@ -1101,6 +1111,17 @@ public sealed class HueApiControllerTests : IDisposable
             Effect = "Strobe"
         });
         Assert.IsType<BadRequestObjectResult>(invalidEffect.Result);
+
+        var invalidEffectSpeed = await controller.Preview(new HuePreviewRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            EffectSpeedPercent = PluginConfiguration.MinColorPresetEffectSpeedPercent - 1
+        });
+        var invalidEffectSpeedResponse = Assert.IsType<BadRequestObjectResult>(invalidEffectSpeed.Result);
+        Assert.Contains("effect speed", invalidEffectSpeedResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
         _httpHandlerMock.VerifyNoOtherCalls();
     }
 
@@ -1112,7 +1133,7 @@ public sealed class HueApiControllerTests : IDisposable
             ColorPresets = new List<HueColorPreset>
             {
                 new() { Name = "Zest", Red = 255, Green = 20, Blue = 10 },
-                new() { Name = "Ambient", Effect = PluginConfiguration.ColorPresetEffectPulse, Red = 10, Green = 20, Blue = 30, BrightnessPercent = 60, DurationSeconds = 7, TransitionSeconds = 3, TransitionOutSeconds = 2 }
+                new() { Name = "Ambient", Effect = PluginConfiguration.ColorPresetEffectPulse, EffectSpeedPercent = 150, Red = 10, Green = 20, Blue = 30, BrightnessPercent = 60, DurationSeconds = 7, TransitionSeconds = 3, TransitionOutSeconds = 2 }
             }
         });
 
@@ -1126,6 +1147,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(3, presets[0].TransitionSeconds);
         Assert.Equal(2, presets[0].TransitionOutSeconds);
         Assert.Equal(PluginConfiguration.ColorPresetEffectPulse, presets[0].Effect);
+        Assert.Equal(150, presets[0].EffectSpeedPercent);
         var serialized = System.Text.Json.JsonSerializer.Serialize(presets);
         Assert.DoesNotContain("HueAppKey", serialized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("HueClientKey", serialized, StringComparison.OrdinalIgnoreCase);
@@ -1143,6 +1165,7 @@ public sealed class HueApiControllerTests : IDisposable
             Green = 90,
             Blue = 20,
             Effect = "Pulse",
+            EffectSpeedPercent = 175,
             BrightnessPercent = 75,
             DurationSeconds = 8,
             TransitionSeconds = 2,
@@ -1159,7 +1182,8 @@ public sealed class HueApiControllerTests : IDisposable
             BrightnessPercent = 55,
             DurationSeconds = 3,
             TransitionSeconds = 1,
-            TransitionOutSeconds = 1
+            TransitionOutSeconds = 1,
+            EffectSpeedPercent = 125
         });
         Assert.IsType<OkObjectResult>(updateAction.Result);
 
@@ -1171,6 +1195,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(3, preset.DurationSeconds);
         Assert.Equal(1, preset.TransitionSeconds);
         Assert.Equal(1, preset.TransitionOutSeconds);
+        Assert.Equal(125, preset.EffectSpeedPercent);
     }
 
     [Fact]
@@ -1215,7 +1240,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "secret-app-key",
             HueClientKey = "secret-client-key",
-            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening", Red = 12, Green = 34, Blue = 56, DurationSeconds = 8, TransitionSeconds = 4, TransitionOutSeconds = 2 } },
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening", EffectSpeedPercent = 150, Red = 12, Green = 34, Blue = 56, DurationSeconds = 8, TransitionSeconds = 4, TransitionOutSeconds = 2 } },
             UserMappings = new List<UserBridgeMapping>
             {
                 new() { UserId = "user-1", UserName = "Living Room", SyncEnabled = true }
@@ -1250,6 +1275,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(12, savedResult.DurationSeconds);
         Assert.Equal(4, savedResult.TransitionSeconds);
         Assert.Equal(2, savedResult.TransitionOutSeconds);
+        Assert.Equal(150, savedResult.EffectSpeedPercent);
         Assert.Equal(new[] { "2026-12-24", "2026-12-31" }, configuration.SceneSchedules[0].ExcludedDates);
         Assert.Equal(12, configuration.SceneSchedules[0].DurationSeconds);
         Assert.Single(configuration.SceneSchedules);
@@ -1805,7 +1831,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueClientKey = "client-secret",
             EntertainmentAreaId = "area-1",
             SceneAutomationEnabled = false,
-            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening", EffectSpeedPercent = 135 } },
             SceneSchedules = new List<HueSceneSchedule>
             {
                 new()
@@ -1845,6 +1871,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, schedule.Recurrence);
         Assert.Equal(20, schedule.DayOfMonth);
         Assert.Equal(9, schedule.DurationSeconds);
+        Assert.Equal(135, schedule.EffectSpeedPercent);
         Assert.NotNull(schedule.NextRunLocal);
         var serialized = System.Text.Json.JsonSerializer.Serialize(status);
         Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);
@@ -1863,7 +1890,7 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "area-1",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Evening", Effect = PluginConfiguration.ColorPresetEffectPulse, TransitionSeconds = 2, TransitionOutSeconds = 3 }
+                new() { Name = "Evening", Effect = PluginConfiguration.ColorPresetEffectPulse, EffectSpeedPercent = 175, TransitionSeconds = 2, TransitionOutSeconds = 3 }
             },
             UserMappings = new List<UserBridgeMapping>
             {
@@ -1906,6 +1933,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.TransitionSeconds == 2);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.TransitionOutSeconds == 3);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Effect == PluginConfiguration.ColorPresetEffectPulse);
+        Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.EffectSpeedPercent == 175);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Recurrence == PluginConfiguration.SceneScheduleRecurrenceWeekly);
         Assert.Contains(result.Occurrences, occurrence => occurrence.TargetLabel == "Living Room");
         Assert.DoesNotContain(result.Occurrences, occurrence => occurrence.TargetLabel.Contains("secret", StringComparison.OrdinalIgnoreCase));
@@ -1934,7 +1962,7 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "area-1",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Evening", Effect = PluginConfiguration.ColorPresetEffectRainbow, DurationSeconds = 8, TransitionSeconds = 2, TransitionOutSeconds = 3 }
+                new() { Name = "Evening", Effect = PluginConfiguration.ColorPresetEffectRainbow, EffectSpeedPercent = 225, DurationSeconds = 8, TransitionSeconds = 2, TransitionOutSeconds = 3 }
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
@@ -1964,6 +1992,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("DTSTART:", calendar, StringComparison.Ordinal);
         Assert.Contains("DTEND:", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-EFFECT:Rainbow\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-EFFECT-SPEED-PERCENT:225\r\n", calendar, StringComparison.Ordinal);
         var startText = calendar.Split("\r\n", StringSplitOptions.None)
             .Single(line => line.StartsWith("DTSTART:", StringComparison.Ordinal))
             .Substring("DTSTART:".Length);
@@ -2430,7 +2459,7 @@ public sealed class HueApiControllerTests : IDisposable
             },
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Accent", Effect = PluginConfiguration.ColorPresetEffectPulse, Red = 12, Green = 34, Blue = 56, DurationSeconds = 6, TransitionSeconds = 3, TransitionOutSeconds = 2 }
+                new() { Name = "Accent", Effect = PluginConfiguration.ColorPresetEffectPulse, EffectSpeedPercent = 225, Red = 12, Green = 34, Blue = 56, DurationSeconds = 6, TransitionSeconds = 3, TransitionOutSeconds = 2 }
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
@@ -2477,7 +2506,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(3, document.ColorPresets[0].TransitionSeconds);
         Assert.Equal(2, document.ColorPresets[0].TransitionOutSeconds);
         Assert.Equal(PluginConfiguration.ColorPresetEffectPulse, document.ColorPresets[0].Effect);
+        Assert.Equal(225, document.ColorPresets[0].EffectSpeedPercent);
         Assert.Equal(PluginConfiguration.ColorPresetEffectPulse, document.SceneSchedules[0].Effect);
+        Assert.Equal(225, document.SceneSchedules[0].EffectSpeedPercent);
         Assert.Equal(3, document.SceneSchedules[0].TransitionSeconds);
         Assert.Equal(2, document.SceneSchedules[0].TransitionOutSeconds);
         Assert.True(document.Configuration.PersistSessionHistory);
@@ -2533,7 +2564,7 @@ public sealed class HueApiControllerTests : IDisposable
             Configuration = exported.Configuration,
             ColorPresets = new List<HueColorPresetRequest>
             {
-                new() { Name = "Accent", Red = 20, Green = 30, Blue = 40, TransitionSeconds = 2, TransitionOutSeconds = 1 }
+                new() { Name = "Accent", Red = 20, Green = 30, Blue = 40, EffectSpeedPercent = 275, TransitionSeconds = 2, TransitionOutSeconds = 1 }
             },
             SceneSchedules = new List<HueSceneScheduleRequest>
             {
@@ -2565,6 +2596,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(0, importedCue.DaysOfWeekMask);
         Assert.Equal(2, Assert.Single(configuration.ColorPresets).TransitionSeconds);
         Assert.Equal(1, Assert.Single(configuration.ColorPresets).TransitionOutSeconds);
+        Assert.Equal(275, Assert.Single(configuration.ColorPresets).EffectSpeedPercent);
     }
 
     [Fact]

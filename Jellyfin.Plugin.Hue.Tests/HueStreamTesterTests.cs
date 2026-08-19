@@ -184,6 +184,37 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public void BuildEffectColors_AnimatedSpeedChangesThePhase()
+    {
+        var target = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 63, 63, 0, 0, 0, 0 }
+        };
+
+        var normal = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectRainbow,
+            elapsedSeconds: 0.25,
+            durationSeconds: 1,
+            effectSpeedPercent: PluginConfiguration.DefaultColorPresetEffectSpeedPercent);
+        var fast = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectRainbow,
+            elapsedSeconds: 0.25,
+            durationSeconds: 1,
+            effectSpeedPercent: PluginConfiguration.MaxColorPresetEffectSpeedPercent);
+        var slow = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectRainbow,
+            elapsedSeconds: 0.25,
+            durationSeconds: 1,
+            effectSpeedPercent: PluginConfiguration.MinColorPresetEffectSpeedPercent);
+
+        Assert.NotEqual(normal[1], fast[1]);
+        Assert.NotEqual(normal[1], slow[1]);
+    }
+
+    [Fact]
     public void BuildEffectColors_CandleIsWarmDeterministicAndAnimated()
     {
         var target = new Dictionary<int, byte[]>
@@ -279,6 +310,39 @@ public sealed class HueStreamTesterTests
 
         Assert.False(result.Succeeded);
         Assert.Contains("together", result.Message, StringComparison.OrdinalIgnoreCase);
+        handler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RejectsEffectSpeedOutsideBoundsWithoutTouchingBridge()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        using var httpClient = new HttpClient(handler.Object);
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>());
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
+        var tester = new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>());
+        using var document = JsonDocument.Parse("{\"channels\":[]}");
+
+        var result = await tester.PreviewAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            null,
+            255,
+            255,
+            255,
+            100,
+            4,
+            effectSpeedPercent: PluginConfiguration.MaxColorPresetEffectSpeedPercent + 1);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("effect speed", result.Message, StringComparison.OrdinalIgnoreCase);
         handler.VerifyNoOtherCalls();
     }
 

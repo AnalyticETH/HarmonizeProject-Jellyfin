@@ -179,6 +179,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 Effect = effect,
+                EffectSpeedPercent = preset == null
+                    ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
+                    : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                 DurationSeconds = GetEffectiveDurationSeconds(schedule, preset),
                 TransitionSeconds = GetEffectiveTransitionSeconds(schedule, preset),
                 TransitionOutSeconds = GetEffectiveTransitionOutSeconds(schedule, preset),
@@ -298,7 +301,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         int horizonDays = DefaultUpcomingHorizonDays,
         bool includeFutureStartBeyondHorizon = true,
         int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
-        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds)
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
     {
         var occurrences = new List<HueSceneScheduleOccurrence>();
         var boundedOccurrences = Math.Clamp(
@@ -402,6 +406,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 Effect = PluginConfiguration.ColorPresetEffectSolid,
+                EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(effectSpeedPercent),
                 DurationSeconds = schedule.DurationSeconds,
                 TransitionSeconds = Math.Clamp(
                     transitionSeconds,
@@ -1218,7 +1223,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 cancellationToken,
                 GetEffectiveTransitionSeconds(schedule, preset),
                 GetEffectiveTransitionOutSeconds(schedule, preset),
-                preset.Effect).ConfigureAwait(false);
+                preset.Effect,
+                PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent)).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1237,6 +1243,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = schedule.Name?.Trim() ?? string.Empty,
             PresetName = preset.Name?.Trim() ?? string.Empty,
             Effect = effect,
+            EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
             TargetLabel = target.TargetLabel,
             Succeeded = preview.Succeeded,
             Message = preview.Message,
@@ -1468,6 +1475,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = result.ScheduleName,
             PresetName = result.PresetName,
             Effect = result.Effect,
+            EffectSpeedPercent = result.EffectSpeedPercent,
             TargetLabel = result.TargetLabel,
             Succeeded = result.Succeeded,
             Message = result.Message,
@@ -1487,6 +1495,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Effect = PluginConfiguration.TryNormalizeColorPresetEffect(source.Effect, out var effect)
                 ? effect
                 : PluginConfiguration.ColorPresetEffectSolid,
+            EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(source.EffectSpeedPercent),
             TargetLabel = source.TargetLabel?.Trim(),
             Succeeded = source.Succeeded,
             Message = source.Message?.Trim() ?? string.Empty,
@@ -1506,6 +1515,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Effect = PluginConfiguration.TryNormalizeColorPresetEffect(entry.Effect, out var effect)
                 ? effect
                 : PluginConfiguration.ColorPresetEffectSolid,
+            EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(entry.EffectSpeedPercent),
             TargetLabel = entry.TargetLabel?.Trim(),
             Succeeded = entry.Succeeded,
             Message = entry.Message?.Trim() ?? string.Empty,
@@ -1523,6 +1533,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = source.ScheduleName,
             PresetName = source.PresetName,
             Effect = source.Effect,
+            EffectSpeedPercent = source.EffectSpeedPercent,
             TargetLabel = source.TargetLabel,
             Succeeded = source.Succeeded,
             Message = source.Message,
@@ -1682,6 +1693,9 @@ public sealed class HueSceneAutomationRunResult
     [JsonPropertyName("effect")]
     public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
 
+    [JsonPropertyName("effectSpeedPercent")]
+    public int EffectSpeedPercent { get; init; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
     [JsonPropertyName("targetLabel")]
     public string? TargetLabel { get; init; }
 
@@ -1717,6 +1731,9 @@ public sealed class HueSceneScheduleOccurrence
 
     [JsonPropertyName("effect")]
     public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
+
+    [JsonPropertyName("effectSpeedPercent")]
+    public int EffectSpeedPercent { get; init; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
     [JsonPropertyName("durationSeconds")]
     public int DurationSeconds { get; init; }
@@ -1768,6 +1785,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("effect")]
     public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
+
+    [JsonPropertyName("effectSpeedPercent")]
+    public int EffectSpeedPercent { get; init; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
     [JsonPropertyName("durationSeconds")]
     public int DurationSeconds { get; init; }
