@@ -10,6 +10,9 @@ on:
 env:
   DOTNET_VERSION: '8.0.x'
   BUILD_CONFIGURATION: 'Release'
+  # The self-hosted runner runs as the unprivileged `claude` user.
+  # setup-dotnet otherwise defaults to /usr/share/dotnet on Linux.
+  DOTNET_INSTALL_DIR: /home/claude/.dotnet
 
 jobs:
   build-and-test:
