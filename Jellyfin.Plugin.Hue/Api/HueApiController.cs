@@ -2354,8 +2354,19 @@ namespace Jellyfin.Plugin.Hue.Api
                 EntertainmentAreaName = target.AreaName,
                 HasAppKey = !string.IsNullOrWhiteSpace(target.AppKey),
                 HasClientKey = !string.IsNullOrWhiteSpace(target.ClientKey),
+                ChannelProfileValid = true,
                 ConfigurationValid = true
             };
+
+            if (!PluginConfiguration.TryParseChannelIds(target.ChannelIds, out var requestedChannelIds))
+            {
+                return result with
+                {
+                    ConfigurationValid = false,
+                    ChannelProfileValid = false,
+                    Status = "The saved channel profile is invalid."
+                };
+            }
 
             if (!HueBridgeCertificateValidation.IsValidBridgeAddress(target.BridgeIp))
             {
@@ -2446,20 +2457,36 @@ namespace Jellyfin.Plugin.Hue.Api
                 };
             }
 
-            var channelCount = GetValidChannelIds(areaConfiguration.Value).Count;
+            var availableChannelIds = GetValidChannelIds(areaConfiguration.Value);
+            var channelCount = availableChannelIds.Count;
+            var missingChannelIds = requestedChannelIds
+                .Where(channelId => !availableChannelIds.Contains(channelId))
+                .OrderBy(channelId => channelId)
+                .ToArray();
+            var channelProfileValid = missingChannelIds.Length == 0;
+            var selectedChannelCount = requestedChannelIds.Count == 0
+                ? channelCount
+                : requestedChannelIds.Count;
             var hasClientKey = !string.IsNullOrWhiteSpace(target.ClientKey);
             return result with
             {
-                ConfigurationValid = hasClientKey && channelCount > 0,
+                ConfigurationValid = hasClientKey && channelCount > 0 && channelProfileValid,
                 AreaFound = true,
                 EntertainmentAreaName = selectedArea.Name,
                 ChannelCount = channelCount,
-                Ready = hasClientKey && channelCount > 0,
+                SelectedChannelCount = selectedChannelCount,
+                ChannelProfileValid = channelProfileValid,
+                MissingChannelIds = missingChannelIds.Length == 0
+                    ? null
+                    : string.Join(", ", missingChannelIds),
+                Ready = hasClientKey && channelCount > 0 && channelProfileValid,
                 Status = !hasClientKey
                     ? "Bridge and area are reachable, but the Client Key is missing."
-                    : channelCount > 0
-                        ? "Ready for playback."
-                        : "The selected area has no controllable channels."
+                    : channelCount == 0
+                        ? "The selected area has no controllable channels."
+                        : !channelProfileValid
+                            ? $"The saved channel profile references IDs not present in this area: {string.Join(", ", missingChannelIds)}."
+                            : "Ready for playback."
             };
         }
 
@@ -2481,7 +2508,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     AppKey: config.HueAppKey?.Trim() ?? string.Empty,
                     ClientKey: config.HueClientKey?.Trim() ?? string.Empty,
                     AreaId: config.EntertainmentAreaId?.Trim() ?? string.Empty,
-                    AreaName: null);
+                    AreaName: null,
+                    ChannelIds: config.ChannelIds?.Trim() ?? string.Empty);
             }
 
             foreach (var mapping in config.UserMappings ?? new List<UserBridgeMapping>())
@@ -2500,7 +2528,10 @@ namespace Jellyfin.Plugin.Hue.Api
                     AppKey: inheritsDefaultBridge ? config.HueAppKey?.Trim() ?? string.Empty : mapping.HueAppKey?.Trim() ?? string.Empty,
                     ClientKey: inheritsDefaultBridge ? config.HueClientKey?.Trim() ?? string.Empty : mapping.HueClientKey?.Trim() ?? string.Empty,
                     AreaId: inheritsDefaultBridge ? config.EntertainmentAreaId?.Trim() ?? string.Empty : mapping.EntertainmentAreaId?.Trim() ?? string.Empty,
-                    AreaName: string.IsNullOrWhiteSpace(mapping.EntertainmentAreaName) ? null : mapping.EntertainmentAreaName.Trim());
+                    AreaName: string.IsNullOrWhiteSpace(mapping.EntertainmentAreaName) ? null : mapping.EntertainmentAreaName.Trim(),
+                    ChannelIds: inheritsDefaultBridge || string.IsNullOrWhiteSpace(mapping.ChannelIdsOverride)
+                        ? config.ChannelIds?.Trim() ?? string.Empty
+                        : mapping.ChannelIdsOverride.Trim());
             }
         }
 
@@ -2514,7 +2545,8 @@ namespace Jellyfin.Plugin.Hue.Api
             string AppKey,
             string ClientKey,
             string AreaId,
-            string? AreaName);
+            string? AreaName,
+            string ChannelIds);
 
         /// <summary>
         /// Stops Hue output for the current playback session without stopping Jellyfin playback.
@@ -4377,6 +4409,9 @@ namespace Jellyfin.Plugin.Hue.Api
         public int AreaCount { get; init; }
         public bool AreaFound { get; init; }
         public int ChannelCount { get; init; }
+        public int SelectedChannelCount { get; init; }
+        public bool ChannelProfileValid { get; init; } = true;
+        public string? MissingChannelIds { get; init; }
         public bool Ready { get; init; }
         public string Status { get; init; } = string.Empty;
     }

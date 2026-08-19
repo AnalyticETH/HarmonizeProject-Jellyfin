@@ -2771,6 +2771,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(3, diagnostics.TargetCount);
         Assert.Equal(3, diagnostics.ReadyTargetCount);
         Assert.All(diagnostics.Targets, target => Assert.True(target.Ready));
+        Assert.All(diagnostics.Targets, target => Assert.True(target.ChannelProfileValid));
+        Assert.All(diagnostics.Targets, target => Assert.Equal(1, target.SelectedChannelCount));
         var inherited = Assert.Single(diagnostics.Targets.Where(target => target.UserId == "user-inherited"));
         Assert.True(inherited.InheritsDefaultBridge);
         Assert.Equal("Global Room", inherited.EntertainmentAreaName);
@@ -2785,6 +2787,55 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("global-client-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("custom-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("custom-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TargetDiagnostics_ReportsStaleSavedChannelProfileIdsBeforePlayback()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "9"
+        });
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+            {
+                var path = request.RequestUri!.AbsolutePath;
+                var body = path.Contains("entertainment_configuration/", StringComparison.Ordinal)
+                    ? "{\"data\":[{\"channels\":[{\"channel_id\":1}]}]}"
+                    : "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}";
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body, Encoding.UTF8, "application/json")
+                };
+            });
+
+        var action = await CreateController().GetTargetDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueTargetDiagnosticsResult>(response.Value);
+        var target = Assert.Single(diagnostics.Targets);
+        Assert.False(diagnostics.AllTargetsReady);
+        Assert.False(target.Ready);
+        Assert.True(target.BridgeReachable);
+        Assert.True(target.AreaFound);
+        Assert.Equal(1, target.ChannelCount);
+        Assert.Equal(1, target.SelectedChannelCount);
+        Assert.False(target.ChannelProfileValid);
+        Assert.Equal("9", target.MissingChannelIds);
+        Assert.Contains("not present", target.Status, StringComparison.OrdinalIgnoreCase);
+        var serialized = JsonSerializer.Serialize(diagnostics);
+        Assert.DoesNotContain("global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("global-client-secret", serialized, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.105] - 2026-08-19
+
+### Added
+- **Saved channel-profile diagnostics**: Validate each default, inherited, and custom target's effective channel profile against the channel IDs currently returned by its entertainment area
+- **Preflight telemetry**: Expose selected-channel counts, profile validity, and missing IDs through `GET /HueSync/TargetDiagnostics` and the administrator diagnostics table
+
+### Security
+- Diagnostics remain non-mutating and credential-free; profile validation rejects malformed or stale IDs before playback or scene-preview lifecycles can change bridge state
+
 ## [1.5.104] - 2026-08-19
 
 ### Added

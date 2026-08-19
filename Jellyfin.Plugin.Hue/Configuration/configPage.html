@@ -112,7 +112,7 @@
                     </div>
                     <div id="diagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Run diagnostics to verify FFmpeg, OpenSSL, and saved configuration.</div>
                     <div id="diagnosticsErrors" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
-                    <div id="targetDiagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Validate saved default and per-user bridge targets to confirm that each selected area still has controllable channels.</div>
+                    <div id="targetDiagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Validate saved default and per-user bridge targets to confirm that each selected area still has controllable channels and that saved channel profiles contain only IDs available in that area.</div>
                     <div id="targetDiagnosticsTable" style="margin-top: 0.5em; overflow-x: auto;"></div>
                 </fieldset>
                 <fieldset class="verticalSection" id="configurationPortabilitySection">
@@ -3985,6 +3985,9 @@
                             var reachable = HueConfigurationPage.readStatusField(target, "BridgeReachable", false);
                             var areaFound = HueConfigurationPage.readStatusField(target, "AreaFound", false);
                             var channelCount = HueConfigurationPage.readStatusField(target, "ChannelCount", 0);
+                            var selectedChannelCount = HueConfigurationPage.readStatusField(target, "SelectedChannelCount", 0);
+                            var channelProfileValid = HueConfigurationPage.readStatusField(target, "ChannelProfileValid", true);
+                            var missingChannelIds = HueConfigurationPage.readStatusField(target, "MissingChannelIds", "");
                             var ready = HueConfigurationPage.readStatusField(target, "Ready", false);
                             var status = HueConfigurationPage.readStatusField(target, "Status", "Unable to validate target.");
                             var inherited = HueConfigurationPage.readStatusField(target, "InheritsDefaultBridge", false);
@@ -3993,7 +3996,7 @@
                             html += '<td style="padding: 8px;">' + escapeHtml(label) + (inherited ? '<div class="fieldDescription">inherits default</div>' : '') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(String(bridgeIp) + " / " + area) + '</td>';
                             html += '<td style="padding: 8px;">App Key: ' + (hasAppKey ? 'present' : 'missing') + '<br />Client Key: ' + (hasClientKey ? 'present' : 'missing') + '</td>';
-                            html += '<td style="padding: 8px;">Bridge: ' + (reachable ? 'reachable' : 'unreachable') + '<br />Area: ' + (areaFound ? 'found' : 'not found') + '<br />Channels: ' + escapeHtml(String(channelCount)) + '</td>';
+                            html += '<td style="padding: 8px;">Bridge: ' + (reachable ? 'reachable' : 'unreachable') + '<br />Area: ' + (areaFound ? 'found' : 'not found') + '<br />Channels: ' + escapeHtml(String(channelCount)) + '<br />Selected: ' + escapeHtml(String(selectedChannelCount)) + ' (' + (channelProfileValid ? 'profile valid' : 'profile invalid') + ')' + (missingChannelIds ? '<br />Missing IDs: ' + escapeHtml(String(missingChannelIds)) : '') + '</td>';
                             html += '<td style="padding: 8px; color: ' + resultColor + ';">' + escapeHtml(status) + '</td>';
                             html += '</tr>';
                         });
