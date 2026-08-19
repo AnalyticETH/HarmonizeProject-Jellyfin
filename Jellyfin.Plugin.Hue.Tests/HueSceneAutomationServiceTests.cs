@@ -749,6 +749,74 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void ResetScheduleRunCount_ClearsPersistedCounterAndReenablesCue()
+    {
+        var configuration = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Finite scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "resettable-cue",
+                    Name = "Resettable cue",
+                    PresetName = "Finite scene",
+                    MaxRuns = 3,
+                    RunCount = 3,
+                    Enabled = false
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.True(service.TryResetScheduleRunCount(" resettable-cue ", out var message));
+        Assert.Contains("reset", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        var runtime = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(0, runtime.RunCount);
+        Assert.Equal(3, runtime.RemainingRuns);
+        Assert.Null(runtime.LastSucceeded);
+    }
+
+    [Fact]
+    public async Task ResetScheduleRunCount_RefusesActiveCue()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "reset-app-secret",
+            HueClientKey = "reset-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Reset scene", DurationSeconds = 8 } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "active-reset-cue", Name = "Active reset cue", PresetName = "Reset scene", MaxRuns = 3 }
+            }
+        });
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new BlockingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var runTask = service.RunScheduleAsync("active-reset-cue");
+        await streamTester.PreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(service.TryResetScheduleRunCount("active-reset-cue", out var message));
+        Assert.Contains("running", message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(service.CancelSchedule("active-reset-cue"));
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public void EvaluateReadiness_RejectsInvalidDateWindowWithoutCredentials()
     {
         var config = new PluginConfiguration

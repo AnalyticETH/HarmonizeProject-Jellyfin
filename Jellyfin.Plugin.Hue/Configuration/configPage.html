@@ -305,6 +305,7 @@
                             <button is="emby-button" type="button" class="raised" id="runSceneScheduleBtn" disabled><span>Run Now</span></button>
                             <button is="emby-button" type="button" class="raised" id="cancelSceneScheduleRunBtn" style="display: none; background: #8a3d3d;"><span>Cancel Running Cue</span></button>
                             <button is="emby-button" type="button" class="raised" id="deleteSceneScheduleBtn" disabled><span>Delete Cue</span></button>
+                            <button is="emby-button" type="button" class="raised" id="resetSceneScheduleRunCountBtn" disabled><span>Reset Run Counter</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSceneScheduleBtn"><span>New Cue</span></button>
                         </div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 0.75em;">
@@ -2530,10 +2531,12 @@
                     var select = page && page.querySelector('#sceneScheduleSelect');
                     var hasSelection = !!(select && select.value);
                     var deleteButton = page && page.querySelector('#deleteSceneScheduleBtn');
+                    var resetRunCountButton = page && page.querySelector('#resetSceneScheduleRunCountBtn');
                     var runButton = page && page.querySelector('#runSceneScheduleBtn');
                     var cancelButton = page && page.querySelector('#cancelSceneScheduleRunBtn');
                     var runActive = !!(page && page._hueSceneScheduleRequest);
                     if (deleteButton) deleteButton.disabled = !hasSelection;
+                    if (resetRunCountButton) resetRunCountButton.disabled = !hasSelection || runActive;
                     if (runButton) runButton.disabled = !hasSelection || runActive;
                     if (cancelButton) {
                         cancelButton.style.display = runActive ? "" : "none";
@@ -2773,6 +2776,48 @@
                             }
                         });
                     });
+                },
+                resetSceneScheduleRunCount: function (page) {
+                    if (!page) return;
+                    var select = page.querySelector('#sceneScheduleSelect');
+                    var scheduleId = select && select.value;
+                    var option = select && select.options[select.selectedIndex];
+                    var statusEl = page.querySelector('#sceneScheduleStatus');
+                    if (!scheduleId) {
+                        Dashboard.alert("Choose a scheduled cue first.");
+                        return;
+                    }
+
+                    Dashboard.confirm(
+                        "Reset the execution counter and re-enable the scheduled cue '" + (option ? option.textContent : scheduleId) + "'?",
+                        "Reset Run Counter",
+                        function (confirmed) {
+                            if (!confirmed) return;
+                            var button = page.querySelector('#resetSceneScheduleRunCountBtn');
+                            if (button) button.disabled = true;
+                            if (statusEl) {
+                                statusEl.textContent = "Resetting scheduled-cue execution counter...";
+                                statusEl.style.color = "";
+                            }
+                            ApiClient.ajax({
+                                type: "POST",
+                                url: ApiClient.getUrl("HueSync/SceneSchedules/" + encodeURIComponent(scheduleId) + "/ResetRunCount"),
+                                dataType: "json"
+                            }).then(function () {
+                                if (statusEl) {
+                                    statusEl.textContent = "Scheduled-cue execution counter reset and cue re-enabled.";
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                                return HueConfigurationPage.loadSceneSchedules(page, scheduleId);
+                            }).catch(function (err) {
+                                console.error("Failed to reset scene schedule run count:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = "Unable to reset the scheduled-cue counter. Stop an active cue first and try again.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                                HueConfigurationPage.updateSceneScheduleButtons(page);
+                            });
+                        });
                 },
                 runSceneSchedule: function (page) {
                     if (page._hueSceneScheduleRequest) {
@@ -4977,6 +5022,10 @@
 
             document.querySelector('#deleteSceneScheduleBtn').addEventListener('click', function () {
                 HueConfigurationPage.deleteSceneSchedule(this.closest('.page'));
+            });
+
+            document.querySelector('#resetSceneScheduleRunCountBtn').addEventListener('click', function () {
+                HueConfigurationPage.resetSceneScheduleRunCount(this.closest('.page'));
             });
 
             document.querySelector('#clearSceneScheduleBtn').addEventListener('click', function () {

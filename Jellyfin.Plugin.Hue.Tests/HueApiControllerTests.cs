@@ -1599,6 +1599,41 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_ResetRunCountReenablesCueThroughAdministratorApi()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "exhausted-cue",
+                    Name = "Exhausted cue",
+                    PresetName = "Evening",
+                    MaxRuns = 2,
+                    RunCount = 2,
+                    Enabled = false
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var action = CreateController(hostedServices: new[] { service }).ResetSceneScheduleRunCount(" exhausted-cue ");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.Equal(0, result.RunCount);
+        Assert.Equal(2, result.MaxRuns);
+        Assert.True(result.Enabled);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
     public void SceneScheduleHistory_ReturnsSanitizedRunsAndClearsHistory()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

@@ -1534,6 +1534,41 @@ namespace Jellyfin.Plugin.Hue.Api
             });
         }
 
+        /// <summary>
+        /// Resets a finite cue's persisted execution counter and re-enables the cue. Retained
+        /// history remains available as an audit trail; an active cue must finish first.
+        /// </summary>
+        [HttpPost("SceneSchedules/{id}/ResetRunCount")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public ActionResult<HueSceneScheduleResult> ResetSceneScheduleRunCount(string id)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var schedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (schedule == null)
+                return NotFound("Scene schedule not found.");
+
+            if (_sceneAutomationService != null)
+            {
+                if (!_sceneAutomationService.TryResetScheduleRunCount(id, out var message))
+                    return Conflict(message);
+            }
+            else
+            {
+                schedule.RunCount = 0;
+                schedule.Enabled = true;
+                Plugin.Instance?.SaveConfiguration();
+            }
+
+            return Ok(ToSceneScheduleResult(schedule, config));
+        }
+
         [HttpGet("Status")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<HueSyncStatus> GetStatus()

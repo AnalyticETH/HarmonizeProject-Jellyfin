@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.96] - 2026-08-19
+
+### Added
+- **Resettable finite cues**: add a credential-free `Reset Run Counter` administrator action and `POST /HueSync/SceneSchedules/{id}/ResetRunCount` endpoint that clears an execution limit and re-enables the cue
+- **Safe reset lifecycle**: refuse resets while a cue is active, preserve retained run history as an audit trail, and clear live last-run telemetry for a fresh execution window
+
+### Security
+- Counter resets are administrator-authorized, serialized against active bridge operations, persisted atomically, and expose no bridge credentials or playback tokens
+
 ## [1.5.95] - 2026-08-19
 
 ### Added

@@ -67,6 +67,80 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Resets a cue's persisted execution counter and re-enables it. The operation refuses
+    /// to mutate an active cue so a reset cannot race with a running bridge lifecycle.
+    /// Retained history is intentionally preserved as an audit trail; only the live counter
+    /// and last-run pointers are reset.
+    /// </summary>
+    public bool TryResetScheduleRunCount(string scheduleId, out string message)
+    {
+        message = string.Empty;
+        var config = Plugin.Instance?.Configuration;
+        var key = scheduleId?.Trim() ?? string.Empty;
+        var schedule = config?.SceneSchedules?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
+        if (schedule == null)
+        {
+            message = "The requested scene schedule was not found.";
+            return false;
+        }
+
+        HueSceneScheduleRuntimeState? previousState = null;
+        var previousScheduleRunCount = schedule.RunCount;
+        var previousScheduleEnabled = schedule.Enabled;
+        lock (_runtimeStateLock)
+        {
+            if (_runtimeStates.TryGetValue(key, out var state))
+            {
+                if (state.ActiveRuns > 0)
+                {
+                    message = "The scene schedule cannot be reset while it is running.";
+                    return false;
+                }
+
+                previousState = state.Clone();
+                state.RunCount = 0;
+                state.LastRunAtUtc = null;
+                state.LastSucceeded = null;
+                state.LastMessage = null;
+                state.LastCleanupWarning = null;
+            }
+
+            schedule.RunCount = 0;
+            schedule.Enabled = true;
+        }
+
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+            message = "The scene schedule execution counter was reset and the cue was re-enabled.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lock (_runtimeStateLock)
+            {
+                schedule.RunCount = previousScheduleRunCount;
+                schedule.Enabled = previousScheduleEnabled;
+                if (previousState != null && _runtimeStates.TryGetValue(key, out var state))
+                {
+                    state.ActiveRuns = previousState.ActiveRuns;
+                    state.RunCount = previousState.RunCount;
+                    state.LastRunAtUtc = previousState.LastRunAtUtc;
+                    state.LastSucceeded = previousState.LastSucceeded;
+                    state.LastMessage = previousState.LastMessage;
+                    state.LastCleanupWarning = previousState.LastCleanupWarning;
+                }
+            }
+
+            _logger.LogWarning(ex, "Could not persist reset for Hue scene schedule {0}", schedule.Name);
+            message = "The scene schedule counter could not be reset because the configuration could not be saved.";
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Returns the newest sanitized scheduled-scene run summaries. The optional
     /// schedule filter is matched against the stable cue ID and never against secrets.
     /// </summary>
