@@ -18,6 +18,8 @@ const requiredMarkup = [
     'id="cancelDiagnosticsBtn"',
     'id="previewEffect"',
     'id="previewEffectSpeed"',
+    'id="exportSceneScheduleConflictsBtn"',
+    'id="exportSceneScheduleOccurrencesBtn"',
     'id="sceneScheduleOccurrenceFilter"',
     'id="sceneScheduleHistoryCueFilter"'
 ];
@@ -41,7 +43,10 @@ const requiredScript = [
     'effectSpeedPercent: values.effectSpeedPercent',
     "effect: values.effect",
     "populateSceneScheduleCueFilters: function",
-    "occurrencesUrl += \"&scheduleId=\"",
+    "downloadJsonDocument: function",
+    "exportSceneScheduleConflicts: function",
+    "exportSceneScheduleOccurrences: function",
+    "url += \"&scheduleId=\"",
     "calendarUrl += \"&scheduleId=\"",
     "historyUrl += \"&scheduleId=\"",
     "exportUrl += \"&scheduleId=\""
@@ -72,6 +77,17 @@ for (const functionName of ["loadEnvironmentDiagnostics", "loadTargetDiagnostics
         !functionBody.includes("page._hue") ||
         !functionBody.includes("setDiagnosticsBusy(page)")) {
         throw new Error(`${file} ${functionName} is missing cancellable diagnostics lifecycle wiring`);
+    }
+}
+
+for (const functionName of ["exportSceneScheduleConflicts", "exportSceneScheduleOccurrences"]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("ApiClient.getJSON") ||
+        !functionBody.includes("downloadJsonDocument") ||
+        !functionBody.includes("scheduleQuery")) {
+        throw new Error(`${file} ${functionName} is missing credential-free schedule report export wiring`);
     }
 }
 

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.125] - 2026-08-19
+
+### Added
+- **Exportable schedule diagnostics**: download credential-free JSON reports for upcoming cue occurrences and duration-aware schedule conflicts using the active cue filter
+- **Troubleshooting-ready telemetry**: keep the same server-calculated time-zone, recurrence, target, priority, duration, and ordering data from the administrator tables in the downloaded reports
+
 ## [1.5.124] - 2026-08-19
 
 ### Added
