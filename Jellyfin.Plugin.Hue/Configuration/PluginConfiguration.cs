@@ -249,6 +249,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string? TargetLabel { get; set; }
         public bool Succeeded { get; set; }
         public bool Skipped { get; set; }
+        public bool WasCatchUp { get; set; }
         public string Message { get; set; } = string.Empty;
         public string? CleanupWarning { get; set; }
         public DateTime RunAtUtc { get; set; }
@@ -333,6 +334,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxSceneScheduleRuns = 365;
         public const int MaxSessionHistoryCount = 25;
         public const int MaxSceneScheduleHistoryCount = 100;
+        public const int MinSceneAutomationCatchUpMinutes = 0;
+        public const int MaxSceneAutomationCatchUpMinutes = 120;
 
         private static readonly string[] ColorPresetEffects =
         {
@@ -409,6 +412,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// still allowed while recurring automation is paused.
         /// </summary>
         public bool SceneAutomationEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Bounded grace period for recovering the most recent automatic cue occurrence
+        /// after a scheduler restart or short Jellyfin outage. Zero preserves the
+        /// original exact-minute behavior; when enabled, at most one missed occurrence
+        /// is recovered per cue and older missed occurrences are not replayed in a burst.
+        /// </summary>
+        public int SceneAutomationCatchUpMinutes { get; set; }
 
         /// <summary>
         /// Retains the bounded, sanitized scheduled-scene run history in plugin
@@ -1390,6 +1401,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             errors.AddRange(ValidateColorPresets());
             errors.AddRange(ValidateSceneSchedules());
+
+            if (SceneAutomationCatchUpMinutes < MinSceneAutomationCatchUpMinutes ||
+                SceneAutomationCatchUpMinutes > MaxSceneAutomationCatchUpMinutes)
+            {
+                errors.Add($"Scene automation catch-up window must be between {MinSceneAutomationCatchUpMinutes} and {MaxSceneAutomationCatchUpMinutes} minutes");
+            }
 
             if (SyncEnabled)
             {

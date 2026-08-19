@@ -105,6 +105,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 state.LastRunAtUtc = null;
                 state.LastSucceeded = null;
                 state.LastSkipped = false;
+                state.LastWasCatchUp = false;
                 state.LastMessage = null;
                 state.LastCleanupWarning = null;
             }
@@ -134,6 +135,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     state.LastRunAtUtc = previousState.LastRunAtUtc;
                     state.LastSucceeded = previousState.LastSucceeded;
                     state.LastSkipped = previousState.LastSkipped;
+                    state.LastWasCatchUp = previousState.LastWasCatchUp;
                     state.LastMessage = previousState.LastMessage;
                     state.LastCleanupWarning = previousState.LastCleanupWarning;
                 }
@@ -343,6 +345,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 state.LastRunAtUtc = null;
                 state.LastSucceeded = null;
                 state.LastSkipped = false;
+                state.LastWasCatchUp = false;
                 state.LastMessage = null;
                 state.LastCleanupWarning = null;
             }
@@ -453,6 +456,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 LastRunAtUtc = runtime.LastRunAtUtc,
                 LastSucceeded = runtime.LastSucceeded,
                 LastSkipped = runtime.LastSkipped,
+                LastWasCatchUp = runtime.LastWasCatchUp,
                 LastMessage = runtime.LastMessage,
                 LastCleanupWarning = runtime.LastCleanupWarning,
                 IsRunning = runtime.ActiveRuns > 0
@@ -463,6 +467,10 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             ServiceAvailable = true,
             AutomationEnabled = config?.SceneAutomationEnabled ?? true,
+            CatchUpMinutes = Math.Clamp(
+                config?.SceneAutomationCatchUpMinutes ?? PluginConfiguration.MinSceneAutomationCatchUpMinutes,
+                PluginConfiguration.MinSceneAutomationCatchUpMinutes,
+                PluginConfiguration.MaxSceneAutomationCatchUpMinutes),
             GeneratedAtUtc = DateTime.UtcNow,
             ServerLocalNow = DateTime.SpecifyKind(localNow, DateTimeKind.Unspecified),
             ServerTimeZoneId = TimeZoneInfo.Local.Id,
@@ -1041,6 +1049,45 @@ public sealed class HueSceneAutomationService : BackgroundService
         return occurrence.LocalTime;
     }
 
+    /// <summary>
+    /// Finds the most recent automatic occurrence that elapsed within the configured
+    /// recovery window. The pending-skip flag is ignored while locating the occurrence;
+    /// the scheduler consumes that flag separately so a recovered occurrence can still
+    /// be skipped atomically. Only the newest missed occurrence is returned, preventing
+    /// a long-enough outage from replaying a burst of old cues.
+    /// </summary>
+    internal static HueSceneScheduleOccurrence? GetMostRecentMissedOccurrence(
+        HueSceneSchedule schedule,
+        DateTime serverLocalNow,
+        int catchUpMinutes)
+    {
+        if (schedule == null || catchUpMinutes <= PluginConfiguration.MinSceneAutomationCatchUpMinutes)
+            return null;
+
+        if (!TryGetScheduleLocalNow(schedule, serverLocalNow, out _, out var serverUtcNow))
+            return null;
+
+        var lookbackUtc = serverUtcNow.AddMinutes(-Math.Min(
+            catchUpMinutes,
+            PluginConfiguration.MaxSceneAutomationCatchUpMinutes));
+        var lookbackServerLocal = TimeZoneInfo.ConvertTimeFromUtc(lookbackUtc, TimeZoneInfo.Local);
+        var candidateSchedule = CloneSchedule(schedule);
+        candidateSchedule.SkipNextOccurrence = false;
+        var horizonDays = Math.Clamp(
+            (int)Math.Ceiling(catchUpMinutes / 1440d) + 2,
+            1,
+            MaxUpcomingHorizonDays);
+
+        return GetUpcomingOccurrences(
+                candidateSchedule,
+                lookbackServerLocal,
+                MaxUpcomingOccurrencesPerSchedule,
+                horizonDays)
+            .Where(occurrence => occurrence.UtcTime > lookbackUtc && occurrence.UtcTime <= serverUtcNow)
+            .OrderByDescending(occurrence => occurrence.UtcTime)
+            .FirstOrDefault();
+    }
+
     private static bool TryGetScheduleLocalNow(
         HueSceneSchedule schedule,
         DateTime serverLocalNow,
@@ -1385,19 +1432,39 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (schedules == null || schedules.Length == 0)
             return;
 
+        var catchUpMinutes = Math.Clamp(
+            config.SceneAutomationCatchUpMinutes,
+            PluginConfiguration.MinSceneAutomationCatchUpMinutes,
+            PluginConfiguration.MaxSceneAutomationCatchUpMinutes);
+
         foreach (var schedule in schedules)
         {
-            var slot = GetScheduleRunSlot(schedule, localNow);
-            if (!IsDue(schedule, localNow) || !TryClaimRunSlot(schedule.Id, slot))
+            var isDue = IsDue(schedule, localNow);
+            var recoveredOccurrence = isDue
+                ? null
+                : GetMostRecentMissedOccurrence(schedule, localNow, catchUpMinutes);
+            if (!isDue && recoveredOccurrence == null)
+                continue;
+
+            var slot = isDue
+                ? GetScheduleRunSlot(schedule, localNow)
+                : recoveredOccurrence!.UtcTime;
+            if (!TryClaimRunSlot(schedule.Id, slot))
                 continue;
 
             if (TryConsumeSkippedOccurrence(config, schedule, out var skippedResult))
             {
+                if (skippedResult != null)
+                    skippedResult.WasCatchUp = !isDue;
                 RecordSkippedOccurrence(config, schedule, skippedResult!);
                 continue;
             }
 
-            var result = await RunScheduleTrackedAsync(config, schedule, cancellationToken).ConfigureAwait(false);
+            var result = await RunScheduleTrackedAsync(
+                config,
+                schedule,
+                cancellationToken,
+                wasCatchUp: !isDue).ConfigureAwait(false);
             if (result.Succeeded)
             {
                 DisableCompletedOneTimeSchedule(config, schedule);
@@ -1481,6 +1548,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.LastRunAtUtc = result.RunAtUtc;
             state.LastSucceeded = false;
             state.LastSkipped = true;
+            state.LastWasCatchUp = result.WasCatchUp;
             state.LastMessage = result.Message;
             state.LastCleanupWarning = null;
             result.RunCount = state.RunCount;
@@ -1636,7 +1704,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     private async Task<HueSceneAutomationRunResult> RunScheduleTrackedAsync(
         PluginConfiguration config,
         HueSceneSchedule schedule,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool wasCatchUp = false)
     {
         if (!TryBeginRun(schedule, out var currentRunCount))
         {
@@ -1652,17 +1721,20 @@ public sealed class HueSceneAutomationService : BackgroundService
         try
         {
             result = await RunScheduleCoreAsync(config, schedule, cancellationToken).ConfigureAwait(false);
+            result.WasCatchUp = wasCatchUp;
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             result = Failure(schedule.Id, "The scene cue run was canceled.", schedule);
+            result.WasCatchUp = wasCatchUp;
             throw;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Hue scene schedule {0} failed unexpectedly", schedule.Name);
             result = Failure(schedule.Id, "The scheduled scene could not be completed.", schedule);
+            result.WasCatchUp = wasCatchUp;
             return result;
         }
         finally
@@ -1738,6 +1810,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.LastRunAtUtc = result?.RunAtUtc ?? DateTime.UtcNow;
             state.LastSucceeded = result?.Succeeded ?? false;
             state.LastSkipped = result?.Skipped ?? false;
+            state.LastWasCatchUp = result?.WasCatchUp ?? false;
             state.LastMessage = result?.Message ?? "The scheduled scene ended without a result.";
             state.LastCleanupWarning = result?.CleanupWarning;
             if (result != null)
@@ -1862,6 +1935,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     state.LastRunAtUtc = latest.RunAtUtc;
                     state.LastSucceeded = latest.Succeeded;
                     state.LastSkipped = latest.Skipped;
+                    state.LastWasCatchUp = latest.WasCatchUp;
                     state.LastMessage = latest.Message;
                     state.LastCleanupWarning = latest.CleanupWarning;
                 }
@@ -1929,6 +2003,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = result.TargetLabel,
             Succeeded = result.Succeeded,
             Skipped = result.Skipped,
+            WasCatchUp = result.WasCatchUp,
             Message = result.Message,
             CleanupWarning = result.CleanupWarning,
             RunAtUtc = result.RunAtUtc,
@@ -1950,6 +2025,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = source.TargetLabel?.Trim(),
             Succeeded = source.Succeeded,
             Skipped = source.Skipped,
+            WasCatchUp = source.WasCatchUp,
             Message = source.Message?.Trim() ?? string.Empty,
             CleanupWarning = source.CleanupWarning?.Trim(),
             RunAtUtc = source.RunAtUtc,
@@ -1971,6 +2047,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = entry.TargetLabel?.Trim(),
             Succeeded = entry.Succeeded,
             Skipped = entry.Skipped,
+            WasCatchUp = entry.WasCatchUp,
             Message = entry.Message?.Trim() ?? string.Empty,
             CleanupWarning = entry.CleanupWarning?.Trim(),
             RunAtUtc = entry.RunAtUtc,
@@ -1990,6 +2067,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = source.TargetLabel,
             Succeeded = source.Succeeded,
             Skipped = source.Skipped,
+            WasCatchUp = source.WasCatchUp,
             Message = source.Message,
             CleanupWarning = source.CleanupWarning,
             RunAtUtc = source.RunAtUtc,
@@ -2090,6 +2168,7 @@ internal sealed class HueSceneScheduleRuntimeState
     public DateTime? LastRunAtUtc { get; set; }
     public bool? LastSucceeded { get; set; }
     public bool LastSkipped { get; set; }
+    public bool LastWasCatchUp { get; set; }
     public string? LastMessage { get; set; }
     public string? LastCleanupWarning { get; set; }
 
@@ -2102,6 +2181,7 @@ internal sealed class HueSceneScheduleRuntimeState
             LastRunAtUtc = LastRunAtUtc,
             LastSucceeded = LastSucceeded,
             LastSkipped = LastSkipped,
+            LastWasCatchUp = LastWasCatchUp,
             LastMessage = LastMessage,
             LastCleanupWarning = LastCleanupWarning
         };
@@ -2163,6 +2243,9 @@ public sealed class HueSceneAutomationRunResult
 
     [JsonPropertyName("skipped")]
     public bool Skipped { get; init; }
+
+    [JsonPropertyName("wasCatchUp")]
+    public bool WasCatchUp { get; set; }
 
     [JsonPropertyName("message")]
     public string Message { get; init; } = string.Empty;
@@ -2338,6 +2421,9 @@ public sealed class HueSceneScheduleRuntimeStatus
     [JsonPropertyName("lastSkipped")]
     public bool LastSkipped { get; init; }
 
+    [JsonPropertyName("lastWasCatchUp")]
+    public bool LastWasCatchUp { get; init; }
+
     [JsonPropertyName("lastMessage")]
     public string? LastMessage { get; init; }
 
@@ -2361,6 +2447,9 @@ public sealed class HueSceneAutomationStatus
 
     [JsonPropertyName("automationEnabled")]
     public bool AutomationEnabled { get; init; } = true;
+
+    [JsonPropertyName("catchUpMinutes")]
+    public int CatchUpMinutes { get; init; }
 
     [JsonPropertyName("generatedAtUtc")]
     public DateTime GeneratedAtUtc { get; init; }

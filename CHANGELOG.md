@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.100] - 2026-08-19
+
+### Added
+- **Missed-cue recovery**: add an opt-in 0-120 minute global recovery window for the most recent automatic occurrence missed during a short Jellyfin restart or outage; older missed occurrences are not replayed in a burst
+- **Recovery telemetry**: expose recovered runs, including recovered skips, through scheduler status and sanitized history while preserving recurrence, run limits, one-time disable behavior, and manual Run Now semantics
+
+### Security
+- Recovery is bounded, administrator-configurable, credential-free, and uses the existing serialized restorative preview lifecycle; no bridge credentials or playback tokens enter telemetry or backups
+
 ## [1.5.99] - 2026-08-19
 
 ### Added

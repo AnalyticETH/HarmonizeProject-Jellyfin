@@ -175,6 +175,22 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void Validate_RejectsSceneAutomationCatchUpWindowOutsideBounds()
+    {
+        var tooLarge = new PluginConfiguration
+        {
+            SceneAutomationCatchUpMinutes = PluginConfiguration.MaxSceneAutomationCatchUpMinutes + 1
+        };
+        var tooSmall = new PluginConfiguration
+        {
+            SceneAutomationCatchUpMinutes = PluginConfiguration.MinSceneAutomationCatchUpMinutes - 1
+        };
+
+        Assert.Contains("Scene automation catch-up window must be between 0 and 120 minutes", tooLarge.Validate());
+        Assert.Contains("Scene automation catch-up window must be between 0 and 120 minutes", tooSmall.Validate());
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_AllowsAndNormalizesInclusiveDateWindow()
     {
         var config = new PluginConfiguration

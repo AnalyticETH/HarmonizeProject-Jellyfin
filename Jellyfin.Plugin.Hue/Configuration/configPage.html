@@ -452,6 +452,11 @@
                             </label>
                             <div class="fieldDescription">Pause automatic execution without deleting cues or changing their schedules. Upcoming previews and readiness remain available, and <strong>Run Now</strong> still runs an individual cue while automation is paused.</div>
                         </div>
+                        <div class="inputContainer" style="max-width: 28em; margin-top: 0.75em;">
+                            <label class="inputLabel inputLabelUnfocused" for="sceneAutomationCatchUpMinutes">Missed cue recovery window (minutes)</label>
+                            <input id="sceneAutomationCatchUpMinutes" type="number" min="0" max="120" value="0" is="emby-input" />
+                            <div class="fieldDescription">When greater than 0, a scheduler restart or short Jellyfin outage can recover the most recent automatic cue missed within this window. Older missed cues are not replayed in a burst; 0 keeps exact-minute behavior.</div>
+                        </div>
                         <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top: 0.75em;">
                             <label>
                                 <input is="emby-checkbox" type="checkbox" id="persistSceneScheduleHistory" />
@@ -1109,6 +1114,7 @@
                         page.querySelector('#persistSessionHistory').checked = !!getConfigValue('PersistSessionHistory', false);
                         page.querySelector('#persistSceneScheduleHistory').checked = !!getConfigValue('PersistSceneScheduleHistory', false);
                         page.querySelector('#sceneAutomationEnabled').checked = getConfigValue('SceneAutomationEnabled', true) !== false;
+                        page.querySelector('#sceneAutomationCatchUpMinutes').value = getConfigValue('SceneAutomationCatchUpMinutes', 0);
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                         HueConfigurationPage.loadColorPresets(page);
                         HueConfigurationPage.loadSceneSchedules(page);
@@ -1159,7 +1165,8 @@
                         NetworkRetryAttempts: parseNumberOrDefault('#networkRetryAttempts', 3),
                         PersistSessionHistory: page.querySelector('#persistSessionHistory').checked,
                         PersistSceneScheduleHistory: page.querySelector('#persistSceneScheduleHistory').checked,
-                        SceneAutomationEnabled: page.querySelector('#sceneAutomationEnabled').checked
+                        SceneAutomationEnabled: page.querySelector('#sceneAutomationEnabled').checked,
+                        SceneAutomationCatchUpMinutes: parseNumberOrDefault('#sceneAutomationCatchUpMinutes', 0)
                     };
 
                     return ApiClient.ajax({
@@ -1983,6 +1990,7 @@
                     return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/Status")).then(function (response) {
                         var serviceAvailable = HueConfigurationPage.readStatusField(response, "ServiceAvailable", false);
                         var automationEnabled = HueConfigurationPage.readStatusField(response, "AutomationEnabled", true) !== false;
+                        var catchUpMinutes = Number(HueConfigurationPage.readStatusField(response, "CatchUpMinutes", 0) || 0);
                         var schedules = HueConfigurationPage.readStatusField(response, "Schedules", []);
                         schedules = Array.isArray(schedules) ? schedules : [];
                         if (!serviceAvailable) {
@@ -2008,6 +2016,7 @@
                             summary.textContent = (automationEnabled
                                 ? cueSummary
                                 : "Scheduled cue automation is paused · " + cueSummary + " · Run Now remains available") +
+                                (catchUpMinutes > 0 ? " · recovery window " + catchUpMinutes + "m" : "") +
                                 " · updated " + generatedText;
                             summary.style.color = automationEnabled ? "" : "#f0ad4e";
                         }
@@ -2095,6 +2104,7 @@
                             var lastRun = HueConfigurationPage.readStatusField(schedule, "LastRunAtUtc", null);
                             var succeeded = HueConfigurationPage.readStatusField(schedule, "LastSucceeded", null);
                             var lastSkipped = HueConfigurationPage.readStatusField(schedule, "LastSkipped", false);
+                            var lastWasCatchUp = HueConfigurationPage.readStatusField(schedule, "LastWasCatchUp", false);
                             var message = HueConfigurationPage.readStatusField(schedule, "LastMessage", "");
                             var cleanupWarning = HueConfigurationPage.readStatusField(schedule, "LastCleanupWarning", "");
                             var runCount = HueConfigurationPage.readStatusField(schedule, "RunCount", 0);
@@ -2141,6 +2151,7 @@
                                 : (succeeded === null || typeof succeeded === 'undefined'
                                 ? "Not run yet"
                                 : (succeeded ? "Succeeded" : "Failed"));
+                            if (lastWasCatchUp) resultText = "Recovered · " + resultText;
                             if (running) resultText += " · Running";
                             if (message) resultText += " — " + String(message);
                             if (cleanupWarning) resultText += " · Cleanup warning: " + String(cleanupWarning);
@@ -2356,6 +2367,7 @@
                             var targetLabel = HueConfigurationPage.readStatusField(run, "TargetLabel", "Default bridge target");
                             var succeeded = HueConfigurationPage.readStatusField(run, "Succeeded", false);
                             var skipped = HueConfigurationPage.readStatusField(run, "Skipped", false);
+                            var wasCatchUp = HueConfigurationPage.readStatusField(run, "WasCatchUp", false);
                             var message = HueConfigurationPage.readStatusField(run, "Message", "");
                             var warning = HueConfigurationPage.readStatusField(run, "CleanupWarning", "");
                             var runCount = HueConfigurationPage.readStatusField(run, "RunCount", 0);
@@ -2372,7 +2384,9 @@
                             addCell(cueName);
                             addCell(String(presetName) + " · " + String(runEffect) + " · speed " + String(runSpeed || 100) + "%");
                             addCell(targetLabel);
-                            addCell((skipped ? "Skipped" : (succeeded ? "Succeeded" : "Failed")) + " · run " + String(runCount || 0), skipped ? "#f0ad4e" : (succeeded ? "#8bc34a" : "#d9534f"));
+                            var historyResult = skipped ? "Skipped" : (succeeded ? "Succeeded" : "Failed");
+                            if (wasCatchUp) historyResult = "Recovered · " + historyResult;
+                            addCell(historyResult + " · run " + String(runCount || 0), skipped ? "#f0ad4e" : (succeeded ? "#8bc34a" : "#d9534f"));
                             addCell((message || "") + (warning ? " · Cleanup warning: " + warning : ""));
                             body.appendChild(row);
                         });

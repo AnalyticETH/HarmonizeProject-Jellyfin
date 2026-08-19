@@ -749,6 +749,187 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void GetMostRecentMissedOccurrence_UsesWindowAndReturnsNewestOccurrenceOnly()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Id = "catch-up-preview",
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            DaysOfWeekMask = 0
+        };
+        var now = new DateTime(2026, 8, 18, 7, 20, 0, DateTimeKind.Utc);
+
+        var recent = HueSceneAutomationService.GetMostRecentMissedOccurrence(schedule, now, 20);
+        Assert.NotNull(recent);
+        Assert.Equal(new DateTime(2026, 8, 18, 7, 5, 0, DateTimeKind.Utc), recent!.UtcTime);
+        Assert.Null(HueSceneAutomationService.GetMostRecentMissedOccurrence(schedule, now, 10));
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_RecoversRecentMissedCueAndMarksTelemetry()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationCatchUpMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "catch-up-app-secret",
+            HueClientKey = "catch-up-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Catch-up scene", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "catch-up-runtime-cue",
+                    Name = "Catch-up runtime cue",
+                    PresetName = "Catch-up scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                "192.168.1.100",
+                "catch-up-app-secret",
+                "catch-up-client-secret",
+                "area-1",
+                It.IsAny<JsonElement>(),
+                null,
+                10,
+                20,
+                30,
+                80,
+                1,
+                It.IsAny<CancellationToken>(),
+                0,
+                0,
+                PluginConfiguration.ColorPresetEffectSolid,
+                PluginConfiguration.DefaultColorPresetEffectSpeedPercent))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Recovered scene." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var afterMissedCueUtc = new DateTime(2026, 8, 18, 7, 8, 30, DateTimeKind.Utc);
+        await service.RunDueSchedulesAsync(afterMissedCueUtc, CancellationToken.None);
+        await service.RunDueSchedulesAsync(afterMissedCueUtc, CancellationToken.None);
+
+        streamTester.VerifyAll();
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal(1, saved.RunCount);
+        Assert.Equal(10, service.GetStatus().CatchUpMinutes);
+        var status = Assert.Single(service.GetStatus().Schedules);
+        Assert.True(status.LastWasCatchUp);
+        Assert.True(status.LastSucceeded);
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.WasCatchUp);
+        Assert.True(history.Succeeded);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_DoesNotRecoverCueOutsideConfiguredWindow()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationCatchUpMinutes = 10,
+            ColorPresets = new List<HueColorPreset> { new() { Name = "No catch-up scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "outside-catch-up-window",
+                    Name = "Outside catch-up window",
+                    PresetName = "No catch-up scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 20, 0, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        streamTester.VerifyNoOtherCalls();
+        Assert.Equal(0, Assert.Single(configuration.SceneSchedules).RunCount);
+        Assert.Empty(service.GetHistory());
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_RecoversPendingSkipWithoutPlayingTheMissedCue()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationCatchUpMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "catch-up-skip-cue",
+                    Name = "Catch-up skip cue",
+                    PresetName = "No scene required for skip",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    SkipNextOccurrence = true,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 8, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        streamTester.VerifyNoOtherCalls();
+        Assert.False(configuration.SceneSchedules[0].SkipNextOccurrence);
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.Skipped);
+        Assert.True(history.WasCatchUp);
+        Assert.True(Assert.Single(service.GetStatus().Schedules).LastWasCatchUp);
+    }
+
+    [Fact]
     public void ResetScheduleRunCount_ClearsPersistedCounterAndReenablesCue()
     {
         var configuration = new PluginConfiguration
@@ -1448,6 +1629,7 @@ public sealed class HueSceneAutomationServiceTests
                     PresetName = "Evening",
                     TargetLabel = "Living Room",
                     Succeeded = false,
+                    WasCatchUp = true,
                     Message = "The bridge was unavailable.",
                     CleanupWarning = "Cleanup warning",
                     RunAtUtc = DateTime.UtcNow.AddMinutes(-5),
@@ -1470,6 +1652,8 @@ public sealed class HueSceneAutomationServiceTests
         var history = Assert.Single(service.GetHistory());
         Assert.Equal("Living Room", history.TargetLabel);
         Assert.Equal(7, history.RunCount);
+        Assert.True(history.WasCatchUp);
+        Assert.True(runtime.LastWasCatchUp);
         var serialized = JsonSerializer.Serialize(history);
         Assert.DoesNotContain("AppKey", serialized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("ClientKey", serialized, StringComparison.OrdinalIgnoreCase);

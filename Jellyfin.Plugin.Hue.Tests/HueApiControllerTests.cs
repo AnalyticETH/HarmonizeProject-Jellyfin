@@ -2728,6 +2728,7 @@ public sealed class HueApiControllerTests : IDisposable
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
             PersistSessionHistory = true,
             SceneAutomationEnabled = false,
+            SceneAutomationCatchUpMinutes = 37,
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -2763,6 +2764,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, settings.PauseBehavior);
         Assert.True(settings.PersistSessionHistory);
         Assert.Equal(false, settings.SceneAutomationEnabled);
+        Assert.Equal(37, settings.SceneAutomationCatchUpMinutes);
         var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
         Assert.DoesNotContain("default-app-key", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("default-client-key", serialized, StringComparison.Ordinal);
@@ -2781,6 +2783,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueClientKey = "default-client-secret",
             EntertainmentAreaId = "area-1",
             SceneAutomationEnabled = false,
+            SceneAutomationCatchUpMinutes = 22,
             PersistSessionHistory = true,
             PersistedSessionHistory = new List<HueSessionHistoryEntry>
             {
@@ -2862,6 +2865,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(2, document.SceneSchedules[0].TransitionOutSeconds);
         Assert.True(document.Configuration.PersistSessionHistory);
         Assert.Equal(false, document.Configuration.SceneAutomationEnabled);
+        Assert.Equal(22, document.Configuration.SceneAutomationCatchUpMinutes);
 
         var serialized = System.Text.Json.JsonSerializer.Serialize(document);
         Assert.DoesNotContain("default-app-secret", serialized, StringComparison.Ordinal);
@@ -3030,6 +3034,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueClientKey = "default-client-secret",
             EntertainmentAreaId = "area-1",
             SceneAutomationEnabled = false,
+            SceneAutomationCatchUpMinutes = 22,
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -3102,6 +3107,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("default-app-secret", configuration.HueAppKey);
         Assert.Equal("default-client-secret", configuration.HueClientKey);
         Assert.False(configuration.SceneAutomationEnabled);
+        Assert.Equal(22, configuration.SceneAutomationCatchUpMinutes);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
@@ -3231,7 +3237,8 @@ public sealed class HueApiControllerTests : IDisposable
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
             PersistSessionHistory = true,
             PersistSceneScheduleHistory = true,
-            SceneAutomationEnabled = false
+            SceneAutomationEnabled = false,
+            SceneAutomationCatchUpMinutes = 18
         });
 
         Assert.IsType<OkObjectResult>(action.Result);
@@ -3253,6 +3260,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(configuration.PersistSessionHistory);
         Assert.True(configuration.PersistSceneScheduleHistory);
         Assert.False(configuration.SceneAutomationEnabled);
+        Assert.Equal(18, configuration.SceneAutomationCatchUpMinutes);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
@@ -3368,6 +3376,24 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("2, 9", configuration.ChannelIds);
         Assert.Equal("app-key", configuration.HueAppKey);
         Assert.Equal("client-key", configuration.HueClientKey);
+    }
+
+    [Fact]
+    public void SaveConfiguration_InvalidCatchUpWindowReturnsBadRequestWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SceneAutomationCatchUpMinutes = 12
+        });
+
+        var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            SceneAutomationCatchUpMinutes = PluginConfiguration.MaxSceneAutomationCatchUpMinutes + 1
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Equal(12, configuration.SceneAutomationCatchUpMinutes);
     }
 
     [Fact]

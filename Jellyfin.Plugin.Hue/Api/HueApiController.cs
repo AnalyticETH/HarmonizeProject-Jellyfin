@@ -2952,6 +2952,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool? PersistSessionHistory { get; set; }
         public bool? PersistSceneScheduleHistory { get; set; }
         public bool? SceneAutomationEnabled { get; set; }
+        public int SceneAutomationCatchUpMinutes { get; set; }
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string ChannelIds { get; set; } = string.Empty;
         public bool UseCinemaMode { get; set; } = true;
@@ -2992,6 +2993,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PersistSessionHistory = config.PersistSessionHistory,
                 PersistSceneScheduleHistory = config.PersistSceneScheduleHistory,
                 SceneAutomationEnabled = config.SceneAutomationEnabled,
+                SceneAutomationCatchUpMinutes = config.SceneAutomationCatchUpMinutes,
                 EntertainmentAreaId = config.EntertainmentAreaId,
                 ChannelIds = config.ChannelIds,
                 UseCinemaMode = config.UseCinemaMode,
@@ -3051,6 +3053,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
             if (SceneAutomationEnabled.HasValue)
                 config.SceneAutomationEnabled = SceneAutomationEnabled.Value;
+            config.SceneAutomationCatchUpMinutes = SceneAutomationCatchUpMinutes;
             config.EntertainmentAreaId = EntertainmentAreaId?.Trim() ?? string.Empty;
             config.ChannelIds = ChannelIds?.Trim() ?? string.Empty;
             config.UseCinemaMode = UseCinemaMode;
