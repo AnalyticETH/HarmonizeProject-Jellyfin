@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.119] - 2026-08-19
+
+### Reliability
+- **Fail-safe scheduled skips**: a cue never runs when clearing its pending Skip Next marker cannot be persisted; the marker remains available for a later retry
+- **One-time completion rollback**: a one-time cue's in-memory enabled state is restored when its completed-state persistence fails
+
+### Security
+- Scheduler persistence failures remain bounded to server logs and cannot turn an administrator skip request into an unintended bridge preview
+
 ## [1.5.118] - 2026-08-19
 
 ### Reliability

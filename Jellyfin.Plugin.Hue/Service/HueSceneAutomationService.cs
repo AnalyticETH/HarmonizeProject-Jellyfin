@@ -1909,13 +1909,19 @@ public sealed class HueSceneAutomationService : BackgroundService
             if (!TryClaimRunSlot(schedule.Id, slot))
                 continue;
 
-            if (TryConsumeSkippedOccurrence(config, schedule, out var skippedResult))
+            if (TryConsumeSkippedOccurrence(config, schedule, out var skippedResult, out var skipPersistenceFailed))
             {
                 if (skippedResult != null)
                     skippedResult.WasCatchUp = !isDue;
                 RecordSkippedOccurrence(config, schedule, skippedResult!);
                 continue;
             }
+
+            // A pending skip is an explicit administrator instruction. If clearing it
+            // could not be persisted, do not fall through and run the cue anyway. The
+            // marker remains intact so the next eligible occurrence can retry safely.
+            if (skipPersistenceFailed)
+                continue;
 
             var result = await RunScheduleTrackedAsync(
                 config,
@@ -1946,9 +1952,11 @@ public sealed class HueSceneAutomationService : BackgroundService
     private bool TryConsumeSkippedOccurrence(
         PluginConfiguration config,
         HueSceneSchedule schedule,
-        out HueSceneAutomationRunResult? result)
+        out HueSceneAutomationRunResult? result,
+        out bool persistenceFailed)
     {
         result = null;
+        persistenceFailed = false;
         var key = schedule.Id?.Trim() ?? string.Empty;
         var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
             candidate != null &&
@@ -1975,6 +1983,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
         catch (Exception ex)
         {
+            persistenceFailed = true;
             lock (_runtimeStateLock)
             {
                 configuredSchedule.SkipNextOccurrence = true;
@@ -2064,6 +2073,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (configuredSchedule == null || !configuredSchedule.Enabled)
             return;
 
+        var previousEnabled = configuredSchedule.Enabled;
         configuredSchedule.Enabled = false;
         try
         {
@@ -2071,6 +2081,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
         catch (Exception ex)
         {
+            configuredSchedule.Enabled = previousEnabled;
             _logger.LogWarning(ex, "One-time Hue scene schedule {0} ran but could not persist its completed state", schedule.Name);
         }
     }

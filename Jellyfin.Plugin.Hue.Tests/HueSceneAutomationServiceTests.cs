@@ -1467,6 +1467,109 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_WhenSkipPersistenceFails_DoesNotRunCue()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated scheduler persistence failure"));
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "skip-failure-app-secret",
+            HueClientKey = "skip-failure-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Skip failure scene", DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "skip-persistence-failure",
+                    Name = "Skip persistence failure",
+                    PresetName = "Skip failure scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    SkipNextOccurrence = true,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        streamTester.VerifyNoOtherCalls();
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.Empty(service.GetHistory());
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_WhenOneTimeCompletionPersistenceFails_RestoresEnabledState()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated one-time completion persistence failure"));
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "one-time-failure-app-secret",
+            HueClientKey = "one-time-failure-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "One-time failure scene", DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "one-time-persistence-failure",
+                    Name = "One-time persistence failure",
+                    PresetName = "One-time failure scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-08-18",
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            new RecordingStreamTester(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.True(Assert.Single(service.GetHistory()).Succeeded);
+    }
+
+    [Fact]
     public async Task ResetScheduleRunCount_RefusesActiveCue()
     {
         InstallConfiguration(new PluginConfiguration
@@ -2026,7 +2129,9 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Null(runtime.LastSucceeded);
     }
 
-    private static void InstallConfiguration(PluginConfiguration configuration)
+    private static void InstallConfiguration(
+        PluginConfiguration configuration,
+        IXmlSerializer? xmlSerializer = null)
     {
         var pluginDataPath = Path.Combine(Path.GetTempPath(), "jellyfin-hue-schedule-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(pluginDataPath);
@@ -2045,7 +2150,7 @@ public sealed class HueSceneAutomationServiceTests
         applicationPaths.SetupGet(paths => paths.TempDirectory).Returns(pluginDataPath);
         applicationPaths.SetupGet(paths => paths.VirtualDataPath).Returns(pluginDataPath);
 
-        var plugin = new Jellyfin.Plugin.Hue.Plugin(applicationPaths.Object, Mock.Of<IXmlSerializer>());
+        var plugin = new Jellyfin.Plugin.Hue.Plugin(applicationPaths.Object, xmlSerializer ?? Mock.Of<IXmlSerializer>());
         var configurationField = plugin.GetType().BaseType!.GetField("_configuration", BindingFlags.Instance | BindingFlags.NonPublic)!;
         configurationField.SetValue(plugin, configuration);
     }
