@@ -86,7 +86,7 @@ const requiredScript = [
     "PlaybackMediaFilterOverride: readOptionalString('mappingPlaybackMediaFilterOverride')",
     "getMappingValue('PlaybackMediaFilterOverride', 'playbackMediaFilterOverride')",
     "HueConfigurationPage.cancelPreview(e.target)",
-    '["Solid", "Pulse", "Rainbow", "Candle"]',
+    '["Solid", "Pulse", "Rainbow", "Candle", "Temperature"]',
     'effect: effect || "Solid"',
     'effectSpeedPercent: effectSpeedPercent || 100',
     'effectSpeedPercent: values.effectSpeedPercent',

@@ -87,6 +87,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
 | **Network Retry Attempts** | Number of retry attempts for Hue REST requests and DTLS stream recovery (0-10, default: 3). |
 | **Enable Real-time Sync** | Master toggle for the sync feature. |
+| **Temperature Scene Effect** | Choose **Temperature** in the scene editor to sweep deterministically from warm 2200 K candlelight to cool 6500 K daylight and back. The scene's RGB seed controls output level, while effect speed, duration, transitions, playlists, scheduled cues, and target restoration work the same as the other effects. |
 
 ### Per-User Bridge Mappings
 
@@ -152,6 +153,8 @@ choose whether pausing that user's playback keeps the last colors or restores th
 ### Admin API
 
 The configuration page uses authenticated administrator endpoints under `/HueSync`:
+
+`POST /HueSync/Preview` and `POST /HueSync/ColorPresets` also accept `effect: "Temperature"`. The server validates and canonicalizes the effect, and the stream tester generates the warm-to-cool sweep without changing the credential-free target-selection contract.
 
 | Endpoint | Purpose |
 | :--- | :--- |
@@ -401,7 +404,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.155 (Current)
+### Version 1.5.156 (Current)
+- **Temperature scene effect**: use the new deterministic warm-to-cool Temperature effect in manual previews, saved scenes, playlists, and scheduled cues; its RGB seed controls output level while the effect sweeps Hue-compatible white balance
+- **Effect compatibility**: Temperature is accepted through the configuration validator, API, stream tester, administrator editor, backup/restore metadata, and scheduler alongside Solid, Pulse, Rainbow, and Candle
+
+### Version 1.5.155
 - **Current-light scene seeding**: capture one selected Hue target's live color and brightness into the administrator preview editor, then save it as a reusable scene without sending bridge credentials from the browser
 - **Hue color conversion**: convert xy chromaticity and mirek color-temperature states to averaged sRGB while keeping off-light brightness and partial capture counts explicit
 - **Safe lifecycle and coverage**: serialize capture with playback/diagnostics, support cancellation and stale-channel validation, and cover conversions, target resolution, lifecycle contention, and credential-safe API responses

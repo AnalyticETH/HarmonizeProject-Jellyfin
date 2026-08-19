@@ -323,7 +323,7 @@ public sealed class HueStreamTester : IHueStreamTester
         CancellationToken cancellationToken)
     {
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            return Failure("Preview effect must be Solid, Pulse, Rainbow, or Candle.");
+            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, or Temperature.");
 
         effect = normalizedEffect;
         if (cancellationToken.IsCancellationRequested)
@@ -813,7 +813,7 @@ public sealed class HueStreamTester : IHueStreamTester
     {
         ArgumentNullException.ThrowIfNull(targetColors);
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, or Candle.", nameof(effect));
+            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, or Temperature.", nameof(effect));
 
         var elapsed = Math.Max(0d, elapsedSeconds);
         var duration = Math.Max(1d, durationSeconds);
@@ -864,6 +864,34 @@ public sealed class HueStreamTester : IHueStreamTester
                     ToRgb16Byte(candleRed * flicker), ToRgb16Byte(candleRed * flicker),
                     ToRgb16Byte(candleGreen * flicker), ToRgb16Byte(candleGreen * flicker),
                     ToRgb16Byte(candleBlue * flicker), ToRgb16Byte(candleBlue * flicker)
+                };
+                continue;
+            }
+
+            if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectTemperature, StringComparison.Ordinal))
+            {
+                // Sweep through a warm candle-like 2200 K white to a cool 6500 K
+                // daylight white and back. The seed frame supplies the output level,
+                // while HueColorMath keeps the conversion consistent with captured
+                // mirek states. Channel phase prevents a multi-channel room from
+                // changing in lockstep while remaining deterministic.
+                var temperaturePeriod = 8d / speedMultiplier;
+                var temperaturePhase = ((elapsed + (channelId * 0.11d)) % temperaturePeriod) / temperaturePeriod;
+                var temperatureWave = 0.5d - (0.5d * Math.Cos(temperaturePhase * 2d * Math.PI));
+                var kelvin = 2200d + (4300d * temperatureWave);
+                var mirek = (int)Math.Round(1_000_000d / kelvin, MidpointRounding.AwayFromZero);
+                if (!HueColorMath.TryConvertMirekToRgb(mirek, out var temperatureRed, out var temperatureGreen, out var temperatureBlue))
+                    throw new InvalidOperationException("Could not convert the Temperature effect color.");
+
+                var intensity = Math.Clamp(
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    0d,
+                    1d);
+                colors[channelId] = new[]
+                {
+                    ToRgb16Byte(temperatureRed * intensity), ToRgb16Byte(temperatureRed * intensity),
+                    ToRgb16Byte(temperatureGreen * intensity), ToRgb16Byte(temperatureGreen * intensity),
+                    ToRgb16Byte(temperatureBlue * intensity), ToRgb16Byte(temperatureBlue * intensity)
                 };
                 continue;
             }

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.156] - 2026-08-19
+
+### Added
+- **Temperature scene effect**: add a deterministic warm-to-cool white-balance sweep to manual previews, saved scenes, playlists, and scheduled cues while preserving each scene's brightness level
+- **End-to-end effect validation**: accept canonical Temperature values through configuration, API, stream generation, and administrator controls while preserving all legacy effects
+- **Regression coverage**: verify warm/cool frame progression, deterministic animation, configuration normalization, and credential-safe API forwarding
+
 ## [1.5.155] - 2026-08-19
 
 ### Added

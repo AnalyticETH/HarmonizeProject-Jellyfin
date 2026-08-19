@@ -985,6 +985,69 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_WithTemperatureEffectPassesCanonicalEffectToStreamTester()
+    {
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":1}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<System.Text.Json.JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                PluginConfiguration.ColorPresetEffectTemperature,
+                125))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Temperature preview sent." });
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.Preview(new HuePreviewRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            Effect = " temperature ",
+            DurationSeconds = 3,
+            EffectSpeedPercent = 125
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HuePreviewResult>(response.Value);
+        Assert.True(result.Succeeded);
+        Assert.Equal(PluginConfiguration.ColorPresetEffectTemperature, result.Effect);
+        Assert.Equal(125, result.EffectSpeedPercent);
+        streamTester.Verify(tester => tester.PreviewAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-1",
+            It.IsAny<System.Text.Json.JsonElement>(),
+            It.IsAny<IReadOnlySet<int>?>(),
+            255,
+            255,
+            255,
+            100,
+            3,
+            It.IsAny<CancellationToken>(),
+            0,
+            0,
+            PluginConfiguration.ColorPresetEffectTemperature,
+            125), Times.Once);
+    }
+
+    [Fact]
     public void CancelPreview_RequestsCancellationAndReturnsSanitizedResult()
     {
         var streamTester = new Mock<IHueStreamTester>();
