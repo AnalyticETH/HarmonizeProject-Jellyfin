@@ -60,6 +60,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Hue App Key** | "Username" for the REST API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it, or use Link Bridge to replace it. |
 | **Hue Client Key** | "ClientKey" for the streaming API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it, or use Link Bridge to replace it. |
 | **Entertainment Area ID** | UUID of the specific area to sync. |
+| **Playback Media Scope** | Choose whether Hue Sync starts for all video items (default), movies only, TV episodes only, or other video such as music/home videos. Changing the scope does not interrupt an active session; normal progress and stop events still perform cleanup. |
 | **Target FPS** | Frames per second to process (Default: 20). Lower = less CPU. |
 | **Frame Sampling Resolution** | RGB frame size used for color extraction: 80×45 (lowest CPU), 160×90 (default), or 320×180 (more spatial detail). |
 | **Video Fit Mode** | Stretch (default), Fit with letterbox bars, or Crop to fill the 16:9 sampling frame while preserving source aspect ratio. |
@@ -203,7 +204,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/Configuration/ValidateImport` | Preflight a configuration import without mutating settings or contacting Hue: apply schema normalization, saved-scene/playlist/cue dependency checks, complete configuration validation, and matching-key preservation analysis. The credential-free result includes validation errors, planned object totals, and `canImport`, which is false while playback is active. |
 | `POST /HueSync/Configuration/Import` | Atomically restore an export document, including saved scene playlists and scene cues. Matching stored global/mapping keys are preserved when omitted; explicit global or mapping keys may be supplied for migration, playlist renames migrate matching cue references by stable playlist ID, and invalid documents leave the current configuration unchanged. The configuration page keeps replacement keys in memory only and sends them once in this request. Active playback must be stopped first. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. Pass `playSessionId` to stop one listed concurrent session. |
-| `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, recurring scene-automation pause preference, bounded missed-cue recovery window, and opt-in persistent session/cue-history preferences, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. Failed persistence restores the complete prior settings and retained history and returns a sanitized server error. |
+| `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global playback media scope, global channel profile, recurring scene-automation pause preference, bounded missed-cue recovery window, and opt-in persistent session/cue-history preferences, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. Failed persistence restores the complete prior settings and retained history and returns a sanitized server error. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients; `userId` can select a matching stored custom mapping, but POST is preferred so keys do not appear in URLs. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |
 | `GET /HueSync/UserMappings/{userId}/Dependencies` | Inspect one mapping's credential-free scheduled-cue dependencies before disabling or deleting it. Returns `canDisable`, `canDelete`, the dependent cue count, and cue IDs/names/enabled state; bridge credentials and target details are never returned. |
@@ -378,7 +379,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.127 (Current)
+### Version 1.5.128 (Current)
+- **Playback media scope**: choose all video, movies, TV episodes, or other video as the global start policy; existing sessions still receive cleanup lifecycle events when the policy changes
+- **Visible policy telemetry**: expose the selected scope through configuration, Live Sync Status, diagnostics, and credential-safe exports
+
+### Version 1.5.127
 - **Credential-safe support bundle**: export local and bridge-target diagnostics, runtime state, playback and scheduler history, scheduler status, and redacted configuration metadata in one administrator JSON download while keeping bridge credentials and playback tokens out of the file
 
 ### Version 1.5.126

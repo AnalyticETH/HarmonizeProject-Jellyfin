@@ -15,6 +15,30 @@ public sealed class HueSyncServiceTests
         Assert.False(HueSyncService.IsSupportedVideoPlaybackItem(null));
     }
 
+    [Theory]
+    [InlineData(PluginConfiguration.PlaybackMediaFilterAllVideo, true, true, true)]
+    [InlineData(PluginConfiguration.PlaybackMediaFilterMovies, true, false, false)]
+    [InlineData(PluginConfiguration.PlaybackMediaFilterEpisodes, false, true, false)]
+    [InlineData(PluginConfiguration.PlaybackMediaFilterOtherVideo, false, false, true)]
+    [InlineData("movies", true, false, false)]
+    [InlineData("unknown", true, true, true)]
+    public void MatchesPlaybackMediaFilter_SelectsConfiguredVideoKinds(
+        string filter,
+        bool expectedMovie,
+        bool expectedEpisode,
+        bool expectedOtherVideo)
+    {
+        var movie = new MediaBrowser.Controller.Entities.Movies.Movie();
+        var episode = new MediaBrowser.Controller.Entities.TV.Episode();
+        var otherVideo = new MediaBrowser.Controller.Entities.Video();
+
+        Assert.Equal(expectedMovie, HueSyncService.MatchesPlaybackMediaFilter(movie, filter));
+        Assert.Equal(expectedEpisode, HueSyncService.MatchesPlaybackMediaFilter(episode, filter));
+        Assert.Equal(expectedOtherVideo, HueSyncService.MatchesPlaybackMediaFilter(otherVideo, filter));
+        Assert.False(HueSyncService.MatchesPlaybackMediaFilter(new MediaBrowser.Controller.Entities.Folder(), filter));
+        Assert.False(HueSyncService.MatchesPlaybackMediaFilter(null, filter));
+    }
+
     [Fact]
     public void IsPlaybackSeek_RecognizesBackwardAndLargeForwardJumps()
     {

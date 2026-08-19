@@ -931,6 +931,32 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
+        /// Applies the global playback media scope to a Jellyfin item. Unknown or legacy
+        /// values fall back to all-video behavior so a malformed optional setting cannot
+        /// silently disable playback after an upgrade.
+        /// </summary>
+        internal static bool MatchesPlaybackMediaFilter(BaseItem? item, string? playbackMediaFilter)
+        {
+            if (!IsSupportedVideoPlaybackItem(item))
+                return false;
+
+            if (!PluginConfiguration.TryNormalizePlaybackMediaFilter(playbackMediaFilter, out var normalized))
+                normalized = PluginConfiguration.PlaybackMediaFilterAllVideo;
+
+            return normalized switch
+            {
+                PluginConfiguration.PlaybackMediaFilterMovies =>
+                    item is MediaBrowser.Controller.Entities.Movies.Movie,
+                PluginConfiguration.PlaybackMediaFilterEpisodes =>
+                    item is MediaBrowser.Controller.Entities.TV.Episode,
+                PluginConfiguration.PlaybackMediaFilterOtherVideo =>
+                    item is not MediaBrowser.Controller.Entities.Movies.Movie &&
+                    item is not MediaBrowser.Controller.Entities.TV.Episode,
+                _ => true
+            };
+        }
+
+        /// <summary>
         /// Builds the non-secret resource identity used to arbitrate independent playback
         /// lifecycles. A bridge entertainment area can only have one active stream, while
         /// separate areas (including areas on separate bridges) can run concurrently.
@@ -1255,7 +1281,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
 
             e = NormalizeRecoveredPlaybackEvent(e);
-            if (!IsPlaybackUserSyncEnabled(e) || !IsSupportedVideoPlaybackItem(e.Item))
+            if (!IsPlaybackUserSyncEnabled(e) ||
+                !MatchesPlaybackMediaFilter(e.Item, Plugin.Instance?.Configuration?.PlaybackMediaFilter))
                 return;
 
             if (!PrepareExternalPlaybackStart(e))
@@ -1355,6 +1382,29 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 if (publishUnsupportedStatus)
                     SetRuntimeStatus("Idle", "Hue Sync supports video playback only.");
+                return;
+            }
+
+            var playbackMediaFilter = Plugin.Instance?.Configuration?.PlaybackMediaFilter;
+            if (!MatchesPlaybackMediaFilter(e.Item, playbackMediaFilter))
+            {
+                var normalizedFilter = PluginConfiguration.TryNormalizePlaybackMediaFilter(playbackMediaFilter, out var filter)
+                    ? filter
+                    : PluginConfiguration.PlaybackMediaFilterAllVideo;
+                _logger.LogDebug(
+                    "Skipping playback item {0}; configured Hue Sync media scope is {1}",
+                    e.Item?.Name ?? "Unknown",
+                    normalizedFilter);
+                var publishFilteredStatus = false;
+                lock (_syncLock)
+                {
+                    publishFilteredStatus = _currentPlaySessionId == null &&
+                                             _startingPlaySessionId == null &&
+                                             _syncCts == null;
+                }
+
+                if (publishFilteredStatus)
+                    SetRuntimeStatus("Idle", $"Hue Sync playback media scope excludes this item ({normalizedFilter}).");
                 return;
             }
 

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.128] - 2026-08-19
+
+### Added
+- **Playback media scope**: choose whether Hue Sync starts for all video items, movies only, TV episodes only, or other video such as music and home videos
+- **Safe scope changes**: changing the scope leaves existing playback lifecycle cleanup intact while filtering only new and recovered sync starts
+- **Visible policy telemetry**: the selected media scope is included in the configuration API, Live Sync Status, diagnostics, and credential-safe configuration exports
+
 ## [1.5.127] - 2026-08-19
 
 ### Added

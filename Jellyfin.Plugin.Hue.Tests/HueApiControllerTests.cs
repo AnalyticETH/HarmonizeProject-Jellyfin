@@ -3243,6 +3243,7 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var status = Assert.IsType<HueSyncStatus>(response.Value);
         Assert.False(status.ServiceAvailable);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterAllVideo, status.ConfiguredPlaybackMediaFilter);
         Assert.Equal("Unavailable", status.State);
         Assert.Null(status.ActiveBridgeIp);
         Assert.Null(status.ActiveEntertainmentAreaId);
@@ -3626,7 +3627,8 @@ public sealed class HueApiControllerTests : IDisposable
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "app-secret",
             HueClientKey = "client-secret",
-            EntertainmentAreaId = "area-1"
+            EntertainmentAreaId = "area-1",
+            PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterEpisodes
         });
         var probe = new Mock<IHueEnvironmentProbe>();
         probe
@@ -3656,6 +3658,7 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var diagnostics = Assert.IsType<HueDiagnosticsResult>(response.Value);
         Assert.True(diagnostics.ConfigurationValid);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, diagnostics.PlaybackMediaFilter);
         Assert.True(diagnostics.DefaultBridgeConfigured);
         Assert.True(diagnostics.Ffmpeg.Available);
         Assert.True(diagnostics.OpenSsl.Available);
@@ -4103,6 +4106,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "default-app-key",
             HueClientKey = "default-client-key",
             ChannelIds = "2, 9",
+            PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterMovies,
             FrameResolution = PluginConfiguration.FrameResolutionHigh,
             VideoScalingMode = PluginConfiguration.VideoScalingModeFit,
             VideoDeinterlaceMode = PluginConfiguration.VideoDeinterlaceModeAuto,
@@ -4139,6 +4143,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(settings.HasAppKey);
         Assert.True(settings.HasClientKey);
         Assert.Equal("2, 9", settings.ChannelIds);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterMovies, settings.PlaybackMediaFilter);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, settings.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, settings.VideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, settings.VideoDeinterlaceMode);
@@ -4899,6 +4904,7 @@ public sealed class HueApiControllerTests : IDisposable
         {
             SyncEnabled = false,
             ChannelIds = "4, 8",
+            PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterEpisodes,
             TargetFps = 30,
             FrameResolution = PluginConfiguration.FrameResolutionLow,
             VideoScalingMode = PluginConfiguration.VideoScalingModeCrop,
@@ -4921,6 +4927,7 @@ public sealed class HueApiControllerTests : IDisposable
 
         Assert.IsType<OkObjectResult>(action.Result);
         Assert.Equal("4, 8", configuration.ChannelIds);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, configuration.PlaybackMediaFilter);
         Assert.Equal(30, configuration.TargetFps);
         Assert.Equal(PluginConfiguration.FrameResolutionLow, configuration.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeCrop, configuration.VideoScalingMode);

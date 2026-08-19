@@ -6,6 +6,26 @@ namespace Jellyfin.Plugin.Hue.Tests;
 public class PluginConfigurationTests
 {
     [Fact]
+    public void PlaybackMediaFilter_DefaultsToAllVideoAndNormalizesCase()
+    {
+        var config = new PluginConfiguration();
+
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterAllVideo, config.PlaybackMediaFilter);
+        Assert.True(PluginConfiguration.TryNormalizePlaybackMediaFilter(" episodes ", out var normalized));
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, normalized);
+        Assert.Empty(config.Validate());
+    }
+
+    [Fact]
+    public void PlaybackMediaFilter_RejectsUnknownValues()
+    {
+        var config = new PluginConfiguration { PlaybackMediaFilter = "Trailers" };
+
+        Assert.False(PluginConfiguration.TryNormalizePlaybackMediaFilter(config.PlaybackMediaFilter, out _));
+        Assert.Contains("Playback media scope must be AllVideo, Movies, Episodes, or OtherVideo", config.Validate());
+    }
+
+    [Fact]
     public void ValidateColorPresets_AllowsValidReusableScene()
     {
         var config = new PluginConfiguration

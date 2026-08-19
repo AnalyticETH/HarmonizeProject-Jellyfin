@@ -3006,6 +3006,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var status = new HueSyncStatus
             {
                 IsEnabled = config?.SyncEnabled ?? false,
+                ConfiguredPlaybackMediaFilter = config?.PlaybackMediaFilter ?? PluginConfiguration.PlaybackMediaFilterAllVideo,
                 ServiceAvailable = _syncService != null,
                 IsSyncing = runtime?.IsSyncing ?? false,
                 CurrentItem = runtime?.CurrentItem,
@@ -3172,6 +3173,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ConfigurationValid = configurationValid,
                 ConfigurationErrors = configurationErrors,
                 SyncEnabled = config?.SyncEnabled ?? false,
+                PlaybackMediaFilter = config?.PlaybackMediaFilter ?? PluginConfiguration.PlaybackMediaFilterAllVideo,
                 DefaultBridgeConfigured = hasDefaultTarget,
                 EnabledUserMappingCount = config?.UserMappings?.Count(mapping => mapping != null && mapping.SyncEnabled) ?? 0,
                 CustomUserTargetConfigured = hasCustomUserTarget,
@@ -4477,6 +4479,7 @@ namespace Jellyfin.Plugin.Hue.Api
     public sealed class HuePluginConfigurationSettings
     {
         public bool SyncEnabled { get; set; }
+        public string PlaybackMediaFilter { get; set; } = PluginConfiguration.PlaybackMediaFilterAllVideo;
         public string HueBridgeIp { get; set; } = string.Empty;
         public string HueAppKey { get; set; } = string.Empty;
         public string HueClientKey { get; set; } = string.Empty;
@@ -4519,6 +4522,7 @@ namespace Jellyfin.Plugin.Hue.Api
             return new HuePluginConfigurationSettings
             {
                 SyncEnabled = config.SyncEnabled,
+                PlaybackMediaFilter = config.PlaybackMediaFilter,
                 HueBridgeIp = config.HueBridgeIp,
                 HueAppKey = string.Empty,
                 HueClientKey = string.Empty,
@@ -4560,6 +4564,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public void ApplyTo(PluginConfiguration config)
         {
             config.SyncEnabled = SyncEnabled;
+            config.PlaybackMediaFilter = PlaybackMediaFilter?.Trim() ?? PluginConfiguration.PlaybackMediaFilterAllVideo;
             config.HueBridgeIp = HueBridgeIp?.Trim() ?? string.Empty;
             if (ClearStoredCredentials)
             {
@@ -5827,6 +5832,7 @@ namespace Jellyfin.Plugin.Hue.Api
     public class HueSyncStatus
     {
         public bool IsEnabled { get; set; }
+        public string ConfiguredPlaybackMediaFilter { get; set; } = PluginConfiguration.PlaybackMediaFilterAllVideo;
         public bool ServiceAvailable { get; set; }
         public bool IsSyncing { get; set; }
         public string? CurrentItem { get; set; }
@@ -5957,6 +5963,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool ConfigurationValid { get; init; }
         public IReadOnlyList<string> ConfigurationErrors { get; init; } = Array.Empty<string>();
         public bool SyncEnabled { get; init; }
+        public string PlaybackMediaFilter { get; init; } = PluginConfiguration.PlaybackMediaFilterAllVideo;
         public bool DefaultBridgeConfigured { get; init; }
         public int EnabledUserMappingCount { get; init; }
         public bool CustomUserTargetConfigured { get; init; }

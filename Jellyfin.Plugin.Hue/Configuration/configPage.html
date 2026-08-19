@@ -18,6 +18,7 @@
                             <div><strong>State:</strong> <span id="runtimeState">Loading...</span></div>
                             <div><strong>Item:</strong> <span id="runtimeItem">—</span></div>
                             <div><strong>User:</strong> <span id="runtimeUser">—</span></div>
+                            <div><strong>Playback media scope:</strong> <span id="runtimePlaybackMediaFilter">—</span></div>
                             <div><strong>Active target:</strong> <span id="runtimeTarget">—</span></div>
                             <div><strong>Frame resolution:</strong> <span id="runtimeResolution">—</span></div>
                             <div><strong>Video fit:</strong> <span id="runtimeScalingMode">—</span></div>
@@ -609,6 +610,16 @@
 
                     <fieldset class="verticalSection">
                         <legend>Sync performance</legend>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="playbackMediaFilter">Playback Media Scope</label>
+                            <select id="playbackMediaFilter" name="playbackMediaFilter" is="emby-select">
+                                <option value="AllVideo">All video (default)</option>
+                                <option value="Movies">Movies only</option>
+                                <option value="Episodes">TV episodes only</option>
+                                <option value="OtherVideo">Other video (music/home videos)</option>
+                            </select>
+                            <div class="fieldDescription">Choose which Jellyfin video item types can start Hue Sync. Changing this does not interrupt an active session; its normal progress and stop events still clean up safely.</div>
+                        </div>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="targetFps">Target FPS</label>
                             <input id="targetFps" name="targetFps" type="number" is="emby-input" />
@@ -1209,6 +1220,7 @@
                             : 'Enter Hue Client Key';
                         HueConfigurationPage.selectedAreaId = getConfigValue('EntertainmentAreaId', '');
                         page.querySelector('#channelIds').value = getConfigValue('ChannelIds', '');
+                        page.querySelector('#playbackMediaFilter').value = getConfigValue('PlaybackMediaFilter', 'AllVideo');
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#frameResolution').value = getConfigValue('FrameResolution', '160x90');
                         page.querySelector('#videoScalingMode').value = getConfigValue('VideoScalingMode', 'Stretch');
@@ -1262,6 +1274,7 @@
                         HueClientKey: page.querySelector('#hueClientKey').value,
                         EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
                         ChannelIds: page.querySelector('#channelIds').value,
+                        PlaybackMediaFilter: page.querySelector('#playbackMediaFilter').value,
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         FrameResolution: page.querySelector('#frameResolution').value,
                         VideoScalingMode: page.querySelector('#videoScalingMode').value,
@@ -4600,6 +4613,7 @@
                         var currentItem = HueConfigurationPage.readStatusField(status, "CurrentItem", "—");
                         var activeUserId = HueConfigurationPage.readStatusField(status, "ActiveUserId", "");
                         var activeUserName = HueConfigurationPage.readStatusField(status, "ActiveUserName", "");
+                        var playbackMediaFilter = HueConfigurationPage.readStatusField(status, "ConfiguredPlaybackMediaFilter", "AllVideo");
                         var frameResolution = HueConfigurationPage.readStatusField(status, "ActiveFrameResolution", "—");
                         var scalingMode = HueConfigurationPage.readStatusField(status, "ActiveVideoScalingMode", "—");
                         var deinterlaceMode = HueConfigurationPage.readStatusField(status, "ActiveVideoDeinterlaceMode", "—");
@@ -4649,6 +4663,7 @@
                         page.querySelector('#runtimeState').textContent = state + (isSyncing && state !== "Syncing" ? " (active)" : "");
                         page.querySelector('#runtimeItem').textContent = currentItem || "—";
                         page.querySelector('#runtimeUser').textContent = activeUserName || activeUserId || "—";
+                        page.querySelector('#runtimePlaybackMediaFilter').textContent = playbackMediaFilter || "AllVideo";
                         page.querySelector('#runtimeResolution').textContent = frameResolution || "—";
                         page.querySelector('#runtimeScalingMode').textContent = scalingMode || "—";
                         page.querySelector('#runtimeDeinterlaceMode').textContent = deinterlaceMode || "—";

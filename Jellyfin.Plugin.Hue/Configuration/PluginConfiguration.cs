@@ -343,6 +343,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string VideoDeinterlaceModeOff = "Off";
         public const string VideoDeinterlaceModeAuto = "Auto";
         public const string VideoDeinterlaceModeOn = "On";
+        public const string PlaybackMediaFilterAllVideo = "AllVideo";
+        public const string PlaybackMediaFilterMovies = "Movies";
+        public const string PlaybackMediaFilterEpisodes = "Episodes";
+        public const string PlaybackMediaFilterOtherVideo = "OtherVideo";
 
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
@@ -423,6 +427,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
             ColorPresetEffectCandle
         };
 
+        private static readonly string[] PlaybackMediaFilters =
+        {
+            PlaybackMediaFilterAllVideo,
+            PlaybackMediaFilterMovies,
+            PlaybackMediaFilterEpisodes,
+            PlaybackMediaFilterOtherVideo
+        };
+
         /// <summary>
         /// Returns the canonical spelling for a supported saved-scene effect. Blank
         /// values are treated as the legacy solid-color behavior.
@@ -448,6 +460,30 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Returns the canonical spelling for the configured playback media scope.
+        /// Blank values preserve the legacy behavior of synchronizing every video item.
+        /// </summary>
+        public static bool TryNormalizePlaybackMediaFilter(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = PlaybackMediaFilterAllVideo;
+                return true;
+            }
+
+            var match = PlaybackMediaFilters.FirstOrDefault(filter =>
+                string.Equals(filter, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = PlaybackMediaFilterAllVideo;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
         /// Clamps persisted or telemetry-only effect speed values to the supported range.
         /// Request and configuration validation still rejects out-of-range user input.
         /// </summary>
@@ -455,6 +491,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             => Math.Clamp(value, MinColorPresetEffectSpeedPercent, MaxColorPresetEffectSpeedPercent);
 
         public bool SyncEnabled { get; set; } = false;
+        /// <summary>
+        /// Limits which Jellyfin video item types can start Hue synchronization. Existing
+        /// sessions still receive their normal progress and stop lifecycle events when this
+        /// setting changes, so cleanup remains safe during an administrator edit.
+        /// </summary>
+        public string PlaybackMediaFilter { get; set; } = PlaybackMediaFilterAllVideo;
 
         // Default/fallback bridge settings (used when no user mapping exists)
         public string HueBridgeIp { get; set; } = string.Empty;
@@ -1644,6 +1686,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
             errors.AddRange(ValidateColorPresets());
             errors.AddRange(ValidateScenePlaylists());
             errors.AddRange(ValidateSceneSchedules());
+
+            if (!TryNormalizePlaybackMediaFilter(PlaybackMediaFilter, out _))
+                errors.Add("Playback media scope must be AllVideo, Movies, Episodes, or OtherVideo");
 
             if (SceneAutomationCatchUpMinutes < MinSceneAutomationCatchUpMinutes ||
                 SceneAutomationCatchUpMinutes > MaxSceneAutomationCatchUpMinutes)
