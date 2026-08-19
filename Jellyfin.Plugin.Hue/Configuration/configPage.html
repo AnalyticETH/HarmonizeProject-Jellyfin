@@ -312,7 +312,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Saved Scene Playlists</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into an ordered playlist. Each step uses the saved scene's effect, duration, brightness, and fade transitions; the playlist runs sequentially through the restorative preview lifecycle. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, one enabled mapping, or all enabled targets. Playlist definitions contain only scene names, repeat count, and target mode, never bridge credentials. Renaming a playlist automatically updates scheduled cues that use it; deleting a playlist is blocked until those cues are changed or removed.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into an ordered playlist. Each step uses the saved scene's effect, duration, brightness, and fade transitions; the playlist runs sequentially through the restorative preview lifecycle. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, one enabled mapping, or all enabled targets. Playlist definitions contain only scene names, repeat count, and target mode, never bridge credentials. Renaming a playlist automatically updates scheduled cues that use it; use View Cue References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="scenePlaylistSelect">Saved Playlist</label>
@@ -323,6 +323,7 @@
                             <button is="emby-button" type="button" class="raised" id="previewScenePlaylistBtn" disabled><span>Preview Playlist</span></button>
                             <button is="emby-button" type="button" class="raised" id="previewScenePlaylistAllBtn" disabled><span>Preview Playlist on All Targets</span></button>
                             <button is="emby-button" type="button" class="raised" id="duplicateScenePlaylistBtn" disabled><span>Duplicate Playlist</span></button>
+                            <button is="emby-button" type="button" class="raised" id="inspectScenePlaylistBtn" disabled><span>View Cue References</span></button>
                             <button is="emby-button" type="button" class="raised" id="deleteScenePlaylistBtn" disabled><span>Delete Playlist</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearScenePlaylistBtn"><span>New Playlist</span></button>
                         </div>
@@ -2387,11 +2388,13 @@
                     var preview = page && page.querySelector('#previewScenePlaylistBtn');
                     var previewAll = page && page.querySelector('#previewScenePlaylistAllBtn');
                     var duplicate = page && page.querySelector('#duplicateScenePlaylistBtn');
+                    var inspect = page && page.querySelector('#inspectScenePlaylistBtn');
                     var deleteButton = page && page.querySelector('#deleteScenePlaylistBtn');
                     var add = page && page.querySelector('#addScenePlaylistStepBtn');
                     if (preview) preview.disabled = !hasSelection;
                     if (previewAll) previewAll.disabled = !hasSelection;
                     if (duplicate) duplicate.disabled = !hasSelection;
+                    if (inspect) inspect.disabled = !hasSelection;
                     if (deleteButton) deleteButton.disabled = !hasSelection;
                     if (add) add.disabled = !source || !source.value || items.length >= 20;
                 },
@@ -2600,6 +2603,58 @@
                         if (button) button.disabled = false;
                         HueConfigurationPage.updateScenePlaylistButtons(page);
                     });
+                },
+                inspectScenePlaylistDependencies: function (page) {
+                    var select = page.querySelector('#scenePlaylistSelect');
+                    var name = select ? select.value : '';
+                    var status = page.querySelector('#scenePlaylistStatus');
+                    if (!name) {
+                        Dashboard.alert("Choose a saved playlist first.");
+                        return;
+                    }
+
+                    var button = page.querySelector('#inspectScenePlaylistBtn');
+                    if (button) button.disabled = true;
+                    if (status) {
+                        status.textContent = "Checking scheduled-cue references...";
+                        status.style.color = "";
+                    }
+                    ApiClient.getJSON(ApiClient.getUrl("HueSync/ScenePlaylists/" + encodeURIComponent(name) + "/Dependencies"))
+                        .then(function (response) {
+                            var resultName = response && (response.name || response.Name) || name;
+                            var canDelete = response && (response.canDelete !== undefined ? response.canDelete : response.CanDelete);
+                            var cueCount = response && (response.scheduledCueCount !== undefined ? response.scheduledCueCount : response.ScheduledCueCount) || 0;
+                            var cues = response && (response.scheduledCues || response.ScheduledCues) || [];
+                            var details = ["Saved playlist: " + resultName];
+                            if (canDelete) {
+                                details.push("No scheduled-cue references were found. The playlist can be deleted safely.");
+                            } else {
+                                details.push("References: " + cueCount + " scheduled cue(s).");
+                                cues.forEach(function (cue) {
+                                    if (!cue) return;
+                                    var cueName = cue.name !== undefined ? cue.name : cue.Name;
+                                    var enabled = cue.enabled !== undefined ? cue.enabled : cue.Enabled;
+                                    details.push("Scheduled cue: " + (cueName || "Unnamed") + (enabled ? " (enabled)" : " (disabled)"));
+                                });
+                            }
+                            Dashboard.alert(details.join("\n"));
+                            if (status) {
+                                status.textContent = canDelete
+                                    ? "No scheduled-cue references found; the playlist can be deleted safely."
+                                    : "This playlist is referenced by " + cueCount + " scheduled cue(s).";
+                                status.style.color = canDelete ? "#8bc34a" : "#f0ad4e";
+                            }
+                        })
+                        .catch(function (err) {
+                            console.error("Failed to inspect scene playlist dependencies:", err);
+                            if (status) {
+                                status.textContent = "Unable to inspect playlist references. Check the server log.";
+                                status.style.color = "#d9534f";
+                            }
+                        })
+                        .finally(function () {
+                            HueConfigurationPage.updateScenePlaylistButtons(page);
+                        });
                 },
                 deleteScenePlaylist: function (page) {
                     var select = page.querySelector('#scenePlaylistSelect');
@@ -6142,6 +6197,10 @@
 
             document.querySelector('#duplicateScenePlaylistBtn').addEventListener('click', function () {
                 HueConfigurationPage.duplicateScenePlaylist(this.closest('.page'));
+            });
+
+            document.querySelector('#inspectScenePlaylistBtn').addEventListener('click', function () {
+                HueConfigurationPage.inspectScenePlaylistDependencies(this.closest('.page'));
             });
 
             document.querySelector('#deleteScenePlaylistBtn').addEventListener('click', function () {

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.115] - 2026-08-19
+
+### Added
+- **Saved-playlist dependency audit**: inspect every scheduled cue that references a playlist through `GET /HueSync/ScenePlaylists/{name}/Dependencies`, including cue IDs, names, and enabled state
+- **Administrator cue-reference inspection**: add View Cue References to the Saved Scene Playlists editor so dependency-protected deletion is explainable before an action is attempted
+
+### Security
+- Playlist dependency results remain credential-free and expose only bounded playlist and cue labels/counts; bridge addresses, app keys, client keys, playback tokens, and target details remain server-side
+
 ## [1.5.114] - 2026-08-19
 
 ### Added

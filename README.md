@@ -163,6 +163,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/ColorPresets/{name}/Duplicate` | Create a uniquely named copy of one saved scene, preserving effect, animation speed, RGB/brightness, duration, and fade transitions. The copy is independently editable, leaves scheduled references to the source unchanged, and never returns bridge credentials. |
 | `DELETE /HueSync/ColorPresets/{name}` | Delete one saved color scene by name; returns a conflict with dependent playlist and scheduled-cue counts while any reference remains. |
 | `GET /HueSync/ScenePlaylists` | List credential-free ordered saved-scene playlists, including scene references, repeat passes, target mode/label, and bounded total duration. |
+| `GET /HueSync/ScenePlaylists/{name}/Dependencies` | Inspect one saved playlist's credential-free scheduled-cue dependencies before deletion. Returns `canDelete`, the dependent cue count, and cue IDs/names/enabled state; bridge credentials and target details are never returned. |
 | `POST /HueSync/ScenePlaylists` | Save or update a playlist with an optional stable `id`, bounded `name`, up to 20 ordered `presetNames`, bounded `repeatCount` (1-10, default 1), and either the default target, one enabled `targetUserId`, or `targetAllEnabledMappings: true`; all references, repeated duration, and targets are validated before persistence. Renaming an existing playlist atomically updates scheduled cues that reference its old name. |
 | `POST /HueSync/ScenePlaylists/{name}/Preview` | Preview a saved playlist sequentially through the restorative scene lifecycle for its configured repeat passes. An optional `{ "targetUserId": "..." }` or `{ "targetAllEnabledMappings": true }` overrides the saved target for that run; the response includes repeat count, expanded per-pass steps, credential-free aggregate target outcomes, channel counts, and cleanup warnings. |
 | `POST /HueSync/ScenePlaylists/{name}/Duplicate` | Create a uniquely named copy of a playlist with a new stable ID while preserving its ordered scenes and target mode. |
@@ -369,7 +370,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.114 (Current)
+### Version 1.5.115 (Current)
+- **Saved-playlist dependency audit**: inspect every scheduled cue that references a playlist through a credential-free API before deletion
+- **Administrator cue-reference inspection**: use View Cue References in the Saved Scene Playlists editor to understand why deletion is blocked without trial-and-error
+
+### Version 1.5.114
 - **Complete saved-scene dependency graph**: show scheduled cues that reach a scene through a dependent playlist, including direct-versus-playlist reference type
 - **Transactional saved-scene deletion**: roll back the in-memory scene collection and return a sanitized 500 response if persistence fails
 

@@ -1744,6 +1744,53 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Inspects the scheduled-cue references for one saved-scene playlist without
+        /// returning bridge credentials or target details. The result is suitable for
+        /// checking whether deletion can proceed before changing the playlist.
+        /// </summary>
+        [HttpGet("ScenePlaylists/{name}/Dependencies")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HueScenePlaylistDependenciesResult> GetScenePlaylistDependencies(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return NotFound("Scene playlist not found.");
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var normalizedName = name.Trim();
+            var source = config.ScenePlaylists?.FirstOrDefault(playlist =>
+                playlist != null &&
+                string.Equals(playlist.Name?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase));
+            if (source == null)
+                return NotFound("Scene playlist not found.");
+
+            var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+                .Where(schedule => schedule != null &&
+                    string.Equals(schedule.PlaylistName?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase))
+                .Select(schedule => new HueScenePlaylistScheduleDependencyResult
+                {
+                    Id = schedule.Id?.Trim() ?? string.Empty,
+                    Name = schedule.Name?.Trim() ?? string.Empty,
+                    Enabled = schedule.Enabled
+                })
+                .OrderBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            return Ok(new HueScenePlaylistDependenciesResult
+            {
+                Id = source.Id?.Trim() ?? string.Empty,
+                Name = source.Name?.Trim() ?? normalizedName,
+                CanDelete = schedules.Length == 0,
+                ScheduledCueCount = schedules.Length,
+                ScheduledCues = schedules
+            });
+        }
+
+        /// <summary>
         /// Saves or updates an ordered saved-scene playlist. Only scene references, a
         /// bounded repeat count, and target mode are persisted; credentials remain in the
         /// server configuration.
@@ -4822,6 +4869,43 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("totalDurationSeconds")]
         public int TotalDurationSeconds { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free dependency summary for one saved-scene playlist.
+    /// </summary>
+    public sealed class HueScenePlaylistDependenciesResult
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = string.Empty;
+
+        [JsonPropertyName("canDelete")]
+        public bool CanDelete { get; init; }
+
+        [JsonPropertyName("scheduledCueCount")]
+        public int ScheduledCueCount { get; init; }
+
+        [JsonPropertyName("scheduledCues")]
+        public IReadOnlyList<HueScenePlaylistScheduleDependencyResult> ScheduledCues { get; init; } =
+            Array.Empty<HueScenePlaylistScheduleDependencyResult>();
+    }
+
+    /// <summary>
+    /// One credential-free scheduled-cue reference to a saved-scene playlist.
+    /// </summary>
+    public sealed class HueScenePlaylistScheduleDependencyResult
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = string.Empty;
+
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; init; }
     }
 
     /// <summary>

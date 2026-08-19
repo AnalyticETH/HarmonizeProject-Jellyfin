@@ -1533,6 +1533,75 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetScenePlaylistDependencies_ReturnsCredentialFreeCueDetails()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueAppKey = "playlist-dependency-app-secret",
+            HueClientKey = "playlist-dependency-client-secret",
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-dependency-id",
+                    Name = "Accent sequence",
+                    PresetNames = new List<string> { "Warm" }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-disabled",
+                    Name = "Disabled cue",
+                    PlaylistName = " accent sequence ",
+                    Enabled = false
+                },
+                new()
+                {
+                    Id = "cue-enabled",
+                    Name = "Enabled cue",
+                    PlaylistName = "Accent sequence",
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "cue-other",
+                    Name = "Other playlist cue",
+                    PlaylistName = "Different sequence",
+                    Enabled = true
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var action = controller.GetScenePlaylistDependencies(" ACCENT SEQUENCE ");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueScenePlaylistDependenciesResult>(response.Value);
+        Assert.Equal("playlist-dependency-id", result.Id);
+        Assert.Equal("Accent sequence", result.Name);
+        Assert.False(result.CanDelete);
+        Assert.Equal(2, result.ScheduledCueCount);
+        Assert.Equal(new[] { "Disabled cue", "Enabled cue" }, result.ScheduledCues.Select(cue => cue.Name));
+        Assert.False(result.ScheduledCues[0].Enabled);
+        Assert.True(result.ScheduledCues[1].Enabled);
+        Assert.Equal(new[] { "cue-disabled", "cue-enabled" }, result.ScheduledCues.Select(cue => cue.Id));
+
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("playlist-dependency-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-dependency-client-secret", serialized, StringComparison.Ordinal);
+
+        configuration.SceneSchedules.Clear();
+        var noReferences = controller.GetScenePlaylistDependencies("accent sequence");
+        var noReferencesResponse = Assert.IsType<OkObjectResult>(noReferences.Result);
+        var noReferencesResult = Assert.IsType<HueScenePlaylistDependenciesResult>(noReferencesResponse.Value);
+        Assert.True(noReferencesResult.CanDelete);
+        Assert.Equal(0, noReferencesResult.ScheduledCueCount);
+        Assert.Empty(noReferencesResult.ScheduledCues);
+    }
+
+    [Fact]
     public async Task ScenePlaylists_AllTargetsAggregatesEachStepAndNeverLeaksMappingCredentials()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
