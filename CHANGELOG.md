@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.117] - 2026-08-19
+
+### Reliability
+- **Transactional saved-scene updates**: failed scene saves now restore the previous in-memory collection and return a sanitized 500 response
+- **Transactional scheduled-cue lifecycle**: failed cue saves, deletes, and direct run-counter resets now roll back state instead of rethrowing persistence exceptions
+
+### Security
+- Persistence failures expose only bounded administrator messages; raw serializer and filesystem exception details remain in the server log
+
 ## [1.5.116] - 2026-08-19
 
 ### Added

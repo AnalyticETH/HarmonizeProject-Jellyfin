@@ -1411,6 +1411,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult<HueColorPresetResult> SaveColorPreset(
             [FromBody] HueColorPresetRequest? request)
         {
@@ -1434,16 +1435,18 @@ namespace Jellyfin.Plugin.Hue.Api
                 return NotFound("Plugin configuration not available.");
 
             config.ColorPresets ??= new List<HueColorPreset>();
-            var existingIndex = config.ColorPresets.FindIndex(existing =>
+            var previousPresets = config.ColorPresets;
+            var candidatePresets = previousPresets.ToList();
+            var existingIndex = candidatePresets.FindIndex(existing =>
                 existing != null &&
                 string.Equals(existing.Name?.Trim(), preset.Name, StringComparison.OrdinalIgnoreCase));
             if (existingIndex >= 0)
             {
-                config.ColorPresets[existingIndex] = preset;
+                candidatePresets[existingIndex] = preset;
             }
             else
             {
-                if (config.ColorPresets.Count >= PluginConfiguration.MaxColorPresets)
+                if (candidatePresets.Count >= PluginConfiguration.MaxColorPresets)
                 {
                     return BadRequest(new
                     {
@@ -1452,10 +1455,21 @@ namespace Jellyfin.Plugin.Hue.Api
                     });
                 }
 
-                config.ColorPresets.Add(preset);
+                candidatePresets.Add(preset);
             }
 
-            plugin.SaveConfiguration();
+            config.ColorPresets = candidatePresets;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ColorPresets = previousPresets;
+                _logger?.LogError(ex, "Could not persist Hue color preset {0}", preset.Name);
+                return StatusCode(StatusCodes.Status500InternalServerError, "The color preset could not be saved.");
+            }
+
             return Ok(ToColorPresetResult(preset));
         }
 
@@ -2472,6 +2486,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult<HueSceneScheduleResult> SaveSceneSchedule(
             [FromBody] HueSceneScheduleRequest? request)
         {
@@ -2555,10 +2570,11 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 plugin.SaveConfiguration();
             }
-            catch
+            catch (Exception ex)
             {
                 config.SceneSchedules = previousSchedules;
-                throw;
+                _logger?.LogError(ex, "Could not persist Hue scene schedule {0}", schedule.Name);
+                return StatusCode(StatusCodes.Status500InternalServerError, "The scene schedule could not be saved.");
             }
 
             return Ok(ToSceneScheduleResult(schedule, config));
@@ -2642,23 +2658,39 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpDelete("SceneSchedules/{id}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult DeleteSceneSchedule(string id)
         {
             if (string.IsNullOrWhiteSpace(id))
                 return NotFound("Scene schedule not found.");
 
-            var config = Plugin.Instance?.Configuration;
-            if (config == null)
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
             config.SceneSchedules ??= new List<HueSceneSchedule>();
-            var removed = config.SceneSchedules.RemoveAll(schedule =>
+            var previousSchedules = config.SceneSchedules.ToList();
+            var candidateSchedules = previousSchedules.ToList();
+            var normalizedId = id.Trim();
+            var removed = candidateSchedules.RemoveAll(schedule =>
                 schedule != null &&
-                string.Equals(schedule.Id?.Trim(), id.Trim(), StringComparison.OrdinalIgnoreCase));
+                string.Equals(schedule.Id?.Trim(), normalizedId, StringComparison.OrdinalIgnoreCase));
             if (removed == 0)
                 return NotFound("Scene schedule not found.");
 
-            Plugin.Instance?.SaveConfiguration();
+            config.SceneSchedules = candidateSchedules;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.SceneSchedules = previousSchedules;
+                _logger?.LogError(ex, "Could not persist deletion of Hue scene schedule {0}", normalizedId);
+                return StatusCode(StatusCodes.Status500InternalServerError, "The scene schedule could not be deleted.");
+            }
+
             return Ok(new { message = "Scene schedule deleted successfully." });
         }
 
@@ -2732,10 +2764,12 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult<HueSceneScheduleResult> ResetSceneScheduleRunCount(string id)
         {
-            var config = Plugin.Instance?.Configuration;
-            if (config == null)
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
             var schedule = config.SceneSchedules?.FirstOrDefault(candidate =>
@@ -2751,10 +2785,26 @@ namespace Jellyfin.Plugin.Hue.Api
             }
             else
             {
+                var previousRunCount = schedule.RunCount;
+                var previousEnabled = schedule.Enabled;
+                var previousSkip = schedule.SkipNextOccurrence;
                 schedule.RunCount = 0;
                 schedule.Enabled = true;
                 schedule.SkipNextOccurrence = false;
-                Plugin.Instance?.SaveConfiguration();
+                try
+                {
+                    plugin.SaveConfiguration();
+                }
+                catch (Exception ex)
+                {
+                    schedule.RunCount = previousRunCount;
+                    schedule.Enabled = previousEnabled;
+                    schedule.SkipNextOccurrence = previousSkip;
+                    _logger?.LogError(ex, "Could not persist reset for Hue scene schedule {0}", schedule.Name);
+                    return StatusCode(
+                        StatusCodes.Status500InternalServerError,
+                        "The scene schedule counter could not be reset.");
+                }
             }
 
             return Ok(ToSceneScheduleResult(schedule, config));

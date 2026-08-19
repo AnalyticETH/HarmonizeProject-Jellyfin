@@ -2742,6 +2742,39 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_ResetRunCountWithoutHostedServicePersistsAndClearsPendingSkip()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "direct-reset-cue",
+                    Name = "Direct reset cue",
+                    PresetName = "Evening",
+                    MaxRuns = 3,
+                    RunCount = 2,
+                    Enabled = false,
+                    SkipNextOccurrence = true
+                }
+            }
+        });
+
+        var action = CreateController().ResetSceneScheduleRunCount(" direct-reset-cue ");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.Equal(0, result.RunCount);
+        Assert.True(result.Enabled);
+        Assert.False(result.SkipNextOccurrence);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.False(configuration.SceneSchedules[0].SkipNextOccurrence);
+    }
+
+    [Fact]
     public void SceneSchedules_EnabledActionTogglesOnlyCueStateThroughAdministratorApi()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
