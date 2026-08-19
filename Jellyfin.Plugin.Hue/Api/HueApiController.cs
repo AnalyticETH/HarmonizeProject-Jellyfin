@@ -3911,6 +3911,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult<HuePluginConfigurationSettings> SaveConfiguration(
             [FromBody] HuePluginConfigurationSettings? settings)
         {
@@ -3929,6 +3930,8 @@ namespace Jellyfin.Plugin.Hue.Api
             var previousSettings = HuePluginConfigurationSettings.From(config);
             var previousAppKey = config.HueAppKey;
             var previousClientKey = config.HueClientKey;
+            var previousPersistedSessionHistory = (config.PersistedSessionHistory ?? new List<HueSessionHistoryEntry>()).ToList();
+            var previousPersistedSceneScheduleHistory = (config.PersistedSceneScheduleHistory ?? new List<HueSceneScheduleHistoryEntry>()).ToList();
             settings.ApplyTo(config);
             var validationErrors = config.Validate();
             if (validationErrors.Count > 0)
@@ -3936,6 +3939,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 previousSettings.ApplyTo(config);
                 config.HueAppKey = previousAppKey;
                 config.HueClientKey = previousClientKey;
+                config.PersistedSessionHistory = previousPersistedSessionHistory;
+                config.PersistedSceneScheduleHistory = previousPersistedSceneScheduleHistory;
                 return BadRequest(new
                 {
                     message = "Configuration is invalid.",
@@ -3943,7 +3948,21 @@ namespace Jellyfin.Plugin.Hue.Api
                 });
             }
 
-            plugin.SaveConfiguration();
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                previousSettings.ApplyTo(config);
+                config.HueAppKey = previousAppKey;
+                config.HueClientKey = previousClientKey;
+                config.PersistedSessionHistory = previousPersistedSessionHistory;
+                config.PersistedSceneScheduleHistory = previousPersistedSceneScheduleHistory;
+                _logger?.LogError(ex, "Could not persist Hue plugin configuration");
+                return StatusCode(StatusCodes.Status500InternalServerError, "Configuration could not be saved.");
+            }
+
             _syncService?.RefreshSessionHistoryPersistence();
             _sceneAutomationService?.RefreshSceneScheduleHistoryPersistence();
             return Ok(HuePluginConfigurationSettings.From(config));

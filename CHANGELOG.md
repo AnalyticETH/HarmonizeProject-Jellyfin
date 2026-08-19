@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.118] - 2026-08-19
+
+### Reliability
+- **Transactional global settings**: failed administrator configuration saves now restore every changed setting, including retained session and scheduled-cue history
+
+### Security
+- Global configuration persistence failures return a bounded administrator message while serializer and filesystem details remain only in server logs
+
 ## [1.5.117] - 2026-08-19
 
 ### Reliability

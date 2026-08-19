@@ -4806,6 +4806,55 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveConfiguration_WhenPersistenceFails_RestoresSettingsAndHistory()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("serializer path contains a private implementation detail"));
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-app-key",
+            HueClientKey = "stored-client-key",
+            SceneAutomationCatchUpMinutes = 12,
+            PersistSessionHistory = true,
+            PersistSceneScheduleHistory = true,
+            PersistedSessionHistory = new List<HueSessionHistoryEntry>
+            {
+                new() { Item = "Private title" }
+            },
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new() { ScheduleId = "private-cue", ScheduleName = "Private cue" }
+            }
+        }, serializer.Object);
+
+        var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            SyncEnabled = false,
+            HueBridgeIp = "192.168.1.101",
+            PersistSessionHistory = false,
+            PersistSceneScheduleHistory = false,
+            SceneAutomationCatchUpMinutes = 18
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Equal("Configuration could not be saved.", response.Value);
+        Assert.True(configuration.SyncEnabled);
+        Assert.Equal("192.168.1.100", configuration.HueBridgeIp);
+        Assert.Equal("stored-app-key", configuration.HueAppKey);
+        Assert.Equal("stored-client-key", configuration.HueClientKey);
+        Assert.Equal(12, configuration.SceneAutomationCatchUpMinutes);
+        Assert.True(configuration.PersistSessionHistory);
+        Assert.True(configuration.PersistSceneScheduleHistory);
+        Assert.Equal("Private title", Assert.Single(configuration.PersistedSessionHistory).Item);
+        Assert.Equal("private-cue", Assert.Single(configuration.PersistedSceneScheduleHistory).ScheduleId);
+    }
+
+    [Fact]
     public void SaveUserMapping_BlankSecretsPreserveExistingCredentials()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -5114,7 +5163,9 @@ public sealed class HueApiControllerTests : IDisposable
             diagnosticsCancellationGate);
     }
 
-    private static PluginConfiguration InstallConfiguration(PluginConfiguration configuration)
+    private static PluginConfiguration InstallConfiguration(
+        PluginConfiguration configuration,
+        IXmlSerializer? xmlSerializer = null)
     {
         var pluginDataPath = Path.Combine(Path.GetTempPath(), "jellyfin-hue-api-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(pluginDataPath);
@@ -5133,7 +5184,7 @@ public sealed class HueApiControllerTests : IDisposable
         applicationPaths.SetupGet(paths => paths.TempDirectory).Returns(pluginDataPath);
         applicationPaths.SetupGet(paths => paths.VirtualDataPath).Returns(pluginDataPath);
 
-        var plugin = new Plugin(applicationPaths.Object, Mock.Of<IXmlSerializer>());
+        var plugin = new Plugin(applicationPaths.Object, xmlSerializer ?? Mock.Of<IXmlSerializer>());
         var configurationField = plugin.GetType().BaseType!.GetField("_configuration", BindingFlags.Instance | BindingFlags.NonPublic)!;
         configurationField.SetValue(plugin, configuration);
         return plugin.Configuration;

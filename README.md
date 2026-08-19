@@ -200,7 +200,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/Configuration/Export` | Download a credential-safe JSON backup containing global settings, per-user profile fields, target labels, credential-presence flags, the session/cue-history retention preferences, the recurring-automation pause preference, saved scene effects and effect speeds, ordered saved scene playlists with repeat counts, and recurring or one-time scene cues. Secret values and persisted history entries are never included. |
 | `POST /HueSync/Configuration/Import` | Atomically restore an export document, including saved scene playlists and scene cues. Matching stored global/mapping keys are preserved when omitted; explicit global or mapping keys may be supplied for migration, playlist renames migrate matching cue references by stable playlist ID, and invalid documents leave the current configuration unchanged. The configuration page keeps replacement keys in memory only and sends them once in this request. Active playback must be stopped first. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. Pass `playSessionId` to stop one listed concurrent session. |
-| `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, recurring scene-automation pause preference, bounded missed-cue recovery window, and opt-in persistent session/cue-history preferences, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. |
+| `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, recurring scene-automation pause preference, bounded missed-cue recovery window, and opt-in persistent session/cue-history preferences, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. Failed persistence restores the complete prior settings and retained history and returns a sanitized server error. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients; `userId` can select a matching stored custom mapping, but POST is preferred so keys do not appear in URLs. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |
 | `GET /HueSync/UserMappings/{userId}/Dependencies` | Inspect one mapping's credential-free scheduled-cue dependencies before disabling or deleting it. Returns `canDisable`, `canDelete`, the dependent cue count, and cue IDs/names/enabled state; bridge credentials and target details are never returned. |
@@ -375,7 +375,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.117 (Current)
+### Version 1.5.118 (Current)
+- **Transactional global settings**: failed administrator configuration saves restore all prior settings and retained session/scheduled-cue history instead of leaking serializer errors
+
+### Version 1.5.117
 - **Transactional scene persistence**: failed saved-scene updates restore the prior in-memory scene collection and return sanitized persistence errors
 - **Transactional scheduled-cue lifecycle**: failed save/delete/direct counter-reset operations roll back instead of rethrowing raw persistence exceptions
 
