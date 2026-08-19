@@ -294,7 +294,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. The saved scene's effect and 25-400% animation speed are inherited by every cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Use <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. The saved scene's effect and 25-400% animation speed are inherited by every cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -304,6 +304,7 @@
                             </div>
                             <button is="emby-button" type="button" class="raised" id="runSceneScheduleBtn" disabled><span>Run Now</span></button>
                             <button is="emby-button" type="button" class="raised" id="cancelSceneScheduleRunBtn" style="display: none; background: #8a3d3d;"><span>Cancel Running Cue</span></button>
+                            <button is="emby-button" type="button" class="raised" id="toggleSceneScheduleEnabledBtn" disabled><span>Enable Cue</span></button>
                             <button is="emby-button" type="button" class="raised" id="duplicateSceneScheduleBtn" disabled><span>Duplicate Cue</span></button>
                             <button is="emby-button" type="button" class="raised" id="deleteSceneScheduleBtn" disabled><span>Delete Cue</span></button>
                             <button is="emby-button" type="button" class="raised" id="resetSceneScheduleRunCountBtn" disabled><span>Reset Run Counter</span></button>
@@ -2531,12 +2532,26 @@
                 updateSceneScheduleButtons: function (page) {
                     var select = page && page.querySelector('#sceneScheduleSelect');
                     var hasSelection = !!(select && select.value);
+                    var selectedSchedule = hasSelection && page && Array.isArray(page._hueSceneSchedules)
+                        ? page._hueSceneSchedules.find(function (candidate) {
+                            var candidateId = candidate && (candidate.id !== undefined ? candidate.id : candidate.Id);
+                            return String(candidateId || '').toLowerCase() === String(select.value || '').toLowerCase();
+                        })
+                        : null;
+                    var selectedEnabled = selectedSchedule &&
+                        (selectedSchedule.enabled !== undefined ? selectedSchedule.enabled : selectedSchedule.Enabled) !== false;
+                    var toggleButton = page && page.querySelector('#toggleSceneScheduleEnabledBtn');
                     var duplicateButton = page && page.querySelector('#duplicateSceneScheduleBtn');
                     var deleteButton = page && page.querySelector('#deleteSceneScheduleBtn');
                     var resetRunCountButton = page && page.querySelector('#resetSceneScheduleRunCountBtn');
                     var runButton = page && page.querySelector('#runSceneScheduleBtn');
                     var cancelButton = page && page.querySelector('#cancelSceneScheduleRunBtn');
                     var runActive = !!(page && page._hueSceneScheduleRequest);
+                    if (toggleButton) {
+                        var toggleLabel = toggleButton.querySelector('span');
+                        if (toggleLabel) toggleLabel.textContent = selectedEnabled ? "Disable Cue" : "Enable Cue";
+                        toggleButton.disabled = !hasSelection || runActive;
+                    }
                     if (duplicateButton) duplicateButton.disabled = !hasSelection || runActive;
                     if (deleteButton) deleteButton.disabled = !hasSelection;
                     if (resetRunCountButton) resetRunCountButton.disabled = !hasSelection || runActive;
@@ -2788,6 +2803,61 @@
                                 console.error("Failed to duplicate scene schedule:", err);
                                 if (statusEl) {
                                     statusEl.textContent = "Unable to duplicate the scheduled cue. Check the schedule limit and server log.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                                HueConfigurationPage.updateSceneScheduleButtons(page);
+                            });
+                        });
+                },
+                setSceneScheduleEnabled: function (page) {
+                    if (!page) return;
+                    var select = page.querySelector('#sceneScheduleSelect');
+                    var scheduleId = select && select.value;
+                    var option = select && select.options[select.selectedIndex];
+                    var schedule = scheduleId && Array.isArray(page._hueSceneSchedules)
+                        ? page._hueSceneSchedules.find(function (candidate) {
+                            var candidateId = candidate && (candidate.id !== undefined ? candidate.id : candidate.Id);
+                            return String(candidateId || '').toLowerCase() === String(scheduleId).toLowerCase();
+                        })
+                        : null;
+                    var currentEnabled = schedule &&
+                        (schedule.enabled !== undefined ? schedule.enabled : schedule.Enabled) !== false;
+                    var nextEnabled = !currentEnabled;
+                    var statusEl = page.querySelector('#sceneScheduleStatus');
+                    if (!scheduleId) {
+                        Dashboard.alert("Choose a scheduled cue first.");
+                        return;
+                    }
+
+                    Dashboard.confirm(
+                        (nextEnabled ? "Enable" : "Disable") + " the scheduled cue '" + (option ? option.textContent : scheduleId) + "' without changing its schedule?",
+                        nextEnabled ? "Enable Cue" : "Disable Cue",
+                        function (confirmed) {
+                            if (!confirmed) return;
+                            var button = page.querySelector('#toggleSceneScheduleEnabledBtn');
+                            if (button) button.disabled = true;
+                            if (statusEl) {
+                                statusEl.textContent = (nextEnabled ? "Enabling" : "Disabling") + " scheduled cue...";
+                                statusEl.style.color = "";
+                            }
+                            ApiClient.ajax({
+                                type: "POST",
+                                url: ApiClient.getUrl("HueSync/SceneSchedules/" + encodeURIComponent(scheduleId) + "/Enabled"),
+                                data: JSON.stringify({ enabled: nextEnabled }),
+                                contentType: "application/json",
+                                dataType: "json"
+                            }).then(function () {
+                                if (statusEl) {
+                                    statusEl.textContent = nextEnabled
+                                        ? "Scheduled cue enabled without changing its schedule."
+                                        : "Scheduled cue disabled without changing its schedule.";
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                                return HueConfigurationPage.loadSceneSchedules(page, scheduleId);
+                            }).catch(function (err) {
+                                console.error("Failed to change scene schedule enabled state:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = "Unable to change cue state. An exhausted cue must be reset before it can be enabled, and active cues must finish first.";
                                     statusEl.style.color = "#d9534f";
                                 }
                                 HueConfigurationPage.updateSceneScheduleButtons(page);
@@ -5080,6 +5150,10 @@
 
             document.querySelector('#runSceneScheduleBtn').addEventListener('click', function () {
                 HueConfigurationPage.runSceneSchedule(this.closest('.page'));
+            });
+
+            document.querySelector('#toggleSceneScheduleEnabledBtn').addEventListener('click', function () {
+                HueConfigurationPage.setSceneScheduleEnabled(this.closest('.page'));
             });
 
             document.querySelector('#duplicateSceneScheduleBtn').addEventListener('click', function () {

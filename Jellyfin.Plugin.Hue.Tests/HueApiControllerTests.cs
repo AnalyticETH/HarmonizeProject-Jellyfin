@@ -1748,6 +1748,92 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_EnabledActionTogglesOnlyCueStateThroughAdministratorApi()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "toggle-api-cue",
+                    Name = "Toggle API cue",
+                    PresetName = "Evening",
+                    TimeOfDay = "06:30",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    StartDate = "2026-08-01",
+                    DurationSeconds = 7,
+                    MaxRuns = 3,
+                    RunCount = 1,
+                    Enabled = true
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var disabled = controller.SetSceneScheduleEnabled(
+            " toggle-api-cue ",
+            new HueSceneScheduleEnabledRequest { Enabled = false });
+        var disabledResponse = Assert.IsType<OkObjectResult>(disabled.Result);
+        var disabledResult = Assert.IsType<HueSceneScheduleResult>(disabledResponse.Value);
+        Assert.False(disabledResult.Enabled);
+        Assert.Equal("06:30", disabledResult.TimeOfDay);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceDaily, disabledResult.Recurrence);
+        Assert.Equal(1, disabledResult.RunCount);
+
+        var enabled = controller.SetSceneScheduleEnabled(
+            "toggle-api-cue",
+            new HueSceneScheduleEnabledRequest { Enabled = true });
+        var enabledResponse = Assert.IsType<OkObjectResult>(enabled.Result);
+        var enabledResult = Assert.IsType<HueSceneScheduleResult>(enabledResponse.Value);
+        Assert.True(enabledResult.Enabled);
+        Assert.Equal(7, enabledResult.DurationSeconds);
+        Assert.Equal(3, enabledResult.MaxRuns);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+    }
+
+    [Fact]
+    public void SceneSchedules_EnabledActionRejectsExhaustedCueThroughAdministratorApi()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "exhausted-api-cue",
+                    Name = "Exhausted API cue",
+                    PresetName = "Evening",
+                    MaxRuns = 2,
+                    RunCount = 2,
+                    Enabled = false
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.SetSceneScheduleEnabled(
+            "exhausted-api-cue",
+            new HueSceneScheduleEnabledRequest { Enabled = true });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(2, configuration.SceneSchedules[0].RunCount);
+    }
+
+    [Fact]
     public void SceneScheduleHistory_ReturnsSanitizedRunsAndClearsHistory()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

@@ -141,6 +141,67 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Enables or disables one cue without changing its schedule definition. The action
+    /// refuses to race an active bridge lifecycle and will not bypass an exhausted finite
+    /// execution limit; administrators must reset that counter explicitly first.
+    /// </summary>
+    public bool TrySetScheduleEnabled(string scheduleId, bool enabled, out string message)
+    {
+        message = string.Empty;
+        var config = Plugin.Instance?.Configuration;
+        var key = scheduleId?.Trim() ?? string.Empty;
+        var schedule = config?.SceneSchedules?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
+        if (schedule == null)
+        {
+            message = "The requested scene schedule was not found.";
+            return false;
+        }
+
+        var previousEnabled = schedule.Enabled;
+        lock (_runtimeStateLock)
+        {
+            if (_runtimeStates.TryGetValue(key, out var state) && state.ActiveRuns > 0)
+            {
+                message = "The scene schedule cannot be enabled or disabled while it is running.";
+                return false;
+            }
+
+            var currentRunCount = _runtimeStates.TryGetValue(key, out state)
+                ? state.RunCount
+                : Math.Max(0, schedule.RunCount);
+            if (enabled && schedule.MaxRuns > 0 && currentRunCount >= schedule.MaxRuns)
+            {
+                message = "The scene schedule has reached its execution limit. Reset its run counter before enabling it.";
+                return false;
+            }
+
+            schedule.Enabled = enabled;
+        }
+
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+            message = enabled
+                ? "The scene schedule was enabled without changing its timing or scene."
+                : "The scene schedule was disabled without changing its timing or scene.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lock (_runtimeStateLock)
+            {
+                schedule.Enabled = previousEnabled;
+            }
+
+            _logger.LogWarning(ex, "Could not persist enabled state for Hue scene schedule {0}", schedule.Name);
+            message = "The scene schedule enabled state could not be saved.";
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Returns the newest sanitized scheduled-scene run summaries. The optional
     /// schedule filter is matched against the stable cue ID and never against secrets.
     /// </summary>

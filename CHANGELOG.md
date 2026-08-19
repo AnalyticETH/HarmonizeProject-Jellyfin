@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.98] - 2026-08-19
+
+### Added
+- **Per-cue enable/disable control**: add a credential-free `Enable/Disable Cue` administrator action and `POST /HueSync/SceneSchedules/{id}/Enabled` endpoint that changes only the selected cue's active state
+- **Guarded automation lifecycle**: refuse state changes while a cue is running and require an explicit run-counter reset before re-enabling an exhausted finite cue
+
+### Security
+- Enabled-state changes remain administrator-authorized, validate finite limits, roll back failed persistence, and expose no bridge credentials or playback tokens
+
 ## [1.5.97] - 2026-08-19
 
 ### Added

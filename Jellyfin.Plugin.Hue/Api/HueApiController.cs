@@ -1676,6 +1676,65 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(ToSceneScheduleResult(schedule, config));
         }
 
+        /// <summary>
+        /// Enables or disables one scene cue without changing its timing, target, or
+        /// scene definition. Enabling an exhausted finite cue requires ResetRunCount.
+        /// </summary>
+        [HttpPost("SceneSchedules/{id}/Enabled")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueSceneScheduleResult> SetSceneScheduleEnabled(
+            string id,
+            [FromBody] HueSceneScheduleEnabledRequest? request)
+        {
+            if (request == null)
+                return BadRequest("An enabled value is required.");
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var schedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (schedule == null)
+                return NotFound("Scene schedule not found.");
+
+            if (_sceneAutomationService != null)
+            {
+                if (!_sceneAutomationService.TrySetScheduleEnabled(id, request.Enabled, out var message))
+                    return Conflict(message);
+            }
+            else
+            {
+                if (request.Enabled && schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
+                {
+                    return Conflict(
+                        "The scene schedule has reached its execution limit. Reset its run counter before enabling it.");
+                }
+
+                var previousEnabled = schedule.Enabled;
+                schedule.Enabled = request.Enabled;
+                try
+                {
+                    Plugin.Instance?.SaveConfiguration();
+                }
+                catch (Exception ex)
+                {
+                    schedule.Enabled = previousEnabled;
+                    _logger?.LogError(ex, "Could not persist enabled state for Hue scene schedule {0}", schedule.Name);
+                    return StatusCode(
+                        StatusCodes.Status500InternalServerError,
+                        "The scene schedule enabled state could not be saved.");
+                }
+            }
+
+            return Ok(ToSceneScheduleResult(schedule, config));
+        }
+
         [HttpGet("Status")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<HueSyncStatus> GetStatus()
@@ -3499,6 +3558,16 @@ namespace Jellyfin.Plugin.Hue.Api
                 Enabled = Enabled
             };
         }
+    }
+
+    /// <summary>
+    /// Request shape for changing only a scene cue's enabled state. All schedule
+    /// definition fields remain unchanged and no bridge credentials are accepted.
+    /// </summary>
+    public sealed class HueSceneScheduleEnabledRequest
+    {
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; }
     }
 
     /// <summary>

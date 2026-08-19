@@ -786,6 +786,85 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void SetScheduleEnabled_TogglesCueWithoutChangingItsDefinition()
+    {
+        var configuration = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Toggle scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "toggle-cue",
+                    Name = "Toggle cue",
+                    PresetName = "Toggle scene",
+                    TimeOfDay = "06:45",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    StartDate = "2026-08-01",
+                    DurationSeconds = 9,
+                    MaxRuns = 4,
+                    RunCount = 1,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.True(service.TrySetScheduleEnabled(" toggle-cue ", false, out var disableMessage));
+        Assert.Contains("disabled", disableMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal("06:45", configuration.SceneSchedules[0].TimeOfDay);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceDaily, configuration.SceneSchedules[0].Recurrence);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+
+        Assert.True(service.TrySetScheduleEnabled("toggle-cue", true, out var enableMessage));
+        Assert.Contains("enabled", enableMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(9, configuration.SceneSchedules[0].DurationSeconds);
+        Assert.Equal(4, configuration.SceneSchedules[0].MaxRuns);
+    }
+
+    [Fact]
+    public void SetScheduleEnabled_RefusesEnablingAnExhaustedCue()
+    {
+        var configuration = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Exhausted scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "exhausted-toggle-cue",
+                    Name = "Exhausted toggle cue",
+                    PresetName = "Exhausted scene",
+                    MaxRuns = 2,
+                    RunCount = 2,
+                    Enabled = false
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.False(service.TrySetScheduleEnabled("exhausted-toggle-cue", true, out var message));
+        Assert.Contains("reset", message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(2, configuration.SceneSchedules[0].RunCount);
+    }
+
+    [Fact]
     public async Task ResetScheduleRunCount_RefusesActiveCue()
     {
         InstallConfiguration(new PluginConfiguration
@@ -812,6 +891,8 @@ public sealed class HueSceneAutomationServiceTests
 
         Assert.False(service.TryResetScheduleRunCount("active-reset-cue", out var message));
         Assert.Contains("running", message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(service.TrySetScheduleEnabled("active-reset-cue", false, out var enabledMessage));
+        Assert.Contains("running", enabledMessage, StringComparison.OrdinalIgnoreCase);
         Assert.True(service.CancelSchedule("active-reset-cue"));
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
