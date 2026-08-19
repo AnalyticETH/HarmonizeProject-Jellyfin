@@ -57,16 +57,15 @@ jobs:
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - name: Install semgrep
-        run: pip install --disable-pip-version-check semgrep
+        run: |
+          python3 -m venv "$RUNNER_TEMP/semgrep-venv"
+          "$RUNNER_TEMP/semgrep-venv/bin/python" -m pip install --disable-pip-version-check semgrep
       - name: Scan (OSS rules)
         env:
           SEMGREP_SEND_METRICS: 'off'
         run: |
-          semgrep scan --config auto --metrics off --json --output semgrep.json . || true
+          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --config auto --metrics off --json --output semgrep.json . || true
           COUNT=$(jq '.results | length' semgrep.json 2>/dev/null || echo 0)
           { echo "### Static analysis (semgrep)"; echo "Findings: **$COUNT** (informational)"; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
