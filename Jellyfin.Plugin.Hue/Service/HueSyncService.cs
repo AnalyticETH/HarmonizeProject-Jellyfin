@@ -103,6 +103,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _currentVideoScalingMode;
         private string? _currentVideoDeinterlaceMode;
         private int? _currentTargetFps;
+        private int? _currentAudioSensitivityPercent;
         private int? _currentSamplingBreadthPercent;
         private string? _currentSamplingMode;
         private int? _currentColorSmoothingPercent;
@@ -402,6 +403,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentVideoScalingMode = null;
                     _currentVideoDeinterlaceMode = null;
                     _currentTargetFps = null;
+                    _currentAudioSensitivityPercent = null;
                     _currentSamplingBreadthPercent = null;
                     _currentSamplingMode = null;
                     _currentColorSmoothingPercent = null;
@@ -492,6 +494,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentVideoScalingMode = null;
                 _currentVideoDeinterlaceMode = null;
                 _currentTargetFps = null;
+                _currentAudioSensitivityPercent = null;
                 _currentSamplingBreadthPercent = null;
                 _currentSamplingMode = null;
                 _currentColorSmoothingPercent = null;
@@ -525,6 +528,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string? currentVideoScalingMode;
             string? currentVideoDeinterlaceMode;
             int? currentTargetFps;
+            int? currentAudioSensitivityPercent;
             int? currentSamplingBreadthPercent;
             string? currentSamplingMode;
             int? currentColorSmoothingPercent;
@@ -567,6 +571,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentVideoScalingMode = _currentVideoScalingMode;
                 currentVideoDeinterlaceMode = _currentVideoDeinterlaceMode;
                 currentTargetFps = _currentTargetFps;
+                currentAudioSensitivityPercent = _currentAudioSensitivityPercent;
                 currentSamplingBreadthPercent = _currentSamplingBreadthPercent;
                 currentSamplingMode = _currentSamplingMode;
                 currentColorSmoothingPercent = _currentColorSmoothingPercent;
@@ -615,6 +620,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveVideoScalingMode = isSyncing ? currentVideoScalingMode : null,
                 ActiveVideoDeinterlaceMode = isSyncing ? currentVideoDeinterlaceMode : null,
                 ActiveTargetFps = isSyncing ? currentTargetFps : null,
+                ActiveAudioSensitivityPercent = isSyncing ? currentAudioSensitivityPercent : null,
                 ActiveSamplingBreadthPercent = isSyncing ? currentSamplingBreadthPercent : null,
                 ActiveSamplingMode = isSyncing ? currentSamplingMode : null,
                 ActiveColorSmoothingPercent = isSyncing ? currentColorSmoothingPercent : null,
@@ -1625,6 +1631,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentVideoScalingMode = null;
             _currentVideoDeinterlaceMode = null;
             _currentTargetFps = null;
+            _currentAudioSensitivityPercent = null;
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
             _currentColorSmoothingPercent = null;
@@ -1869,6 +1876,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentVideoScalingMode = null;
                     _currentVideoDeinterlaceMode = null;
                     _currentTargetFps = null;
+                    _currentAudioSensitivityPercent = null;
                     _currentSamplingBreadthPercent = null;
                     _currentSamplingMode = null;
                     _currentColorSmoothingPercent = null;
@@ -2141,6 +2149,15 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             ArgumentNullException.ThrowIfNull(config);
             return config.GetPauseBehaviorOverrideForUser(userId) ?? config.PauseBehavior;
+        }
+
+        internal static int ResolveAudioSensitivityPercent(PluginConfiguration config, Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            return Math.Clamp(
+                config.GetAudioSensitivityPercentForUser(userId),
+                PluginConfiguration.MinAudioSensitivityPercent,
+                PluginConfiguration.MaxAudioSensitivityPercent);
         }
 
         internal static (
@@ -2869,10 +2886,16 @@ namespace Jellyfin.Plugin.Hue.Service
             IReadOnlyDictionary<int, (double x, double z)> lights,
             (double Rms, double Low, double Mid, double High) energy,
             long frameIndex,
-            int brightnessBoost = 100)
+            int audioSensitivityPercent = PluginConfiguration.DefaultAudioSensitivityPercent)
         {
             var colors = new Dictionary<int, byte[]>(lights.Count);
-            var loudness = Math.Clamp(energy.Rms * 2.8 * Math.Clamp(brightnessBoost, 50, 200) / 100.0, 0, 1);
+            var loudness = Math.Clamp(
+                energy.Rms * 2.8 * Math.Clamp(
+                    audioSensitivityPercent,
+                    PluginConfiguration.MinAudioSensitivityPercent,
+                    PluginConfiguration.MaxAudioSensitivityPercent) / 100.0,
+                0,
+                1);
             var totalBands = energy.Low + energy.Mid + energy.High;
             var dominantHue = totalBands <= 0.0001
                 ? 0.58
@@ -2932,6 +2955,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int targetFps,
             CancellationTokenSource expectedSyncCts,
             string playSessionId,
+            int audioSensitivityPercent,
             int colorSmoothingPercent,
             (
                 int BrightnessBoost,
@@ -2992,7 +3016,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         lights,
                         energy,
                         frameIndex++,
-                        colorProcessingSettings.BrightnessBoost);
+                        audioSensitivityPercent);
 
                     var isBlackout = colorProcessingSettings.BlackoutThreshold > 0 &&
                         channelColors.Count > 0 &&
@@ -3167,6 +3191,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentVideoScalingMode = null;
                 _currentVideoDeinterlaceMode = null;
                 _currentTargetFps = null;
+                _currentAudioSensitivityPercent = null;
                 _currentSamplingBreadthPercent = null;
                 _currentSamplingMode = null;
                 _currentColorSmoothingPercent = null;
@@ -3403,6 +3428,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var (useCinemaMode, brightnessDimLevel, restoreLightState) = ResolvePlaybackSettings(config, userId);
             var pauseBehavior = ResolvePauseBehavior(config, userId);
             var performanceSettings = ResolvePerformanceSettings(config, userId);
+            var audioSensitivityPercent = ResolveAudioSensitivityPercent(config, userId);
             var colorProcessingSettings = ResolveColorProcessingSettings(config, userId);
             var executionSettings = ResolveExecutionSettings(config, userId);
             var selectedChannelIds = ResolveChannelIds(config, userId);
@@ -3503,6 +3529,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentVideoScalingMode = isAudioPlayback ? null : videoScalingMode;
                     _currentVideoDeinterlaceMode = isAudioPlayback ? null : videoDeinterlaceMode;
                     _currentTargetFps = targetFps;
+                    _currentAudioSensitivityPercent = isAudioPlayback ? audioSensitivityPercent : null;
                     _currentSamplingBreadthPercent = performanceSettings.SamplingBreadthPercent;
                     _currentSamplingMode = performanceSettings.SamplingMode;
                     _currentColorSmoothingPercent = performanceSettings.ColorSmoothingPercent;
@@ -3771,6 +3798,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         targetFps,
                         syncCts,
                         e.PlaySessionId,
+                        audioSensitivityPercent,
                         performanceSettings.ColorSmoothingPercent,
                         colorProcessingSettings));
                 }
@@ -4129,6 +4157,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentVideoScalingMode = null;
             _currentVideoDeinterlaceMode = null;
             _currentTargetFps = null;
+            _currentAudioSensitivityPercent = null;
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
             _currentColorSmoothingPercent = null;
@@ -4277,6 +4306,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public string? ActiveVideoScalingMode { get; init; }
         public string? ActiveVideoDeinterlaceMode { get; init; }
         public int? ActiveTargetFps { get; init; }
+        public int? ActiveAudioSensitivityPercent { get; init; }
         public int? ActiveSamplingBreadthPercent { get; init; }
         public string? ActiveSamplingMode { get; init; }
         public int? ActiveColorSmoothingPercent { get; init; }

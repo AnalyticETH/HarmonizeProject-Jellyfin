@@ -5234,6 +5234,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveBridgeIp = runtime?.ActiveBridgeIp,
                 ActiveEntertainmentAreaId = runtime?.ActiveEntertainmentAreaId,
                 ActiveTargetFps = runtime?.ActiveTargetFps,
+                ActiveAudioSensitivityPercent = runtime?.ActiveAudioSensitivityPercent,
                 ActiveFrameResolution = runtime?.ActiveFrameResolution,
                 ActiveVideoScalingMode = runtime?.ActiveVideoScalingMode,
                 ActiveVideoDeinterlaceMode = runtime?.ActiveVideoDeinterlaceMode,
@@ -6823,7 +6824,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 VideoDeinterlaceModeOverride = source.VideoDeinterlaceModeOverride,
                 SamplingBreadthPercentOverride = source.SamplingBreadthPercentOverride,
                 SamplingModeOverride = source.SamplingModeOverride,
-                ColorSmoothingPercentOverride = source.ColorSmoothingPercentOverride
+                ColorSmoothingPercentOverride = source.ColorSmoothingPercentOverride,
+                AudioSensitivityPercentOverride = source.AudioSensitivityPercentOverride
             };
 
             preservedCredentialPair = false;
@@ -7615,6 +7617,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool UseCinemaMode { get; set; } = true;
         public int BrightnessDimLevel { get; set; } = 30;
         public string PauseBehavior { get; set; } = PluginConfiguration.PauseBehaviorKeepLastColors;
+        public int AudioSensitivityPercent { get; set; } = PluginConfiguration.DefaultAudioSensitivityPercent;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = PluginConfiguration.FrameResolutionStandard;
         public string VideoScalingMode { get; set; } = PluginConfiguration.VideoScalingModeStretch;
@@ -7657,6 +7660,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 UseCinemaMode = config.UseCinemaMode,
                 BrightnessDimLevel = config.BrightnessDimLevel,
                 PauseBehavior = config.PauseBehavior,
+                AudioSensitivityPercent = config.AudioSensitivityPercent,
                 TargetFps = config.TargetFps,
                 FrameResolution = config.FrameResolution,
                 VideoScalingMode = config.VideoScalingMode,
@@ -7718,6 +7722,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.UseCinemaMode = UseCinemaMode;
             config.BrightnessDimLevel = BrightnessDimLevel;
             config.PauseBehavior = PauseBehavior?.Trim() ?? PluginConfiguration.PauseBehaviorKeepLastColors;
+            config.AudioSensitivityPercent = AudioSensitivityPercent;
             config.TargetFps = TargetFps;
             config.FrameResolution = FrameResolution?.Trim() ?? PluginConfiguration.FrameResolutionStandard;
             config.VideoScalingMode = VideoScalingMode?.Trim() ?? PluginConfiguration.VideoScalingModeStretch;
@@ -7762,6 +7767,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? PauseBehaviorOverride { get; set; }
         public bool? RestoreLightStateOverride { get; set; }
         public string? PlaybackMediaFilterOverride { get; set; }
+        public int? AudioSensitivityPercentOverride { get; set; }
         public int? BrightnessBoostOverride { get; set; }
         public int? RedGainOverride { get; set; }
         public int? GreenGainOverride { get; set; }
@@ -7802,6 +7808,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PauseBehaviorOverride = mapping.PauseBehaviorOverride,
                 RestoreLightStateOverride = mapping.RestoreLightStateOverride,
                 PlaybackMediaFilterOverride = mapping.PlaybackMediaFilterOverride,
+                AudioSensitivityPercentOverride = mapping.AudioSensitivityPercentOverride,
                 BrightnessBoostOverride = mapping.BrightnessBoostOverride,
                 RedGainOverride = mapping.RedGainOverride,
                 GreenGainOverride = mapping.GreenGainOverride,
@@ -9796,6 +9803,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? ActiveBridgeIp { get; set; }
         public string? ActiveEntertainmentAreaId { get; set; }
         public int? ActiveTargetFps { get; set; }
+        public int? ActiveAudioSensitivityPercent { get; set; }
         public string? ActiveFrameResolution { get; set; }
         public string? ActiveVideoScalingMode { get; set; }
         public string? ActiveVideoDeinterlaceMode { get; set; }

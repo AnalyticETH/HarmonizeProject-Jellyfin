@@ -1153,6 +1153,7 @@ public class PluginConfigurationTests
             HueClientKey = "test-client-key",
             EntertainmentAreaId = "test-area-id",
             TargetFps = 20,
+            AudioSensitivityPercent = PluginConfiguration.DefaultAudioSensitivityPercent,
             SamplingBreadthPercent = 15,
             BrightnessDimLevel = 30,
             BrightnessBoost = 100,
@@ -1319,6 +1320,24 @@ public class PluginConfigurationTests
 
         // Assert
         Assert.DoesNotContain("Target FPS", errors.ToString());
+    }
+
+    [Theory]
+    [InlineData(24)]
+    [InlineData(401)]
+    public void Validate_WhenAudioSensitivityOutOfRange_ReturnsError(int sensitivity)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            AudioSensitivityPercent = sensitivity
+        };
+
+        Assert.Contains("Audio sensitivity must be between 25 and 400 percent", config.Validate());
     }
 
     [Theory]
@@ -1612,6 +1631,7 @@ public class PluginConfigurationTests
         Assert.True(config.RestoreLightState);
         Assert.Equal(30, config.BrightnessDimLevel);
         Assert.Equal(20, config.TargetFps);
+        Assert.Equal(PluginConfiguration.DefaultAudioSensitivityPercent, config.AudioSensitivityPercent);
         Assert.Equal(PluginConfiguration.FrameResolutionStandard, config.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeStretch, config.VideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOff, config.VideoDeinterlaceMode);
@@ -2312,6 +2332,27 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetAudioSensitivityPercentForUser_UsesOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            AudioSensitivityPercent = 175,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    AudioSensitivityPercentOverride = 325
+                }
+            }
+        };
+
+        Assert.Equal(325, config.GetAudioSensitivityPercentForUser(userId));
+        Assert.Equal(175, config.GetAudioSensitivityPercentForUser(System.Guid.NewGuid()));
+    }
+
+    [Fact]
     public void GetExecutionOverridesForUser_UsesMatchingMappingAndNormalizesOptionalValues()
     {
         var userId = System.Guid.NewGuid();
@@ -2535,6 +2576,7 @@ public class PluginConfigurationTests
                 {
                     UserId = "user-1",
                     TargetFpsOverride = 0,
+                    AudioSensitivityPercentOverride = 401,
                     FrameResolutionOverride = "640x360",
                     VideoScalingModeOverride = "InvalidScaling",
                     VideoDeinterlaceModeOverride = "InvalidDeinterlace",
@@ -2548,6 +2590,7 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         Assert.Contains("User mapping 1 target FPS override must be between 1 and 60", errors);
+        Assert.Contains("User mapping 1 audio sensitivity override must be between 25 and 400 percent", errors);
         Assert.Contains("User mapping 1 frame resolution override must be 80x45, 160x90, or 320x180", errors);
         Assert.Contains("User mapping 1 video scaling override must be Stretch, Fit, or Crop", errors);
         Assert.Contains("User mapping 1 video deinterlace override must be Off, Auto, or On", errors);

@@ -43,6 +43,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? BlueGainOverride { get; set; }
 
         // Optional per-user playback-performance overrides. Null values inherit the global setting.
+        public int? AudioSensitivityPercentOverride { get; set; }
         public int? TargetFpsOverride { get; set; }
         public string? FrameResolutionOverride { get; set; }
         public string? VideoScalingModeOverride { get; set; }
@@ -401,6 +402,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private const int MaxSamplingBreadthPercent = 50;
         private const int MinColorSmoothingPercent = 0;
         private const int MaxColorSmoothingPercent = 90;
+        public const int MinAudioSensitivityPercent = 25;
+        public const int MaxAudioSensitivityPercent = 400;
+        public const int DefaultAudioSensitivityPercent = 100;
         public const string ColorPresetEffectSolid = "Solid";
         public const string ColorPresetEffectPulse = "Pulse";
         public const string ColorPresetEffectRainbow = "Rainbow";
@@ -629,6 +633,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool UseCinemaMode { get; set; } = true; // Dimming behavior
         public int BrightnessDimLevel { get; set; } = 30;
         public string PauseBehavior { get; set; } = PauseBehaviorKeepLastColors;
+        /// <summary>
+        /// Scales the audio-reactive loudness envelope without changing the final
+        /// brightness policy applied to video or audio colors.
+        /// </summary>
+        public int AudioSensitivityPercent { get; set; } = DefaultAudioSensitivityPercent;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = FrameResolutionStandard;
         public string VideoScalingMode { get; set; } = VideoScalingModeStretch;
@@ -688,6 +697,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
             var userIdText = userId.ToString();
             var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
             return NormalizeOptionalPlaybackMediaFilter(mapping?.PlaybackMediaFilterOverride);
+        }
+
+        /// <summary>
+        /// Gets the effective audio-reactive sensitivity for a user. A missing mapping
+        /// or blank override inherits the global setting; the result is clamped for
+        /// runtime safety while configuration validation reports invalid persisted values.
+        /// </summary>
+        public int GetAudioSensitivityPercentForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return Math.Clamp(
+                mapping?.AudioSensitivityPercentOverride ?? AudioSensitivityPercent,
+                MinAudioSensitivityPercent,
+                MaxAudioSensitivityPercent);
         }
 
         /// <summary>
@@ -973,6 +997,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public static List<string> ValidatePerformanceOverrides(UserBridgeMapping mapping, string label = "User mapping")
         {
             var errors = new List<string>();
+
+            if (mapping.AudioSensitivityPercentOverride.HasValue &&
+                (mapping.AudioSensitivityPercentOverride.Value < MinAudioSensitivityPercent ||
+                 mapping.AudioSensitivityPercentOverride.Value > MaxAudioSensitivityPercent))
+            {
+                errors.Add($"{label} audio sensitivity override must be between {MinAudioSensitivityPercent} and {MaxAudioSensitivityPercent} percent");
+            }
 
             if (mapping.TargetFpsOverride.HasValue &&
                 (mapping.TargetFpsOverride.Value < MinTargetFps || mapping.TargetFpsOverride.Value > MaxTargetFps))
@@ -1895,6 +1926,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (TargetFps < MinTargetFps || TargetFps > MaxTargetFps)
                     errors.Add("Target FPS must be between 1 and 60");
+
+                if (AudioSensitivityPercent < MinAudioSensitivityPercent ||
+                    AudioSensitivityPercent > MaxAudioSensitivityPercent)
+                    errors.Add($"Audio sensitivity must be between {MinAudioSensitivityPercent} and {MaxAudioSensitivityPercent} percent");
 
                 if (!string.Equals(FrameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(FrameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&

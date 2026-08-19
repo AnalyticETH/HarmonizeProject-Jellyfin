@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.160] - 2026-08-19
+
+### Added
+- **Audio visualizer controls**: tune the audio-reactive loudness envelope from 25-400% globally or per user without changing the final brightness policy
+- **Live audio telemetry**: show the effective per-session audio sensitivity in the credential-safe runtime status surface
+- **Regression coverage**: verify sensitivity inheritance, bounds, API/configuration round-trips, and spatial audio color scaling
+
 ## [1.5.159] - 2026-08-19
 
 ### Added

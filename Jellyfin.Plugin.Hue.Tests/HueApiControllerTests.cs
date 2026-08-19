@@ -5813,6 +5813,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveBridgeIp);
         Assert.Null(status.ActiveEntertainmentAreaId);
         Assert.Null(status.ActiveTargetFps);
+        Assert.Null(status.ActiveAudioSensitivityPercent);
         Assert.Null(status.ActiveFrameResolution);
         Assert.Null(status.ActiveVideoScalingMode);
         Assert.Null(status.ActiveVideoDeinterlaceMode);
@@ -6496,6 +6497,7 @@ public sealed class HueApiControllerTests : IDisposable
                     PauseBehaviorOverride = PluginConfiguration.PauseBehaviorRestoreLightState,
                     RestoreLightStateOverride = true,
                     PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterEpisodes,
+                    AudioSensitivityPercentOverride = 275,
                     BrightnessBoostOverride = 150,
                     RedGainOverride = 120,
                     GreenGainOverride = 90,
@@ -6534,6 +6536,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, mapping.PauseBehaviorOverride);
         Assert.Equal((bool?)true, mapping.RestoreLightStateOverride);
         Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, mapping.PlaybackMediaFilterOverride);
+        Assert.Equal((int?)275, mapping.AudioSensitivityPercentOverride);
         Assert.Equal((int?)150, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)120, mapping.RedGainOverride);
         Assert.Equal((int?)90, mapping.GreenGainOverride);
@@ -6997,6 +7000,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueClientKey = "default-client-key",
             ChannelIds = "2, 9",
             PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterMovies,
+            AudioSensitivityPercent = 180,
             FrameResolution = PluginConfiguration.FrameResolutionHigh,
             VideoScalingMode = PluginConfiguration.VideoScalingModeFit,
             VideoDeinterlaceMode = PluginConfiguration.VideoDeinterlaceModeAuto,
@@ -7034,6 +7038,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(settings.HasClientKey);
         Assert.Equal("2, 9", settings.ChannelIds);
         Assert.Equal(PluginConfiguration.PlaybackMediaFilterMovies, settings.PlaybackMediaFilter);
+        Assert.Equal(180, settings.AudioSensitivityPercent);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, settings.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, settings.VideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, settings.VideoDeinterlaceMode);
@@ -7086,6 +7091,7 @@ public sealed class HueApiControllerTests : IDisposable
                     HueClientKey = "mapping-client-secret",
                     EntertainmentAreaId = "area-2",
                     PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterMovies,
+                    AudioSensitivityPercentOverride = 245,
                     BrightnessBoostOverride = 135
                 }
             },
@@ -7131,6 +7137,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(mapping.HasClientKey);
         Assert.Equal(135, mapping.BrightnessBoostOverride);
         Assert.Equal(PluginConfiguration.PlaybackMediaFilterMovies, mapping.PlaybackMediaFilterOverride);
+        Assert.Equal(245, mapping.AudioSensitivityPercentOverride);
         Assert.Single(document.ColorPresets);
         Assert.Single(document.SceneSchedules);
         Assert.Equal("Morning cue", document.SceneSchedules[0].Name);
@@ -7763,6 +7770,7 @@ public sealed class HueApiControllerTests : IDisposable
                     HueBridgeIp = summary.HueBridgeIp,
                     EntertainmentAreaId = summary.EntertainmentAreaId,
                     PlaybackMediaFilterOverride = summary.PlaybackMediaFilterOverride,
+                    AudioSensitivityPercentOverride = 310,
                     BrightnessBoostOverride = 150
                 })
                 .ToList(),
@@ -7801,6 +7809,7 @@ public sealed class HueApiControllerTests : IDisposable
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal(PluginConfiguration.PlaybackMediaFilterMovies, mapping.PlaybackMediaFilterOverride);
+        Assert.Equal(310, mapping.AudioSensitivityPercentOverride);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
         Assert.Equal(150, mapping.BrightnessBoostOverride);
         Assert.Equal("New Scene", Assert.Single(configuration.ColorPresets).Name);
@@ -7913,6 +7922,7 @@ public sealed class HueApiControllerTests : IDisposable
             SyncEnabled = false,
             ChannelIds = "4, 8",
             PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterEpisodes,
+            AudioSensitivityPercent = 220,
             TargetFps = 30,
             FrameResolution = PluginConfiguration.FrameResolutionLow,
             VideoScalingMode = PluginConfiguration.VideoScalingModeCrop,
@@ -7936,6 +7946,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(action.Result);
         Assert.Equal("4, 8", configuration.ChannelIds);
         Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, configuration.PlaybackMediaFilter);
+        Assert.Equal(220, configuration.AudioSensitivityPercent);
         Assert.Equal(30, configuration.TargetFps);
         Assert.Equal(PluginConfiguration.FrameResolutionLow, configuration.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeCrop, configuration.VideoScalingMode);
@@ -8172,6 +8183,7 @@ public sealed class HueApiControllerTests : IDisposable
             PauseBehaviorOverride = PluginConfiguration.PauseBehaviorKeepLastColors,
             RestoreLightStateOverride = false,
             PlaybackMediaFilterOverride = " episodes ",
+            AudioSensitivityPercentOverride = 260,
             BrightnessBoostOverride = 125,
             RedGainOverride = 115,
             GreenGainOverride = 95,
@@ -8206,6 +8218,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.PauseBehaviorKeepLastColors, mapping.PauseBehaviorOverride);
         Assert.Equal((bool?)false, mapping.RestoreLightStateOverride);
         Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, mapping.PlaybackMediaFilterOverride);
+        Assert.Equal((int?)260, mapping.AudioSensitivityPercentOverride);
         Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)115, mapping.RedGainOverride);
         Assert.Equal((int?)95, mapping.GreenGainOverride);

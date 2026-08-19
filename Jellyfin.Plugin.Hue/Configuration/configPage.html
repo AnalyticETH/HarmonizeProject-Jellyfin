@@ -24,6 +24,7 @@
                             <div><strong>Video fit:</strong> <span id="runtimeScalingMode">—</span></div>
                             <div><strong>Deinterlace:</strong> <span id="runtimeDeinterlaceMode">—</span></div>
                             <div><strong>Capture profile:</strong> <span id="runtimeCaptureProfile">—</span></div>
+                            <div><strong>Audio visualizer:</strong> <span id="runtimeAudioProfile">—</span></div>
                             <div><strong>Sampling:</strong> <span id="runtimeSamplingProfile">—</span></div>
                             <div><strong>Color policy:</strong> <span id="runtimeColorProfile">—</span></div>
                             <div><strong>Execution:</strong> <span id="runtimeExecutionProfile">—</span></div>
@@ -724,6 +725,12 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioSensitivityPercent">Audio Visualizer Sensitivity (%)</label>
+                            <input id="audioSensitivityPercent" name="audioSensitivityPercent" type="number" min="25" max="400" is="emby-input" />
+                            <div class="fieldDescription">Scales the low/mid/high audio-reactive loudness envelope when Audio or All media is selected (25-400%, default: 100%). This affects audio intensity without changing the final brightness boost.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="frameResolution">Frame Sampling Resolution</label>
                             <select id="frameResolution" name="frameResolution" is="emby-select">
                                 <option value="80x45">Low (80×45, lowest CPU)</option>
@@ -894,6 +901,12 @@
                                         <option value="AllMedia">All video and audio</option>
                                     </select>
                                     <div class="fieldDescription">Choose which video or audio item types can start Hue Sync for this user. Audio uses a low/mid/high-band reactive visualizer; blank inherits the global Playback Media Scope.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioSensitivityPercentOverride">Audio Visualizer Sensitivity Override (%)</label>
+                                    <input id="mappingAudioSensitivityPercentOverride" type="number" min="25" max="400" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user audio visualizer sensitivity (25-400%). Leave blank to inherit the global setting.</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -1346,6 +1359,7 @@
                         HueConfigurationPage.selectedAreaId = getConfigValue('EntertainmentAreaId', '');
                         page.querySelector('#channelIds').value = getConfigValue('ChannelIds', '');
                         page.querySelector('#playbackMediaFilter').value = getConfigValue('PlaybackMediaFilter', 'AllVideo');
+                        page.querySelector('#audioSensitivityPercent').value = getConfigValue('AudioSensitivityPercent', 100);
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#frameResolution').value = getConfigValue('FrameResolution', '160x90');
                         page.querySelector('#videoScalingMode').value = getConfigValue('VideoScalingMode', 'Stretch');
@@ -1400,6 +1414,7 @@
                         EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
                         ChannelIds: page.querySelector('#channelIds').value,
                         PlaybackMediaFilter: page.querySelector('#playbackMediaFilter').value,
+                        AudioSensitivityPercent: parseNumberOrDefault('#audioSensitivityPercent', 100),
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         FrameResolution: page.querySelector('#frameResolution').value,
                         VideoScalingMode: page.querySelector('#videoScalingMode').value,
@@ -6364,6 +6379,7 @@
                         var scalingMode = HueConfigurationPage.readStatusField(status, "ActiveVideoScalingMode", "—");
                         var deinterlaceMode = HueConfigurationPage.readStatusField(status, "ActiveVideoDeinterlaceMode", "—");
                         var targetFps = HueConfigurationPage.readStatusField(status, "ActiveTargetFps", null);
+                        var audioSensitivity = HueConfigurationPage.readStatusField(status, "ActiveAudioSensitivityPercent", null);
                         var samplingBreadth = HueConfigurationPage.readStatusField(status, "ActiveSamplingBreadthPercent", null);
                         var samplingMode = HueConfigurationPage.readStatusField(status, "ActiveSamplingMode", null);
                         var colorSmoothing = HueConfigurationPage.readStatusField(status, "ActiveColorSmoothingPercent", null);
@@ -6416,6 +6432,9 @@
                         page.querySelector('#runtimeCaptureProfile').textContent = targetFps == null
                             ? "—"
                             : String(targetFps) + " FPS · " + (frameResolution || "—");
+                        page.querySelector('#runtimeAudioProfile').textContent = audioSensitivity == null
+                            ? "—"
+                            : String(audioSensitivity) + "% sensitivity";
                         page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
                             ? "—"
                             : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
@@ -7319,6 +7338,7 @@
                             var hasPlaybackProfile = [
                                 getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride'),
                                 getMappingValue('PlaybackMediaFilterOverride', 'playbackMediaFilterOverride'),
+                                getMappingValue('AudioSensitivityPercentOverride', 'audioSensitivityPercentOverride'),
                                 getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride'),
                                 getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride'),
                                 getMappingValue('RestoreLightStateOverride', 'restoreLightStateOverride')
@@ -7527,6 +7547,7 @@
                         '#mappingAreaManual',
                         '#mappingUseCinemaModeOverride',
                         '#mappingPlaybackMediaFilterOverride',
+                        '#mappingAudioSensitivityPercentOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -8148,6 +8169,7 @@
                         EntertainmentAreaName: areaName,
                         UseCinemaModeOverride: readOptionalBoolean('mappingUseCinemaModeOverride'),
                         PlaybackMediaFilterOverride: readOptionalString('mappingPlaybackMediaFilterOverride'),
+                        AudioSensitivityPercentOverride: readOptionalNumber('mappingAudioSensitivityPercentOverride'),
                         BrightnessDimLevelOverride: readOptionalNumber('mappingBrightnessDimLevelOverride'),
                         PauseBehaviorOverride: readOptionalString('mappingPauseBehaviorOverride'),
                         RestoreLightStateOverride: readOptionalBoolean('mappingRestoreLightStateOverride'),
@@ -8225,6 +8247,7 @@
                     var profileSelectors = [
                         '#mappingUseCinemaModeOverride',
                         '#mappingPlaybackMediaFilterOverride',
+                        '#mappingAudioSensitivityPercentOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -8304,6 +8327,7 @@
                         };
                         var useCinemaModeOverride = getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride');
                         var playbackMediaFilterOverride = getMappingValue('PlaybackMediaFilterOverride', 'playbackMediaFilterOverride');
+                        var audioSensitivityPercentOverride = getMappingValue('AudioSensitivityPercentOverride', 'audioSensitivityPercentOverride');
                         var brightnessDimLevelOverride = getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride');
                         var pauseBehaviorOverride = getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride');
                         var restoreLightStateOverride = getMappingValue('RestoreLightStateOverride', 'restoreLightStateOverride');
@@ -8359,6 +8383,7 @@
                         page.querySelector('#mappingSyncEnabled').checked = syncEnabled;
                         page.querySelector('#mappingUseCinemaModeOverride').value = useCinemaModeOverride == null ? "" : String(useCinemaModeOverride).toLowerCase();
                         page.querySelector('#mappingPlaybackMediaFilterOverride').value = playbackMediaFilterOverride == null ? "" : playbackMediaFilterOverride;
+                        page.querySelector('#mappingAudioSensitivityPercentOverride').value = audioSensitivityPercentOverride == null ? "" : audioSensitivityPercentOverride;
                         page.querySelector('#mappingBrightnessDimLevelOverride').value = brightnessDimLevelOverride == null ? "" : brightnessDimLevelOverride;
                         page.querySelector('#mappingPauseBehaviorOverride').value = pauseBehaviorOverride == null ? "" : pauseBehaviorOverride;
                         page.querySelector('#mappingRestoreLightStateOverride').value = restoreLightStateOverride == null ? "" : String(restoreLightStateOverride).toLowerCase();

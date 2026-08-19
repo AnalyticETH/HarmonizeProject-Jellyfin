@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Service;
 using Xunit;
@@ -117,6 +118,21 @@ public sealed class HueSyncServiceTests
         Assert.Equal(first[1], second[1]);
         Assert.Equal(first[2], second[2]);
         Assert.NotEqual(first[1], first[2]);
+    }
+
+    [Fact]
+    public void BuildAudioChannelColors_UsesAudioSensitivityWithoutChangingSpatialMapping()
+    {
+        var lights = new Dictionary<int, (double x, double z)> { [1] = (0, 0) };
+        var energy = (Rms: 0.1, Low: 0.2, Mid: 0.1, High: 0.05);
+
+        var lowSensitivity = HueSyncService.BuildAudioChannelColors(lights, energy, frameIndex: 3, audioSensitivityPercent: 25);
+        var highSensitivity = HueSyncService.BuildAudioChannelColors(lights, energy, frameIndex: 3, audioSensitivityPercent: 400);
+
+        Assert.True(lowSensitivity[1].Average(channel => channel) < highSensitivity[1].Average(channel => channel));
+        Assert.Equal(
+            HueSyncService.BuildAudioChannelColors(lights, energy, frameIndex: 3, audioSensitivityPercent: 25)[1],
+            HueSyncService.BuildAudioChannelColors(lights, energy, frameIndex: 3, audioSensitivityPercent: 0)[1]);
     }
 
     [Fact]
@@ -285,6 +301,27 @@ public sealed class HueSyncServiceTests
         Assert.Equal(15, fallback.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeAverage, fallback.SamplingMode);
         Assert.Equal(0, fallback.ColorSmoothingPercent);
+    }
+
+    [Fact]
+    public void ResolveAudioSensitivityPercent_UsesPerUserOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioSensitivityPercent = 140,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString(), AudioSensitivityPercentOverride = 280 }
+            }
+        };
+
+        Assert.Equal(280, HueSyncService.ResolveAudioSensitivityPercent(configuration, userId));
+        Assert.Equal(140, HueSyncService.ResolveAudioSensitivityPercent(configuration, System.Guid.NewGuid()));
+
+        configuration.AudioSensitivityPercent = 999;
+        Assert.Equal(PluginConfiguration.MaxAudioSensitivityPercent,
+            HueSyncService.ResolveAudioSensitivityPercent(configuration, System.Guid.NewGuid()));
     }
 
     [Fact]
