@@ -776,8 +776,10 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Displays a bounded scene-effect preview through the configured entertainment
-        /// area. The stream tester captures and restores the selected lights so this
-        /// diagnostic never leaves a manual scene behind.
+        /// area. When targetAllEnabledMappings is enabled, the same preview runs
+        /// sequentially on each distinct enabled configured target. The stream tester
+        /// captures and restores the selected lights so this diagnostic never leaves a
+        /// manual scene behind.
         /// </summary>
         [HttpPost("Preview")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -789,23 +791,29 @@ namespace Jellyfin.Plugin.Hue.Api
             [FromBody] HuePreviewRequest? request,
             CancellationToken cancellationToken = default)
         {
+            var broadcast = request?.TargetAllEnabledMappings == true;
             if (request == null ||
-                !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
-                string.IsNullOrWhiteSpace(request.EntertainmentAreaId))
+                (!broadcast &&
+                 (!HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
+                  string.IsNullOrWhiteSpace(request.EntertainmentAreaId))))
             {
                 return BadRequest("A valid bridge address, app key, client key, and entertainment area ID are required.");
             }
 
-            if (!TryResolveCredentials(
+            var bridgeIp = string.Empty;
+            var appKey = string.Empty;
+            var clientKey = string.Empty;
+            if (!broadcast &&
+                (!TryResolveCredentials(
                     request.IpAddress,
                     request.AppKey,
                     request.ClientKey,
                     request.UserId,
                     allowStoredClientKey: true,
-                    out var bridgeIp,
-                    out var appKey,
-                    out var clientKey)
-                || string.IsNullOrWhiteSpace(clientKey))
+                    out bridgeIp,
+                    out appKey,
+                    out clientKey)
+                 || string.IsNullOrWhiteSpace(clientKey)))
             {
                 return BadRequest("A valid bridge address, app key, client key, and entertainment area ID are required.");
             }
@@ -865,6 +873,85 @@ namespace Jellyfin.Plugin.Hue.Api
             if (_syncService?.IsSyncing == true)
             {
                 return Conflict("Stop active playback before running a Hue scene preview.");
+            }
+
+            if (broadcast)
+            {
+                if (!string.IsNullOrWhiteSpace(request.ChannelIds))
+                {
+                    return BadRequest("All-target previews use each configured target's channel profile; omit channelIds.");
+                }
+
+                if (_sceneAutomationService == null)
+                {
+                    return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+                }
+
+                var config = Plugin.Instance?.Configuration;
+                if (config == null)
+                {
+                    return BadRequest("Scene automation configuration is unavailable.");
+                }
+
+                var previewSchedule = new HueSceneSchedule
+                {
+                    Id = "administrator-preview",
+                    Name = "Administrator preview",
+                    PresetName = "Administrator preview",
+                    TargetAllEnabledMappings = true,
+                    DurationSeconds = request.DurationSeconds
+                };
+                if (!HueSceneAutomationService.TryResolveTargets(config, previewSchedule, out _, out var targetError))
+                {
+                    return BadRequest(targetError);
+                }
+
+                var previewPreset = new HueColorPreset
+                {
+                    Name = "Administrator preview",
+                    Effect = effect,
+                    EffectSpeedPercent = request.EffectSpeedPercent,
+                    Red = request.Red,
+                    Green = request.Green,
+                    Blue = request.Blue,
+                    BrightnessPercent = request.BrightnessPercent,
+                    DurationSeconds = request.DurationSeconds,
+                    TransitionSeconds = request.TransitionSeconds,
+                    TransitionOutSeconds = request.TransitionOutSeconds
+                };
+                var broadcastResult = await _sceneAutomationService.RunPreviewAsync(
+                    previewSchedule,
+                    previewPreset,
+                    cancellationToken).ConfigureAwait(false);
+                return Ok(new HuePreviewResult
+                {
+                    Succeeded = broadcastResult.Succeeded,
+                    Message = broadcastResult.Message,
+                    CleanupWarning = broadcastResult.CleanupWarning,
+                    TargetAllEnabledMappings = true,
+                    TargetResults = broadcastResult.TargetResults
+                        .Select(target => new HuePreviewTargetResult
+                        {
+                            TargetLabel = target.TargetLabel,
+                            Succeeded = target.Succeeded,
+                            Message = target.Message,
+                            CleanupWarning = target.CleanupWarning,
+                            AvailableChannelCount = target.AvailableChannelCount,
+                            SelectedChannelCount = target.SelectedChannelCount
+                        })
+                        .ToArray(),
+                    Red = request.Red,
+                    Green = request.Green,
+                    Blue = request.Blue,
+                    Effect = effect,
+                    EffectSpeedPercent = request.EffectSpeedPercent,
+                    BrightnessPercent = request.BrightnessPercent,
+                    DurationSeconds = request.DurationSeconds,
+                    TransitionSeconds = request.TransitionSeconds,
+                    TransitionOutSeconds = request.TransitionOutSeconds,
+                    AvailableChannelCount = broadcastResult.TargetResults.Sum(target => target.AvailableChannelCount),
+                    SelectedChannelCount = broadcastResult.TargetResults.Sum(target => target.SelectedChannelCount)
+                });
             }
 
             HashSet<int>? requestedChannelIds = null;
@@ -960,6 +1047,21 @@ namespace Jellyfin.Plugin.Hue.Api
                 DurationSeconds = request.DurationSeconds,
                 TransitionSeconds = request.TransitionSeconds,
                 TransitionOutSeconds = request.TransitionOutSeconds,
+                TargetAllEnabledMappings = false,
+                TargetResults = new[]
+                {
+                    new HuePreviewTargetResult
+                    {
+                        TargetLabel = string.IsNullOrWhiteSpace(request.UserId)
+                            ? "Selected bridge target"
+                            : request.UserId.Trim(),
+                        Succeeded = streamPreview.Succeeded,
+                        Message = streamPreview.Message,
+                        CleanupWarning = streamPreview.CleanupWarning,
+                        AvailableChannelCount = availableChannelIds.Count,
+                        SelectedChannelCount = requestedChannelIds?.Count ?? availableChannelIds.Count
+                    }
+                },
                 AvailableChannelCount = availableChannelIds.Count,
                 SelectedChannelCount = requestedChannelIds?.Count ?? availableChannelIds.Count
             });
@@ -3501,6 +3603,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("transitionOutSeconds")]
         public int TransitionOutSeconds { get; set; }
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool TargetAllEnabledMappings { get; set; }
     }
 
     public class HueConnectionTestResult
@@ -3559,6 +3664,12 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("cleanupWarning")]
         public string? CleanupWarning { get; set; }
 
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool TargetAllEnabledMappings { get; set; }
+
+        [JsonPropertyName("targetResults")]
+        public IReadOnlyList<HuePreviewTargetResult> TargetResults { get; set; } = Array.Empty<HuePreviewTargetResult>();
+
         [JsonPropertyName("effect")]
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
 
@@ -3585,6 +3696,30 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("transitionOutSeconds")]
         public int TransitionOutSeconds { get; set; }
+
+        [JsonPropertyName("availableChannelCount")]
+        public int AvailableChannelCount { get; set; }
+
+        [JsonPropertyName("selectedChannelCount")]
+        public int SelectedChannelCount { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free outcome for one immediate preview target.
+    /// </summary>
+    public sealed class HuePreviewTargetResult
+    {
+        [JsonPropertyName("targetLabel")]
+        public string TargetLabel { get; set; } = string.Empty;
+
+        [JsonPropertyName("succeeded")]
+        public bool Succeeded { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("cleanupWarning")]
+        public string? CleanupWarning { get; set; }
 
         [JsonPropertyName("availableChannelCount")]
         public int AvailableChannelCount { get; set; }

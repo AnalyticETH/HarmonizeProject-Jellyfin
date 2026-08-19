@@ -272,7 +272,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
-    /// Credential-free outcome for one target in a scheduled-scene run.
+    /// Credential-free outcome for one target in a scheduled-scene run, including the
+    /// validated entertainment-channel counts used by immediate and scheduled previews.
     /// </summary>
     public sealed class HueSceneScheduleTargetResult
     {
@@ -287,6 +288,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
         [JsonPropertyName("cleanupWarning")]
         public string? CleanupWarning { get; set; }
+
+        [JsonPropertyName("availableChannelCount")]
+        public int AvailableChannelCount { get; set; }
+
+        [JsonPropertyName("selectedChannelCount")]
+        public int SelectedChannelCount { get; set; }
     }
 
     /// <summary>

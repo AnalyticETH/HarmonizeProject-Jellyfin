@@ -771,6 +771,65 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Runs an unsaved administrator preview against the resolved target collection.
+    /// This keeps immediate all-target previews on the same sequential, restorative
+    /// lifecycle as scheduled cues without creating a schedule or retaining run history.
+    /// </summary>
+    public async Task<HueSceneAutomationRunResult> RunPreviewAsync(
+        HueSceneSchedule schedule,
+        HueColorPreset preset,
+        CancellationToken cancellationToken = default)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config == null)
+            return Failure(schedule?.Id, "Scene automation configuration is unavailable.", schedule);
+
+        if (schedule == null || preset == null)
+            return Failure(schedule?.Id, "The preview configuration is unavailable.", schedule);
+
+        if (!TryResolveTargets(config, schedule, out var targets, out var targetError))
+            return Failure(schedule.Id, targetError, schedule);
+
+        PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
+        var targetResults = new List<HueSceneScheduleTargetResult>();
+        foreach (var target in targets)
+        {
+            var targetResult = await RunScheduleTargetAsync(
+                schedule,
+                preset,
+                target,
+                cancellationToken).ConfigureAwait(false);
+            targetResults.Add(targetResult);
+            if (!targetResult.Succeeded &&
+                targetResult.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+        }
+
+        var succeededCount = targetResults.Count(result => result.Succeeded);
+        var cleanupWarning = string.Join(
+            " ",
+            targetResults
+                .Where(result => !string.IsNullOrWhiteSpace(result.CleanupWarning))
+                .Select(result => $"{result.TargetLabel}: {result.CleanupWarning!.Trim()}"));
+        return new HueSceneAutomationRunResult
+        {
+            ScheduleId = schedule.Id?.Trim() ?? string.Empty,
+            ScheduleName = schedule.Name?.Trim() ?? string.Empty,
+            PresetName = preset.Name?.Trim() ?? string.Empty,
+            Effect = effect,
+            EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+            TargetLabel = ResolveTargetLabel(config, schedule),
+            Succeeded = targetResults.Count > 0 && succeededCount == targetResults.Count,
+            Message = BuildAggregateRunMessage(targetResults, succeededCount),
+            CleanupWarning = string.IsNullOrWhiteSpace(cleanupWarning) ? null : cleanupWarning,
+            TargetResults = targetResults,
+            RunAtUtc = DateTime.UtcNow
+        };
+    }
+
+    /// <summary>
     /// Requests cancellation of a manually started cue. The active stream tester and
     /// bridge cleanup lifecycle receive the cancellation through the linked run token.
     /// </summary>
@@ -1524,6 +1583,29 @@ public sealed class HueSceneAutomationService : BackgroundService
     private static string GetTargetIdentity(HueSceneAutomationTargetDescription target)
         => $"{target.BridgeIp.Trim().TrimEnd('.').ToLowerInvariant()}|{target.EntertainmentAreaId.Trim().ToLowerInvariant()}";
 
+    private static HashSet<int> GetValidChannelIds(JsonElement areaConfiguration)
+    {
+        var channelIds = new HashSet<int>();
+        if (!areaConfiguration.TryGetProperty("channels", out var channels) ||
+            channels.ValueKind != JsonValueKind.Array)
+        {
+            return channelIds;
+        }
+
+        foreach (var channel in channels.EnumerateArray())
+        {
+            if (channel.TryGetProperty("channel_id", out var channelIdProperty) &&
+                channelIdProperty.TryGetInt32(out var channelId) &&
+                channelId >= ushort.MinValue &&
+                channelId <= ushort.MaxValue)
+            {
+                channelIds.Add(channelId);
+            }
+        }
+
+        return channelIds;
+    }
+
     private static string GetMappingLabel(UserBridgeMapping mapping)
         => string.IsNullOrWhiteSpace(mapping.UserName)
             ? $"User mapping {mapping.UserId?.Trim() ?? "unknown"}"
@@ -1827,6 +1909,27 @@ public sealed class HueSceneAutomationService : BackgroundService
                 };
             }
 
+            var availableChannelIds = GetValidChannelIds(areaConfiguration.Value);
+            var selectedChannelCount = target.ChannelIds?.Count ?? availableChannelIds.Count;
+            if (target.ChannelIds != null)
+            {
+                var missingChannelIds = target.ChannelIds
+                    .Where(channelId => !availableChannelIds.Contains(channelId))
+                    .OrderBy(channelId => channelId)
+                    .ToArray();
+                if (missingChannelIds.Length > 0)
+                {
+                    return new HueSceneScheduleTargetResult
+                    {
+                        TargetLabel = target.TargetLabel,
+                        Succeeded = false,
+                        Message = $"The channel profile references IDs not present in this entertainment area: {string.Join(", ", missingChannelIds)}.",
+                        AvailableChannelCount = availableChannelIds.Count,
+                        SelectedChannelCount = selectedChannelCount
+                    };
+                }
+            }
+
             var preview = await _streamTester.PreviewAsync(
                 target.BridgeIp,
                 target.AppKey,
@@ -1849,7 +1952,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                 TargetLabel = target.TargetLabel,
                 Succeeded = preview.Succeeded,
                 Message = preview.Message,
-                CleanupWarning = preview.CleanupWarning
+                CleanupWarning = preview.CleanupWarning,
+                AvailableChannelCount = availableChannelIds.Count,
+                SelectedChannelCount = selectedChannelCount
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1863,7 +1968,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 TargetLabel = target.TargetLabel,
                 Succeeded = false,
-                Message = "The scheduled scene preview failed unexpectedly."
+                Message = "The scene preview failed unexpectedly."
             };
         }
     }
@@ -2356,7 +2461,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = source.TargetLabel?.Trim() ?? string.Empty,
             Succeeded = source.Succeeded,
             Message = source.Message?.Trim() ?? string.Empty,
-            CleanupWarning = source.CleanupWarning?.Trim()
+            CleanupWarning = source.CleanupWarning?.Trim(),
+            AvailableChannelCount = source.AvailableChannelCount,
+            SelectedChannelCount = source.SelectedChannelCount
         };
     }
 
@@ -2408,7 +2515,9 @@ internal sealed class HueSceneScheduleRuntimeState
                 TargetLabel = target.TargetLabel,
                 Succeeded = target.Succeeded,
                 Message = target.Message,
-                CleanupWarning = target.CleanupWarning
+                CleanupWarning = target.CleanupWarning,
+                AvailableChannelCount = target.AvailableChannelCount,
+                SelectedChannelCount = target.SelectedChannelCount
             }).ToArray() ?? Array.Empty<HueSceneScheduleTargetResult>()
         };
     }

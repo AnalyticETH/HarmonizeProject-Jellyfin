@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.104] - 2026-08-19
+
+### Added
+- **Immediate all-target previews**: add an administrator action and `targetAllEnabledMappings` preview mode that runs the selected effect sequentially on the valid global target and every distinct enabled custom mapping
+- **Per-target preview telemetry**: return credential-free target labels, channel counts, success/failure messages, and cleanup warnings while preserving the existing single-target preview contract
+
+### Security
+- All-target previews resolve bridge credentials and channel profiles only from server-side configuration, reject incomplete enabled targets before starting, and never serialize app keys, client keys, bridge addresses, or playback tokens
+
 ## [1.5.103] - 2026-08-19
 
 ### Added
