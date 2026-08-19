@@ -194,6 +194,89 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void GetUpcomingConflicts_ReportsDurationAwareCollisionsWithoutSecrets()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "conflict-app-secret",
+            HueClientKey = "conflict-client-secret",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Long scene", DurationSeconds = 10 },
+                new() { Name = "Short scene", DurationSeconds = 5 },
+                new() { Name = "Later scene", DurationSeconds = 5 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-1", UserName = "Living Room", SyncEnabled = true }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "long-cue",
+                    Name = "Long cue",
+                    PresetName = "Long scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Priority = 80,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "short-cue",
+                    Name = "Short cue",
+                    PresetName = "Short scene",
+                    TargetUserId = "user-1",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Priority = 20,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "later-cue",
+                    Name = "Later cue",
+                    PresetName = "Later scene",
+                    TimeOfDay = "07:20",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+
+        var conflicts = HueSceneAutomationService.GetUpcomingConflicts(
+            configuration,
+            new DateTime(2026, 8, 18, 6, 0, 0, DateTimeKind.Utc),
+            maxConflicts: 10,
+            horizonDays: 1);
+
+        var conflict = Assert.Single(conflicts);
+        Assert.Equal("long-cue", conflict.FirstScheduleId);
+        Assert.Equal("Long cue", conflict.FirstScheduleName);
+        Assert.Equal("Default bridge target", conflict.FirstTargetLabel);
+        Assert.Equal("short-cue", conflict.SecondScheduleId);
+        Assert.Equal("Living Room", conflict.SecondTargetLabel);
+        Assert.Equal(10, conflict.FirstDurationSeconds);
+        Assert.Equal(5, conflict.SecondDurationSeconds);
+        Assert.Equal(5, conflict.OverlapSeconds);
+        Assert.Equal(80, conflict.FirstPriority);
+        Assert.Equal(20, conflict.SecondPriority);
+        Assert.Contains("higher priority", conflict.ResolutionHint, StringComparison.OrdinalIgnoreCase);
+
+        var serialized = JsonSerializer.Serialize(conflicts);
+        Assert.DoesNotContain("conflict-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("conflict-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MonthlyWeekdayRecurrence_MatchesFirstAndLastWeekday()
     {
         var firstMonday = new HueSceneSchedule

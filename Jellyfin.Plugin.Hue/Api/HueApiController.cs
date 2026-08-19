@@ -2164,6 +2164,46 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Returns bounded, credential-free overlaps between upcoming enabled cue
+        /// execution windows. The calculation uses each cue's configured time zone,
+        /// recurrence, exclusions, skip state, finite-run limit, and effective scene or
+        /// playlist duration without contacting a bridge.
+        /// </summary>
+        [HttpGet("SceneSchedules/Conflicts")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HueSceneScheduleConflictsResult> GetSceneScheduleConflicts(
+            [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.DefaultConflictLimit,
+            [FromQuery(Name = "days")] int days = HueSceneAutomationService.DefaultConflictHorizonDays,
+            [FromQuery(Name = "scheduleId")] string? scheduleId = null)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var boundedLimit = Math.Clamp(limit, 1, HueSceneAutomationService.MaxConflictLimit);
+            var boundedDays = Math.Clamp(days, 1, HueSceneAutomationService.MaxConflictHorizonDays);
+            var normalizedScheduleId = string.IsNullOrWhiteSpace(scheduleId) ? null : scheduleId.Trim();
+            var serverLocalNow = DateTime.Now;
+            return Ok(new HueSceneScheduleConflictsResult
+            {
+                ServiceAvailable = _sceneAutomationService != null,
+                GeneratedAtUtc = DateTime.UtcNow,
+                ServerLocalNow = DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified),
+                ServerTimeZoneId = TimeZoneInfo.Local.Id,
+                Limit = boundedLimit,
+                HorizonDays = boundedDays,
+                ScheduleIdFilter = normalizedScheduleId,
+                Conflicts = HueSceneAutomationService.GetUpcomingConflicts(
+                    config,
+                    serverLocalNow,
+                    boundedLimit,
+                    boundedDays,
+                    normalizedScheduleId)
+            });
+        }
+
+        /// <summary>
         /// Returns a bounded, credential-free preview of upcoming cue occurrences. The
         /// calculation uses each cue's timezone, date window, exclusions, daily, weekly,
         /// monthly-day, monthly-weekday, or yearly recurrence, and DST rules without contacting the bridge.
@@ -5511,6 +5551,36 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("occurrences")]
         public IReadOnlyList<HueSceneScheduleOccurrenceResult> Occurrences { get; set; } = Array.Empty<HueSceneScheduleOccurrenceResult>();
+    }
+
+    /// <summary>
+    /// Bounded credential-free overlap report for upcoming scheduled cues.
+    /// </summary>
+    public sealed class HueSceneScheduleConflictsResult
+    {
+        [JsonPropertyName("serviceAvailable")]
+        public bool ServiceAvailable { get; set; }
+
+        [JsonPropertyName("generatedAtUtc")]
+        public DateTime GeneratedAtUtc { get; set; }
+
+        [JsonPropertyName("serverLocalNow")]
+        public DateTime ServerLocalNow { get; set; }
+
+        [JsonPropertyName("serverTimeZoneId")]
+        public string ServerTimeZoneId { get; set; } = string.Empty;
+
+        [JsonPropertyName("limit")]
+        public int Limit { get; set; }
+
+        [JsonPropertyName("horizonDays")]
+        public int HorizonDays { get; set; }
+
+        [JsonPropertyName("scheduleIdFilter")]
+        public string? ScheduleIdFilter { get; set; }
+
+        [JsonPropertyName("conflicts")]
+        public IReadOnlyList<HueSceneScheduleConflict> Conflicts { get; set; } = Array.Empty<HueSceneScheduleConflict>();
     }
 
     /// <summary>

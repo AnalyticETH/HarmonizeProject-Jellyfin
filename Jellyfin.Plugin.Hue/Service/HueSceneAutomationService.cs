@@ -38,6 +38,10 @@ public sealed class HueSceneAutomationService : BackgroundService
     public const int MaxUpcomingOccurrencesPerSchedule = 50;
     public const int DefaultUpcomingHorizonDays = 31;
     public const int MaxUpcomingHorizonDays = 366;
+    public const int DefaultConflictLimit = 50;
+    public const int MaxConflictLimit = 200;
+    public const int DefaultConflictHorizonDays = 31;
+    public const int MaxConflictHorizonDays = 366;
 
     public HueSceneAutomationService(
         IHueStreamTester streamTester,
@@ -500,7 +504,12 @@ public sealed class HueSceneAutomationService : BackgroundService
             GeneratedAtUtc = DateTime.UtcNow,
             ServerLocalNow = DateTime.SpecifyKind(localNow, DateTimeKind.Unspecified),
             ServerTimeZoneId = TimeZoneInfo.Local.Id,
-            Schedules = statuses
+            Schedules = statuses,
+            Conflicts = GetUpcomingConflicts(
+                config,
+                localNow,
+                DefaultConflictLimit,
+                DefaultConflictHorizonDays)
         };
     }
 
@@ -751,6 +760,145 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         return occurrences;
+    }
+
+    /// <summary>
+    /// Finds bounded upcoming execution windows that overlap across enabled cues. The
+    /// scheduler serializes restorative bridge lifecycles, so any overlap can delay the
+    /// later cue even when the cues target different mappings. The calculation reuses the
+    /// same time-zone, DST, recurrence, exclusion, skip, and finite-run rules as the
+    /// occurrence preview and never contacts a bridge.
+    /// </summary>
+    internal static IReadOnlyList<HueSceneScheduleConflict> GetUpcomingConflicts(
+        PluginConfiguration? config,
+        DateTime serverLocalNow,
+        int maxConflicts = DefaultConflictLimit,
+        int horizonDays = DefaultConflictHorizonDays,
+        string? scheduleId = null)
+    {
+        if (config == null)
+            return Array.Empty<HueSceneScheduleConflict>();
+
+        var boundedLimit = Math.Clamp(maxConflicts, 1, MaxConflictLimit);
+        var boundedHorizon = Math.Clamp(horizonDays, 1, MaxConflictHorizonDays);
+        var normalizedScheduleId = string.IsNullOrWhiteSpace(scheduleId) ? null : scheduleId.Trim();
+        var windows = new List<HueSceneScheduleConflictWindow>();
+        var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+            .Where(schedule => schedule != null && schedule.Enabled)
+            .Where(schedule => string.IsNullOrWhiteSpace(normalizedScheduleId) ||
+                               string.Equals(schedule.Id?.Trim(), normalizedScheduleId, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        foreach (var schedule in schedules)
+        {
+            var preset = config.ColorPresets?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
+            var playlist = config.ScenePlaylists?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Name?.Trim(), schedule.PlaylistName?.Trim(), StringComparison.OrdinalIgnoreCase));
+            var isPlaylist = !string.IsNullOrWhiteSpace(schedule.PlaylistName);
+            var durationSeconds = isPlaylist
+                ? GetPlaylistTotalDurationSeconds(config, playlist)
+                : GetEffectiveDurationSeconds(schedule, preset);
+            var transitionSeconds = isPlaylist ? 0 : GetEffectiveTransitionSeconds(schedule, preset);
+            var transitionOutSeconds = isPlaylist ? 0 : GetEffectiveTransitionOutSeconds(schedule, preset);
+            var effectSpeedPercent = preset == null
+                ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
+                : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent);
+
+            foreach (var occurrence in GetUpcomingOccurrences(
+                         schedule,
+                         serverLocalNow,
+                         MaxUpcomingOccurrencesPerSchedule,
+                         boundedHorizon,
+                         includeFutureStartBeyondHorizon: false,
+                         transitionSeconds,
+                         transitionOutSeconds,
+                         effectSpeedPercent,
+                         durationSeconds))
+            {
+                var startUtc = DateTime.SpecifyKind(occurrence.UtcTime, DateTimeKind.Utc);
+                var endUtc = startUtc.AddSeconds(Math.Max(
+                    PluginConfiguration.MinPreviewDurationSeconds,
+                    occurrence.DurationSeconds));
+                windows.Add(new HueSceneScheduleConflictWindow(
+                    occurrence,
+                    endUtc,
+                    ResolveTargetLabel(config, schedule)));
+            }
+        }
+
+        if (windows.Count < 2)
+            return Array.Empty<HueSceneScheduleConflict>();
+
+        var conflicts = new List<HueSceneScheduleConflict>();
+        for (var leftIndex = 0; leftIndex < windows.Count; leftIndex++)
+        {
+            var left = windows[leftIndex];
+            for (var rightIndex = leftIndex + 1; rightIndex < windows.Count; rightIndex++)
+            {
+                var right = windows[rightIndex];
+                if (string.Equals(
+                        left.Occurrence.ScheduleId,
+                        right.Occurrence.ScheduleId,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(left.Occurrence.ScheduleId))
+                {
+                    continue;
+                }
+
+                if (left.Occurrence.UtcTime >= right.EndUtc || right.Occurrence.UtcTime >= left.EndUtc)
+                    continue;
+
+                var first = left.Occurrence.UtcTime <= right.Occurrence.UtcTime ? left : right;
+                var second = ReferenceEquals(first, left) ? right : left;
+                var overlapStart = first.Occurrence.UtcTime >= second.Occurrence.UtcTime
+                    ? first.Occurrence.UtcTime
+                    : second.Occurrence.UtcTime;
+                var overlapEnd = first.EndUtc <= second.EndUtc ? first.EndUtc : second.EndUtc;
+                var overlapSeconds = Math.Max(
+                    1,
+                    (int)Math.Ceiling((overlapEnd - overlapStart).TotalSeconds));
+                var priorityMessage = first.Occurrence.Priority == second.Occurrence.Priority
+                    ? "Equal priority; saved configuration order decides which cue starts first."
+                    : first.Occurrence.Priority > second.Occurrence.Priority
+                        ? $"{first.Occurrence.ScheduleName} has higher priority and starts first when both cues are due together."
+                        : $"{second.Occurrence.ScheduleName} has higher priority and starts first when both cues are due together.";
+
+                conflicts.Add(new HueSceneScheduleConflict
+                {
+                    FirstScheduleId = first.Occurrence.ScheduleId,
+                    FirstScheduleName = first.Occurrence.ScheduleName,
+                    FirstTargetLabel = first.TargetLabel,
+                    FirstOccurrenceUtc = DateTime.SpecifyKind(first.Occurrence.UtcTime, DateTimeKind.Utc),
+                    FirstOccurrenceLocal = first.Occurrence.LocalTime,
+                    FirstDurationSeconds = Math.Max(
+                        PluginConfiguration.MinPreviewDurationSeconds,
+                        first.Occurrence.DurationSeconds),
+                    FirstPriority = first.Occurrence.Priority,
+                    SecondScheduleId = second.Occurrence.ScheduleId,
+                    SecondScheduleName = second.Occurrence.ScheduleName,
+                    SecondTargetLabel = second.TargetLabel,
+                    SecondOccurrenceUtc = DateTime.SpecifyKind(second.Occurrence.UtcTime, DateTimeKind.Utc),
+                    SecondOccurrenceLocal = second.Occurrence.LocalTime,
+                    SecondDurationSeconds = Math.Max(
+                        PluginConfiguration.MinPreviewDurationSeconds,
+                        second.Occurrence.DurationSeconds),
+                    SecondPriority = second.Occurrence.Priority,
+                    OverlapSeconds = overlapSeconds,
+                    ResolutionHint = priorityMessage + " The scheduler serializes restorative cue lifecycles, so the later cue may be delayed."
+                });
+            }
+        }
+
+        return conflicts
+            .OrderBy(conflict => conflict.FirstOccurrenceUtc)
+            .ThenByDescending(conflict => Math.Max(conflict.FirstPriority, conflict.SecondPriority))
+            .ThenBy(conflict => conflict.FirstScheduleName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(conflict => conflict.SecondScheduleName, StringComparer.OrdinalIgnoreCase)
+            .Take(boundedLimit)
+            .ToArray();
     }
 
     /// <summary>
@@ -2756,6 +2904,23 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
+    private sealed class HueSceneScheduleConflictWindow
+    {
+        public HueSceneScheduleConflictWindow(
+            HueSceneScheduleOccurrence occurrence,
+            DateTime endUtc,
+            string targetLabel)
+        {
+            Occurrence = occurrence;
+            EndUtc = endUtc;
+            TargetLabel = targetLabel;
+        }
+
+        public HueSceneScheduleOccurrence Occurrence { get; }
+        public DateTime EndUtc { get; }
+        public string TargetLabel { get; }
+    }
+
     private static HueSceneSchedule CloneSchedule(HueSceneSchedule source)
     {
         return new HueSceneSchedule
@@ -3149,6 +3314,60 @@ public sealed class HueSceneScheduleOccurrence
 }
 
 /// <summary>
+/// Credential-free overlap between two upcoming scheduled-cue execution windows.
+/// </summary>
+public sealed class HueSceneScheduleConflict
+{
+    [JsonPropertyName("firstScheduleId")]
+    public string FirstScheduleId { get; init; } = string.Empty;
+
+    [JsonPropertyName("firstScheduleName")]
+    public string FirstScheduleName { get; init; } = string.Empty;
+
+    [JsonPropertyName("firstTargetLabel")]
+    public string FirstTargetLabel { get; init; } = string.Empty;
+
+    [JsonPropertyName("firstOccurrenceUtc")]
+    public DateTime FirstOccurrenceUtc { get; init; }
+
+    [JsonPropertyName("firstOccurrenceLocal")]
+    public DateTime FirstOccurrenceLocal { get; init; }
+
+    [JsonPropertyName("firstDurationSeconds")]
+    public int FirstDurationSeconds { get; init; }
+
+    [JsonPropertyName("firstPriority")]
+    public int FirstPriority { get; init; }
+
+    [JsonPropertyName("secondScheduleId")]
+    public string SecondScheduleId { get; init; } = string.Empty;
+
+    [JsonPropertyName("secondScheduleName")]
+    public string SecondScheduleName { get; init; } = string.Empty;
+
+    [JsonPropertyName("secondTargetLabel")]
+    public string SecondTargetLabel { get; init; } = string.Empty;
+
+    [JsonPropertyName("secondOccurrenceUtc")]
+    public DateTime SecondOccurrenceUtc { get; init; }
+
+    [JsonPropertyName("secondOccurrenceLocal")]
+    public DateTime SecondOccurrenceLocal { get; init; }
+
+    [JsonPropertyName("secondDurationSeconds")]
+    public int SecondDurationSeconds { get; init; }
+
+    [JsonPropertyName("secondPriority")]
+    public int SecondPriority { get; init; }
+
+    [JsonPropertyName("overlapSeconds")]
+    public int OverlapSeconds { get; init; }
+
+    [JsonPropertyName("resolutionHint")]
+    public string ResolutionHint { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// Sanitized status for one configured scene cue.
 /// </summary>
 public sealed class HueSceneScheduleRuntimeStatus
@@ -3317,4 +3536,7 @@ public sealed class HueSceneAutomationStatus
 
     [JsonPropertyName("schedules")]
     public IReadOnlyList<HueSceneScheduleRuntimeStatus> Schedules { get; init; } = Array.Empty<HueSceneScheduleRuntimeStatus>();
+
+    [JsonPropertyName("conflicts")]
+    public IReadOnlyList<HueSceneScheduleConflict> Conflicts { get; init; } = Array.Empty<HueSceneScheduleConflict>();
 }

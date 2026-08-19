@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.120] - 2026-08-19
+
+### Added
+- **Scheduled-cue conflict diagnostics**: add a bounded, credential-free report and administrator monitor for upcoming cue execution windows that overlap after effective scene or playlist durations are applied
+- **Time-zone-aware ordering guidance**: conflict results include both UTC and cue-local instants, overlap duration, target labels, priorities, and the scheduler's serialized execution guidance
+
+### Security
+- Conflict analysis reuses local recurrence and duration calculations only; it never contacts Hue bridges or serializes bridge credentials
+
 ## [1.5.119] - 2026-08-19
 
 ### Reliability

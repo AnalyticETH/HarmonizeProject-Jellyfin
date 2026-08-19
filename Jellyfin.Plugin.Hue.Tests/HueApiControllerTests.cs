@@ -3357,6 +3357,69 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetSceneScheduleConflicts_ReturnsBoundedDurationAwareReportWithoutSecrets()
+    {
+        var cueTime = DateTime.UtcNow.AddMinutes(10).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "conflict-api-app-secret",
+            HueClientKey = "conflict-api-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Long scene", DurationSeconds = 12 },
+                new() { Name = "Short scene", DurationSeconds = 4 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "api-long-cue",
+                    Name = "API long cue",
+                    PresetName = "Long scene",
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Priority = 90,
+                    MaxRuns = 1,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "api-short-cue",
+                    Name = "API short cue",
+                    PresetName = "Short scene",
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Priority = 10,
+                    MaxRuns = 1,
+                    Enabled = true
+                }
+            }
+        });
+
+        var action = CreateController().GetSceneScheduleConflicts(limit: 7, days: 9);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleConflictsResult>(response.Value);
+        Assert.False(result.ServiceAvailable);
+        Assert.Equal(7, result.Limit);
+        Assert.Equal(9, result.HorizonDays);
+        var conflict = Assert.Single(result.Conflicts);
+        Assert.Equal("api-long-cue", conflict.FirstScheduleId);
+        Assert.Equal("api-short-cue", conflict.SecondScheduleId);
+        Assert.Equal(4, conflict.OverlapSeconds);
+        Assert.Contains("higher priority", conflict.ResolutionHint, StringComparison.OrdinalIgnoreCase);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("conflict-api-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("conflict-api-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetSceneScheduleCalendar_ReturnsBoundedUtcEventsWithEscapedCredentialFreeMetadata()
     {
         var cueTime = DateTime.Now.AddMinutes(10).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);

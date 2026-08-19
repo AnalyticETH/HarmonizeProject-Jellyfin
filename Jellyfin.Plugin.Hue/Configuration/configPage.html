@@ -553,6 +553,11 @@
                         </div>
                         <div id="sceneScheduleRuntimeStatus" style="margin-top: 0.5em; overflow-x: auto;"></div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
+                            <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleConflictsBtn"><span>Check Schedule Conflicts</span></button>
+                            <div id="sceneScheduleConflictsSummary" class="fieldDescription">Loading schedule conflict diagnostics...</div>
+                        </div>
+                        <div id="sceneScheduleConflicts" style="margin-top: 0.5em; overflow-x: auto;"></div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleOccurrencesBtn"><span>Refresh Upcoming Cues</span></button>
                             <button is="emby-button" type="button" class="raised" id="exportSceneScheduleCalendarBtn"><span>Download Calendar (.ics)</span></button>
                             <div id="sceneScheduleOccurrencesSummary" class="fieldDescription">Loading upcoming cue occurrences...</div>
@@ -3053,8 +3058,107 @@
                     }).finally(function () {
                         page._hueSceneScheduleRuntimeStatusLoading = false;
                         if (button) button.disabled = false;
+                        HueConfigurationPage.loadSceneScheduleConflicts(page);
                         HueConfigurationPage.loadSceneScheduleOccurrences(page);
                         HueConfigurationPage.loadSceneScheduleHistory(page);
+                    });
+                },
+                loadSceneScheduleConflicts: function (page) {
+                    if (!page || page._hueSceneScheduleConflictsLoading) {
+                        return Promise.resolve();
+                    }
+
+                    page._hueSceneScheduleConflictsLoading = true;
+                    var button = page.querySelector('#refreshSceneScheduleConflictsBtn');
+                    var summary = page.querySelector('#sceneScheduleConflictsSummary');
+                    var container = page.querySelector('#sceneScheduleConflicts');
+                    if (button) button.disabled = true;
+                    if (summary) {
+                        summary.textContent = "Checking upcoming cue overlaps...";
+                        summary.style.color = "";
+                    }
+
+                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/Conflicts?limit=50&days=31")).then(function (response) {
+                        var conflicts = HueConfigurationPage.readStatusField(response, "Conflicts", []);
+                        conflicts = Array.isArray(conflicts) ? conflicts : [];
+                        var horizonDays = Number(HueConfigurationPage.readStatusField(response, "HorizonDays", 31) || 31);
+                        var generatedAt = HueConfigurationPage.readStatusField(response, "GeneratedAtUtc", null);
+                        var generatedText = generatedAt ? new Date(generatedAt).toLocaleTimeString() : "";
+                        if (summary) {
+                            summary.textContent = conflicts.length
+                                ? conflicts.length + " potential overlap" + (conflicts.length === 1 ? "" : "s") +
+                                    " in the next " + String(horizonDays) + " days · updated " + generatedText
+                                : "No enabled cue execution windows overlap in the next " + String(horizonDays) + " days · updated " + generatedText;
+                            summary.style.color = conflicts.length ? "#f0ad4e" : "#8bc34a";
+                        }
+                        if (!container) return;
+                        container.textContent = "";
+                        if (conflicts.length === 0) {
+                            container.textContent = "No conflicts detected. The report uses each cue's effective duration, recurrence, exclusions, skip marker, and selected time zone.";
+                            return;
+                        }
+
+                        var formatUtc = function (value) {
+                            if (!value) return "—";
+                            var parsed = new Date(value);
+                            return isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString() + " (server local)";
+                        };
+                        var table = document.createElement('table');
+                        table.style.width = '100%';
+                        table.style.borderCollapse = 'collapse';
+                        table.style.minWidth = '900px';
+                        var headerRow = document.createElement('tr');
+                        ["First cue", "Second cue", "Overlap", "Execution order guidance"].forEach(function (heading) {
+                            var header = document.createElement('th');
+                            header.textContent = heading;
+                            header.style.textAlign = 'left';
+                            header.style.padding = '6px 8px';
+                            header.style.borderBottom = '1px solid rgba(255,255,255,.2)';
+                            headerRow.appendChild(header);
+                        });
+                        var head = document.createElement('thead');
+                        head.appendChild(headerRow);
+                        table.appendChild(head);
+                        var body = document.createElement('tbody');
+                        conflicts.forEach(function (conflict) {
+                            var row = document.createElement('tr');
+                            row.style.borderBottom = '1px solid rgba(255,255,255,.08)';
+                            var addCell = function (text, color) {
+                                var cell = document.createElement('td');
+                                cell.textContent = text == null || text === '' ? "—" : String(text);
+                                cell.style.padding = '6px 8px';
+                                if (color) cell.style.color = color;
+                                row.appendChild(cell);
+                            };
+                            var firstName = HueConfigurationPage.readStatusField(conflict, "FirstScheduleName", "Unnamed cue");
+                            var firstTarget = HueConfigurationPage.readStatusField(conflict, "FirstTargetLabel", "Default bridge target");
+                            var firstPriority = Number(HueConfigurationPage.readStatusField(conflict, "FirstPriority", 0) || 0);
+                            var firstAt = HueConfigurationPage.readStatusField(conflict, "FirstOccurrenceUtc", null);
+                            var firstDuration = Number(HueConfigurationPage.readStatusField(conflict, "FirstDurationSeconds", 0) || 0);
+                            var secondName = HueConfigurationPage.readStatusField(conflict, "SecondScheduleName", "Unnamed cue");
+                            var secondTarget = HueConfigurationPage.readStatusField(conflict, "SecondTargetLabel", "Default bridge target");
+                            var secondPriority = Number(HueConfigurationPage.readStatusField(conflict, "SecondPriority", 0) || 0);
+                            var secondAt = HueConfigurationPage.readStatusField(conflict, "SecondOccurrenceUtc", null);
+                            var secondDuration = Number(HueConfigurationPage.readStatusField(conflict, "SecondDurationSeconds", 0) || 0);
+                            var overlap = Number(HueConfigurationPage.readStatusField(conflict, "OverlapSeconds", 0) || 0);
+                            addCell(String(firstName) + " · " + String(firstTarget) + " · priority " + String(firstPriority) + " · " + formatUtc(firstAt) + " · " + String(firstDuration) + "s");
+                            addCell(String(secondName) + " · " + String(secondTarget) + " · priority " + String(secondPriority) + " · " + formatUtc(secondAt) + " · " + String(secondDuration) + "s");
+                            addCell(String(overlap) + " second" + (overlap === 1 ? "" : "s"), "#f0ad4e");
+                            addCell(HueConfigurationPage.readStatusField(conflict, "ResolutionHint", "The scheduler serializes cue lifecycles."));
+                            body.appendChild(row);
+                        });
+                        table.appendChild(body);
+                        container.appendChild(table);
+                    }).catch(function (err) {
+                        console.error("Failed to load scheduled cue conflicts:", err);
+                        if (summary) {
+                            summary.textContent = "Unable to check schedule conflicts. Check the server log.";
+                            summary.style.color = "#d9534f";
+                        }
+                        if (container) container.textContent = "";
+                    }).finally(function () {
+                        page._hueSceneScheduleConflictsLoading = false;
+                        if (button) button.disabled = false;
                     });
                 },
                 loadSceneScheduleOccurrences: function (page) {
