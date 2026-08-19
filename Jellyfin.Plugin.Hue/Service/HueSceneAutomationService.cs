@@ -303,20 +303,45 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// </summary>
     public IReadOnlyList<HueSceneAutomationRunResult> GetHistory(
         int limit = MaxSceneScheduleHistoryCount,
-        string? scheduleId = null)
+        string? scheduleId = null,
+        string? outcome = null)
     {
         EnsureHistoryLoaded();
         var boundedLimit = Math.Clamp(limit, 1, MaxSceneScheduleHistoryCount);
         var normalizedScheduleId = scheduleId?.Trim();
+        var normalizedOutcome = outcome?.Trim();
         lock (_historyLock)
         {
             return _runHistory
                 .Where(result => string.IsNullOrWhiteSpace(normalizedScheduleId) ||
                                  string.Equals(result.ScheduleId, normalizedScheduleId, StringComparison.OrdinalIgnoreCase))
+                .Where(result => MatchesHistoryOutcome(result, normalizedOutcome))
                 .Take(boundedLimit)
                 .Select(CloneRunResult)
                 .ToArray();
         }
+    }
+
+    /// <summary>
+    /// Applies the credential-free outcome vocabulary used by the administrator history
+    /// API. Recovered runs retain their underlying succeeded/failed/skipped outcome while
+    /// also matching the <c>Recovered</c> filter.
+    /// </summary>
+    internal static bool MatchesHistoryOutcome(
+        HueSceneAutomationRunResult result,
+        string? outcome)
+    {
+        if (result == null || string.IsNullOrWhiteSpace(outcome))
+            return result != null;
+
+        return outcome.Trim().ToLowerInvariant() switch
+        {
+            "succeeded" => result.Succeeded && !result.Skipped,
+            "failed" => !result.Succeeded && !result.Skipped,
+            "skipped" => result.Skipped,
+            "recovered" => result.WasCatchUp,
+            _ => false
+        };
     }
 
     /// <summary>

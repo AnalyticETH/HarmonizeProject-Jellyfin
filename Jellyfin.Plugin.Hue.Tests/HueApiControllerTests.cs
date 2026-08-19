@@ -2988,6 +2988,80 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneScheduleHistory_FiltersOutcomeAndExportWithoutSecrets()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = true,
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new()
+                {
+                    ScheduleId = "success-cue",
+                    ScheduleName = "Successful cue",
+                    Succeeded = true,
+                    RunAtUtc = DateTime.UtcNow.AddMinutes(-1)
+                },
+                new()
+                {
+                    ScheduleId = "failed-cue",
+                    ScheduleName = "Failed cue",
+                    Succeeded = false,
+                    Skipped = false,
+                    RunAtUtc = DateTime.UtcNow.AddMinutes(-2)
+                },
+                new()
+                {
+                    ScheduleId = "skipped-cue",
+                    ScheduleName = "Skipped cue",
+                    Succeeded = false,
+                    Skipped = true,
+                    RunAtUtc = DateTime.UtcNow.AddMinutes(-3)
+                },
+                new()
+                {
+                    ScheduleId = "recovered-cue",
+                    ScheduleName = "Recovered cue",
+                    Succeeded = true,
+                    WasCatchUp = true,
+                    RunAtUtc = DateTime.UtcNow.AddMinutes(-4)
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new IHostedService[] { service });
+
+        var failedAction = controller.GetSceneScheduleHistory(outcome: " Failed ");
+        var failedResponse = Assert.IsType<OkObjectResult>(failedAction.Result);
+        var failedDocument = Assert.IsType<HueSceneScheduleHistoryResult>(failedResponse.Value);
+        Assert.Equal("Failed", failedDocument.OutcomeFilter);
+        var failedRun = Assert.Single(failedDocument.Runs);
+        Assert.Equal("failed-cue", failedRun.ScheduleId);
+        Assert.False(failedRun.Succeeded);
+        Assert.False(failedRun.Skipped);
+
+        var skippedAction = controller.GetSceneScheduleHistory(outcome: "Skipped");
+        var skippedResponse = Assert.IsType<OkObjectResult>(skippedAction.Result);
+        var skippedDocument = Assert.IsType<HueSceneScheduleHistoryResult>(skippedResponse.Value);
+        Assert.Single(skippedDocument.Runs);
+        Assert.True(skippedDocument.Runs[0].Skipped);
+
+        var recoveredAction = controller.ExportSceneScheduleHistory(outcome: "Recovered");
+        var recoveredResponse = Assert.IsType<OkObjectResult>(recoveredAction.Result);
+        var recoveredDocument = Assert.IsType<HueSceneScheduleHistoryResult>(recoveredResponse.Value);
+        Assert.Equal("Recovered", recoveredDocument.OutcomeFilter);
+        var recoveredRun = Assert.Single(recoveredDocument.Runs);
+        Assert.Equal("recovered-cue", recoveredRun.ScheduleId);
+        Assert.True(recoveredRun.WasCatchUp);
+        var serialized = System.Text.Json.JsonSerializer.Serialize(recoveredDocument);
+        Assert.DoesNotContain("AppKey", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ClientKey", serialized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void DeleteColorPreset_ProtectsScheduledCueReferences()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

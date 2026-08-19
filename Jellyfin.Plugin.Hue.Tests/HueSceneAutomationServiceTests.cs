@@ -1167,6 +1167,9 @@ public sealed class HueSceneAutomationServiceTests
         var history = Assert.Single(service.GetHistory());
         Assert.True(history.WasCatchUp);
         Assert.True(history.Succeeded);
+        Assert.Single(service.GetHistory(outcome: "Recovered"));
+        Assert.Single(service.GetHistory(outcome: "Succeeded"));
+        Assert.Empty(service.GetHistory(outcome: "Failed"));
     }
 
     [Fact]
@@ -1496,6 +1499,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.True(skippedHistory.Skipped);
         Assert.False(skippedHistory.Succeeded);
         Assert.Equal(0, skippedHistory.RunCount);
+        Assert.Single(service.GetHistory(outcome: "Skipped"));
+        Assert.Empty(service.GetHistory(outcome: "Failed"));
         var skippedStatus = Assert.Single(service.GetStatus().Schedules);
         Assert.True(skippedStatus.LastSkipped);
         Assert.False(skippedStatus.LastSucceeded);

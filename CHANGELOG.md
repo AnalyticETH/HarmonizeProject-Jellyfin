@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.122] - 2026-08-19
+
+### Added
+- **Outcome-filtered scheduled-cue history**: filter retained cue runs by Succeeded, Failed, Skipped, or Recovered through the history API and credential-free JSON export
+- **Focused history monitor**: add an administrator outcome selector so failed or recovered cue runs can be inspected without scanning unrelated telemetry
+
 ## [1.5.121] - 2026-08-19
 
 ### Fixed

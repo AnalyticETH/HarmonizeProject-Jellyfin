@@ -571,6 +571,14 @@
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleHistoryBtn"><span>Refresh Cue History</span></button>
                             <button is="emby-button" type="button" class="raised" id="exportSceneScheduleHistoryBtn"><span>Export JSON</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSceneScheduleHistoryBtn"><span>Clear Cue History</span></button>
+                            <label class="inputLabel inputLabelUnfocused" for="sceneScheduleHistoryOutcome" style="margin: 0;">Outcome</label>
+                            <select id="sceneScheduleHistoryOutcome" is="emby-select" style="min-width: 170px;">
+                                <option value="">All outcomes</option>
+                                <option value="Succeeded">Succeeded</option>
+                                <option value="Failed">Failed</option>
+                                <option value="Skipped">Skipped</option>
+                                <option value="Recovered">Recovered</option>
+                            </select>
                             <div id="sceneScheduleHistoryStatus" class="fieldDescription">Loading cue history...</div>
                         </div>
                         <div id="sceneScheduleHistory" style="margin-top: 0.5em; overflow-x: auto;"></div>
@@ -3339,12 +3347,18 @@
                     var refreshButton = page.querySelector('#refreshSceneScheduleHistoryBtn');
                     var exportButton = page.querySelector('#exportSceneScheduleHistoryBtn');
                     var clearButton = page.querySelector('#clearSceneScheduleHistoryBtn');
+                    var outcomeFilter = page.querySelector('#sceneScheduleHistoryOutcome');
                     var status = page.querySelector('#sceneScheduleHistoryStatus');
                     var container = page.querySelector('#sceneScheduleHistory');
                     if (refreshButton) refreshButton.disabled = true;
                     if (status) status.textContent = "Loading cue history...";
 
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/History?limit=100")).then(function (response) {
+                    var selectedOutcome = outcomeFilter ? String(outcomeFilter.value || '').trim() : '';
+                    var historyUrl = "HueSync/SceneSchedules/History?limit=100";
+                    if (selectedOutcome) {
+                        historyUrl += "&outcome=" + encodeURIComponent(selectedOutcome);
+                    }
+                    return ApiClient.getJSON(ApiClient.getUrl(historyUrl)).then(function (response) {
                         var runs = HueConfigurationPage.readStatusField(response, "Runs", []);
                         runs = Array.isArray(runs) ? runs : [];
                         var serviceAvailable = HueConfigurationPage.readStatusField(response, "ServiceAvailable", false);
@@ -3353,13 +3367,16 @@
                             status.textContent = !serviceAvailable
                                 ? "The scheduled-cue service is unavailable."
                                 : runs.length + " retained cue run" + (runs.length === 1 ? "" : "s") +
+                                    (selectedOutcome ? " · " + selectedOutcome : "") +
                                     (persistenceEnabled ? " · retained across restarts" : " · in memory only");
                             status.style.color = serviceAvailable ? "" : "#f0ad4e";
                         }
                         if (!container) return;
                         container.textContent = "";
                         if (runs.length === 0) {
-                            container.textContent = "No completed scheduled-cue runs have been recorded yet.";
+                            container.textContent = selectedOutcome
+                                ? "No scheduled-cue runs match the selected outcome."
+                                : "No completed scheduled-cue runs have been recorded yet.";
                             return;
                         }
 
@@ -3438,7 +3455,13 @@
                     var button = page.querySelector('#exportSceneScheduleHistoryBtn');
                     var status = page.querySelector('#sceneScheduleHistoryStatus');
                     if (button) button.disabled = true;
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/History/Export?limit=100")).then(function (historyDocument) {
+                    var outcomeFilter = page.querySelector('#sceneScheduleHistoryOutcome');
+                    var selectedOutcome = outcomeFilter ? String(outcomeFilter.value || '').trim() : '';
+                    var exportUrl = "HueSync/SceneSchedules/History/Export?limit=100";
+                    if (selectedOutcome) {
+                        exportUrl += "&outcome=" + encodeURIComponent(selectedOutcome);
+                    }
+                    return ApiClient.getJSON(ApiClient.getUrl(exportUrl)).then(function (historyDocument) {
                         var blob = new Blob([JSON.stringify(historyDocument, null, 2)], { type: "application/json" });
                         var url = URL.createObjectURL(blob);
                         var link = window.document.createElement('a');
@@ -6473,6 +6496,10 @@
 
             document.querySelector('#clearSceneScheduleHistoryBtn').addEventListener('click', function () {
                 HueConfigurationPage.clearSceneScheduleHistory(this.closest('.page'));
+            });
+
+            document.querySelector('#sceneScheduleHistoryOutcome').addEventListener('change', function () {
+                HueConfigurationPage.loadSceneScheduleHistory(this.closest('.page'));
             });
 
             document.querySelector('#refreshRuntimeStatusBtn').addEventListener('click', function () {

@@ -2465,24 +2465,29 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Returns bounded sanitized run history for scheduled scene cues. Bridge
-        /// credentials and connection details are never retained or serialized.
+        /// credentials and connection details are never retained or serialized. The
+        /// optional outcome filter accepts Succeeded, Failed, Skipped, or Recovered;
+        /// recovered runs also match their underlying succeeded/failed/skipped outcome.
         /// </summary>
         [HttpGet("SceneSchedules/History")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<HueSceneScheduleHistoryResult> GetSceneScheduleHistory(
             [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxSceneScheduleHistoryCount,
-            [FromQuery(Name = "scheduleId")] string? scheduleId = null)
+            [FromQuery(Name = "scheduleId")] string? scheduleId = null,
+            [FromQuery(Name = "outcome")] string? outcome = null)
         {
             var boundedLimit = Math.Clamp(limit, 1, HueSceneAutomationService.MaxSceneScheduleHistoryCount);
             var normalizedScheduleId = string.IsNullOrWhiteSpace(scheduleId) ? null : scheduleId.Trim();
+            var normalizedOutcome = string.IsNullOrWhiteSpace(outcome) ? null : outcome.Trim();
             return Ok(new HueSceneScheduleHistoryResult
             {
                 ServiceAvailable = _sceneAutomationService != null,
                 PersistenceEnabled = Plugin.Instance?.Configuration.PersistSceneScheduleHistory ?? false,
                 Limit = boundedLimit,
                 ScheduleIdFilter = normalizedScheduleId,
+                OutcomeFilter = normalizedOutcome,
                 GeneratedAtUtc = DateTime.UtcNow,
-                Runs = _sceneAutomationService?.GetHistory(boundedLimit, normalizedScheduleId)
+                Runs = _sceneAutomationService?.GetHistory(boundedLimit, normalizedScheduleId, normalizedOutcome)
                     ?? Array.Empty<HueSceneAutomationRunResult>()
             });
         }
@@ -2495,9 +2500,10 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<HueSceneScheduleHistoryResult> ExportSceneScheduleHistory(
             [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxSceneScheduleHistoryCount,
-            [FromQuery(Name = "scheduleId")] string? scheduleId = null)
+            [FromQuery(Name = "scheduleId")] string? scheduleId = null,
+            [FromQuery(Name = "outcome")] string? outcome = null)
         {
-            return GetSceneScheduleHistory(limit, scheduleId);
+            return GetSceneScheduleHistory(limit, scheduleId, outcome);
         }
 
         /// <summary>
@@ -5711,6 +5717,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool PersistenceEnabled { get; init; }
         public int Limit { get; init; }
         public string? ScheduleIdFilter { get; init; }
+        public string? OutcomeFilter { get; init; }
         public DateTime GeneratedAtUtc { get; init; }
         public IReadOnlyList<HueSceneAutomationRunResult> Runs { get; init; } = Array.Empty<HueSceneAutomationRunResult>();
     }
