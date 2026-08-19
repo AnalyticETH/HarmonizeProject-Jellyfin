@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.123] - 2026-08-19
+
+### Added
+- **Configuration import preflight**: add a credential-safe `POST /HueSync/Configuration/ValidateImport` path that applies the same normalization, dependency, and full configuration checks as atomic import without mutating the live server
+- **Migration readiness report**: show planned object totals, matching-key preservation, validation errors, and active-playback blocking state before an administrator confirms a backup restore
+- **Administrator validation action**: add a **Validate Import** button to the Backup and Restore wizard so malformed or incomplete documents can be corrected before replacement
+
 ## [1.5.122] - 2026-08-19
 
 ### Added

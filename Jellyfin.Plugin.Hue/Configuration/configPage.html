@@ -117,7 +117,7 @@
                 </fieldset>
                 <fieldset class="verticalSection" id="configurationPortabilitySection">
                     <legend>Backup and Restore</legend>
-                    <div class="fieldDescription" style="margin-bottom: 0.75em;">Export your settings, per-user profiles, and saved color scenes as a credential-safe JSON document. Stored bridge keys are never included; importing on this server preserves matching keys. For a migration, enter replacement keys below; they stay in this page's memory and are sent only with the atomic import request.</div>
+                    <div class="fieldDescription" style="margin-bottom: 0.75em;">Export your settings, per-user profiles, and saved color scenes as a credential-safe JSON document. Stored bridge keys are never included; importing on this server preserves matching keys. For a migration, enter replacement keys below; they stay in this page's memory and are sent only with the atomic import request. Use <strong>Validate Import</strong> to run a non-mutating dependency and configuration preflight before confirming the replacement.</div>
                     <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
                         <button is="emby-button" type="button" class="raised" id="exportConfigurationBtn">
                             <span>Export Configuration</span>
@@ -131,6 +131,9 @@
                     <div id="configurationImportCredentials" style="display: none; margin-top: 1em;">
                         <div class="fieldDescription" style="margin-bottom: 0.75em;"><strong>Migration credentials (optional)</strong><br />Leave fields blank when importing back to the same server; matching stored keys are preserved automatically. For a new server, enter the replacement App Key and Client Key for each target that needs them. Values are not added to the downloaded file or saved in the browser.</div>
                         <div id="configurationImportCredentialFields"></div>
+                        <button is="emby-button" type="button" class="raised" id="validateConfigurationImportBtn" style="margin-top: 0.75em;">
+                            <span>Validate Import</span>
+                        </button>
                         <button is="emby-button" type="button" class="raised" id="applyConfigurationImportBtn" style="margin-top: 0.75em;">
                             <span>Review and Import</span>
                         </button>
@@ -1323,6 +1326,7 @@
                 clearConfigurationImport: function (page) {
                     if (!page) return;
                     page._hueImportDocument = null;
+                    page._hueImportValidated = false;
                     var section = page.querySelector('#configurationImportCredentials');
                     var fields = page.querySelector('#configurationImportCredentialFields');
                     if (fields) fields.innerHTML = '';
@@ -1385,10 +1389,11 @@
                 prepareConfigurationImport: function (page, importDocument) {
                     if (!page) return;
                     page._hueImportDocument = importDocument;
+                    page._hueImportValidated = false;
                     HueConfigurationPage.renderConfigurationImportCredentials(page, importDocument);
                     var status = page.querySelector('#configurationPortabilityStatus');
                     if (status) {
-                        status.textContent = 'Review the optional migration credential fields, then click Review and Import.';
+                        status.textContent = 'Review the optional migration credential fields, then click Validate Import or Review and Import.';
                         status.style.color = '';
                     }
                 },
@@ -1418,6 +1423,54 @@
                     importDocument.replaceScenePlaylists = true;
                     importDocument.replaceSceneSchedules = true;
                     return true;
+                },
+                validateConfigurationImport: function (page) {
+                    var status = page && page.querySelector('#configurationPortabilityStatus');
+                    var importDocument = page && page._hueImportDocument;
+                    var validateButton = page && page.querySelector('#validateConfigurationImportBtn');
+                    var applyButton = page && page.querySelector('#applyConfigurationImportBtn');
+                    if (!page || !importDocument || !HueConfigurationPage.applyConfigurationImportCredentials(page)) return;
+                    if (validateButton) validateButton.disabled = true;
+                    if (applyButton) applyButton.disabled = true;
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/Configuration/ValidateImport"),
+                        data: JSON.stringify(importDocument),
+                        contentType: "application/json",
+                        dataType: "json"
+                    }).then(function (response) {
+                        response = response || {};
+                        var valid = response.valid !== undefined ? !!response.valid : !!response.Valid;
+                        var canImport = response.canImport !== undefined ? !!response.canImport : !!response.CanImport;
+                        var errors = response.validationErrors || response.ValidationErrors || [];
+                        page._hueImportValidated = valid && canImport;
+                        if (status) {
+                            if (page._hueImportValidated) {
+                                var mappings = response.totalMappings !== undefined ? response.totalMappings : response.TotalMappings;
+                                var scenes = response.totalColorPresets !== undefined ? response.totalColorPresets : response.TotalColorPresets;
+                                var playlists = response.totalScenePlaylists !== undefined ? response.totalScenePlaylists : response.TotalScenePlaylists;
+                                var schedules = response.totalSceneSchedules !== undefined ? response.totalSceneSchedules : response.TotalSceneSchedules;
+                                status.textContent = (response.message || response.Message || 'Configuration is valid and ready to import.') + ' Planned totals: ' + mappings + ' mappings, ' + scenes + ' scenes, ' + playlists + ' playlists, ' + schedules + ' scheduled cues.';
+                                status.style.color = "#4caf50";
+                            } else {
+                                var detail = errors.length ? ' ' + errors.join(' ') : '';
+                                status.textContent = (response.message || response.Message || 'Configuration import preflight failed.') + detail;
+                                status.style.color = "#d9534f";
+                            }
+                        }
+                    }).catch(function (err) {
+                        page._hueImportValidated = false;
+                        console.error("Failed to validate Hue configuration import:", err);
+                        if (status) {
+                            status.textContent = "Unable to validate configuration import. Check the server log.";
+                            status.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        if (validateButton) validateButton.disabled = false;
+                        if (applyButton) applyButton.disabled = false;
+                        Dashboard.hideLoadingMsg();
+                    });
                 },
                 submitConfigurationImport: function (page) {
                     var status = page && page.querySelector('#configurationPortabilityStatus');
@@ -6551,6 +6604,10 @@
 
             document.querySelector('#applyConfigurationImportBtn').addEventListener('click', function () {
                 HueConfigurationPage.submitConfigurationImport(this.closest('.page'));
+            });
+
+            document.querySelector('#validateConfigurationImportBtn').addEventListener('click', function () {
+                HueConfigurationPage.validateConfigurationImport(this.closest('.page'));
             });
 
             document.querySelector('#stopRuntimeSyncBtn').addEventListener('click', function () {

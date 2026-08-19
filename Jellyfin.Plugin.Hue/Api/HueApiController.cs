@@ -3538,6 +3538,60 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Validates a configuration import without changing the live configuration or
+        /// contacting a Hue bridge. The same normalization, dependency, and complete
+        /// configuration checks used by the atomic import are applied to an isolated
+        /// candidate, so administrators can preflight a migration before confirming it.
+        /// </summary>
+        [HttpPost("Configuration/ValidateImport")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HueConfigurationImportValidationResult> ValidateConfigurationImport(
+            [FromBody] HueConfigurationImportRequest? request)
+        {
+            if (request == null || request.Configuration == null)
+                return BadRequest("A configuration export document is required.");
+
+            if (request.SchemaVersion != HueConfigurationExportDocument.CurrentSchemaVersion)
+            {
+                return BadRequest($"Unsupported configuration schema version {request.SchemaVersion}. Expected {HueConfigurationExportDocument.CurrentSchemaVersion}.");
+            }
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var plan = BuildConfigurationImportPlan(config, request);
+            var activePlayback = _syncService?.HasActivePlaybackSessions == true;
+            var valid = plan.ValidationErrors.Count == 0;
+            return Ok(new HueConfigurationImportValidationResult
+            {
+                Valid = valid,
+                CanImport = valid && !activePlayback,
+                ActivePlayback = activePlayback,
+                SchemaVersion = request.SchemaVersion,
+                ValidationErrors = plan.ValidationErrors,
+                MappingsImported = plan.ImportedMappingCount,
+                ColorPresetsImported = plan.ImportedPresetCount,
+                ScenePlaylistsImported = plan.ImportedPlaylistCount,
+                SceneSchedulesImported = plan.ImportedScheduleCount,
+                TotalMappings = plan.CandidateMappings.Count,
+                TotalColorPresets = plan.CandidatePresets.Count,
+                TotalScenePlaylists = plan.CandidatePlaylists.Count,
+                TotalSceneSchedules = plan.CandidateSchedules.Count,
+                GlobalAppKeyPreserved = plan.GlobalAppKeyPreserved,
+                GlobalClientKeyPreserved = plan.GlobalClientKeyPreserved,
+                MappingCredentialPairsPreserved = plan.MappingCredentialPairsPreserved,
+                Message = valid
+                    ? activePlayback
+                        ? "Configuration is valid, but active Hue playback must stop before import."
+                        : "Configuration is valid and ready to import."
+                    : "Configuration import is invalid. No changes were applied."
+            });
+        }
+
+        /// <summary>
         /// Imports global settings, per-user profiles, color scenes, scene playlists, and
         /// scheduled scene cues atomically. Blank
         /// global or mapping keys preserve credentials already stored for the same target;
@@ -3570,6 +3624,68 @@ namespace Jellyfin.Plugin.Hue.Api
             if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
+            var plan = BuildConfigurationImportPlan(config, request);
+            if (plan.ValidationErrors.Count > 0)
+            {
+                return BadRequest(new { message = "Configuration import is invalid.", errors = plan.ValidationErrors });
+            }
+
+            var previousSettings = HuePluginConfigurationSettings.From(config);
+            var previousAppKey = config.HueAppKey;
+            var previousClientKey = config.HueClientKey;
+            var previousMappings = config.UserMappings ?? new List<UserBridgeMapping>();
+            var previousPresets = config.ColorPresets ?? new List<HueColorPreset>();
+            var previousPlaylists = config.ScenePlaylists ?? new List<HueScenePlaylist>();
+            var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
+
+            request.Configuration.ApplyTo(config);
+            config.UserMappings = plan.CandidateMappings;
+            config.ColorPresets = plan.CandidatePresets;
+            config.ScenePlaylists = plan.CandidatePlaylists;
+            config.SceneSchedules = plan.CandidateSchedules;
+
+            try
+            {
+                plugin.SaveConfiguration();
+                _syncService?.RefreshSessionHistoryPersistence();
+                _sceneAutomationService?.RefreshSceneScheduleHistoryPersistence();
+            }
+            catch (Exception ex)
+            {
+                previousSettings.ApplyTo(config);
+                config.HueAppKey = previousAppKey;
+                config.HueClientKey = previousClientKey;
+                config.UserMappings = previousMappings;
+                config.ColorPresets = previousPresets;
+                config.ScenePlaylists = previousPlaylists;
+                config.SceneSchedules = previousSchedules;
+                // Keep the response credential-free while retaining the exception in the
+                // server log for the administrator's normal Jellyfin diagnostics.
+                _logger?.LogError(ex, "Could not persist imported Hue configuration");
+                return StatusCode(StatusCodes.Status500InternalServerError, "Configuration could not be saved.");
+            }
+
+            return Ok(new HueConfigurationImportResult
+            {
+                MappingsImported = plan.ImportedMappingCount,
+                ColorPresetsImported = plan.ImportedPresetCount,
+                ScenePlaylistsImported = plan.ImportedPlaylistCount,
+                SceneSchedulesImported = plan.ImportedScheduleCount,
+                TotalMappings = plan.CandidateMappings.Count,
+                TotalColorPresets = plan.CandidatePresets.Count,
+                TotalScenePlaylists = plan.CandidatePlaylists.Count,
+                TotalSceneSchedules = plan.CandidateSchedules.Count,
+                GlobalAppKeyPreserved = plan.GlobalAppKeyPreserved,
+                GlobalClientKeyPreserved = plan.GlobalClientKeyPreserved,
+                MappingCredentialPairsPreserved = plan.MappingCredentialPairsPreserved,
+                Message = "Configuration imported. Stored credentials were preserved when the imported document omitted them."
+            });
+        }
+
+        private static HueConfigurationImportPlan BuildConfigurationImportPlan(
+            PluginConfiguration config,
+            HueConfigurationImportRequest request)
+        {
             var existingMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
                 .Where(mapping => mapping != null)
                 .ToList();
@@ -3761,81 +3877,39 @@ namespace Jellyfin.Plugin.Hue.Api
             };
             validationErrors.AddRange(scheduleValidationConfiguration.ValidateSceneSchedules());
 
-            if (validationErrors.Count > 0)
-                return BadRequest(new { message = "Configuration import is invalid.", errors = validationErrors });
+            var candidateConfiguration = new PluginConfiguration();
+            var baselineSettings = HuePluginConfigurationSettings.From(config);
+            baselineSettings.ApplyTo(candidateConfiguration);
+            candidateConfiguration.HueAppKey = config.HueAppKey;
+            candidateConfiguration.HueClientKey = config.HueClientKey;
+            request.Configuration!.ApplyTo(candidateConfiguration);
+            candidateConfiguration.UserMappings = candidateMappings;
+            candidateConfiguration.ColorPresets = candidatePresets;
+            candidateConfiguration.ScenePlaylists = candidatePlaylists;
+            candidateConfiguration.SceneSchedules = candidateSchedules;
+            if (validationErrors.Count == 0)
+                validationErrors.AddRange(candidateConfiguration.Validate());
 
-            var previousSettings = HuePluginConfigurationSettings.From(config);
-            var previousAppKey = config.HueAppKey;
-            var previousClientKey = config.HueClientKey;
-            var previousMappings = config.UserMappings ?? new List<UserBridgeMapping>();
-            var previousPresets = config.ColorPresets ?? new List<HueColorPreset>();
-            var previousPlaylists = config.ScenePlaylists ?? new List<HueScenePlaylist>();
-            var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
-            var globalAppKeyPreserved = string.IsNullOrWhiteSpace(request.Configuration.HueAppKey) &&
-                !request.Configuration.ClearStoredCredentials &&
-                !string.IsNullOrWhiteSpace(previousAppKey);
-            var globalClientKeyPreserved = string.IsNullOrWhiteSpace(request.Configuration.HueClientKey) &&
-                !request.Configuration.ClearStoredCredentials &&
-                !string.IsNullOrWhiteSpace(previousClientKey);
-
-            request.Configuration.ApplyTo(config);
-            config.UserMappings = candidateMappings;
-            config.ColorPresets = candidatePresets;
-            config.ScenePlaylists = candidatePlaylists;
-            config.SceneSchedules = candidateSchedules;
-            var completeValidationErrors = config.Validate();
-            if (completeValidationErrors.Count > 0)
+            return new HueConfigurationImportPlan
             {
-                previousSettings.ApplyTo(config);
-                config.HueAppKey = previousAppKey;
-                config.HueClientKey = previousClientKey;
-                config.UserMappings = previousMappings;
-                config.ColorPresets = previousPresets;
-                config.ScenePlaylists = previousPlaylists;
-                config.SceneSchedules = previousSchedules;
-                return BadRequest(new
-                {
-                    message = "Configuration import is invalid.",
-                    errors = completeValidationErrors
-                });
-            }
-
-            try
-            {
-                plugin.SaveConfiguration();
-                _syncService?.RefreshSessionHistoryPersistence();
-                _sceneAutomationService?.RefreshSceneScheduleHistoryPersistence();
-            }
-            catch (Exception ex)
-            {
-                previousSettings.ApplyTo(config);
-                config.HueAppKey = previousAppKey;
-                config.HueClientKey = previousClientKey;
-                config.UserMappings = previousMappings;
-                config.ColorPresets = previousPresets;
-                config.ScenePlaylists = previousPlaylists;
-                config.SceneSchedules = previousSchedules;
-                // Keep the response credential-free while retaining the exception in the
-                // server log for the administrator's normal Jellyfin diagnostics.
-                _logger?.LogError(ex, "Could not persist imported Hue configuration");
-                return StatusCode(StatusCodes.Status500InternalServerError, "Configuration could not be saved.");
-            }
-
-            return Ok(new HueConfigurationImportResult
-            {
-                MappingsImported = importedMappingValues.Count,
-                ColorPresetsImported = importedPresets.Count,
-                ScenePlaylistsImported = importedPlaylists.Count,
-                SceneSchedulesImported = importedSchedules.Count,
-                TotalMappings = candidateMappings.Count,
-                TotalColorPresets = candidatePresets.Count,
-                TotalScenePlaylists = candidatePlaylists.Count,
-                TotalSceneSchedules = candidateSchedules.Count,
-                GlobalAppKeyPreserved = globalAppKeyPreserved,
-                GlobalClientKeyPreserved = globalClientKeyPreserved,
+                CandidateConfiguration = candidateConfiguration,
+                CandidateMappings = candidateMappings,
+                CandidatePresets = candidatePresets,
+                CandidatePlaylists = candidatePlaylists,
+                CandidateSchedules = candidateSchedules,
+                ImportedMappingCount = importedMappingValues.Count,
+                ImportedPresetCount = importedPresets.Count,
+                ImportedPlaylistCount = importedPlaylists.Count,
+                ImportedScheduleCount = importedSchedules.Count,
+                GlobalAppKeyPreserved = string.IsNullOrWhiteSpace(request.Configuration.HueAppKey) &&
+                    !request.Configuration.ClearStoredCredentials &&
+                    !string.IsNullOrWhiteSpace(config.HueAppKey),
+                GlobalClientKeyPreserved = string.IsNullOrWhiteSpace(request.Configuration.HueClientKey) &&
+                    !request.Configuration.ClearStoredCredentials &&
+                    !string.IsNullOrWhiteSpace(config.HueClientKey),
                 MappingCredentialPairsPreserved = mappingCredentialPairsPreserved,
-                Message = "Configuration imported. Stored credentials were preserved when the imported document omitted them."
-            });
+                ValidationErrors = validationErrors
+            };
         }
 
         private static List<UserBridgeMapping> MergeMappings(
@@ -4294,6 +4368,23 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(new { message = "Mapping deleted successfully." });
         }
 
+        private sealed class HueConfigurationImportPlan
+        {
+            public PluginConfiguration CandidateConfiguration { get; init; } = new();
+            public List<UserBridgeMapping> CandidateMappings { get; init; } = new();
+            public List<HueColorPreset> CandidatePresets { get; init; } = new();
+            public List<HueScenePlaylist> CandidatePlaylists { get; init; } = new();
+            public List<HueSceneSchedule> CandidateSchedules { get; init; } = new();
+            public int ImportedMappingCount { get; init; }
+            public int ImportedPresetCount { get; init; }
+            public int ImportedPlaylistCount { get; init; }
+            public int ImportedScheduleCount { get; init; }
+            public bool GlobalAppKeyPreserved { get; init; }
+            public bool GlobalClientKeyPreserved { get; init; }
+            public int MappingCredentialPairsPreserved { get; init; }
+            public List<string> ValidationErrors { get; init; } = new();
+        }
+
     }
 
     /// <summary>
@@ -4654,6 +4745,31 @@ namespace Jellyfin.Plugin.Hue.Api
     public sealed class HueConfigurationImportResult
     {
         public string Message { get; set; } = string.Empty;
+        public int MappingsImported { get; set; }
+        public int ColorPresetsImported { get; set; }
+        public int ScenePlaylistsImported { get; set; }
+        public int SceneSchedulesImported { get; set; }
+        public int TotalMappings { get; set; }
+        public int TotalColorPresets { get; set; }
+        public int TotalScenePlaylists { get; set; }
+        public int TotalSceneSchedules { get; set; }
+        public bool GlobalAppKeyPreserved { get; set; }
+        public bool GlobalClientKeyPreserved { get; set; }
+        public int MappingCredentialPairsPreserved { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-safe preflight report for a configuration import. It never contains
+    /// bridge keys or persisted telemetry and does not mutate the live configuration.
+    /// </summary>
+    public sealed class HueConfigurationImportValidationResult
+    {
+        public string Message { get; set; } = string.Empty;
+        public bool Valid { get; set; }
+        public bool CanImport { get; set; }
+        public bool ActivePlayback { get; set; }
+        public int SchemaVersion { get; set; }
+        public IReadOnlyList<string> ValidationErrors { get; set; } = Array.Empty<string>();
         public int MappingsImported { get; set; }
         public int ColorPresetsImported { get; set; }
         public int ScenePlaylistsImported { get; set; }

@@ -4218,6 +4218,73 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ValidateConfigurationImport_ReturnsCredentialSafePlanWithoutChangingConfiguration()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            HueAppKey = "existing-app-secret",
+            HueClientKey = "existing-client-secret",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Existing" }
+            }
+        });
+        var controller = CreateController();
+
+        var action = controller.ValidateConfigurationImport(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            ColorPresets = new List<HueColorPresetRequest>
+            {
+                new() { Name = "Imported", Red = 20, Green = 30, Blue = 40 }
+            }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConfigurationImportValidationResult>(response.Value);
+        Assert.True(result.Valid);
+        Assert.True(result.CanImport);
+        Assert.Equal(1, result.ColorPresetsImported);
+        Assert.Equal(1, result.TotalColorPresets);
+        Assert.True(result.GlobalAppKeyPreserved);
+        Assert.True(result.GlobalClientKeyPreserved);
+        Assert.Equal("Existing", Assert.Single(configuration.ColorPresets).Name);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("existing-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("existing-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateConfigurationImport_ReportsErrorsWithoutChangingConfiguration()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Existing" }
+            }
+        });
+
+        var action = CreateController().ValidateConfigurationImport(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            ColorPresets = new List<HueColorPresetRequest>
+            {
+                new() { Name = string.Empty }
+            }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConfigurationImportValidationResult>(response.Value);
+        Assert.False(result.Valid);
+        Assert.False(result.CanImport);
+        Assert.NotEmpty(result.ValidationErrors);
+        Assert.Equal("Existing", Assert.Single(configuration.ColorPresets).Name);
+    }
+
+    [Fact]
     public void ConfigurationExportAndImport_PreservesScenePlaylistsWithoutCredentials()
     {
         var sourceConfiguration = new PluginConfiguration
