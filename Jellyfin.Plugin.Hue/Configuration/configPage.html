@@ -135,6 +135,7 @@
                         <input id="importConfigurationFile" type="file" accept="application/json,.json" style="display: none;" />
                     </div>
                     <div id="configurationPortabilityStatus" class="fieldDescription" style="margin-top: 0.75em;">Imports are atomic and are rejected while playback is active.</div>
+                    <div id="configurationImportDiff" class="fieldDescription" style="display: none; margin-top: 0.75em; white-space: pre-wrap;"></div>
                     <div id="configurationImportCredentials" style="display: none; margin-top: 1em;">
                         <div class="fieldDescription" style="margin-bottom: 0.75em;"><strong>Migration credentials (optional)</strong><br />Leave fields blank when importing back to the same server; matching stored keys are preserved automatically. For a new server, enter the replacement App Key and Client Key for each target that needs them. Values are not added to the downloaded file or saved in the browser.</div>
                         <div id="configurationImportCredentialFields"></div>
@@ -1395,6 +1396,11 @@
                     if (!page) return;
                     page._hueImportDocument = null;
                     page._hueImportValidated = false;
+                    var diff = page.querySelector('#configurationImportDiff');
+                    if (diff) {
+                        diff.textContent = '';
+                        diff.style.display = 'none';
+                    }
                     var section = page.querySelector('#configurationImportCredentials');
                     var fields = page.querySelector('#configurationImportCredentialFields');
                     if (fields) fields.innerHTML = '';
@@ -1454,11 +1460,47 @@
                     fields.innerHTML = html || '<div class="fieldDescription">This export contains no custom target credentials to enter. Matching credentials, if present, will be preserved by the server.</div>';
                     section.style.display = 'block';
                 },
+                renderConfigurationImportDiff: function (page, response) {
+                    var target = page && page.querySelector('#configurationImportDiff');
+                    if (!target) return;
+                    var diff = response && (response.diff || response.Diff);
+                    if (!diff) {
+                        target.textContent = '';
+                        target.style.display = 'none';
+                        return;
+                    }
+
+                    var read = function (source, name, fallback) {
+                        if (!source) return fallback;
+                        if (typeof source[name] !== 'undefined') return source[name];
+                        var camelName = name.charAt(0).toLowerCase() + name.slice(1);
+                        return typeof source[camelName] === 'undefined' ? fallback : source[camelName];
+                    };
+                    var formatCollection = function (label, source) {
+                        source = source || {};
+                        return label + ': +' + read(source, 'Added', 0) + ' added, -' + read(source, 'Removed', 0) + ' removed, ' + read(source, 'Changed', 0) + ' changed, ' + read(source, 'Unchanged', 0) + ' unchanged';
+                    };
+                    var settingsState = read(diff, 'GlobalSettingsChanged', false) ? 'changed' : 'unchanged';
+                    var appKeyState = read(diff, 'GlobalAppKeyChanged', false) ? 'changed' : 'unchanged';
+                    var clientKeyState = read(diff, 'GlobalClientKeyChanged', false) ? 'changed' : 'unchanged';
+                    var lines = [
+                        'Import change summary (credential-safe):',
+                        'Global settings: ' + settingsState + '; App Key: ' + appKeyState + '; Client Key: ' + clientKeyState,
+                        formatCollection('Mappings', read(diff, 'Mappings', null)),
+                        formatCollection('Color presets', read(diff, 'ColorPresets', null)),
+                        formatCollection('Scene playlists', read(diff, 'ScenePlaylists', null)),
+                        formatCollection('Scene schedules', read(diff, 'SceneSchedules', null))
+                    ];
+                    target.textContent = lines.join('\n');
+                    target.style.display = 'block';
+                    target.style.color = read(diff, 'HasChanges', false) ? '#ffcc80' : '#4caf50';
+                },
                 prepareConfigurationImport: function (page, importDocument) {
                     if (!page) return;
                     page._hueImportDocument = importDocument;
                     page._hueImportValidated = false;
                     HueConfigurationPage.renderConfigurationImportCredentials(page, importDocument);
+                    HueConfigurationPage.renderConfigurationImportDiff(page, null);
                     var status = page.querySelector('#configurationPortabilityStatus');
                     if (status) {
                         status.textContent = 'Review the optional migration credential fields, then click Validate Import or Review and Import.';
@@ -1509,6 +1551,7 @@
                         dataType: "json"
                     }).then(function (response) {
                         response = response || {};
+                        HueConfigurationPage.renderConfigurationImportDiff(page, response);
                         var valid = response.valid !== undefined ? !!response.valid : !!response.Valid;
                         var canImport = response.canImport !== undefined ? !!response.canImport : !!response.CanImport;
                         var errors = response.validationErrors || response.ValidationErrors || [];

@@ -4751,6 +4751,104 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ValidateConfigurationImport_ReturnsNormalizedObjectDiffWithoutCredentials()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            HueAppKey = "old-app-secret",
+            HueClientKey = "old-client-secret",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "mapping-keep", UserName = "Keep mapping", SyncEnabled = false },
+                new() { UserId = "mapping-change", UserName = "Change mapping", SyncEnabled = false },
+                new() { UserId = "mapping-remove", UserName = "Remove mapping", SyncEnabled = false }
+            },
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Keep", Red = 10, Green = 20, Blue = 30 },
+                new() { Name = "Change", Red = 40, Green = 50, Blue = 60 },
+                new() { Name = "Remove", Red = 70, Green = 80, Blue = 90 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-keep", Name = "Keep playlist", PresetNames = new List<string> { "Keep" } },
+                new() { Id = "playlist-change", Name = "Change playlist", PresetNames = new List<string> { "Change" } },
+                new() { Id = "playlist-remove", Name = "Remove playlist", PresetNames = new List<string> { "Remove" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "schedule-keep", Name = "Keep cue", PresetName = "Keep", RunDate = "2030-01-01" },
+                new() { Id = "schedule-change", Name = "Change cue", PresetName = "Change", RunDate = "2030-01-01" },
+                new() { Id = "schedule-remove", Name = "Remove cue", PresetName = "Remove", RunDate = "2030-01-01" }
+            }
+        });
+        var settings = HuePluginConfigurationSettings.From(configuration);
+        settings.HueAppKey = "new-app-secret";
+        settings.HueClientKey = "new-client-secret";
+
+        var action = CreateController().ValidateConfigurationImport(new HueConfigurationImportRequest
+        {
+            Configuration = settings,
+            UserMappings = new List<UserBridgeMappingImport>
+            {
+                new() { UserId = "mapping-keep", UserName = "Keep mapping", SyncEnabled = false },
+                new() { UserId = "mapping-change", UserName = "Changed mapping", SyncEnabled = false },
+                new() { UserId = "mapping-add", UserName = "Add mapping", SyncEnabled = false }
+            },
+            ColorPresets = new List<HueColorPresetRequest>
+            {
+                new() { Name = "Keep", Red = 10, Green = 20, Blue = 30 },
+                new() { Name = "Change", Red = 41, Green = 50, Blue = 60 },
+                new() { Name = "Add", Red = 100, Green = 110, Blue = 120 }
+            },
+            ScenePlaylists = new List<HueScenePlaylistRequest>
+            {
+                new() { Id = "playlist-keep", Name = "Keep playlist", PresetNames = new List<string> { "Keep" } },
+                new() { Id = "playlist-change", Name = "Change playlist", PresetNames = new List<string> { "Change" }, RepeatCount = 2 },
+                new() { Id = "playlist-add", Name = "Add playlist", PresetNames = new List<string> { "Add" } }
+            },
+            SceneSchedules = new List<HueSceneScheduleRequest>
+            {
+                new() { Id = "schedule-keep", Name = "Keep cue", PresetName = "Keep", RunDate = "2030-01-01" },
+                new() { Id = "schedule-change", Name = "Changed cue", PresetName = "Change", RunDate = "2030-01-01" },
+                new() { Id = "schedule-add", Name = "Add cue", PresetName = "Add", RunDate = "2030-01-01" }
+            }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConfigurationImportValidationResult>(response.Value);
+        Assert.True(result.Valid);
+        Assert.True(result.CanImport);
+        Assert.True(result.Diff.HasChanges);
+        Assert.False(result.Diff.GlobalSettingsChanged);
+        Assert.True(result.Diff.GlobalAppKeyChanged);
+        Assert.True(result.Diff.GlobalClientKeyChanged);
+        Assert.Equal(1, result.Diff.Mappings.Added);
+        Assert.Equal(1, result.Diff.Mappings.Removed);
+        Assert.Equal(1, result.Diff.Mappings.Changed);
+        Assert.Equal(1, result.Diff.Mappings.Unchanged);
+        Assert.Equal(1, result.Diff.ColorPresets.Added);
+        Assert.Equal(1, result.Diff.ColorPresets.Removed);
+        Assert.Equal(1, result.Diff.ColorPresets.Changed);
+        Assert.Equal(1, result.Diff.ColorPresets.Unchanged);
+        Assert.Equal(1, result.Diff.ScenePlaylists.Added);
+        Assert.Equal(1, result.Diff.ScenePlaylists.Removed);
+        Assert.Equal(1, result.Diff.ScenePlaylists.Changed);
+        Assert.Equal(1, result.Diff.ScenePlaylists.Unchanged);
+        Assert.Equal(1, result.Diff.SceneSchedules.Added);
+        Assert.Equal(1, result.Diff.SceneSchedules.Removed);
+        Assert.Equal(1, result.Diff.SceneSchedules.Changed);
+        Assert.Equal(1, result.Diff.SceneSchedules.Unchanged);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("old-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("old-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("new-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("new-client-secret", serialized, StringComparison.Ordinal);
+        Assert.Equal("Keep", Assert.Single(configuration.ColorPresets.Where(preset => preset.Name == "Keep")).Name);
+    }
+
+    [Fact]
     public void ValidateConfigurationImport_ReportsErrorsWithoutChangingConfiguration()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

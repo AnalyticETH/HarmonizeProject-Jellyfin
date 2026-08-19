@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.134] - 2026-08-19
+
+### Added
+- **Credential-safe import diff**: Validate Import now reports normalized added, removed, changed, and unchanged counts for mappings, saved scenes, playlists, and scheduled cues before replacement
+- **Migration key visibility**: show global settings and App Key/Client Key change state as booleans without returning any secret values
+- **Administrator change summary**: render the server-calculated import impact in the Backup and Restore wizard before review and import
+
 ## [1.5.133] - 2026-08-19
 
 ### Added

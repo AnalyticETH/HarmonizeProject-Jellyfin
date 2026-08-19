@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Mime;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -4357,6 +4358,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 GlobalAppKeyPreserved = plan.GlobalAppKeyPreserved,
                 GlobalClientKeyPreserved = plan.GlobalClientKeyPreserved,
                 MappingCredentialPairsPreserved = plan.MappingCredentialPairsPreserved,
+                Diff = plan.Diff,
                 Message = valid
                     ? activePlayback
                         ? "Configuration is valid, but active Hue playback must stop before import."
@@ -4664,6 +4666,18 @@ namespace Jellyfin.Plugin.Hue.Api
             if (validationErrors.Count == 0)
                 validationErrors.AddRange(candidateConfiguration.Validate());
 
+            var diff = BuildConfigurationImportDiff(
+                config,
+                candidateConfiguration,
+                existingMappings,
+                candidateMappings,
+                existingPresets,
+                candidatePresets,
+                existingPlaylists,
+                candidatePlaylists,
+                existingSchedules,
+                candidateSchedules);
+
             return new HueConfigurationImportPlan
             {
                 CandidateConfiguration = candidateConfiguration,
@@ -4682,9 +4696,156 @@ namespace Jellyfin.Plugin.Hue.Api
                     !request.Configuration.ClearStoredCredentials &&
                     !string.IsNullOrWhiteSpace(config.HueClientKey),
                 MappingCredentialPairsPreserved = mappingCredentialPairsPreserved,
+                Diff = diff,
                 ValidationErrors = validationErrors
             };
         }
+
+        private static HueConfigurationImportDiff BuildConfigurationImportDiff(
+            PluginConfiguration existingConfiguration,
+            PluginConfiguration candidateConfiguration,
+            IReadOnlyList<UserBridgeMapping> existingMappings,
+            IReadOnlyList<UserBridgeMapping> candidateMappings,
+            IReadOnlyList<HueColorPreset> existingPresets,
+            IReadOnlyList<HueColorPreset> candidatePresets,
+            IReadOnlyList<HueScenePlaylist> existingPlaylists,
+            IReadOnlyList<HueScenePlaylist> candidatePlaylists,
+            IReadOnlyList<HueSceneSchedule> existingSchedules,
+            IReadOnlyList<HueSceneSchedule> candidateSchedules)
+        {
+            var globalSettingsChanged = !AreEquivalentConfigurationSettings(
+                HuePluginConfigurationSettings.From(existingConfiguration),
+                HuePluginConfigurationSettings.From(candidateConfiguration));
+            var globalAppKeyChanged = !string.Equals(
+                existingConfiguration.HueAppKey,
+                candidateConfiguration.HueAppKey,
+                StringComparison.Ordinal);
+            var globalClientKeyChanged = !string.Equals(
+                existingConfiguration.HueClientKey,
+                candidateConfiguration.HueClientKey,
+                StringComparison.Ordinal);
+            var mappings = CompareImportCollection(
+                existingMappings,
+                candidateMappings,
+                mapping => mapping.UserId,
+                AreEquivalentMapping);
+            var presets = CompareImportCollection(
+                existingPresets,
+                candidatePresets,
+                preset => preset.Name,
+                AreEquivalentPreset);
+            var playlists = CompareImportCollection(
+                existingPlaylists,
+                candidatePlaylists,
+                playlist => playlist.Id,
+                AreEquivalentPlaylist);
+            var schedules = CompareImportCollection(
+                existingSchedules,
+                candidateSchedules,
+                schedule => schedule.Id,
+                AreEquivalentSchedule);
+
+            return new HueConfigurationImportDiff
+            {
+                HasChanges = globalSettingsChanged || globalAppKeyChanged || globalClientKeyChanged ||
+                    mappings.HasChanges || presets.HasChanges || playlists.HasChanges || schedules.HasChanges,
+                GlobalSettingsChanged = globalSettingsChanged,
+                GlobalAppKeyChanged = globalAppKeyChanged,
+                GlobalClientKeyChanged = globalClientKeyChanged,
+                Mappings = mappings,
+                ColorPresets = presets,
+                ScenePlaylists = playlists,
+                SceneSchedules = schedules
+            };
+        }
+
+        private static HueConfigurationImportCollectionDiff CompareImportCollection<T>(
+            IEnumerable<T> existingItems,
+            IEnumerable<T> candidateItems,
+            Func<T, string?> keySelector,
+            Func<T, T, bool> equivalent)
+        {
+            var existing = existingItems.ToList();
+            var matched = new bool[existing.Count];
+            var added = 0;
+            var changed = 0;
+            var unchanged = 0;
+
+            foreach (var candidate in candidateItems)
+            {
+                var candidateKey = keySelector(candidate)?.Trim() ?? string.Empty;
+                var existingIndex = -1;
+                for (var index = 0; index < existing.Count; index++)
+                {
+                    if (matched[index])
+                        continue;
+
+                    var existingKey = keySelector(existing[index])?.Trim() ?? string.Empty;
+                    if (string.Equals(existingKey, candidateKey, StringComparison.OrdinalIgnoreCase))
+                    {
+                        existingIndex = index;
+                        break;
+                    }
+                }
+
+                if (existingIndex < 0)
+                {
+                    added++;
+                    continue;
+                }
+
+                matched[existingIndex] = true;
+                if (equivalent(existing[existingIndex], candidate))
+                    unchanged++;
+                else
+                    changed++;
+            }
+
+            return new HueConfigurationImportCollectionDiff
+            {
+                Added = added,
+                Removed = matched.Count(wasMatched => !wasMatched),
+                Changed = changed,
+                Unchanged = unchanged
+            };
+        }
+
+        private static bool AreEquivalentConfigurationSettings(
+            HuePluginConfigurationSettings left,
+            HuePluginConfigurationSettings right)
+        {
+            left.HasAppKey = false;
+            left.HasClientKey = false;
+            right.HasAppKey = false;
+            right.HasClientKey = false;
+            return string.Equals(
+                JsonSerializer.Serialize(left),
+                JsonSerializer.Serialize(right),
+                StringComparison.Ordinal);
+        }
+
+        private static bool AreEquivalentMapping(UserBridgeMapping left, UserBridgeMapping right)
+        {
+            if (!string.Equals(left.HueAppKey, right.HueAppKey, StringComparison.Ordinal) ||
+                !string.Equals(left.HueClientKey, right.HueClientKey, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return string.Equals(
+                JsonSerializer.Serialize(UserBridgeMappingSummary.From(left)),
+                JsonSerializer.Serialize(UserBridgeMappingSummary.From(right)),
+                StringComparison.Ordinal);
+        }
+
+        private static bool AreEquivalentPreset(HueColorPreset left, HueColorPreset right) =>
+            string.Equals(JsonSerializer.Serialize(left), JsonSerializer.Serialize(right), StringComparison.Ordinal);
+
+        private static bool AreEquivalentPlaylist(HueScenePlaylist left, HueScenePlaylist right) =>
+            string.Equals(JsonSerializer.Serialize(left), JsonSerializer.Serialize(right), StringComparison.Ordinal);
+
+        private static bool AreEquivalentSchedule(HueSceneSchedule left, HueSceneSchedule right) =>
+            string.Equals(JsonSerializer.Serialize(left), JsonSerializer.Serialize(right), StringComparison.Ordinal);
 
         private static List<UserBridgeMapping> MergeMappings(
             IEnumerable<UserBridgeMapping> existingMappings,
@@ -5160,6 +5321,7 @@ namespace Jellyfin.Plugin.Hue.Api
             public bool GlobalAppKeyPreserved { get; init; }
             public bool GlobalClientKeyPreserved { get; init; }
             public int MappingCredentialPairsPreserved { get; init; }
+            public HueConfigurationImportDiff Diff { get; init; } = new();
             public List<string> ValidationErrors { get; init; } = new();
         }
 
@@ -5542,6 +5704,36 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
+    /// Credential-safe change summary for an import candidate. Counts are calculated after
+    /// the same normalization, merge, credential-preservation, and reference migration rules
+    /// used by the atomic import endpoint; bridge key values are never returned.
+    /// </summary>
+    public sealed class HueConfigurationImportDiff
+    {
+        public bool HasChanges { get; set; }
+        public bool GlobalSettingsChanged { get; set; }
+        public bool GlobalAppKeyChanged { get; set; }
+        public bool GlobalClientKeyChanged { get; set; }
+        public HueConfigurationImportCollectionDiff Mappings { get; set; } = new();
+        public HueConfigurationImportCollectionDiff ColorPresets { get; set; } = new();
+        public HueConfigurationImportCollectionDiff ScenePlaylists { get; set; } = new();
+        public HueConfigurationImportCollectionDiff SceneSchedules { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Added, removed, changed, and unchanged counts for one imported object collection.
+    /// </summary>
+    public sealed class HueConfigurationImportCollectionDiff
+    {
+        public int Added { get; set; }
+        public int Removed { get; set; }
+        public int Changed { get; set; }
+        public int Unchanged { get; set; }
+
+        public bool HasChanges => Added > 0 || Removed > 0 || Changed > 0;
+    }
+
+    /// <summary>
     /// Credential-safe preflight report for a configuration import. It never contains
     /// bridge keys or persisted telemetry and does not mutate the live configuration.
     /// </summary>
@@ -5564,6 +5756,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool GlobalAppKeyPreserved { get; set; }
         public bool GlobalClientKeyPreserved { get; set; }
         public int MappingCredentialPairsPreserved { get; set; }
+        public HueConfigurationImportDiff Diff { get; set; } = new();
     }
 
     public class HueRegistrationRequest
