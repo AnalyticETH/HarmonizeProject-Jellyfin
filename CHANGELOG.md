@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.150] - 2026-08-19
+
+### Added
+- **One-off playlist target overrides**: preview an individual saved playlist on its saved target, the default bridge, every enabled target, or a deliberate subset of enabled mappings without changing the playlist definition
+- **Credential-free individual playlist previews**: send nullable target-selection metadata while the server resolves persisted credentials, channel profiles, validation, and restorative execution
+- **Administrator preview target picker**: add a saved-target/default/all/mapping multi-select beside the individual playlist preview actions and retain explicit all-target broadcast behavior
+
 ## [1.5.149] - 2026-08-19
 
 ### Added

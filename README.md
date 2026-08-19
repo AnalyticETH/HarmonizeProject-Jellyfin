@@ -400,7 +400,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.149 (Current)
+### Version 1.5.150 (Current)
+- **One-off playlist target overrides**: preview an individual saved playlist on its saved target, the default bridge, every enabled target, or a deliberate subset of enabled mappings without changing the saved playlist
+- **Credential-free individual playlist previews**: the browser sends only nullable target-selection metadata; server-side credentials, channel profiles, validation, and restorative execution remain authoritative
+- **Administrator preview target picker**: use the saved-target/default/all options or combine selected mappings beside Preview Playlist, while Preview Playlist on All Targets remains an explicit broadcast override
+
+### Version 1.5.149
 - **Target-aware bulk playlist previews**: preview selected saved playlists using each playlist's saved target by default, or choose the default bridge, every enabled target, or a deliberate subset of enabled mappings with optional default-bridge inclusion
 - **Credential-free playlist target override**: the browser sends only selected IDs and mode flags; persisted credentials, channel profiles, validation, and restorative execution remain server-side
 - **Administrator bulk target picker**: use the exclusive saved-target/default/all options or combine selected mappings for Preview Selected, while Preview Selected on All Targets remains an explicit broadcast action
