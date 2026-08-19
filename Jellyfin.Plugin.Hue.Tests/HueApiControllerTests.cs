@@ -1472,6 +1472,67 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ScenePlaylistRename_MigratesCueReferencesAndReferencedDeleteIsRejected()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", DurationSeconds = 2 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-renamed",
+                    Name = "Old sequence",
+                    PresetNames = new List<string> { "Warm" },
+                    RepeatCount = 2
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "playlist-cue",
+                    Name = "Playlist cue",
+                    PlaylistName = "Old sequence",
+                    TimeZoneId = TimeZoneInfo.Utc.Id
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var renamed = controller.SaveScenePlaylist(new HueScenePlaylistRequest
+        {
+            Id = "playlist-renamed",
+            Name = "New sequence",
+            PresetNames = new List<string> { "Warm" },
+            RepeatCount = 2
+        });
+
+        var renamedResponse = Assert.IsType<OkObjectResult>(renamed.Result);
+        var renamedResult = Assert.IsType<HueScenePlaylistResult>(renamedResponse.Value);
+        Assert.Equal("New sequence", renamedResult.Name);
+        Assert.Equal("New sequence", Assert.Single(configuration.SceneSchedules).PlaylistName);
+
+        var listedSchedules = Assert.IsType<OkObjectResult>(controller.GetSceneSchedules().Result);
+        var scheduleResult = Assert.Single(
+            Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleResult>>(listedSchedules.Value));
+        Assert.Equal("New sequence", scheduleResult.PlaylistName);
+        Assert.Equal(2, scheduleResult.PlaylistRepeatCount);
+
+        var blockedDelete = controller.DeleteScenePlaylist("new sequence");
+        var conflict = Assert.IsType<ConflictObjectResult>(blockedDelete);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+        Assert.Single(configuration.ScenePlaylists);
+
+        Assert.IsType<OkObjectResult>(controller.DeleteSceneSchedule("playlist-cue"));
+        Assert.IsType<OkObjectResult>(controller.DeleteScenePlaylist("new sequence"));
+        Assert.Empty(configuration.ScenePlaylists);
+    }
+
+    [Fact]
     public async Task ScenePlaylists_AllTargetsAggregatesEachStepAndNeverLeaksMappingCredentials()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -3734,6 +3795,54 @@ public sealed class HueApiControllerTests : IDisposable
         var serializedResult = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("destination-app-secret", serializedResult, StringComparison.Ordinal);
         Assert.DoesNotContain("destination-client-secret", serializedResult, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConfigurationImport_RenamedPlaylistMigratesRetainedCueReference()
+    {
+        var destination = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", DurationSeconds = 2 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "portable-rename", Name = "Old sequence", PresetNames = new List<string> { "Warm" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "retained-cue",
+                    Name = "Retained playlist cue",
+                    PlaylistName = "Old sequence",
+                    TimeZoneId = TimeZoneInfo.Utc.Id
+                }
+            }
+        });
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(destination),
+            ReplaceMappings = false,
+            ReplaceColorPresets = false,
+            ReplaceScenePlaylists = false,
+            ReplaceSceneSchedules = false,
+            ScenePlaylists = new List<HueScenePlaylistRequest>
+            {
+                new()
+                {
+                    Id = "portable-rename",
+                    Name = "New sequence",
+                    PresetNames = new List<string> { "Warm" }
+                }
+            }
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Equal("New sequence", Assert.Single(destination.ScenePlaylists).Name);
+        Assert.Equal("New sequence", Assert.Single(destination.SceneSchedules).PlaylistName);
     }
 
     [Fact]

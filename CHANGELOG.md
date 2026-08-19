@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.110] - 2026-08-19
+
+### Added
+- **Reference-safe playlist lifecycle**: renaming an existing saved playlist now migrates every scheduled cue that references its old name in the same atomic configuration save
+- **Dependency-protected deletion**: deleting a playlist referenced by one or more scheduled cues returns a conflict with the dependent cue count, preserving a runnable configuration until those cues are changed or removed
+- **Migration-safe backup/restore**: configuration imports use the playlist's stable ID to migrate retained or imported cue references when a playlist name changes
+- **Administrator refresh workflow**: playlist saves refresh the scheduled-cue editor so renamed playlist references and labels are immediately visible
+
+### Security
+- Playlist rename migration changes only credential-free scene names; bridge addresses, app keys, client keys, and playback tokens remain server-side and are never returned by the dependency checks
+
 ## [1.5.109] - 2026-08-19
 
 ### Added

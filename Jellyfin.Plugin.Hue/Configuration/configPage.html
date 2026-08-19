@@ -306,7 +306,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Saved Scene Playlists</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into an ordered playlist. Each step uses the saved scene's effect, duration, brightness, and fade transitions; the playlist runs sequentially through the restorative preview lifecycle. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, one enabled mapping, or all enabled targets. Playlist definitions contain only scene names, repeat count, and target mode, never bridge credentials.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into an ordered playlist. Each step uses the saved scene's effect, duration, brightness, and fade transitions; the playlist runs sequentially through the restorative preview lifecycle. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, one enabled mapping, or all enabled targets. Playlist definitions contain only scene names, repeat count, and target mode, never bridge credentials. Renaming a playlist automatically updates scheduled cues that use it; deleting a playlist is blocked until those cues are changed or removed.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="scenePlaylistSelect">Saved Playlist</label>
@@ -2389,6 +2389,8 @@
                     var items = Array.isArray(page._hueScenePlaylistItems) ? page._hueScenePlaylistItems : [];
                     var target = page.querySelector('#scenePlaylistTarget').value || '';
                     var status = page.querySelector('#scenePlaylistStatus');
+                    var scheduleSelect = page.querySelector('#sceneScheduleSelect');
+                    var selectedScheduleId = scheduleSelect ? scheduleSelect.value : '';
                     if (!name) {
                         Dashboard.alert("Enter a playlist name first.");
                         return;
@@ -2422,7 +2424,9 @@
                         var savedName = response && (response.name || response.Name) || name;
                         status.textContent = "Playlist '" + savedName + "' saved.";
                         status.style.color = "#8bc34a";
-                        return HueConfigurationPage.loadScenePlaylists(page, savedName);
+                        return HueConfigurationPage.loadScenePlaylists(page, savedName).then(function () {
+                            return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                        });
                     }).catch(function (err) {
                         console.error("Failed to save scene playlist:", err);
                         status.textContent = "Unable to save playlist. Check the name, target, and saved scene list.";
@@ -2481,10 +2485,12 @@
                             status.textContent = "Playlist '" + name + "' deleted.";
                             status.style.color = "#8bc34a";
                             HueConfigurationPage.clearScenePlaylist(page, true);
-                            return HueConfigurationPage.loadScenePlaylists(page);
+                            return HueConfigurationPage.loadScenePlaylists(page).then(function () {
+                                return HueConfigurationPage.loadSceneSchedules(page);
+                            });
                         }).catch(function (err) {
                             console.error("Failed to delete scene playlist:", err);
-                            status.textContent = "Unable to delete the saved playlist.";
+                            status.textContent = "Unable to delete the saved playlist. It may still be used by a scheduled cue.";
                             status.style.color = "#d9534f";
                         }).finally(function () {
                             HueConfigurationPage.updateScenePlaylistButtons(page);

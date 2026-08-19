@@ -1528,6 +1528,9 @@ namespace Jellyfin.Plugin.Hue.Api
             var existingIndex = config.ScenePlaylists.FindIndex(existing =>
                 existing != null &&
                 string.Equals(existing.Id?.Trim(), playlist.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+            var previousPlaylistName = existingIndex >= 0
+                ? config.ScenePlaylists[existingIndex]?.Name?.Trim() ?? string.Empty
+                : string.Empty;
             var candidatePlaylists = config.ScenePlaylists
                 .Where(existing => existing != null)
                 .Select(CloneScenePlaylist)
@@ -1552,13 +1555,36 @@ namespace Jellyfin.Plugin.Hue.Api
                 candidatePlaylists.Add(playlist);
             }
 
+            // Scheduled cues reference playlists by their credential-free name. When an
+            // existing playlist is renamed, carry that reference change into the same
+            // configuration save so cues never become silently unresolvable.
+            var previousSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>()).ToList();
+            var candidateSchedules = previousSchedules
+                .Where(schedule => schedule != null)
+                .Select(CloneSceneSchedule)
+                .ToList();
+            var normalizedPlaylistName = playlist.Name?.Trim() ?? string.Empty;
+            if (existingIndex >= 0 &&
+                !string.IsNullOrWhiteSpace(previousPlaylistName) &&
+                !string.Equals(previousPlaylistName, normalizedPlaylistName, StringComparison.Ordinal))
+            {
+                foreach (var schedule in candidateSchedules.Where(schedule =>
+                             !string.IsNullOrWhiteSpace(schedule.PlaylistName) &&
+                             string.Equals(schedule.PlaylistName.Trim(), previousPlaylistName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    schedule.PlaylistName = normalizedPlaylistName;
+                }
+            }
+
             var validationConfiguration = new PluginConfiguration
             {
                 ColorPresets = config.ColorPresets ?? new List<HueColorPreset>(),
                 UserMappings = config.UserMappings ?? new List<UserBridgeMapping>(),
-                ScenePlaylists = candidatePlaylists
+                ScenePlaylists = candidatePlaylists,
+                SceneSchedules = candidateSchedules
             };
             var validationErrors = validationConfiguration.ValidateScenePlaylists();
+            validationErrors.AddRange(validationConfiguration.ValidateSceneSchedules());
             if (validationErrors.Count > 0)
             {
                 return BadRequest(new
@@ -1569,7 +1595,9 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var previousPlaylists = config.ScenePlaylists.ToList();
+            var previousConfiguredSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
             config.ScenePlaylists = candidatePlaylists;
+            config.SceneSchedules = candidateSchedules;
             try
             {
                 plugin.SaveConfiguration();
@@ -1577,6 +1605,7 @@ namespace Jellyfin.Plugin.Hue.Api
             catch (Exception ex)
             {
                 config.ScenePlaylists = previousPlaylists;
+                config.SceneSchedules = previousConfiguredSchedules;
                 _logger?.LogError(ex, "Could not persist Hue scene playlist {0}", playlist.Name);
                 return StatusCode(StatusCodes.Status500InternalServerError, "The scene playlist could not be saved.");
             }
@@ -1714,11 +1743,14 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Deletes one saved-scene playlist by name.
+        /// Deletes one saved-scene playlist by name. A playlist that is referenced by a
+        /// scheduled cue is retained until those cues are deleted or changed, preventing
+        /// a successful deletion from leaving an otherwise valid configuration broken.
         /// </summary>
         [HttpDelete("ScenePlaylists/{name}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult DeleteScenePlaylist(string name)
         {
@@ -1731,10 +1763,20 @@ namespace Jellyfin.Plugin.Hue.Api
                 return NotFound("Plugin configuration not available.");
 
             config.ScenePlaylists ??= new List<HueScenePlaylist>();
+            var normalizedName = name.Trim();
+            var referencedScheduleCount = config.SceneSchedules?.Count(schedule =>
+                schedule != null &&
+                string.Equals(schedule.PlaylistName?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase)) ?? 0;
+            if (referencedScheduleCount > 0)
+            {
+                return Conflict(
+                    $"The saved playlist is used by {referencedScheduleCount} scheduled cue(s). Delete or update those cues first.");
+            }
+
             var previousPlaylists = config.ScenePlaylists.ToList();
             var removed = config.ScenePlaylists.RemoveAll(playlist =>
                 playlist != null &&
-                string.Equals(playlist.Name?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
+                string.Equals(playlist.Name?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase));
             if (removed == 0)
                 return NotFound("Scene playlist not found.");
 
@@ -3234,11 +3276,23 @@ namespace Jellyfin.Plugin.Hue.Api
             var candidatePlaylists = request.ReplaceScenePlaylists
                 ? new List<HueScenePlaylist>()
                 : existingPlaylists.Select(CloneScenePlaylist).ToList();
+            var playlistRenameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var playlistRequest in importedPlaylists)
             {
                 var playlist = playlistRequest?.ToConfigurationPlaylist() ?? new HueScenePlaylist();
                 if (string.IsNullOrWhiteSpace(playlist.Id))
                     playlist.Id = Guid.NewGuid().ToString("N");
+
+                var existingPlaylist = existingPlaylists.FirstOrDefault(existing =>
+                    string.Equals(existing.Id?.Trim(), playlist.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+                var existingPlaylistName = existingPlaylist?.Name?.Trim() ?? string.Empty;
+                var importedPlaylistName = playlist.Name?.Trim() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(existingPlaylistName) &&
+                    !string.IsNullOrWhiteSpace(importedPlaylistName) &&
+                    !string.Equals(existingPlaylistName, importedPlaylistName, StringComparison.Ordinal))
+                {
+                    playlistRenameMap[existingPlaylistName] = importedPlaylistName;
+                }
 
                 var existingIndex = candidatePlaylists.FindIndex(existing =>
                     string.Equals(existing.Id?.Trim(), playlist.Id.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -3259,9 +3313,18 @@ namespace Jellyfin.Plugin.Hue.Api
             var candidateSchedules = request.ReplaceSceneSchedules
                 ? new List<HueSceneSchedule>()
                 : existingSchedules.Select(CloneSceneSchedule).ToList();
+            foreach (var schedule in candidateSchedules)
+            {
+                var existingPlaylistName = schedule.PlaylistName?.Trim() ?? string.Empty;
+                if (playlistRenameMap.TryGetValue(existingPlaylistName, out var importedPlaylistName))
+                    schedule.PlaylistName = importedPlaylistName;
+            }
             foreach (var scheduleRequest in importedSchedules)
             {
                 var schedule = scheduleRequest?.ToConfigurationSchedule() ?? new HueSceneSchedule();
+                var importedSchedulePlaylistName = schedule.PlaylistName?.Trim() ?? string.Empty;
+                if (playlistRenameMap.TryGetValue(importedSchedulePlaylistName, out var migratedPlaylistName))
+                    schedule.PlaylistName = migratedPlaylistName;
                 if (string.IsNullOrWhiteSpace(schedule.Id))
                     schedule.Id = Guid.NewGuid().ToString("N");
                 if (PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalizedTime))
