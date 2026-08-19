@@ -93,6 +93,8 @@ const requiredScript = [
     "effect: values.effect",
     "fetchCurrentLightColor: function",
     "HueSync/Preview/CaptureCurrentColor",
+    "fetchCurrentLightColors: function",
+    "HueSync/Preview/CaptureCurrentColors",
     "captureCurrentColor: function",
     "page._hueCaptureRequest",
     "getColorPreviewTargetSelection(page)",

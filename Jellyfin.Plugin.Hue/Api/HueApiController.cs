@@ -920,11 +920,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Plugin configuration is unavailable.");
 
             var targetUserId = request?.TargetUserId?.Trim() ?? string.Empty;
-            var target = string.IsNullOrWhiteSpace(targetUserId)
-                ? EnumerateConfiguredTargets(config).FirstOrDefault(candidate => candidate.Scope == "Default")
-                : EnumerateConfiguredTargets(config).FirstOrDefault(candidate =>
-                    candidate.Scope == "User" &&
-                    string.Equals(candidate.UserId, targetUserId, StringComparison.OrdinalIgnoreCase));
+            var target = ResolveSingleCaptureTarget(config, targetUserId);
             if (target == null)
             {
                 return BadRequest(string.IsNullOrWhiteSpace(targetUserId)
@@ -932,17 +928,39 @@ namespace Jellyfin.Plugin.Hue.Api
                     : "The selected user target is not configured or enabled.");
             }
 
-            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(target.BridgeIp))
-                return BadRequest("The selected target has an invalid bridge address.");
+            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
+            var diagnosticsCancellationToken = diagnosticsOperation.Token;
+            using var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
+            if (lifecycleLease == null)
+                return Conflict("Another Hue playback or diagnostic operation is already running.");
 
-            if (string.IsNullOrWhiteSpace(target.AppKey))
-                return BadRequest("The selected target is missing an App Key.");
+            var attempt = await CaptureCurrentColorAsync(target, diagnosticsCancellationToken).ConfigureAwait(false);
+            if (attempt.FailureStatusCode is { } statusCode)
+                return StatusCode(statusCode, attempt.FailureResponse ?? attempt.FailureMessage);
 
-            if (string.IsNullOrWhiteSpace(target.AreaId))
-                return BadRequest("The selected target has no entertainment area configured.");
+            return Ok(attempt.Result);
+        }
 
-            if (!PluginConfiguration.TryParseChannelIds(target.ChannelIds, out var requestedChannelIds))
-                return BadRequest("The selected target has an invalid channel profile.");
+        /// <summary>
+        /// Captures current RGB/brightness samples from the default bridge, every
+        /// distinct enabled target, or a selected target subset. Each target is reported
+        /// independently so one stale mapping cannot hide usable samples from the other
+        /// rooms; the aggregate sample is a convenient seed for the scene editor.
+        /// </summary>
+        [HttpPost("Preview/CaptureCurrentColors")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<ActionResult<HueCurrentLightColorBatchResult>> CaptureCurrentColors(
+            [FromBody] HueCurrentLightColorBatchRequest? request,
+            CancellationToken cancellationToken = default)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return BadRequest("Plugin configuration is unavailable.");
+
+            if (!TryResolveCaptureTargets(config, request, out var targets, out var selectionError))
+                return BadRequest(selectionError);
 
             using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
             var diagnosticsCancellationToken = diagnosticsOperation.Token;
@@ -950,96 +968,42 @@ namespace Jellyfin.Plugin.Hue.Api
             if (lifecycleLease == null)
                 return Conflict("Another Hue playback or diagnostic operation is already running.");
 
-            var areas = await _hueClient.GetEntertainmentAreas(
-                target.BridgeIp,
-                target.AppKey,
-                diagnosticsCancellationToken).ConfigureAwait(false);
-            if (areas == null)
+            var captures = new List<HueCurrentLightColorResult>(targets.Count);
+            foreach (var target in targets)
             {
-                return StatusCode(
-                    StatusCodes.Status502BadGateway,
-                    "Could not contact the selected Hue bridge.");
+                diagnosticsCancellationToken.ThrowIfCancellationRequested();
+                var attempt = await CaptureCurrentColorAsync(target, diagnosticsCancellationToken).ConfigureAwait(false);
+                captures.Add(attempt.Result ?? BuildCaptureFailureResult(target, attempt.FailureMessage));
             }
 
-            var selectedArea = areas.FirstOrDefault(area =>
-                string.Equals(area.Id, target.AreaId, StringComparison.OrdinalIgnoreCase));
-            if (selectedArea == null)
-                return BadRequest("The selected target's entertainment area was not found.");
-
-            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
-                target.BridgeIp,
-                target.AppKey,
-                target.AreaId,
-                diagnosticsCancellationToken).ConfigureAwait(false);
-            if (areaConfiguration == null)
+            var successfulCaptures = captures.Where(capture => capture.Succeeded).ToArray();
+            var aggregate = AggregateCurrentColorSamples(successfulCaptures);
+            var successfulCount = successfulCaptures.Length;
+            var targetCount = captures.Count;
+            return Ok(new HueCurrentLightColorBatchResult
             {
-                return StatusCode(
-                    StatusCodes.Status502BadGateway,
-                    "Could not load the selected entertainment area configuration.");
-            }
-
-            var availableChannelIds = GetValidChannelIds(areaConfiguration.Value);
-            if (availableChannelIds.Count == 0)
-                return BadRequest("The selected entertainment area has no controllable channels.");
-
-            var missingChannelIds = requestedChannelIds
-                .Where(channelId => !availableChannelIds.Contains(channelId))
-                .OrderBy(channelId => channelId)
-                .ToArray();
-            if (missingChannelIds.Length > 0)
-            {
-                return BadRequest(new
-                {
-                    message = "The selected target's channel profile references IDs not present in this entertainment area.",
-                    missingChannelIds = string.Join(", ", missingChannelIds)
-                });
-            }
-
-            var capture = await _hueClient.GetLightStatesWithResult(
-                target.BridgeIp,
-                target.AppKey,
-                areaConfiguration.Value,
-                requestedChannelIds.Count == 0 ? null : requestedChannelIds,
-                diagnosticsCancellationToken).ConfigureAwait(false);
-            if (!HueColorMath.TryAverageLightStates(capture.States, out var sample))
-            {
-                return Ok(new HueCurrentLightColorResult
-                {
-                    Succeeded = false,
-                    Message = "The selected entertainment area did not return any light states.",
-                    TargetLabel = BuildCaptureTargetLabel(target),
-                    TargetUserId = target.UserId,
-                    AttemptedLightCount = capture.AttemptedCount,
-                    CapturedLightCount = capture.CapturedCount,
-                    SampledLightCount = 0,
-                    ChannelProfileCount = requestedChannelIds.Count == 0 ? availableChannelIds.Count : requestedChannelIds.Count
-                });
-            }
-
-            var hasUsableColor = sample.SampledLightCount > 0 || sample.BrightnessPercent == 0;
-            var succeeded = capture.Succeeded && hasUsableColor;
-            var message = !capture.Succeeded
-                ? $"Captured {capture.CapturedCount} of {capture.AttemptedCount} light state(s); the sample is incomplete."
-                : !hasUsableColor
-                    ? "The selected lights are on, but the bridge returned no usable color data."
-                    : sample.SampledLightCount == 0
-                        ? "All selected lights are off; the preview was set to black at 0% brightness."
-                        : $"Captured the current color from {sample.SampledLightCount} light(s) in {selectedArea.Name}.";
-
-            return Ok(new HueCurrentLightColorResult
-            {
-                Succeeded = succeeded,
-                Message = message,
-                TargetLabel = BuildCaptureTargetLabel(target),
-                TargetUserId = target.UserId,
-                Red = sample.Red,
-                Green = sample.Green,
-                Blue = sample.Blue,
-                BrightnessPercent = sample.BrightnessPercent,
-                CapturedLightCount = capture.CapturedCount,
-                AttemptedLightCount = capture.AttemptedCount,
-                SampledLightCount = sample.SampledLightCount,
-                ChannelProfileCount = requestedChannelIds.Count == 0 ? availableChannelIds.Count : requestedChannelIds.Count
+                Succeeded = successfulCount == targetCount,
+                Message = successfulCount == targetCount
+                    ? $"Captured current light colors from {successfulCount} target(s)."
+                    : successfulCount == 0
+                        ? "No selected target returned a usable current-light sample."
+                        : $"Captured current light colors from {successfulCount} of {targetCount} target(s); review the per-target results.",
+                TargetAllEnabledMappings = request?.TargetAllEnabledMappings == true,
+                TargetUserIds = request?.TargetUserIds?
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray() ?? Array.Empty<string>(),
+                IncludeDefaultTarget = request?.IncludeDefaultTarget == true,
+                AttemptedTargetCount = targetCount,
+                SuccessfulTargetCount = successfulCount,
+                Captures = captures,
+                Red = aggregate.Red,
+                Green = aggregate.Green,
+                Blue = aggregate.Blue,
+                BrightnessPercent = aggregate.BrightnessPercent,
+                SampledLightCount = aggregate.SampledLightCount,
+                CapturedAtUtc = DateTime.UtcNow
             });
         }
 
@@ -5815,6 +5779,293 @@ namespace Jellyfin.Plugin.Hue.Api
             };
         }
 
+        private async Task<HueCurrentLightColorCaptureAttempt> CaptureCurrentColorAsync(
+            HueTarget target,
+            CancellationToken cancellationToken)
+        {
+            var targetLabel = BuildCaptureTargetLabel(target);
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(target.BridgeIp))
+                return HueCurrentLightColorCaptureAttempt.Failure(
+                    StatusCodes.Status400BadRequest,
+                    "The selected target has an invalid bridge address.");
+
+            if (string.IsNullOrWhiteSpace(target.AppKey))
+                return HueCurrentLightColorCaptureAttempt.Failure(
+                    StatusCodes.Status400BadRequest,
+                    "The selected target is missing an App Key.");
+
+            if (string.IsNullOrWhiteSpace(target.AreaId))
+                return HueCurrentLightColorCaptureAttempt.Failure(
+                    StatusCodes.Status400BadRequest,
+                    "The selected target has no entertainment area configured.");
+
+            if (!PluginConfiguration.TryParseChannelIds(target.ChannelIds, out var requestedChannelIds))
+                return HueCurrentLightColorCaptureAttempt.Failure(
+                    StatusCodes.Status400BadRequest,
+                    "The selected target has an invalid channel profile.");
+
+            var areas = await _hueClient.GetEntertainmentAreas(
+                target.BridgeIp,
+                target.AppKey,
+                cancellationToken).ConfigureAwait(false);
+            if (areas == null)
+            {
+                return HueCurrentLightColorCaptureAttempt.Failure(
+                    StatusCodes.Status502BadGateway,
+                    "Could not contact the selected Hue bridge.");
+            }
+
+            var selectedArea = areas.FirstOrDefault(area =>
+                string.Equals(area.Id, target.AreaId, StringComparison.OrdinalIgnoreCase));
+            if (selectedArea == null)
+            {
+                return HueCurrentLightColorCaptureAttempt.Failure(
+                    StatusCodes.Status400BadRequest,
+                    "The selected target's entertainment area was not found.");
+            }
+
+            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
+                target.BridgeIp,
+                target.AppKey,
+                target.AreaId,
+                cancellationToken).ConfigureAwait(false);
+            if (areaConfiguration == null)
+            {
+                return HueCurrentLightColorCaptureAttempt.Failure(
+                    StatusCodes.Status502BadGateway,
+                    "Could not load the selected entertainment area configuration.");
+            }
+
+            var availableChannelIds = GetValidChannelIds(areaConfiguration.Value);
+            if (availableChannelIds.Count == 0)
+            {
+                return HueCurrentLightColorCaptureAttempt.Failure(
+                    StatusCodes.Status400BadRequest,
+                    "The selected entertainment area has no controllable channels.");
+            }
+
+            var missingChannelIds = requestedChannelIds
+                .Where(channelId => !availableChannelIds.Contains(channelId))
+                .OrderBy(channelId => channelId)
+                .ToArray();
+            if (missingChannelIds.Length > 0)
+            {
+                return HueCurrentLightColorCaptureAttempt.Failure(
+                    StatusCodes.Status400BadRequest,
+                    "The selected target's channel profile references IDs not present in this entertainment area.",
+                    new
+                    {
+                        message = "The selected target's channel profile references IDs not present in this entertainment area.",
+                        missingChannelIds = string.Join(", ", missingChannelIds)
+                    });
+            }
+
+            var capture = await _hueClient.GetLightStatesWithResult(
+                target.BridgeIp,
+                target.AppKey,
+                areaConfiguration.Value,
+                requestedChannelIds.Count == 0 ? null : requestedChannelIds,
+                cancellationToken).ConfigureAwait(false);
+            if (!HueColorMath.TryAverageLightStates(capture.States, out var sample))
+            {
+                return HueCurrentLightColorCaptureAttempt.Success(new HueCurrentLightColorResult
+                {
+                    Succeeded = false,
+                    Message = "The selected entertainment area did not return any light states.",
+                    TargetLabel = targetLabel,
+                    TargetUserId = target.UserId,
+                    AttemptedLightCount = capture.AttemptedCount,
+                    CapturedLightCount = capture.CapturedCount,
+                    SampledLightCount = 0,
+                    ChannelProfileCount = requestedChannelIds.Count == 0 ? availableChannelIds.Count : requestedChannelIds.Count
+                });
+            }
+
+            var hasUsableColor = sample.SampledLightCount > 0 || sample.BrightnessPercent == 0;
+            var succeeded = capture.Succeeded && hasUsableColor;
+            var message = !capture.Succeeded
+                ? $"Captured {capture.CapturedCount} of {capture.AttemptedCount} light state(s); the sample is incomplete."
+                : !hasUsableColor
+                    ? "The selected lights are on, but the bridge returned no usable color data."
+                    : sample.SampledLightCount == 0
+                        ? "All selected lights are off; the preview was set to black at 0% brightness."
+                        : $"Captured the current color from {sample.SampledLightCount} light(s) in {selectedArea.Name}.";
+
+            return HueCurrentLightColorCaptureAttempt.Success(new HueCurrentLightColorResult
+            {
+                Succeeded = succeeded,
+                Message = message,
+                TargetLabel = targetLabel,
+                TargetUserId = target.UserId,
+                Red = sample.Red,
+                Green = sample.Green,
+                Blue = sample.Blue,
+                BrightnessPercent = sample.BrightnessPercent,
+                CapturedLightCount = capture.CapturedCount,
+                AttemptedLightCount = capture.AttemptedCount,
+                SampledLightCount = sample.SampledLightCount,
+                ChannelProfileCount = requestedChannelIds.Count == 0 ? availableChannelIds.Count : requestedChannelIds.Count
+            });
+        }
+
+        private static HueCurrentLightColorResult BuildCaptureFailureResult(
+            HueTarget target,
+            string? message)
+            => new()
+            {
+                Succeeded = false,
+                Message = message ?? "The selected target could not be captured.",
+                TargetLabel = BuildCaptureTargetLabel(target),
+                TargetUserId = target.UserId
+            };
+
+        private static HueCurrentLightColorAggregate AggregateCurrentColorSamples(
+            IReadOnlyList<HueCurrentLightColorResult> captures)
+        {
+            if (captures.Count == 0)
+                return default;
+
+            var brightness = (int)Math.Round(
+                captures.Average(capture => Math.Clamp(capture.BrightnessPercent, 0, 100)),
+                MidpointRounding.AwayFromZero);
+            var colorSamples = captures
+                .Where(capture => capture.SampledLightCount > 0)
+                .ToArray();
+            var sampledLightCount = captures.Sum(capture => Math.Max(0, capture.SampledLightCount));
+            if (colorSamples.Length == 0)
+            {
+                return new HueCurrentLightColorAggregate(0, 0, 0, brightness, sampledLightCount);
+            }
+
+            var weight = colorSamples.Sum(capture => capture.SampledLightCount);
+            var red = colorSamples.Sum(capture => (double)capture.Red * capture.SampledLightCount) / weight;
+            var green = colorSamples.Sum(capture => (double)capture.Green * capture.SampledLightCount) / weight;
+            var blue = colorSamples.Sum(capture => (double)capture.Blue * capture.SampledLightCount) / weight;
+            return new HueCurrentLightColorAggregate(
+                (int)Math.Round(red, MidpointRounding.AwayFromZero),
+                (int)Math.Round(green, MidpointRounding.AwayFromZero),
+                (int)Math.Round(blue, MidpointRounding.AwayFromZero),
+                brightness,
+                sampledLightCount);
+        }
+
+        private static HueTarget? ResolveSingleCaptureTarget(
+            PluginConfiguration config,
+            string targetUserId)
+            => string.IsNullOrWhiteSpace(targetUserId)
+                ? EnumerateConfiguredTargets(config).FirstOrDefault(candidate => candidate.Scope == "Default")
+                : EnumerateConfiguredTargets(config).FirstOrDefault(candidate =>
+                    candidate.Scope == "User" &&
+                    string.Equals(candidate.UserId, targetUserId, StringComparison.OrdinalIgnoreCase));
+
+        private static bool TryResolveCaptureTargets(
+            PluginConfiguration config,
+            HueCurrentLightColorBatchRequest? request,
+            out IReadOnlyList<HueTarget> targets,
+            out string error)
+        {
+            targets = Array.Empty<HueTarget>();
+            error = string.Empty;
+            var targetAll = request?.TargetAllEnabledMappings == true;
+            var includeDefault = request?.IncludeDefaultTarget == true;
+            var selectedUserIds = request?.TargetUserIds?
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .ToArray() ?? Array.Empty<string>();
+            if (selectedUserIds.Length > PluginConfiguration.MaxSceneScheduleTargetMappings)
+            {
+                error = $"Current-light capture cannot select more than {PluginConfiguration.MaxSceneScheduleTargetMappings} user mappings.";
+                return false;
+            }
+
+            if (targetAll && (includeDefault || selectedUserIds.Length > 0))
+            {
+                error = "A broadcast current-light capture cannot also select specific targets.";
+                return false;
+            }
+
+            var resolved = new List<HueTarget>();
+            if (targetAll)
+            {
+                resolved.AddRange(EnumerateConfiguredTargets(config));
+            }
+            else if (!includeDefault && selectedUserIds.Length == 0)
+            {
+                var defaultTarget = ResolveSingleCaptureTarget(config, string.Empty);
+                if (defaultTarget == null)
+                {
+                    error = "The default bridge target is not configured.";
+                    return false;
+                }
+
+                resolved.Add(defaultTarget);
+            }
+            else
+            {
+                if (includeDefault)
+                {
+                    var defaultTarget = ResolveSingleCaptureTarget(config, string.Empty);
+                    if (defaultTarget == null)
+                    {
+                        error = "The default bridge target is not configured.";
+                        return false;
+                    }
+
+                    resolved.Add(defaultTarget);
+                }
+
+                var seenUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var selectedUserId in selectedUserIds)
+                {
+                    if (!seenUserIds.Add(selectedUserId))
+                    {
+                        error = $"Selected current-light capture targets contain user mapping '{selectedUserId}' more than once.";
+                        return false;
+                    }
+
+                    var target = ResolveSingleCaptureTarget(config, selectedUserId);
+                    if (target == null)
+                    {
+                        error = $"The selected user target '{selectedUserId}' is not configured or enabled.";
+                        return false;
+                    }
+
+                    resolved.Add(target);
+                }
+            }
+
+            var deduplicated = new List<HueTarget>(resolved.Count);
+            var seenTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var target in resolved)
+            {
+                if (seenTargets.Add(BuildCaptureTargetIdentity(target)))
+                    deduplicated.Add(target);
+            }
+
+            if (deduplicated.Count == 0)
+            {
+                error = targetAll
+                    ? "No enabled bridge targets are configured."
+                    : "At least one current-light capture target must be selected.";
+                return false;
+            }
+
+            targets = deduplicated;
+            return true;
+        }
+
+        private static string BuildCaptureTargetIdentity(HueTarget target)
+        {
+            var channelProfile = PluginConfiguration.TryParseChannelIds(target.ChannelIds, out var channelIds)
+                ? string.Join(",", channelIds.OrderBy(channelId => channelId))
+                : target.ChannelIds.Trim();
+            return string.Join(
+                "|",
+                target.BridgeIp.Trim().TrimEnd('.'),
+                target.AreaId.Trim(),
+                channelProfile);
+        }
+
         private static IEnumerable<HueTarget> EnumerateConfiguredTargets(PluginConfiguration config)
         {
             var hasGlobalTarget = !string.IsNullOrWhiteSpace(config.HueBridgeIp) ||
@@ -5885,6 +6136,29 @@ namespace Jellyfin.Plugin.Hue.Api
             string AreaId,
             string? AreaName,
             string ChannelIds);
+
+        private sealed record HueCurrentLightColorCaptureAttempt(
+            HueCurrentLightColorResult? Result,
+            int? FailureStatusCode,
+            string? FailureMessage,
+            object? FailureResponse)
+        {
+            public static HueCurrentLightColorCaptureAttempt Success(HueCurrentLightColorResult result)
+                => new(result, null, null, null);
+
+            public static HueCurrentLightColorCaptureAttempt Failure(
+                int statusCode,
+                string message,
+                object? response = null)
+                => new(null, statusCode, message, response);
+        }
+
+        private readonly record struct HueCurrentLightColorAggregate(
+            int Red,
+            int Green,
+            int Blue,
+            int BrightnessPercent,
+            int SampledLightCount);
 
         /// <summary>
         /// Stops Hue output for the current playback session without stopping Jellyfin playback.
@@ -7919,6 +8193,23 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? TargetUserId { get; set; }
     }
 
+    /// <summary>
+    /// Selects multiple persisted targets for credential-free current-light capture.
+    /// All-target selection is exclusive; otherwise the default bridge and/or enabled
+    /// user mapping IDs can be selected explicitly.
+    /// </summary>
+    public sealed class HueCurrentLightColorBatchRequest
+    {
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool TargetAllEnabledMappings { get; set; }
+
+        [JsonPropertyName("targetUserIds")]
+        public List<string>? TargetUserIds { get; set; }
+
+        [JsonPropertyName("includeDefaultTarget")]
+        public bool? IncludeDefaultTarget { get; set; }
+    }
+
     public class HuePreviewRequest
     {
         [JsonPropertyName("userId")]
@@ -8082,6 +8373,56 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("channelProfileCount")]
         public int ChannelProfileCount { get; init; }
+    }
+
+    /// <summary>
+    /// Aggregate and per-target results for a multi-room current-light capture. The
+    /// aggregate RGB/brightness fields are weighted from successful light samples and
+    /// can seed the administrator scene editor without returning bridge credentials.
+    /// </summary>
+    public sealed class HueCurrentLightColorBatchResult
+    {
+        [JsonPropertyName("succeeded")]
+        public bool Succeeded { get; init; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; init; } = string.Empty;
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool TargetAllEnabledMappings { get; init; }
+
+        [JsonPropertyName("targetUserIds")]
+        public IReadOnlyList<string> TargetUserIds { get; init; } = Array.Empty<string>();
+
+        [JsonPropertyName("includeDefaultTarget")]
+        public bool IncludeDefaultTarget { get; init; }
+
+        [JsonPropertyName("attemptedTargetCount")]
+        public int AttemptedTargetCount { get; init; }
+
+        [JsonPropertyName("successfulTargetCount")]
+        public int SuccessfulTargetCount { get; init; }
+
+        [JsonPropertyName("red")]
+        public int Red { get; init; }
+
+        [JsonPropertyName("green")]
+        public int Green { get; init; }
+
+        [JsonPropertyName("blue")]
+        public int Blue { get; init; }
+
+        [JsonPropertyName("brightnessPercent")]
+        public int BrightnessPercent { get; init; }
+
+        [JsonPropertyName("sampledLightCount")]
+        public int SampledLightCount { get; init; }
+
+        [JsonPropertyName("captures")]
+        public IReadOnlyList<HueCurrentLightColorResult> Captures { get; init; } = Array.Empty<HueCurrentLightColorResult>();
+
+        [JsonPropertyName("capturedAtUtc")]
+        public DateTime CapturedAtUtc { get; init; }
     }
 
     public class HuePreviewResult

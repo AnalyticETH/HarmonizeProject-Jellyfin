@@ -236,7 +236,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scene Effect Preview</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, hue-cycling Rainbow, warm flickering Candle, or cycling warm-to-cool Temperature effect on the default bridge target—or every distinct enabled target—for a few seconds. Set animation speed from 25% to 400% for non-solid effects. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect, speed, and transitions into scheduled cues. All-target preview uses each target's saved channel profile and runs sequentially, reporting independent outcomes. Capture Current Light Color reads the selected single target's live RGB/brightness and fills this editor, making it easy to save the room as a reusable scene. Saved Scene Playlists can chain these reusable scenes in a chosen order. Stop active playback before previewing or capturing.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, hue-cycling Rainbow, warm flickering Candle, or cycling warm-to-cool Temperature effect on the default bridge target—or every distinct enabled target—for a few seconds. Set animation speed from 25% to 400% for non-solid effects. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect, speed, and transitions into scheduled cues. All-target preview uses each target's saved channel profile and runs sequentially, reporting independent outcomes. Capture Current Light Color reads one target or a selected/all-target set, reports each room independently, and seeds this editor with a weighted aggregate RGB/brightness sample, making it easy to save a multi-room snapshot as a reusable scene. Saved Scene Playlists can chain these reusable scenes in a chosen order. Stop active playback before previewing or capturing.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="previewColor">Color</label>
@@ -292,7 +292,7 @@
                                 <span>Cancel Active Preview</span>
                             </button>
                         </div>
-                        <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override. Capture Current Light Color requires exactly one target and updates the color and brightness fields without changing bridge state.</div>
+                        <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override. Capture Current Light Color can read one or multiple selected targets, updates the color and brightness fields from the aggregate when samples are available, and reports per-target results without changing bridge state.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 1em;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="previewPresetSelect">Saved Scene</label>
@@ -1829,6 +1829,20 @@
                         dataType: "json"
                     });
                 },
+                fetchCurrentLightColors: function (targetSelection) {
+                    targetSelection = targetSelection || {};
+                    return ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/Preview/CaptureCurrentColors"),
+                        data: JSON.stringify({
+                            targetAllEnabledMappings: !!targetSelection.targetAllEnabledMappings,
+                            targetUserIds: Array.isArray(targetSelection.targetUserIds) ? targetSelection.targetUserIds : [],
+                            includeDefaultTarget: !!targetSelection.includeDefaultTarget
+                        }),
+                        contentType: "application/json",
+                        dataType: "json"
+                    });
+                },
                 fetchSavedColorPreview: function (name, targetSelection) {
                     targetSelection = targetSelection || {};
                     return ApiClient.ajax({
@@ -2191,20 +2205,10 @@
                     }
 
                     var targetSelection = HueConfigurationPage.getColorPreviewTargetSelection(page);
-                    if (targetSelection.targetAllEnabledMappings) {
-                        Dashboard.alert("Capture Current Light Color requires one target. Select the default bridge or one user target, not all targets.");
-                        return;
-                    }
-                    if (targetSelection.includeDefaultTarget && targetSelection.targetUserIds.length > 0) {
-                        Dashboard.alert("Capture Current Light Color requires one target. Remove either the default bridge or the user target.");
-                        return;
-                    }
-                    if (targetSelection.targetUserIds.length > 1) {
-                        Dashboard.alert("Capture Current Light Color requires exactly one user target.");
-                        return;
-                    }
-
-                    var targetUserId = targetSelection.targetUserIds.length === 1
+                    var isBatch = targetSelection.targetAllEnabledMappings ||
+                        (targetSelection.includeDefaultTarget && targetSelection.targetUserIds.length > 0) ||
+                        targetSelection.targetUserIds.length > 1;
+                    var targetUserId = !isBatch && targetSelection.targetUserIds.length === 1
                         ? targetSelection.targetUserIds[0]
                         : "";
                     var button = page.querySelector('#captureCurrentColorBtn');
@@ -2212,14 +2216,20 @@
                     if (button) button.disabled = true;
                     page._huePreviewStatusElement = statusEl;
                     if (statusEl) {
-                        statusEl.textContent = targetUserId
-                            ? "Reading the current light color from the selected user target..."
-                            : "Reading the current light color from the default bridge target...";
+                        statusEl.textContent = isBatch
+                            ? targetSelection.targetAllEnabledMappings
+                                ? "Reading current light colors from every distinct enabled target..."
+                                : "Reading current light colors from the selected targets..."
+                            : targetUserId
+                                ? "Reading the current light color from the selected user target..."
+                                : "Reading the current light color from the default bridge target...";
                         statusEl.style.color = "";
                         statusEl.style.background = "";
                     }
                     Dashboard.showLoadingMsg();
-                    var request = HueConfigurationPage.fetchCurrentLightColor(targetUserId);
+                    var request = isBatch
+                        ? HueConfigurationPage.fetchCurrentLightColors(targetSelection)
+                        : HueConfigurationPage.fetchCurrentLightColor(targetUserId);
                     page._huePreviewRequest = request;
                     page._hueCaptureRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
@@ -2227,11 +2237,18 @@
                         .then(function (response) {
                             var succeeded = HueConfigurationPage.readStatusField(response, "Succeeded", false);
                             var message = HueConfigurationPage.readStatusField(response, "Message", "");
-                            if (succeeded) {
-                                var red = Math.max(0, Math.min(255, Number(HueConfigurationPage.readStatusField(response, "Red", 0)) || 0));
-                                var green = Math.max(0, Math.min(255, Number(HueConfigurationPage.readStatusField(response, "Green", 0)) || 0));
-                                var blue = Math.max(0, Math.min(255, Number(HueConfigurationPage.readStatusField(response, "Blue", 0)) || 0));
-                                var brightness = Math.max(0, Math.min(100, Number(HueConfigurationPage.readStatusField(response, "BrightnessPercent", 0)) || 0));
+                            var captures = isBatch
+                                ? HueConfigurationPage.readStatusField(response, "Captures", [])
+                                : [response];
+                            captures = Array.isArray(captures) ? captures : [];
+                            var successfulCaptures = captures.filter(function (capture) {
+                                return HueConfigurationPage.readStatusField(capture, "Succeeded", false);
+                            });
+                            if (successfulCaptures.length > 0) {
+                                var red = Math.max(0, Math.min(255, Number(HueConfigurationPage.readStatusField(response, "Red", HueConfigurationPage.readStatusField(successfulCaptures[0], "Red", 0))) || 0));
+                                var green = Math.max(0, Math.min(255, Number(HueConfigurationPage.readStatusField(response, "Green", HueConfigurationPage.readStatusField(successfulCaptures[0], "Green", 0))) || 0));
+                                var blue = Math.max(0, Math.min(255, Number(HueConfigurationPage.readStatusField(response, "Blue", HueConfigurationPage.readStatusField(successfulCaptures[0], "Blue", 0))) || 0));
+                                var brightness = Math.max(0, Math.min(100, Number(HueConfigurationPage.readStatusField(response, "BrightnessPercent", HueConfigurationPage.readStatusField(successfulCaptures[0], "BrightnessPercent", 0))) || 0));
                                 var toHex = function (value) {
                                     var hex = Math.round(value).toString(16);
                                     return hex.length === 1 ? "0" + hex : hex;
@@ -2240,13 +2257,25 @@
                                 var brightnessInput = page.querySelector('#previewBrightness');
                                 if (colorInput) colorInput.value = "#" + toHex(red) + toHex(green) + toHex(blue);
                                 if (brightnessInput) brightnessInput.value = String(Math.round(brightness));
-                                var sampled = Number(HueConfigurationPage.readStatusField(response, "SampledLightCount", 0)) || 0;
+                                var sampled = Number(HueConfigurationPage.readStatusField(response, "SampledLightCount", HueConfigurationPage.readStatusField(successfulCaptures[0], "SampledLightCount", 0))) || 0;
+                                var detail = isBatch
+                                    ? " " + captures.map(function (capture) {
+                                        var label = HueConfigurationPage.readStatusField(capture, "TargetLabel", "Target");
+                                        var targetMessage = HueConfigurationPage.readStatusField(capture, "Message", "");
+                                        return label + ": " + (targetMessage || (HueConfigurationPage.readStatusField(capture, "Succeeded", false) ? "captured" : "failed"));
+                                    }).join(" | ")
+                                    : "";
                                 if (statusEl) {
-                                    statusEl.textContent = (message || "Current light color captured.") + " Preview color and brightness updated from " + sampled + " light" + (sampled === 1 ? "" : "s") + ".";
-                                    statusEl.style.color = "#8bc34a";
+                                    statusEl.textContent = (message || "Current light color captured.") + " Preview color and brightness updated from " + sampled + " light" + (sampled === 1 ? "" : "s") + "." + detail;
+                                    statusEl.style.color = isBatch && successfulCaptures.length < captures.length ? "#f0ad4e" : "#8bc34a";
                                 }
                             } else if (statusEl) {
-                                statusEl.textContent = message || "The current light color could not be captured.";
+                                var failureDetail = isBatch && captures.length
+                                    ? " " + captures.map(function (capture) {
+                                        return HueConfigurationPage.readStatusField(capture, "TargetLabel", "Target") + ": " + HueConfigurationPage.readStatusField(capture, "Message", "capture failed");
+                                    }).join(" | ")
+                                    : "";
+                                statusEl.textContent = (message || "The current light color could not be captured.") + failureDetail;
                                 statusEl.style.color = "#d9534f";
                             }
                         })

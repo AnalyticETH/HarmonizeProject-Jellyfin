@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.157] - 2026-08-19
+
+### Added
+- **Multi-room current-light capture**: capture the default bridge, every distinct enabled target, or a deliberate selected target subset from the administrator scene editor
+- **Weighted aggregate seeding**: combine successful per-room RGB/brightness samples into a credential-free scene-editor seed while preserving independent target failures and partial-read details
+- **Safe batch lifecycle**: serialize multi-target capture with playback and diagnostics, deduplicate inherited physical targets, honor each saved channel profile, and never return light IDs or bridge credentials
+- **Regression coverage**: verify multi-target selection, inherited-target deduplication, aggregate color weighting, partial failures, and credential-safe batch results
+
 ## [1.5.156] - 2026-08-19
 
 ### Added

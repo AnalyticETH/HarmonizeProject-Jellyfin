@@ -489,6 +489,188 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task CaptureCurrentColors_AggregatesSelectedTargetsWithoutReturningSecrets()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-secret",
+            HueClientKey = "default-client-secret",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "1",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-custom",
+                    UserName = "Bedroom",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "area-2",
+                    ChannelIdsOverride = "2"
+                }
+            }
+        });
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"on\":{\"on\":true},\"dimming\":{\"brightness\":50},\"color\":{\"xy\":{\"x\":0.64,\"y\":0.33}}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-2\",\"metadata\":{\"name\":\"Bedroom\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":2,\"members\":[{\"service\":{\"rid\":\"light-2\"}},{\"service\":{\"rid\":\"light-3\"}}]}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"on\":{\"on\":true},\"dimming\":{\"brightness\":80},\"color\":{\"xy\":{\"x\":0.15,\"y\":0.06}}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"on\":{\"on\":true},\"dimming\":{\"brightness\":80},\"color\":{\"xy\":{\"x\":0.15,\"y\":0.06}}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+
+        var action = await CreateController().CaptureCurrentColors(new HueCurrentLightColorBatchRequest
+        {
+            IncludeDefaultTarget = true,
+            TargetUserIds = new List<string> { "user-custom" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueCurrentLightColorBatchResult>(response.Value);
+        Assert.True(result.Succeeded, result.Message + " :: " + string.Join(" | ", result.Captures.Select(capture => capture.TargetLabel + "=" + capture.Message)));
+        Assert.Equal(2, result.AttemptedTargetCount);
+        Assert.Equal(2, result.SuccessfulTargetCount);
+        Assert.Equal(3, result.SampledLightCount);
+        Assert.Equal(65, result.BrightnessPercent);
+        Assert.Equal(new[] { "user-custom" }, result.TargetUserIds);
+        Assert.Equal(new[] { "Default bridge", "Bedroom" }, result.Captures.Select(capture => capture.TargetLabel));
+        Assert.True(result.Red > 0);
+        Assert.True(result.Blue > 0);
+
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("default-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("default-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("mapping-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CaptureCurrentColors_AllTargetsDeduplicatesInheritedMappingsAndReportsPartialFailure()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-secret",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "1",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-inherited",
+                    UserName = "Inherited",
+                    SyncEnabled = true
+                },
+                new()
+                {
+                    UserId = "user-broken",
+                    UserName = "Broken",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "broken-app-secret",
+                    EntertainmentAreaId = "area-broken",
+                    ChannelIdsOverride = "1"
+                }
+            }
+        });
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"on\":{\"on\":true},\"dimming\":{\"brightness\":40},\"color\":{\"xy\":{\"x\":0.64,\"y\":0.33}}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            {
+                Content = new StringContent("bridge unavailable", Encoding.UTF8, "text/plain")
+            });
+
+        var action = await CreateController().CaptureCurrentColors(new HueCurrentLightColorBatchRequest
+        {
+            TargetAllEnabledMappings = true
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueCurrentLightColorBatchResult>(response.Value);
+        Assert.False(result.Succeeded);
+        Assert.Equal(2, result.AttemptedTargetCount);
+        Assert.Equal(1, result.SuccessfulTargetCount);
+        Assert.Equal(1, result.SampledLightCount);
+        Assert.Equal(1, result.Captures.Count(capture => capture.TargetLabel == "Default bridge"));
+        Assert.Contains(result.Captures, capture => capture.TargetLabel == "Broken" && !capture.Succeeded);
+    }
+
+    [Fact]
     public async Task CaptureCurrentColor_RejectsConcurrentDiagnosticLifecycle()
     {
         InstallConfiguration(new PluginConfiguration
