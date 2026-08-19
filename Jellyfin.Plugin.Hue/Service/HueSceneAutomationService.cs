@@ -77,78 +77,142 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// and last-run pointers are reset.
     /// </summary>
     public bool TryResetScheduleRunCount(string scheduleId, out string message)
+        => TryResetSchedulesRunCount(new[] { scheduleId }, out message);
+
+    /// <summary>
+    /// Resets several cues' persisted execution counters as one configuration transaction.
+    /// Every selected cue is resolved and checked before any state changes are made, so an
+    /// active or missing cue cannot leave a partial reset behind. Resetting also re-enables
+    /// each cue and clears a pending Skip Next marker; retained history remains an audit trail.
+    /// </summary>
+    public bool TryResetSchedulesRunCount(
+        IEnumerable<string>? scheduleIds,
+        out string message)
     {
         message = string.Empty;
         var config = Plugin.Instance?.Configuration;
-        var key = scheduleId?.Trim() ?? string.Empty;
-        var schedule = config?.SceneSchedules?.FirstOrDefault(candidate =>
-            candidate != null &&
-            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
-        if (schedule == null)
+        if (config == null)
         {
-            message = "The requested scene schedule was not found.";
+            message = "Plugin configuration is not available.";
             return false;
         }
 
-        HueSceneScheduleRuntimeState? previousState = null;
-        var previousScheduleRunCount = schedule.RunCount;
-        var previousScheduleEnabled = schedule.Enabled;
-        var previousScheduleSkipNextOccurrence = schedule.SkipNextOccurrence;
+        var keys = (scheduleIds ?? Array.Empty<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (keys.Length == 0)
+        {
+            message = "Select at least one scene schedule.";
+            return false;
+        }
+
+        if (keys.Length > PluginConfiguration.MaxSceneSchedules)
+        {
+            message = $"Select no more than {PluginConfiguration.MaxSceneSchedules} scene schedules at once.";
+            return false;
+        }
+
+        var configuredSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
+        var selectedSchedules = keys
+            .Select(key => configuredSchedules.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        var missingKeys = keys
+            .Where((_, index) => selectedSchedules[index] == null)
+            .ToArray();
+        if (missingKeys.Length > 0)
+        {
+            message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
+            return false;
+        }
+
+        var schedules = selectedSchedules
+            .Where(schedule => schedule != null)
+            .Cast<HueSceneSchedule>()
+            .ToArray();
+        var previousScheduleStates = schedules.ToDictionary(
+            schedule => schedule.Id?.Trim() ?? string.Empty,
+            schedule => (schedule.RunCount, schedule.Enabled, schedule.SkipNextOccurrence),
+            StringComparer.OrdinalIgnoreCase);
+        var previousRuntimeStates = new Dictionary<string, HueSceneScheduleRuntimeState?>(StringComparer.OrdinalIgnoreCase);
+
         lock (_runtimeStateLock)
         {
-            if (_runtimeStates.TryGetValue(key, out var state))
+            var blocked = new List<string>();
+            foreach (var schedule in schedules)
             {
-                if (state.ActiveRuns > 0)
+                var key = schedule.Id?.Trim() ?? string.Empty;
+                previousRuntimeStates[key] = _runtimeStates.TryGetValue(key, out var state)
+                    ? state.Clone()
+                    : null;
+                if (state != null && state.ActiveRuns > 0)
                 {
-                    message = "The scene schedule cannot be reset while it is running.";
-                    return false;
-                }
-
-                previousState = state.Clone();
-                state.RunCount = 0;
-                state.LastRunAtUtc = null;
-                state.LastSucceeded = null;
-                state.LastSkipped = false;
-                state.LastWasCatchUp = false;
-                state.LastMessage = null;
-                state.LastCleanupWarning = null;
-                state.LastTargetResults = Array.Empty<HueSceneScheduleTargetResult>();
-            }
-
-            schedule.RunCount = 0;
-            schedule.Enabled = true;
-            schedule.SkipNextOccurrence = false;
-        }
-
-        try
-        {
-            Plugin.Instance?.SaveConfiguration();
-            message = "The scene schedule execution counter was reset and the cue was re-enabled.";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            lock (_runtimeStateLock)
-            {
-                schedule.RunCount = previousScheduleRunCount;
-                schedule.Enabled = previousScheduleEnabled;
-                schedule.SkipNextOccurrence = previousScheduleSkipNextOccurrence;
-                if (previousState != null && _runtimeStates.TryGetValue(key, out var state))
-                {
-                    state.ActiveRuns = previousState.ActiveRuns;
-                    state.RunCount = previousState.RunCount;
-                    state.LastRunAtUtc = previousState.LastRunAtUtc;
-                    state.LastSucceeded = previousState.LastSucceeded;
-                    state.LastSkipped = previousState.LastSkipped;
-                    state.LastWasCatchUp = previousState.LastWasCatchUp;
-                    state.LastMessage = previousState.LastMessage;
-                    state.LastCleanupWarning = previousState.LastCleanupWarning;
+                    blocked.Add($"{schedule.Name}: it is currently running");
                 }
             }
 
-            _logger.LogWarning(ex, "Could not persist reset for Hue scene schedule {0}", schedule.Name);
-            message = "The scene schedule counter could not be reset because the configuration could not be saved.";
-            return false;
+            if (blocked.Count > 0)
+            {
+                message = string.Join("; ", blocked) + ".";
+                return false;
+            }
+
+            foreach (var schedule in schedules)
+            {
+                var key = schedule.Id?.Trim() ?? string.Empty;
+                if (_runtimeStates.TryGetValue(key, out var state))
+                {
+                    state.RunCount = 0;
+                    state.LastRunAtUtc = null;
+                    state.LastSucceeded = null;
+                    state.LastSkipped = false;
+                    state.LastWasCatchUp = false;
+                    state.LastMessage = null;
+                    state.LastCleanupWarning = null;
+                    state.LastTargetResults = Array.Empty<HueSceneScheduleTargetResult>();
+                }
+
+                schedule.RunCount = 0;
+                schedule.Enabled = true;
+                schedule.SkipNextOccurrence = false;
+            }
+
+            try
+            {
+                Plugin.Instance?.SaveConfiguration();
+                message = schedules.Length == 1
+                    ? "The scene schedule execution counter was reset and the cue was re-enabled."
+                    : $"Reset execution counters and re-enabled {schedules.Length} scheduled cue(s).";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                foreach (var schedule in schedules)
+                {
+                    var key = schedule.Id?.Trim() ?? string.Empty;
+                    if (previousScheduleStates.TryGetValue(key, out var previousSchedule))
+                    {
+                        schedule.RunCount = previousSchedule.RunCount;
+                        schedule.Enabled = previousSchedule.Enabled;
+                        schedule.SkipNextOccurrence = previousSchedule.SkipNextOccurrence;
+                    }
+
+                    if (previousRuntimeStates.TryGetValue(key, out var previousState))
+                    {
+                        if (previousState == null)
+                            _runtimeStates.Remove(key);
+                        else
+                            _runtimeStates[key] = previousState.Clone();
+                    }
+                }
+
+                _logger.LogWarning(ex, "Could not persist reset for Hue scene schedules");
+                message = "The selected scene schedule counters could not be reset because the configuration could not be saved; no changes were retained.";
+                return false;
+            }
         }
     }
 

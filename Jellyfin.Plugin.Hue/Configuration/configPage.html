@@ -416,12 +416,13 @@
                                 <select id="sceneScheduleBulkSelect" is="emby-select" multiple size="5" style="width: 100%;">
                                     <option value="">Load scheduled cues first</option>
                                 </select>
-                                <div class="fieldDescription">Select up to 50 cues, then enable or disable them, mark/clear their next automatic occurrence, or delete them, in one atomic operation. Active cues, disabled/futureless new skips, or persistence failures leave the selected set unchanged.</div>
+                                <div class="fieldDescription">Select up to 50 cues, then enable or disable them, reset execution counters, mark/clear their next automatic occurrence, or delete them, in one atomic operation. Active cues, disabled/futureless new skips, or persistence failures leave the selected set unchanged.</div>
                             </div>
                             <button is="emby-button" type="button" class="raised" id="enableSelectedSceneSchedulesBtn" disabled><span>Enable Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="disableSelectedSceneSchedulesBtn" disabled><span>Disable Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="skipSelectedSceneSchedulesBtn" disabled><span>Skip Next Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSelectedSceneScheduleSkipsBtn" disabled><span>Clear Selected Skips</span></button>
+                            <button is="emby-button" type="button" class="raised" id="resetSelectedSceneScheduleRunCountsBtn" disabled><span>Reset Counters</span></button>
                             <button is="emby-button" type="button" class="raised" id="deleteSelectedSceneSchedulesBtn" disabled><span>Delete Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="selectAllSceneSchedulesBtn" disabled><span>Select All</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSelectedSceneSchedulesBtn" disabled><span>Clear Selection</span></button>
@@ -3134,6 +3135,7 @@
                     var disableButton = page.querySelector('#disableSelectedSceneSchedulesBtn');
                     var skipButton = page.querySelector('#skipSelectedSceneSchedulesBtn');
                     var clearSkipsButton = page.querySelector('#clearSelectedSceneScheduleSkipsBtn');
+                    var resetCountersButton = page.querySelector('#resetSelectedSceneScheduleRunCountsBtn');
                     var deleteButton = page.querySelector('#deleteSelectedSceneSchedulesBtn');
                     var selectAllButton = page.querySelector('#selectAllSceneSchedulesBtn');
                     var clearButton = page.querySelector('#clearSelectedSceneSchedulesBtn');
@@ -3141,6 +3143,7 @@
                     if (disableButton) disableButton.disabled = !hasSelection;
                     if (skipButton) skipButton.disabled = !hasSelection;
                     if (clearSkipsButton) clearSkipsButton.disabled = !hasSelection;
+                    if (resetCountersButton) resetCountersButton.disabled = !hasSelection;
                     if (deleteButton) deleteButton.disabled = !hasSelection;
                     if (selectAllButton) selectAllButton.disabled = optionCount === 0 || selectedIds.length === optionCount;
                     if (clearButton) clearButton.disabled = !hasSelection;
@@ -3255,6 +3258,51 @@
                                     statusEl.textContent = skipNextOccurrence
                                         ? "Unable to skip the selected cue occurrences. Active, disabled, exhausted, or futureless cues block the atomic operation."
                                         : "Unable to clear the selected cue skips. An active cue may block the atomic operation.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                                HueConfigurationPage.updateSceneScheduleBulkButtons(page);
+                            });
+                        });
+                },
+                resetSceneSchedulesRunCountsBulk: function (page) {
+                    if (!page) return;
+                    var scheduleIds = HueConfigurationPage.getSelectedSceneScheduleBulkIds(page);
+                    var statusEl = page.querySelector('#sceneScheduleBulkStatus');
+                    if (!scheduleIds.length) {
+                        Dashboard.alert("Select at least one scheduled cue first.");
+                        return;
+                    }
+
+                    Dashboard.confirm(
+                        "Reset the execution counters and re-enable " + scheduleIds.length + " selected scheduled cue" + (scheduleIds.length === 1 ? "" : "s") + "? Pending skips will be cleared and retained history will be preserved.",
+                        "Reset Selected Counters",
+                        function (confirmed) {
+                            if (!confirmed) return;
+                            var button = page.querySelector('#resetSelectedSceneScheduleRunCountsBtn');
+                            if (button) button.disabled = true;
+                            if (statusEl) {
+                                statusEl.textContent = "Resetting selected scheduled-cue counters...";
+                                statusEl.style.color = "";
+                            }
+                            var selectedScheduleControl = page.querySelector('#sceneScheduleSelect');
+                            var selectedScheduleId = selectedScheduleControl ? selectedScheduleControl.value : '';
+                            ApiClient.ajax({
+                                type: "POST",
+                                url: ApiClient.getUrl("HueSync/SceneSchedules/BulkResetRunCount"),
+                                data: JSON.stringify({ scheduleIds: scheduleIds }),
+                                contentType: "application/json",
+                                dataType: "json"
+                            }).then(function (response) {
+                                var message = response && (response.message || response.Message);
+                                if (statusEl) {
+                                    statusEl.textContent = message || "Selected scheduled-cue counters reset and cues re-enabled.";
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                                return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                            }).catch(function (err) {
+                                console.error("Failed to reset bulk scene schedule run counts:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = "Unable to reset the selected counters. Active cues or a persistence failure block the atomic operation.";
                                     statusEl.style.color = "#d9534f";
                                 }
                                 HueConfigurationPage.updateSceneScheduleBulkButtons(page);
@@ -7547,6 +7595,10 @@
 
             document.querySelector('#clearSelectedSceneScheduleSkipsBtn').addEventListener('click', function () {
                 HueConfigurationPage.setSceneSchedulesSkipNextBulk(this.closest('.page'), false);
+            });
+
+            document.querySelector('#resetSelectedSceneScheduleRunCountsBtn').addEventListener('click', function () {
+                HueConfigurationPage.resetSceneSchedulesRunCountsBulk(this.closest('.page'));
             });
 
             document.querySelector('#deleteSelectedSceneSchedulesBtn').addEventListener('click', function () {

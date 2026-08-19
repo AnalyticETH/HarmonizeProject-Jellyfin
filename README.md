@@ -184,6 +184,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/SceneSchedules/{id}/Run` | Run one cue immediately through the serialized, state-restoring preview lifecycle; active playback or another diagnostic safely blocks the run. |
 | `POST /HueSync/SceneSchedules/{id}/Cancel` | Request cancellation of an active manual Run Now cue. The response reports whether a run was found; cleanup still deactivates the area and restores captured light state. |
 | `POST /HueSync/SceneSchedules/{id}/ResetRunCount` | Reset a cue's persisted execution counter to zero and re-enable it. Active cues cannot be reset; retained history remains available as an audit trail, and direct persistence failures restore the prior counter/state. |
+| `POST /HueSync/SceneSchedules/BulkResetRunCount` | Atomically reset and re-enable up to 50 selected cue IDs with `{ "scheduleIds": ["..."] }`, clearing pending Skip Next markers while preserving retained history. Every ID is resolved first; active cues, unknown IDs, and save failures leave the complete selection unchanged, and the credential-free response includes reset counts and updated cue summaries. |
 | `POST /HueSync/SceneSchedules/{id}/Enabled` | Enable or disable one cue without changing its schedule definition. Active cues cannot be changed, and an exhausted finite cue must be reset before it can be enabled; the response remains credential-free. |
 | `POST /HueSync/SceneSchedules/BulkEnabled` | Atomically enable or disable up to 50 selected cue IDs with `{ "scheduleIds": ["..."], "enabled": true|false }`. Every ID is normalized and validated before persistence; active cues, exhausted finite cues, unknown IDs, and save failures leave the entire selection unchanged. The response includes updated credential-free cue summaries and counts. |
 | `POST /HueSync/SceneSchedules/BulkSkipNext` | Atomically mark or clear the next automatic occurrence for up to 50 selected cue IDs with `{ "scheduleIds": ["..."], "skipNextOccurrence": true|false }`. New skip markers require enabled, non-exhausted cues with a future occurrence; active cues, disabled/futureless cues, unknown IDs, and save failures leave the entire selection unchanged. Manual Run Now remains available and the response includes updated credential-free cue summaries. |
@@ -390,7 +391,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.137 (Current)
+### Version 1.5.138 (Current)
+- **Atomic bulk counter reset**: reset and re-enable up to 50 selected scheduled cues while clearing pending Skip Next markers in one persistence transaction
+- **Lifecycle-safe recovery**: active cues, missing IDs, and persistence failures leave every selected cue unchanged and retained cue history intact
+- **Administrator recovery workflow**: add Reset Counters beside bulk enable/disable, skip, and delete actions
+
+### Version 1.5.137
 - **Atomic bulk mapping deletion**: remove up to 50 selected per-user bridge mappings by user ID while preserving every dependent scheduled cue when references block the operation
 - **All-or-nothing dependency safety**: missing IDs, scheduled-cue references, and persistence failures leave the full mapping collection unchanged with sanitized details
 - **Administrator mapping cleanup**: add select-all, clear-selection, and Delete Selected controls with credential-free refresh

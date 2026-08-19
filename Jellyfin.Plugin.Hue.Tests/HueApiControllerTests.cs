@@ -3165,6 +3165,171 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_BulkResetRunCountReenablesSelectedCuesAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk reset API scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-reset-api-one",
+                    Name = "Bulk reset API one",
+                    PresetName = "Bulk reset API scene",
+                    MaxRuns = 3,
+                    RunCount = 3,
+                    Enabled = false,
+                    SkipNextOccurrence = true
+                },
+                new()
+                {
+                    Id = "bulk-reset-api-two",
+                    Name = "Bulk reset API two",
+                    PresetName = "Bulk reset API scene",
+                    MaxRuns = 5,
+                    RunCount = 2,
+                    Enabled = false,
+                    SkipNextOccurrence = true
+                },
+                new()
+                {
+                    Id = "bulk-reset-api-untouched",
+                    Name = "Bulk reset API untouched",
+                    PresetName = "Bulk reset API scene",
+                    MaxRuns = 4,
+                    RunCount = 1,
+                    Enabled = false,
+                    SkipNextOccurrence = true
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.ResetSceneSchedulesRunCountBulk(new HueSceneScheduleBulkResetRunCountRequest
+        {
+            ScheduleIds = new List<string> { " bulk-reset-api-one ", "bulk-reset-api-two", "bulk-reset-api-one" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleBulkResetRunCountResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.ResetCount);
+        Assert.Equal(new[] { "bulk-reset-api-one", "bulk-reset-api-two" }, result.Schedules.Select(schedule => schedule.Id));
+        Assert.All(configuration.SceneSchedules.Take(2), schedule =>
+        {
+            Assert.Equal(0, schedule.RunCount);
+            Assert.True(schedule.Enabled);
+            Assert.False(schedule.SkipNextOccurrence);
+        });
+        Assert.Equal(1, configuration.SceneSchedules[2].RunCount);
+        Assert.False(configuration.SceneSchedules[2].Enabled);
+        Assert.True(configuration.SceneSchedules[2].SkipNextOccurrence);
+    }
+
+    [Fact]
+    public void SceneSchedules_BulkResetRunCountRefusesMissingCueWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk guarded reset API scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-reset-api-existing",
+                    Name = "Bulk reset API existing",
+                    PresetName = "Bulk guarded reset API scene",
+                    MaxRuns = 3,
+                    RunCount = 2,
+                    Enabled = false,
+                    SkipNextOccurrence = true
+                },
+                new()
+                {
+                    Id = "bulk-reset-api-safe",
+                    Name = "Bulk reset API safe",
+                    PresetName = "Bulk guarded reset API scene",
+                    MaxRuns = 3,
+                    RunCount = 1,
+                    Enabled = false
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.ResetSceneSchedulesRunCountBulk(new HueSceneScheduleBulkResetRunCountRequest
+        {
+            ScheduleIds = new List<string> { "bulk-reset-api-existing", "missing-reset-api-cue" }
+        });
+
+        var response = Assert.IsType<NotFoundObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status404NotFound, response.StatusCode);
+        var result = Assert.IsType<HueSceneScheduleBulkResetRunCountResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(new[] { "missing-reset-api-cue" }, result.MissingScheduleIds);
+        Assert.Equal(2, configuration.SceneSchedules[0].RunCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+    }
+
+    [Fact]
+    public void SceneSchedules_BulkResetRunCountPersistenceFailureRestoresAllSelectedCues()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("bulk reset persistence failed"));
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk failing reset API scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-reset-api-failing-one",
+                    Name = "Bulk reset API failing one",
+                    PresetName = "Bulk failing reset API scene",
+                    MaxRuns = 3,
+                    RunCount = 3,
+                    Enabled = false,
+                    SkipNextOccurrence = true
+                },
+                new()
+                {
+                    Id = "bulk-reset-api-failing-two",
+                    Name = "Bulk reset API failing two",
+                    PresetName = "Bulk failing reset API scene",
+                    MaxRuns = 4,
+                    RunCount = 2,
+                    Enabled = false
+                }
+            }
+        }, serializer.Object);
+
+        var action = CreateController().ResetSceneSchedulesRunCountBulk(new HueSceneScheduleBulkResetRunCountRequest
+        {
+            ScheduleIds = new List<string> { "bulk-reset-api-failing-one", "bulk-reset-api-failing-two" }
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Equal(3, configuration.SceneSchedules[0].RunCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.Equal(2, configuration.SceneSchedules[1].RunCount);
+        Assert.False(configuration.SceneSchedules[1].Enabled);
+    }
+
+    [Fact]
     public void SceneSchedules_BulkSkipNextActionUpdatesSelectedCuesAtomically()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

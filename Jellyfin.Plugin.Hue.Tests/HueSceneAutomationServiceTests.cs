@@ -1296,6 +1296,55 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void ResetSchedulesRunCount_PersistenceFailureRestoresEverySelectedCue()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("bulk reset persistence failure"));
+        var configuration = new PluginConfiguration
+        {
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-reset-service-one",
+                    Name = "Bulk reset service one",
+                    RunCount = 3,
+                    Enabled = false,
+                    SkipNextOccurrence = true
+                },
+                new()
+                {
+                    Id = "bulk-reset-service-two",
+                    Name = "Bulk reset service two",
+                    RunCount = 2,
+                    Enabled = false,
+                    SkipNextOccurrence = false
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.False(service.TryResetSchedulesRunCount(
+            new[] { " bulk-reset-service-one ", "bulk-reset-service-two" },
+            out var message));
+        Assert.Contains("no changes", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, configuration.SceneSchedules[0].RunCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.Equal(2, configuration.SceneSchedules[1].RunCount);
+        Assert.False(configuration.SceneSchedules[1].Enabled);
+        Assert.False(configuration.SceneSchedules[1].SkipNextOccurrence);
+    }
+
+    [Fact]
     public void SetScheduleEnabled_TogglesCueWithoutChangingItsDefinition()
     {
         var configuration = new PluginConfiguration
@@ -1988,6 +2037,62 @@ public sealed class HueSceneAutomationServiceTests
         Assert.False(service.TrySetScheduleSkipNextOccurrence("active-reset-cue", true, out var skipMessage));
         Assert.Contains("running", skipMessage, StringComparison.OrdinalIgnoreCase);
         Assert.True(service.CancelSchedule("active-reset-cue"));
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task ResetSchedulesRunCount_RefusesActiveCueWithoutPartialMutation()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-reset-app-secret",
+            HueClientKey = "bulk-reset-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk reset active scene", DurationSeconds = 8 } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-reset-active-cue",
+                    Name = "Bulk reset active cue",
+                    PresetName = "Bulk reset active scene",
+                    RunCount = 1,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-reset-idle-cue",
+                    Name = "Bulk reset idle cue",
+                    PresetName = "Bulk reset active scene",
+                    RunCount = 3,
+                    Enabled = false,
+                    SkipNextOccurrence = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new BlockingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var runTask = service.RunScheduleAsync("bulk-reset-active-cue");
+        await streamTester.PreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(service.TryResetSchedulesRunCount(
+            new[] { "bulk-reset-active-cue", "bulk-reset-idle-cue" },
+            out var message));
+        Assert.Contains("running", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(3, configuration.SceneSchedules[1].RunCount);
+        Assert.False(configuration.SceneSchedules[1].Enabled);
+        Assert.True(configuration.SceneSchedules[1].SkipNextOccurrence);
+
+        Assert.True(service.CancelSchedule("bulk-reset-active-cue"));
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 

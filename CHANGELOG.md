@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.138] - 2026-08-19
+
+### Added
+- **Atomic bulk counter reset**: reset and re-enable up to 50 selected scheduled cues while clearing pending Skip Next markers
+- **Lifecycle-safe reset**: active cues, missing IDs, and persistence failures block the complete selection and restore all prior state
+- **Administrator recovery workflow**: add a Reset Counters action beside the existing bulk scheduled-cue controls while preserving retained cue history
+
 ## [1.5.137] - 2026-08-19
 
 ### Added
