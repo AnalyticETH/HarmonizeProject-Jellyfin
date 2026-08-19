@@ -2969,6 +2969,138 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_BulkSkipNextActionUpdatesSelectedCuesAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk skip API scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-skip-api-one",
+                    Name = "Bulk skip API one",
+                    PresetName = "Bulk skip API scene",
+                    TimeOfDay = "06:30",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-skip-api-two",
+                    Name = "Bulk skip API two",
+                    PresetName = "Bulk skip API scene",
+                    TimeOfDay = "07:30",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-skip-api-untouched",
+                    Name = "Bulk skip API untouched",
+                    PresetName = "Bulk skip API scene",
+                    TimeOfDay = "08:30",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.SetSceneSchedulesSkipNextBulk(new HueSceneScheduleBulkSkipNextRequest
+        {
+            ScheduleIds = new List<string> { " bulk-skip-api-one ", "bulk-skip-api-two", "bulk-skip-api-one" },
+            SkipNextOccurrence = true
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleBulkSkipNextResult>(response.Value);
+        Assert.True(result.SkipNextOccurrence);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.UpdatedCount);
+        Assert.Equal(new[] { "bulk-skip-api-one", "bulk-skip-api-two" }, result.Schedules.Select(schedule => schedule.Id));
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.True(configuration.SceneSchedules[1].SkipNextOccurrence);
+        Assert.False(configuration.SceneSchedules[2].SkipNextOccurrence);
+
+        var clearAction = controller.SetSceneSchedulesSkipNextBulk(new HueSceneScheduleBulkSkipNextRequest
+        {
+            ScheduleIds = new List<string> { "bulk-skip-api-one", "bulk-skip-api-two" },
+            SkipNextOccurrence = false
+        });
+
+        var clearResponse = Assert.IsType<OkObjectResult>(clearAction.Result);
+        var clearResult = Assert.IsType<HueSceneScheduleBulkSkipNextResult>(clearResponse.Value);
+        Assert.False(clearResult.SkipNextOccurrence);
+        Assert.Equal(2, clearResult.UpdatedCount);
+        Assert.False(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.False(configuration.SceneSchedules[1].SkipNextOccurrence);
+    }
+
+    [Fact]
+    public void SceneSchedules_BulkSkipNextActionRefusesPartialSkipWhenCueIsDisabled()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk guarded skip API scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-skip-api-ready",
+                    Name = "Bulk skip API ready",
+                    PresetName = "Bulk guarded skip API scene",
+                    TimeOfDay = "06:30",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-skip-api-disabled",
+                    Name = "Bulk skip API disabled",
+                    PresetName = "Bulk guarded skip API scene",
+                    TimeOfDay = "07:30",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = false
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.SetSceneSchedulesSkipNextBulk(new HueSceneScheduleBulkSkipNextRequest
+        {
+            ScheduleIds = new List<string> { "bulk-skip-api-ready", "bulk-skip-api-disabled" },
+            SkipNextOccurrence = true
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        var result = Assert.IsType<HueSceneScheduleBulkSkipNextResult>(response.Value);
+        Assert.Equal(0, result.UpdatedCount);
+        Assert.Contains("Bulk skip API disabled", result.Message, StringComparison.Ordinal);
+        Assert.False(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.False(configuration.SceneSchedules[1].SkipNextOccurrence);
+    }
+
+    [Fact]
     public void SceneSchedules_SkipNextActionTogglesOnlyPendingOccurrenceThroughAdministratorApi()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

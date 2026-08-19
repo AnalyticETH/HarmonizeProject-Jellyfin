@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.132] - 2026-08-19
+
+### Added
+- **Atomic bulk Skip Next controls**: mark or clear the next automatic occurrence for up to 50 selected scheduled cues without changing recurrence definitions, targets, scenes, or finite-run counters
+- **All-or-nothing safeguards**: active, disabled, exhausted, futureless, missing, or persistence-blocked cues leave the complete selected set unchanged
+- **Administrator multi-action workflow**: add explicit Skip Next Selected and Clear Selected Skips actions alongside bulk enable/disable controls
+
 ## [1.5.131] - 2026-08-19
 
 ### Added

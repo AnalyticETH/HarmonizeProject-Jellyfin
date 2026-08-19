@@ -3291,6 +3291,158 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Marks or clears the next automatic occurrence for several scene cues in one
+        /// administrator operation. The automation service validates every cue before
+        /// persisting any marker, so a disabled, exhausted, futureless, or active cue
+        /// cannot produce a partial update. Manual Run Now remains available.
+        /// </summary>
+        [HttpPost("SceneSchedules/BulkSkipNext")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueSceneScheduleBulkSkipNextResult> SetSceneSchedulesSkipNextBulk(
+            [FromBody] HueSceneScheduleBulkSkipNextRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A cue selection and skip value are required.");
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var scheduleIds = (request.ScheduleIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (scheduleIds.Length == 0)
+                return BadRequest("Select at least one scheduled cue.");
+            if (scheduleIds.Length > PluginConfiguration.MaxSceneSchedules)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxSceneSchedules} scheduled cues at once.");
+            }
+
+            config.SceneSchedules ??= new List<HueSceneSchedule>();
+            var selectedSchedules = scheduleIds
+                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
+                    schedule != null &&
+                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingIds = scheduleIds
+                .Where((_, index) => selectedSchedules[index] == null)
+                .ToArray();
+            if (missingIds.Length > 0)
+            {
+                return NotFound(new HueSceneScheduleBulkSkipNextResult
+                {
+                    SkipNextOccurrence = request.SkipNextOccurrence,
+                    RequestedCount = scheduleIds.Length,
+                    Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
+                });
+            }
+
+            var schedules = selectedSchedules
+                .Where(schedule => schedule != null)
+                .Cast<HueSceneSchedule>()
+                .ToArray();
+            if (_sceneAutomationService != null)
+            {
+                if (!_sceneAutomationService.TrySetSchedulesSkipNextOccurrence(
+                        scheduleIds,
+                        request.SkipNextOccurrence,
+                        out var message))
+                {
+                    return Conflict(new HueSceneScheduleBulkSkipNextResult
+                    {
+                        SkipNextOccurrence = request.SkipNextOccurrence,
+                        RequestedCount = schedules.Length,
+                        Message = message
+                    });
+                }
+            }
+            else
+            {
+                // Keep the controller usable in the lightweight test/degraded host path
+                // where the hosted automation service is not registered.
+                var previousSkip = schedules.ToDictionary(
+                    schedule => schedule.Id?.Trim() ?? string.Empty,
+                    schedule => schedule.SkipNextOccurrence,
+                    StringComparer.OrdinalIgnoreCase);
+                var blocked = schedules
+                    .Where(schedule => request.SkipNextOccurrence &&
+                        !schedule.SkipNextOccurrence &&
+                        !schedule.Enabled)
+                    .Select(schedule => $"{schedule.Name}: it must be enabled before its next occurrence can be skipped")
+                    .ToArray();
+                if (request.SkipNextOccurrence)
+                {
+                    blocked = blocked
+                        .Concat(schedules
+                            .Where(schedule => request.SkipNextOccurrence &&
+                                !schedule.SkipNextOccurrence &&
+                                schedule.Enabled &&
+                                schedule.MaxRuns > 0 &&
+                                schedule.RunCount >= schedule.MaxRuns)
+                            .Select(schedule => $"{schedule.Name}: it reached its execution limit; reset its run counter first"))
+                        .Concat(schedules
+                            .Where(schedule => request.SkipNextOccurrence &&
+                                !schedule.SkipNextOccurrence &&
+                                schedule.Enabled &&
+                                !(schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns) &&
+                                HueSceneAutomationService.GetNextRunUtc(schedule, DateTime.Now) == null)
+                            .Select(schedule => $"{schedule.Name}: it has no upcoming automatic occurrence to skip"))
+                        .ToArray();
+                }
+
+                if (blocked.Length > 0)
+                {
+                    return Conflict(new HueSceneScheduleBulkSkipNextResult
+                    {
+                        SkipNextOccurrence = request.SkipNextOccurrence,
+                        RequestedCount = schedules.Length,
+                        Message = string.Join("; ", blocked) + "."
+                    });
+                }
+
+                foreach (var schedule in schedules)
+                    schedule.SkipNextOccurrence = request.SkipNextOccurrence;
+
+                try
+                {
+                    Plugin.Instance?.SaveConfiguration();
+                }
+                catch (Exception ex)
+                {
+                    foreach (var schedule in schedules)
+                    {
+                        var key = schedule.Id?.Trim() ?? string.Empty;
+                        if (previousSkip.TryGetValue(key, out var wasSkipped))
+                            schedule.SkipNextOccurrence = wasSkipped;
+                    }
+
+                    _logger?.LogError(ex, "Could not persist bulk skipped occurrence state for Hue scene schedules");
+                    return StatusCode(
+                        StatusCodes.Status500InternalServerError,
+                        "The selected skipped-occurrence state could not be saved; no changes were retained.");
+                }
+            }
+
+            return Ok(new HueSceneScheduleBulkSkipNextResult
+            {
+                SkipNextOccurrence = request.SkipNextOccurrence,
+                RequestedCount = schedules.Length,
+                UpdatedCount = schedules.Length,
+                Message = request.SkipNextOccurrence
+                    ? $"Marked the next automatic occurrence for {schedules.Length} scheduled cue(s) to be skipped."
+                    : $"Cleared the pending skipped occurrence for {schedules.Length} scheduled cue(s).",
+                Schedules = schedules.Select(schedule => ToSceneScheduleResult(schedule, config)).ToArray()
+            });
+        }
+
+        /// <summary>
         /// Skips the next eligible automatic occurrence of one scene cue without changing
         /// its recurrence definition. Manual Run Now remains available; one-time cues are
         /// disabled after their skipped occurrence.
@@ -6005,6 +6157,41 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonPropertyName("enabled")]
         public bool Enabled { get; set; }
+
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("updatedCount")]
+        public int UpdatedCount { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("schedules")]
+        public IReadOnlyList<HueSceneScheduleResult> Schedules { get; set; } = Array.Empty<HueSceneScheduleResult>();
+    }
+
+    /// <summary>
+    /// Request shape for atomically marking or clearing the next automatic occurrence of
+    /// several scene cues. Schedule definitions, counters, and bridge credentials are
+    /// never accepted or changed.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkSkipNextRequest
+    {
+        [JsonPropertyName("scheduleIds")]
+        public List<string> ScheduleIds { get; set; } = new();
+
+        [JsonPropertyName("skipNextOccurrence")]
+        public bool SkipNextOccurrence { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic bulk skipped-occurrence operation.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkSkipNextResult
+    {
+        [JsonPropertyName("skipNextOccurrence")]
+        public bool SkipNextOccurrence { get; set; }
 
         [JsonPropertyName("requestedCount")]
         public int RequestedCount { get; set; }

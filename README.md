@@ -184,6 +184,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/SceneSchedules/{id}/ResetRunCount` | Reset a cue's persisted execution counter to zero and re-enable it. Active cues cannot be reset; retained history remains available as an audit trail, and direct persistence failures restore the prior counter/state. |
 | `POST /HueSync/SceneSchedules/{id}/Enabled` | Enable or disable one cue without changing its schedule definition. Active cues cannot be changed, and an exhausted finite cue must be reset before it can be enabled; the response remains credential-free. |
 | `POST /HueSync/SceneSchedules/BulkEnabled` | Atomically enable or disable up to 50 selected cue IDs with `{ "scheduleIds": ["..."], "enabled": true|false }`. Every ID is normalized and validated before persistence; active cues, exhausted finite cues, unknown IDs, and save failures leave the entire selection unchanged. The response includes updated credential-free cue summaries and counts. |
+| `POST /HueSync/SceneSchedules/BulkSkipNext` | Atomically mark or clear the next automatic occurrence for up to 50 selected cue IDs with `{ "scheduleIds": ["..."], "skipNextOccurrence": true|false }`. New skip markers require enabled, non-exhausted cues with a future occurrence; active cues, disabled/futureless cues, unknown IDs, and save failures leave the entire selection unchanged. Manual Run Now remains available and the response includes updated credential-free cue summaries. |
 | `POST /HueSync/SceneSchedules/{id}/SkipNext` | Mark exactly one upcoming automatic occurrence to be skipped without changing recurrence, limits, or the saved scene. Active, disabled, exhausted, or futureless cues are rejected; manual Run Now remains available. |
 | `DELETE /HueSync/SceneSchedules/{id}/SkipNext` | Clear a pending skip so the next eligible automatic occurrence runs normally. |
 | `GET /HueSync/SceneSchedules/TimeZones` | List the Jellyfin host's available system time zones for schedule selection, including stable IDs, display names, and base UTC offsets. |
@@ -385,7 +386,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.131 (Current)
+### Version 1.5.132 (Current)
+- **Atomic bulk skipped-occurrence administration**: mark or clear the next automatic occurrence for up to 50 selected cues without changing recurrence definitions, targets, scenes, or finite-run counters
+- **All-or-nothing safeguards**: active, disabled, exhausted, futureless, missing, and persistence-blocked cues leave the complete selection unchanged
+- **Administrator multi-action workflow**: add Skip Next Selected and Clear Selected Skips alongside bulk enable/disable controls
+
+### Version 1.5.131
 - **Spreadsheet-ready telemetry**: export upcoming occurrences, duration-aware conflicts, scheduled-cue history, and completed playback history as credential-free CSV
 - **Filter-preserving reports**: CSV downloads retain selected cue, outcome, and 7/31/90/366-day horizon filters from the administrator views
 - **Safe deterministic format**: UTF-8 CSV uses invariant values, explicit local/UTC columns, RFC quoting, and spreadsheet formula-marker protection for labels

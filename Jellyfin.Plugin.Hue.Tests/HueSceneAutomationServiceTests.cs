@@ -1480,6 +1480,118 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void SetSchedulesSkipNextOccurrence_UpdatesSelectedCuesAtomicallyAndCanClearThem()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-skip-one",
+                    Name = "Bulk skip one",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-skip-two",
+                    Name = "Bulk skip two",
+                    TimeOfDay = "08:15",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-skip-untouched",
+                    Name = "Bulk skip untouched",
+                    TimeOfDay = "09:15",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.True(service.TrySetSchedulesSkipNextOccurrence(
+            new[] { " bulk-skip-one ", "bulk-skip-two", "bulk-skip-one" },
+            true,
+            out var skipMessage));
+        Assert.Contains("2", skipMessage, StringComparison.Ordinal);
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.True(configuration.SceneSchedules[1].SkipNextOccurrence);
+        Assert.False(configuration.SceneSchedules[2].SkipNextOccurrence);
+
+        Assert.True(service.TrySetSchedulesSkipNextOccurrence(
+            new[] { "bulk-skip-one", "bulk-skip-two" },
+            false,
+            out var clearMessage));
+        Assert.Contains("cleared", clearMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.False(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.False(configuration.SceneSchedules[1].SkipNextOccurrence);
+    }
+
+    [Fact]
+    public void SetSchedulesSkipNextOccurrence_RefusesEntireSelectionWhenOneCueCannotBeSkipped()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-skip-ready",
+                    Name = "Bulk skip ready",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-skip-disabled",
+                    Name = "Bulk skip disabled",
+                    TimeOfDay = "08:15",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = false
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.False(service.TrySetSchedulesSkipNextOccurrence(
+            new[] { "bulk-skip-ready", "bulk-skip-disabled" },
+            true,
+            out var message));
+        Assert.Contains("Bulk skip disabled", message, StringComparison.Ordinal);
+        Assert.Contains("enabled", message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.False(configuration.SceneSchedules[1].SkipNextOccurrence);
+    }
+
+    [Fact]
     public void SetScheduleSkipNextOccurrence_ChangesOnlyPendingAutomaticOccurrence()
     {
         var configuration = new PluginConfiguration

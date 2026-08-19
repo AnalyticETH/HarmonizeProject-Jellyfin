@@ -328,6 +328,138 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Marks or clears the next automatic occurrence for several cues as one persistence
+    /// transaction. Every selected cue is validated before any skip marker changes are
+    /// made, so disabled, exhausted, futureless, active, or missing cues cannot leave a
+    /// partially updated bulk operation behind. Manual Run Now remains unaffected.
+    /// </summary>
+    public bool TrySetSchedulesSkipNextOccurrence(
+        IEnumerable<string>? scheduleIds,
+        bool skip,
+        out string message)
+    {
+        message = string.Empty;
+        var config = Plugin.Instance?.Configuration;
+        if (config == null)
+        {
+            message = "Plugin configuration is not available.";
+            return false;
+        }
+
+        var keys = (scheduleIds ?? Array.Empty<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (keys.Length == 0)
+        {
+            message = "Select at least one scene schedule.";
+            return false;
+        }
+
+        if (keys.Length > PluginConfiguration.MaxSceneSchedules)
+        {
+            message = $"Select no more than {PluginConfiguration.MaxSceneSchedules} scene schedules at once.";
+            return false;
+        }
+
+        var configuredSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
+        var selectedSchedules = keys
+            .Select(key => configuredSchedules.FirstOrDefault(schedule =>
+                schedule != null &&
+                string.Equals(schedule.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        var missingKeys = keys
+            .Where((_, index) => selectedSchedules[index] == null)
+            .ToArray();
+        if (missingKeys.Length > 0)
+        {
+            message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
+            return false;
+        }
+
+        var schedules = selectedSchedules
+            .Where(schedule => schedule != null)
+            .Cast<HueSceneSchedule>()
+            .ToArray();
+        var previousSkip = schedules.ToDictionary(
+            schedule => schedule.Id?.Trim() ?? string.Empty,
+            schedule => schedule.SkipNextOccurrence,
+            StringComparer.OrdinalIgnoreCase);
+
+        lock (_runtimeStateLock)
+        {
+            var blocked = new List<string>();
+            foreach (var schedule in schedules)
+            {
+                var key = schedule.Id?.Trim() ?? string.Empty;
+                if (_runtimeStates.TryGetValue(key, out var state) && state.ActiveRuns > 0)
+                {
+                    blocked.Add($"{schedule.Name}: it is currently running");
+                    continue;
+                }
+
+                // Clearing an existing marker is always safe, and re-applying an existing
+                // marker is idempotent. Only a new marker needs occurrence eligibility.
+                if (!skip || schedule.SkipNextOccurrence)
+                    continue;
+
+                if (!schedule.Enabled)
+                {
+                    blocked.Add($"{schedule.Name}: it must be enabled before its next occurrence can be skipped");
+                    continue;
+                }
+
+                var currentRunCount = _runtimeStates.TryGetValue(key, out state)
+                    ? state.RunCount
+                    : Math.Max(0, schedule.RunCount);
+                if (schedule.MaxRuns > 0 && currentRunCount >= schedule.MaxRuns)
+                {
+                    blocked.Add($"{schedule.Name}: it reached its execution limit; reset its run counter first");
+                    continue;
+                }
+
+                if (GetNextRunUtc(schedule, DateTime.Now) == null)
+                    blocked.Add($"{schedule.Name}: it has no upcoming automatic occurrence to skip");
+            }
+
+            if (blocked.Count > 0)
+            {
+                message = string.Join("; ", blocked) + ".";
+                return false;
+            }
+
+            foreach (var schedule in schedules)
+                schedule.SkipNextOccurrence = skip;
+        }
+
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+            message = skip
+                ? $"Marked the next automatic occurrence for {schedules.Length} scheduled cue(s) to be skipped."
+                : $"Cleared the pending skipped occurrence for {schedules.Length} scheduled cue(s).";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lock (_runtimeStateLock)
+            {
+                foreach (var schedule in schedules)
+                {
+                    var key = schedule.Id?.Trim() ?? string.Empty;
+                    if (previousSkip.TryGetValue(key, out var wasSkipped))
+                        schedule.SkipNextOccurrence = wasSkipped;
+                }
+            }
+
+            _logger.LogWarning(ex, "Could not persist bulk skipped occurrence state for Hue scene schedules");
+            message = "The selected skipped-occurrence state could not be saved; no changes were retained.";
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Marks or clears one upcoming automatic occurrence without changing the cue's
     /// recurrence definition. The next occurrence is consumed by the scheduler only;
     /// manual Run Now remains available. Active, exhausted, or otherwise idle cues are
