@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.147] - 2026-08-19
+
+### Added
+- **Saved-scene preview target parity**: preview individual or bulk saved scenes on the default bridge, every enabled target, or a deliberate subset of enabled mappings with optional default-bridge inclusion
+- **Credential-free target telemetry**: expose selected mapping IDs, default-target inclusion, per-target outcomes, and aggregate channel counts without bridge credentials
+- **Administrator target selector**: choose saved-scene preview targets from the default/all/mapping multi-select while retaining an explicit all-target broadcast action
+
 ## [1.5.146] - 2026-08-19
 
 ### Added

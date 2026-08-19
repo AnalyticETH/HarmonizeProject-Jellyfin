@@ -1052,8 +1052,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 return Ok(BuildPreviewResult(
                     broadcastResult,
                     previewSchedule,
-                    previewPreset,
-                    targetAllEnabledMappings: true));
+                    previewPreset));
             }
 
             HashSet<int>? requestedChannelIds = null;
@@ -1172,7 +1171,8 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Displays one saved scene through server-side target resolution. The request
         /// carries only the saved scene name and optional target mode; bridge credentials
-        /// and channel profiles remain in the persisted Jellyfin configuration.
+        /// and channel profiles remain in the persisted Jellyfin configuration. A selected
+        /// target list may contain enabled user mappings and optionally the default bridge.
         /// </summary>
         [HttpPost("ColorPresets/{name}/Preview")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1212,8 +1212,16 @@ namespace Jellyfin.Plugin.Hue.Api
 
             request ??= new HueSavedColorPresetPreviewRequest();
             var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
-            if (request.TargetAllEnabledMappings && !string.IsNullOrWhiteSpace(targetUserId))
+            var targetUserIds = request.TargetUserIds?
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .ToList();
+            var includeDefaultTarget = request.IncludeDefaultTarget == true;
+            var hasSelectedTargetOverride = includeDefaultTarget || (targetUserIds?.Count > 0);
+            if (request.TargetAllEnabledMappings && (!string.IsNullOrWhiteSpace(targetUserId) || hasSelectedTargetOverride))
                 return BadRequest("A saved-scene preview cannot select all enabled targets and a specific user mapping together.");
+            if (!string.IsNullOrWhiteSpace(targetUserId) && hasSelectedTargetOverride)
+                return BadRequest("A saved-scene preview cannot combine a specific user mapping with selected targets.");
 
             if (_streamTester == null)
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
@@ -1229,8 +1237,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 Id = "saved-scene-preview",
                 Name = preset.Name?.Trim() ?? name.Trim(),
                 PresetName = preset.Name?.Trim() ?? name.Trim(),
-                TargetUserId = request.TargetAllEnabledMappings ? string.Empty : targetUserId,
-                TargetAllEnabledMappings = request.TargetAllEnabledMappings,
+                TargetUserId = hasSelectedTargetOverride || request.TargetAllEnabledMappings ? string.Empty : targetUserId,
+                TargetUserIds = targetUserIds ?? new List<string>(),
+                IncludeDefaultTarget = includeDefaultTarget,
+                TargetAllEnabledMappings = request.TargetAllEnabledMappings && !hasSelectedTargetOverride,
                 DurationSeconds = 0
             };
             if (!HueSceneAutomationService.TryResolveTargets(config, previewSchedule, out _, out var targetError))
@@ -1246,8 +1256,7 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(BuildPreviewResult(
                 previewResult,
                 previewSchedule,
-                previewPreset,
-                request.TargetAllEnabledMappings));
+                previewPreset));
         }
 
         /// <summary>
@@ -1323,10 +1332,21 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
-            if (request.TargetAllEnabledMappings && !string.IsNullOrWhiteSpace(targetUserId))
+            var targetUserIds = request.TargetUserIds?
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .ToList();
+            var includeDefaultTarget = request.IncludeDefaultTarget == true;
+            var hasSelectedTargetOverride = includeDefaultTarget || (targetUserIds?.Count > 0);
+            if (request.TargetAllEnabledMappings && (!string.IsNullOrWhiteSpace(targetUserId) || hasSelectedTargetOverride))
             {
                 return BadRequest(
                     "A bulk saved-scene preview cannot select all enabled targets and a specific user mapping together.");
+            }
+            if (!string.IsNullOrWhiteSpace(targetUserId) && hasSelectedTargetOverride)
+            {
+                return BadRequest(
+                    "A bulk saved-scene preview cannot combine a specific user mapping with selected targets.");
             }
 
             if (_streamTester == null)
@@ -1340,8 +1360,10 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 Id = "bulk-saved-scene-preview",
                 Name = "Bulk saved-scene preview",
-                TargetUserId = request.TargetAllEnabledMappings ? string.Empty : targetUserId,
-                TargetAllEnabledMappings = request.TargetAllEnabledMappings
+                TargetUserId = hasSelectedTargetOverride || request.TargetAllEnabledMappings ? string.Empty : targetUserId,
+                TargetUserIds = targetUserIds ?? new List<string>(),
+                IncludeDefaultTarget = includeDefaultTarget,
+                TargetAllEnabledMappings = request.TargetAllEnabledMappings && !hasSelectedTargetOverride
             };
             if (!HueSceneAutomationService.TryResolveTargets(config, targetSchedule, out _, out var targetError))
                 return BadRequest(targetError);
@@ -1356,6 +1378,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     Name = source.Name?.Trim() ?? string.Empty,
                     PresetName = source.Name?.Trim() ?? string.Empty,
                     TargetUserId = targetSchedule.TargetUserId,
+                    TargetUserIds = targetSchedule.TargetUserIds.ToList(),
+                    IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
                     TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
                     DurationSeconds = 0
                 };
@@ -1374,8 +1398,7 @@ namespace Jellyfin.Plugin.Hue.Api
                         Preview = BuildPreviewResult(
                             run,
                             previewSchedule,
-                            previewPreset,
-                            request.TargetAllEnabledMappings)
+                            previewPreset)
                     });
                     if (!run.Succeeded && run.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
                     {
@@ -1424,8 +1447,7 @@ namespace Jellyfin.Plugin.Hue.Api
         private static HuePreviewResult BuildPreviewResult(
             HueSceneAutomationRunResult run,
             HueSceneSchedule schedule,
-            HueColorPreset preset,
-            bool targetAllEnabledMappings)
+            HueColorPreset preset)
         {
             PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
             var targetResults = run.TargetResults
@@ -1444,7 +1466,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 Succeeded = run.Succeeded,
                 Message = run.Message,
                 CleanupWarning = run.CleanupWarning,
-                TargetAllEnabledMappings = targetAllEnabledMappings,
+                TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
+                TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                    ?? Array.Empty<string>(),
+                IncludeDefaultTarget = schedule.IncludeDefaultTarget,
                 TargetResults = targetResults,
                 Red = preset.Red,
                 Green = preset.Green,
@@ -7766,7 +7792,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Credential-free request for previewing a saved scene against the default target,
-    /// one enabled user mapping, or every distinct enabled target.
+    /// one enabled user mapping, a selected subset of enabled mappings (optionally including
+    /// the default bridge), or every distinct enabled target.
     /// </summary>
     public sealed class HueSavedColorPresetPreviewRequest
     {
@@ -7775,6 +7802,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetAllEnabledMappings")]
         public bool TargetAllEnabledMappings { get; set; }
+
+        [JsonPropertyName("targetUserIds")]
+        public List<string>? TargetUserIds { get; set; }
+
+        [JsonPropertyName("includeDefaultTarget")]
+        public bool? IncludeDefaultTarget { get; set; }
     }
 
     public class HueConnectionTestResult
@@ -7836,6 +7869,12 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("targetAllEnabledMappings")]
         public bool TargetAllEnabledMappings { get; set; }
 
+        [JsonPropertyName("targetUserIds")]
+        public IReadOnlyList<string> TargetUserIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("includeDefaultTarget")]
+        public bool IncludeDefaultTarget { get; set; }
+
         [JsonPropertyName("targetResults")]
         public IReadOnlyList<HuePreviewTargetResult> TargetResults { get; set; } = Array.Empty<HuePreviewTargetResult>();
 
@@ -7887,6 +7926,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetAllEnabledMappings")]
         public bool TargetAllEnabledMappings { get; set; }
+
+        [JsonPropertyName("targetUserIds")]
+        public List<string>? TargetUserIds { get; set; }
+
+        [JsonPropertyName("includeDefaultTarget")]
+        public bool? IncludeDefaultTarget { get; set; }
     }
 
     /// <summary>

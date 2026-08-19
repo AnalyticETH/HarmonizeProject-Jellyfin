@@ -289,6 +289,13 @@
                                     <option value="">No saved scenes</option>
                                 </select>
                             </div>
+                            <div style="flex: 1 1 260px;">
+                                <label class="inputLabel inputLabelUnfocused" for="previewSavedPresetTarget">Saved Scene Preview Targets</label>
+                                <select id="previewSavedPresetTarget" is="emby-select" multiple size="5" style="width: 100%;">
+                                    <option value="__default_target__">Default bridge target</option>
+                                    <option value="__all_enabled_targets__">All enabled targets</option>
+                                </select>
+                            </div>
                             <button is="emby-button" type="button" class="raised" id="applyPreviewPresetBtn">
                                 <span>Apply Scene</span>
                             </button>
@@ -331,9 +338,9 @@
                                 <button is="emby-button" type="button" class="raised" id="duplicateSelectedPreviewPresetsBtn" disabled><span>Duplicate Selected</span></button>
                                 <button is="emby-button" type="button" class="raised" id="deleteSelectedPreviewPresetsBtn" disabled><span>Delete Selected</span></button>
                             </div>
-                            <div id="previewPresetBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select saved scenes to preview sequentially with restorative state cleanup, duplicate independent copies, or delete them together. Any playlist or scheduled-cue reference blocks deletion.</div>
+                            <div id="previewPresetBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select saved scenes to preview sequentially with restorative state cleanup. The Saved Scene Preview Targets selection above applies to bulk previews; the All Targets button is an explicit broadcast override. Duplicate independent copies or delete selected scenes together. Any playlist or scheduled-cue reference blocks deletion.</div>
                         </div>
-                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Preview Saved Scene runs the selected saved scene through the server-side target profile; Preview Saved Scene on All Targets runs it sequentially on every distinct enabled target. Use Duplicate Scene to create a safe editable variant, enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically, or use View References before changing/deleting a scene. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
+                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Choose the default bridge, all enabled targets, or a deliberate subset of enabled mappings (optionally including the default bridge) in Saved Scene Preview Targets. Preview Saved Scene uses that selection; Preview Saved Scene on All Targets is an explicit broadcast override. Use Duplicate Scene to create a safe editable variant, enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically, or use View References before changing/deleting a scene. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -1781,13 +1788,16 @@
                         dataType: "json"
                     });
                 },
-                fetchSavedColorPreview: function (name, targetUserId, targetAllEnabledMappings) {
+                fetchSavedColorPreview: function (name, targetSelection) {
+                    targetSelection = targetSelection || {};
                     return ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Preview"),
                         data: JSON.stringify({
-                            targetUserId: targetAllEnabledMappings ? "" : (targetUserId || ""),
-                            targetAllEnabledMappings: !!targetAllEnabledMappings
+                            targetUserId: targetSelection.targetAllEnabledMappings ? "" : (targetSelection.targetUserId || ""),
+                            targetAllEnabledMappings: !!targetSelection.targetAllEnabledMappings,
+                            targetUserIds: targetSelection.targetUserIds || [],
+                            includeDefaultTarget: !!targetSelection.includeDefaultTarget
                         }),
                         contentType: "application/json",
                         dataType: "json"
@@ -1881,6 +1891,7 @@
                     var allTargetsButton = page && page.querySelector('#previewAllTargetsBtn');
                     var savedButton = page && page.querySelector('#previewSavedPresetBtn');
                     var savedAllTargetsButton = page && page.querySelector('#previewSavedPresetAllBtn');
+                    var savedTargetSelect = page && page.querySelector('#previewSavedPresetTarget');
                     var playlistButton = page && page.querySelector('#previewScenePlaylistBtn');
                     var playlistAllTargetsButton = page && page.querySelector('#previewScenePlaylistAllBtn');
                     var bulkPresetButton = page && page.querySelector('#previewSelectedPreviewPresetsBtn');
@@ -1892,6 +1903,7 @@
                     if (allTargetsButton) allTargetsButton.disabled = busy;
                     if (savedButton) savedButton.disabled = busy;
                     if (savedAllTargetsButton) savedAllTargetsButton.disabled = busy;
+                    if (savedTargetSelect) savedTargetSelect.disabled = busy;
                     if (playlistButton) playlistButton.disabled = busy;
                     if (playlistAllTargetsButton) playlistAllTargetsButton.disabled = busy;
                     if (bulkPresetButton) bulkPresetButton.disabled = busy;
@@ -2091,6 +2103,48 @@
                             Dashboard.hideLoadingMsg();
                         });
                 },
+                normalizeSavedPresetTargetSelection: function (page) {
+                    var select = page && page.querySelector('#previewSavedPresetTarget');
+                    if (!select) return;
+                    var selected = Array.prototype.slice.call(select.selectedOptions || [])
+                        .map(function (option) { return option && option.value ? option.value : ''; })
+                        .filter(Boolean);
+                    var all = selected.indexOf('__all_enabled_targets__') >= 0;
+                    var defaultTarget = selected.indexOf('__default_target__') >= 0;
+                    var mappingIds = selected.filter(function (value) {
+                        return value !== '__all_enabled_targets__' && value !== '__default_target__';
+                    });
+                    var normalized;
+                    if (all) {
+                        normalized = ['__all_enabled_targets__'];
+                    } else if (defaultTarget) {
+                        normalized = ['__default_target__'].concat(mappingIds);
+                    } else if (mappingIds.length) {
+                        normalized = mappingIds;
+                    } else {
+                        normalized = ['__default_target__'];
+                    }
+                    Array.prototype.forEach.call(select.options || [], function (option) {
+                        option.selected = normalized.indexOf(option.value) >= 0;
+                    });
+                },
+                getSavedPresetTargetSelection: function (page) {
+                    HueConfigurationPage.normalizeSavedPresetTargetSelection(page);
+                    var select = page && page.querySelector('#previewSavedPresetTarget');
+                    var selected = Array.prototype.slice.call(select && select.selectedOptions || [])
+                        .map(function (option) { return option && option.value ? option.value : ''; })
+                        .filter(Boolean);
+                    var all = selected.indexOf('__all_enabled_targets__') >= 0;
+                    var includeDefaultTarget = selected.indexOf('__default_target__') >= 0;
+                    return {
+                        targetAllEnabledMappings: all,
+                        includeDefaultTarget: !all && includeDefaultTarget,
+                        targetUserIds: all ? [] : selected.filter(function (value) {
+                            return value !== '__default_target__';
+                        }),
+                        targetUserId: all || includeDefaultTarget || selected.length !== 1 ? '' : selected[0]
+                    };
+                },
                 previewSavedPreset: function (page, allTargets) {
                     if (page._huePreviewRequest) {
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
@@ -2106,27 +2160,36 @@
                         return;
                     }
 
+                    var targetSelection = allTargets
+                        ? { targetAllEnabledMappings: true, targetUserIds: [], includeDefaultTarget: false, targetUserId: '' }
+                        : HueConfigurationPage.getSavedPresetTargetSelection(page);
                     if (button) button.disabled = true;
                     page._huePreviewStatusElement = statusEl;
                     statusEl.textContent = allTargets
                         ? "Saving each target's light state and previewing the saved scene sequentially..."
-                        : "Saving the default target's light state and previewing the saved scene...";
+                        : targetSelection.targetAllEnabledMappings
+                            ? "Saving each target's light state and previewing the saved scene sequentially..."
+                            : targetSelection.targetUserIds.length || targetSelection.includeDefaultTarget
+                                ? "Saving the selected target states and previewing the saved scene sequentially..."
+                                : "Saving the default target's light state and previewing the saved scene...";
                     statusEl.style.color = "";
                     Dashboard.showLoadingMsg();
-                    var request = HueConfigurationPage.fetchSavedColorPreview(name, "", allTargets);
+                    var request = HueConfigurationPage.fetchSavedColorPreview(name, targetSelection);
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request
                         .then(function (response) {
-                            var result = HueConfigurationPage.previewMessage(response, allTargets);
+                            var result = HueConfigurationPage.previewMessage(response, allTargets || targetSelection.targetAllEnabledMappings || targetSelection.targetUserIds.length > 0 || targetSelection.includeDefaultTarget);
                             statusEl.textContent = result.text;
                             statusEl.style.color = result.tone === "success" ? "#8bc34a" : "#d9534f";
                         })
                         .catch(function (err) {
                             console.error("Saved color preview error:", err);
-                            statusEl.textContent = allTargets
+                            statusEl.textContent = allTargets || targetSelection.targetAllEnabledMappings
                                 ? "Saved-scene preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying."
-                                : "Saved-scene preview failed. Verify the default target in System Diagnostics and stop active playback before retrying.";
+                                : targetSelection.targetUserIds.length || targetSelection.includeDefaultTarget
+                                    ? "Saved-scene preview failed. Verify each selected target in System Diagnostics and stop active playback before retrying."
+                                    : "Saved-scene preview failed. Verify the default target in System Diagnostics and stop active playback before retrying.";
                             statusEl.style.color = "#d9534f";
                         })
                         .finally(function () {
@@ -2142,15 +2205,30 @@
                     var selectEl = page.querySelector('#previewPresetSelect');
                     if (!selectEl) return Promise.resolve();
                     var bulkSelect = page.querySelector('#previewPresetBulkSelect');
+                    var targetSelect = page.querySelector('#previewSavedPresetTarget');
+                    var previousTargetValues = targetSelect
+                        ? Array.prototype.slice.call(targetSelect.selectedOptions || []).map(function (option) { return option.value; })
+                        : [];
 
                     selectEl.disabled = true;
                     if (bulkSelect) bulkSelect.disabled = true;
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets"))
-                        .then(function (response) {
+                    if (targetSelect) targetSelect.disabled = true;
+                    return Promise.all([
+                        ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets")),
+                        ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings"))
+                    ])
+                        .then(function (responses) {
+                            var response = responses[0];
+                            var mappingResponse = responses[1];
                             var presets = Array.isArray(response)
                                 ? response
                                 : response && Array.isArray(response.data)
                                     ? response.data
+                                    : [];
+                            var mappings = Array.isArray(mappingResponse)
+                                ? mappingResponse
+                                : mappingResponse && Array.isArray(mappingResponse.data)
+                                    ? mappingResponse.data
                                     : [];
                             selectEl.innerHTML = '<option value="">Choose a saved scene...</option>';
                             if (bulkSelect) bulkSelect.innerHTML = '';
@@ -2178,6 +2256,27 @@
                                     bulkSelect.appendChild(bulkOption);
                                 }
                             });
+                            if (targetSelect) {
+                                targetSelect.innerHTML = '<option value="__default_target__">Default bridge target</option><option value="__all_enabled_targets__">All enabled targets</option>';
+                                mappings.forEach(function (mapping) {
+                                    if (!mapping) return;
+                                    var userId = mapping.userId !== undefined ? mapping.userId : mapping.UserId;
+                                    if (!userId) return;
+                                    var userName = mapping.userName !== undefined ? mapping.userName : mapping.UserName;
+                                    var enabled = mapping.syncEnabled !== undefined ? mapping.syncEnabled !== false : mapping.SyncEnabled !== false;
+                                    var targetOption = document.createElement('option');
+                                    targetOption.value = userId;
+                                    targetOption.textContent = (userName || userId) + (enabled ? "" : " (disabled)");
+                                    targetSelect.appendChild(targetOption);
+                                });
+                                var restoredValues = previousTargetValues.filter(function (value) {
+                                    return Array.prototype.some.call(targetSelect.options, function (option) { return option.value === value; });
+                                });
+                                Array.prototype.forEach.call(targetSelect.options, function (option) {
+                                    option.selected = restoredValues.indexOf(option.value) >= 0;
+                                });
+                                HueConfigurationPage.normalizeSavedPresetTargetSelection(page);
+                            }
                             if (selectedName) {
                                 selectEl.value = selectedName;
                             }
@@ -2188,12 +2287,17 @@
                             console.error("Failed to load color presets:", err);
                             selectEl.innerHTML = '<option value="">Unable to load saved scenes</option>';
                             if (bulkSelect) bulkSelect.innerHTML = '';
+                            if (targetSelect) {
+                                targetSelect.innerHTML = '<option value="__default_target__">Default bridge target</option>';
+                                targetSelect.options[0].selected = true;
+                            }
                             HueConfigurationPage.updatePresetButtons(page);
                             HueConfigurationPage.updateColorPresetBulkButtons(page);
                         })
                         .finally(function () {
                             selectEl.disabled = false;
                             if (bulkSelect) bulkSelect.disabled = false;
+                            if (targetSelect) targetSelect.disabled = false;
                             HueConfigurationPage.updateColorPresetBulkButtons(page);
                         });
                 },
@@ -2264,8 +2368,17 @@
                         return;
                     }
 
+                    var targetSelection = allTargets
+                        ? { targetAllEnabledMappings: true, targetUserIds: [], includeDefaultTarget: false, targetUserId: '' }
+                        : HueConfigurationPage.getSavedPresetTargetSelection(page);
+                    var targetSummary = allTargets || targetSelection.targetAllEnabledMappings
+                        ? "on every enabled target"
+                        : targetSelection.targetUserIds.length || targetSelection.includeDefaultTarget
+                            ? "on the selected targets"
+                            : "on the default target";
+
                     Dashboard.confirm(
-                        (allTargets ? "Preview " : "Preview ") + names.length + " selected saved scene" + (names.length === 1 ? "" : "s") + (allTargets ? " on every enabled target" : " on the default target") + "? Each scene runs sequentially and restores light state before the next.",
+                        "Preview " + names.length + " selected saved scene" + (names.length === 1 ? "" : "s") + " " + targetSummary + "? Each scene runs sequentially and restores light state before the next.",
                         allTargets ? "Preview Selected Scenes on All Targets" : "Preview Selected Scenes",
                         function (confirmed) {
                             if (!confirmed) return;
@@ -2274,7 +2387,11 @@
                             if (statusEl) {
                                 statusEl.textContent = allTargets
                                     ? "Saving each target's light state and previewing the selected scenes sequentially..."
-                                    : "Saving the default target's light state and previewing the selected scenes sequentially...";
+                                    : targetSelection.targetAllEnabledMappings
+                                        ? "Saving each target's light state and previewing the selected scenes sequentially..."
+                                        : targetSelection.targetUserIds.length || targetSelection.includeDefaultTarget
+                                            ? "Saving the selected target states and previewing the selected scenes sequentially..."
+                                            : "Saving the default target's light state and previewing the selected scenes sequentially...";
                                 statusEl.style.color = '';
                             }
                             page._huePreviewStatusElement = statusEl;
@@ -2282,7 +2399,13 @@
                             var request = ApiClient.ajax({
                                 type: "POST",
                                 url: ApiClient.getUrl("HueSync/ColorPresets/BulkPreview"),
-                                data: JSON.stringify({ presetNames: names, targetAllEnabledMappings: !!allTargets }),
+                                data: JSON.stringify({
+                                    presetNames: names,
+                                    targetUserId: targetSelection.targetUserId || "",
+                                    targetUserIds: targetSelection.targetUserIds || [],
+                                    includeDefaultTarget: !!targetSelection.includeDefaultTarget,
+                                    targetAllEnabledMappings: !!(allTargets || targetSelection.targetAllEnabledMappings)
+                                }),
                                 contentType: "application/json",
                                 dataType: "json"
                             });
@@ -2309,9 +2432,11 @@
                             }).catch(function (err) {
                                 console.error("Bulk saved-scene preview error:", err);
                                 if (statusEl) {
-                                    statusEl.textContent = allTargets
+                                    statusEl.textContent = allTargets || targetSelection.targetAllEnabledMappings
                                         ? "Bulk saved-scene preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying."
-                                        : "Bulk saved-scene preview failed. Verify the default target in System Diagnostics and stop active playback before retrying.";
+                                        : targetSelection.targetUserIds.length || targetSelection.includeDefaultTarget
+                                            ? "Bulk saved-scene preview failed. Verify each selected target in System Diagnostics and stop active playback before retrying."
+                                            : "Bulk saved-scene preview failed. Verify the default target in System Diagnostics and stop active playback before retrying.";
                                     statusEl.style.color = "#d9534f";
                                 }
                             }).finally(function () {
@@ -8032,6 +8157,10 @@
 
             document.querySelector('#previewPresetBulkSelect').addEventListener('change', function () {
                 HueConfigurationPage.updateColorPresetBulkButtons(this.closest('.page'));
+            });
+
+            document.querySelector('#previewSavedPresetTarget').addEventListener('change', function () {
+                HueConfigurationPage.normalizeSavedPresetTargetSelection(this.closest('.page'));
             });
 
             document.querySelector('#selectAllPreviewPresetsBtn').addEventListener('click', function () {

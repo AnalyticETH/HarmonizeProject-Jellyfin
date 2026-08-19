@@ -1353,6 +1353,161 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PreviewColorPreset_SelectedTargetsIncludesDefaultAndOnlyRequestedMapping()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "selected-global-app-secret",
+            HueClientKey = "selected-global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Selected Glow", Red = 40, Green = 80, Blue = 120, DurationSeconds = 1 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-kitchen",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "selected-kitchen-app-secret",
+                    HueClientKey = "selected-kitchen-client-secret",
+                    EntertainmentAreaId = "kitchen-area",
+                    ChannelIdsOverride = "1"
+                },
+                new()
+                {
+                    UserId = "user-office",
+                    UserName = "Office",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "selected-office-app-secret",
+                    HueClientKey = "selected-office-client-secret",
+                    EntertainmentAreaId = "office-area"
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0},{\"channel_id\":1}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(), 40, 80, 120, 100, 1, It.IsAny<CancellationToken>(), 0, 0,
+                PluginConfiguration.ColorPresetEffectSolid, 100))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Selected scene preview completed." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var action = await controller.PreviewColorPreset(
+            "Selected Glow",
+            new HueSavedColorPresetPreviewRequest
+            {
+                TargetUserIds = new List<string> { " user-kitchen " },
+                IncludeDefaultTarget = true
+            });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HuePreviewResult>(response.Value);
+        Assert.True(result.Succeeded);
+        Assert.False(result.TargetAllEnabledMappings);
+        Assert.Equal(new[] { "user-kitchen" }, result.TargetUserIds);
+        Assert.True(result.IncludeDefaultTarget);
+        Assert.Equal(new[] { "Default bridge target", "Kitchen" }, result.TargetResults.Select(target => target.TargetLabel));
+        Assert.DoesNotContain(result.TargetResults, target => target.TargetLabel == "Office");
+        Assert.Equal(2, streamTester.Invocations.Count(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync)));
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("selected-global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected-global-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected-kitchen-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected-kitchen-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected-office-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected-office-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PreviewColorPresetsBulk_SelectedTargetsAreAppliedToEveryScene()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-selected-global-app-secret",
+            HueClientKey = "bulk-selected-global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Red = 20, Green = 40, Blue = 60, DurationSeconds = 1 },
+                new() { Name = "Cool", Red = 200, Green = 180, Blue = 160, DurationSeconds = 1 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-kitchen",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "bulk-selected-kitchen-app-secret",
+                    HueClientKey = "bulk-selected-kitchen-client-secret",
+                    EntertainmentAreaId = "kitchen-area",
+                    ChannelIdsOverride = "1"
+                },
+                new()
+                {
+                    UserId = "user-office",
+                    UserName = "Office",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "bulk-selected-office-app-secret",
+                    HueClientKey = "bulk-selected-office-client-secret",
+                    EntertainmentAreaId = "office-area"
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0},{\"channel_id\":1}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<int>(), It.IsAny<CancellationToken>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>()))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Bulk selected scene completed." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var action = await controller.PreviewColorPresetsBulk(new HueColorPresetBulkPreviewRequest
+        {
+            PresetNames = new List<string> { "Warm", "Cool" },
+            TargetUserIds = new List<string> { "user-kitchen" },
+            IncludeDefaultTarget = true
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueColorPresetBulkPreviewResult>(response.Value);
+        Assert.Equal(2, result.CompletedCount);
+        Assert.Equal(2, result.SucceededCount);
+        Assert.All(result.Previews, preview =>
+        {
+            Assert.Equal(new[] { "user-kitchen" }, preview.Preview.TargetUserIds);
+            Assert.True(preview.Preview.IncludeDefaultTarget);
+            Assert.Equal(new[] { "Default bridge target", "Kitchen" }, preview.Preview.TargetResults.Select(target => target.TargetLabel));
+        });
+        Assert.Equal(4, streamTester.Invocations.Count(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync)));
+    }
+
+    [Fact]
     public async Task PreviewColorPreset_MissingSceneReturnsNotFoundWithoutContactingBridge()
     {
         InstallConfiguration(new PluginConfiguration
