@@ -400,7 +400,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.152 (Current)
+### Version 1.5.153 (Current)
+- **Safe FFmpeg process arguments**: playback uses tokenized process arguments so media paths containing spaces or quotes remain reliable across platforms
+- **Custom FFmpeg flag parsing**: quoted values and escaped quotes/backslashes are preserved without shell interpretation; malformed quotes fail clearly before startup
+- **Cross-platform playback parity**: FFmpeg now follows the safe process-launch model already used by OpenSSL and environment diagnostics
+
+### Version 1.5.152
 - **Service-level target override normalization**: empty or whitespace-only target lists preserve each playlist's saved target mode across direct service execution and API calls
 - **Credential-safe playlist parity**: direct playlist previews normalize, trim, and deduplicate target IDs just like the administrator endpoints
 - **Regression coverage**: verify empty service overrides preserve target telemetry and never expose persisted bridge credentials

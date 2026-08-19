@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.153] - 2026-08-19
+
+### Fixed
+- **Safe FFmpeg process arguments**: build playback commands with one `ArgumentList` token per option so media paths containing spaces or quotes cannot be misparsed
+- **Custom FFmpeg flag parsing**: support quoted values and escaped quotes/backslashes without shell interpretation, while rejecting unterminated values before playback starts
+- **Cross-platform playback parity**: align FFmpeg process construction with the existing safe OpenSSL and diagnostics launch paths
+- **Regression coverage**: verify quoted flags, Windows paths, seek formatting, and malformed custom flags
+
 ## [1.5.152] - 2026-08-19
 
 ### Fixed

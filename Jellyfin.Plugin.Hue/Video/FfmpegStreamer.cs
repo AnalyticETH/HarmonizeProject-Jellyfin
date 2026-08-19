@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
@@ -88,6 +91,133 @@ namespace Jellyfin.Plugin.Hue.Video
 
         private static int NormalizeStallTimeout(int stallTimeoutSeconds) =>
             Math.Clamp(stallTimeoutSeconds, MinStallTimeoutSeconds, MaxStallTimeoutSeconds);
+
+        /// <summary>
+        /// Splits the administrator's additional FFmpeg flags into process arguments
+        /// without invoking a shell. Quotes group values containing spaces and a
+        /// backslash only escapes a quote or another backslash, preserving Windows
+        /// paths and FFmpeg filter expressions.
+        /// </summary>
+        internal static IReadOnlyList<string> ParseCustomArguments(string? customFlags)
+        {
+            var arguments = new List<string>();
+            if (string.IsNullOrWhiteSpace(customFlags))
+                return arguments;
+
+            var current = new StringBuilder();
+            var quote = '\0';
+            var tokenStarted = false;
+
+            void FlushToken()
+            {
+                if (!tokenStarted)
+                    return;
+
+                arguments.Add(current.ToString());
+                current.Clear();
+                tokenStarted = false;
+            }
+
+            for (var index = 0; index < customFlags.Length; index++)
+            {
+                var character = customFlags[index];
+                if (quote != '\0')
+                {
+                    if (character == quote)
+                    {
+                        quote = '\0';
+                        continue;
+                    }
+
+                    if (character == '\\' && index + 1 < customFlags.Length &&
+                        (customFlags[index + 1] == quote || customFlags[index + 1] == '\\'))
+                    {
+                        current.Append(customFlags[++index]);
+                        continue;
+                    }
+
+                    current.Append(character);
+                    continue;
+                }
+
+                if (character == '\'' || character == '"')
+                {
+                    quote = character;
+                    tokenStarted = true;
+                    continue;
+                }
+
+                if (char.IsWhiteSpace(character))
+                {
+                    FlushToken();
+                    continue;
+                }
+
+                if (character == '\\' && index + 1 < customFlags.Length &&
+                    (customFlags[index + 1] == '\'' || customFlags[index + 1] == '"' ||
+                     customFlags[index + 1] == '\\'))
+                {
+                    current.Append(customFlags[++index]);
+                    tokenStarted = true;
+                    continue;
+                }
+
+                current.Append(character);
+                tokenStarted = true;
+            }
+
+            if (quote != '\0')
+                throw new FormatException("FFmpeg custom flags contain an unterminated quote.");
+
+            FlushToken();
+            return arguments;
+        }
+
+        /// <summary>
+        /// Builds the complete FFmpeg argument list using one argument per token so
+        /// media paths and administrator flags cannot change process parsing.
+        /// </summary>
+        internal static IReadOnlyList<string> BuildFfmpegArguments(
+            string videoPath,
+            int fps,
+            bool useGpu,
+            string customFlags,
+            double seekPositionSeconds,
+            int frameWidth,
+            int frameHeight,
+            string scalingMode,
+            string deinterlaceMode)
+        {
+            if (string.IsNullOrWhiteSpace(videoPath))
+                throw new ArgumentException("A video path is required.", nameof(videoPath));
+
+            var arguments = new List<string>();
+            if (useGpu)
+            {
+                arguments.Add("-hwaccel");
+                arguments.Add("auto");
+            }
+
+            arguments.AddRange(ParseCustomArguments(customFlags));
+            if (seekPositionSeconds > 1.0)
+            {
+                arguments.Add("-ss");
+                arguments.Add(seekPositionSeconds.ToString("F3", CultureInfo.InvariantCulture));
+            }
+
+            arguments.Add("-i");
+            arguments.Add(videoPath);
+            arguments.Add("-vf");
+            arguments.Add(BuildVideoFilter(frameWidth, frameHeight, scalingMode, deinterlaceMode));
+            arguments.Add("-r");
+            arguments.Add(fps.ToString(CultureInfo.InvariantCulture));
+            arguments.Add("-f");
+            arguments.Add("rawvideo");
+            arguments.Add("-pix_fmt");
+            arguments.Add("rgb24");
+            arguments.Add("pipe:1");
+            return arguments;
+        }
 
         internal static string BuildVideoFilter(int frameWidth, int frameHeight)
             => BuildVideoFilter(frameWidth, frameHeight, PluginConfiguration.VideoScalingModeStretch);
@@ -232,39 +362,42 @@ namespace Jellyfin.Plugin.Hue.Video
             // replacing the field so repeated playback-start events cannot leak it.
             Stop();
 
-            // -vf <scaling filter> -f rawvideo -pix_fmt rgb24
-            // Add -r {fps} and custom flags
-            var flagParts = new System.Collections.Generic.List<string>();
-            if (useGpu)
-            {
-                flagParts.Add("-hwaccel auto");
-            }
-
-            if (!string.IsNullOrWhiteSpace(customFlags))
-            {
-                flagParts.Add(customFlags.Trim());
-            }
-
-            var flags = flagParts.Count > 0 ? string.Join(" ", flagParts) + " " : string.Empty;
-
-            // Seek prefix: if seekPositionSeconds > 0 seek before the input for fast seeking
-            var seekPrefix = seekPositionSeconds > 1.0 ? $"-ss {seekPositionSeconds:F3} " : string.Empty;
-
             // NOTE: We deliberately omit -re here.
             // -re reads input at native frame rate which would throttle a 24fps source to only
             // 24 frames/sec even if targetFps is 20 — this causes the sync loop to block on reads.
             // Instead we let FFmpeg decode as fast as possible; the RunSyncLoop delay enforces timing.
+            IReadOnlyList<string> arguments;
+            try
+            {
+                arguments = BuildFfmpegArguments(
+                    videoPath,
+                    fps,
+                    useGpu,
+                    customFlags,
+                    seekPositionSeconds,
+                    frameWidth,
+                    frameHeight,
+                    scalingMode,
+                    deinterlaceMode);
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Invalid FFmpeg custom flags; refusing to start the process.");
+                return null;
+            }
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"{flags}{seekPrefix}-i \"{videoPath}\" -vf {BuildVideoFilter(frameWidth, frameHeight, scalingMode, deinterlaceMode)} -r {fps} -f rawvideo -pix_fmt rgb24 pipe:1",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            foreach (var argument in arguments)
+                startInfo.ArgumentList.Add(argument);
 
-            _logger.LogInformation("Starting FFmpeg: {0} {1}", startInfo.FileName, startInfo.Arguments);
+            _logger.LogInformation("Starting FFmpeg process for {0}", videoPath);
 
             try
             {

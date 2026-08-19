@@ -66,4 +66,60 @@ public sealed class FfmpegStreamerTests
         Assert.Throws<ArgumentOutOfRangeException>(
             () => FfmpegStreamer.BuildVideoFilter(frameWidth, frameHeight));
     }
+
+    [Fact]
+    public void ParseCustomArguments_PreservesQuotedValuesAndWindowsPaths()
+    {
+        var arguments = FfmpegStreamer.ParseCustomArguments(
+            "-vf \"scale=trunc(iw/2)*2:trunc(ih/2)*2\" -metadata \"title=Movie Night\" -map C:\\media\\input.mkv");
+
+        Assert.Equal(
+            new[]
+            {
+                "-vf",
+                "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-metadata",
+                "title=Movie Night",
+                "-map",
+                "C:\\media\\input.mkv"
+            },
+            arguments);
+    }
+
+    [Fact]
+    public void ParseCustomArguments_RejectsUnterminatedQuotes()
+    {
+        Assert.Throws<FormatException>(() => FfmpegStreamer.ParseCustomArguments("-vf \"scale=160:90"));
+    }
+
+    [Fact]
+    public void BuildFfmpegArguments_UsesSafeTokensForPathsAndSeek()
+    {
+        var arguments = FfmpegStreamer.BuildFfmpegArguments(
+            "/media/Movies/Movie Night \"Director's Cut\".mkv",
+            20,
+            true,
+            "-threads 2 -filter_threads \"1\"",
+            12.3456,
+            160,
+            90,
+            PluginConfiguration.VideoScalingModeStretch,
+            PluginConfiguration.VideoDeinterlaceModeOff);
+
+        Assert.Equal(
+            new[]
+            {
+                "-hwaccel", "auto",
+                "-threads", "2",
+                "-filter_threads", "1",
+                "-ss", "12.346",
+                "-i", "/media/Movies/Movie Night \"Director's Cut\".mkv",
+                "-vf", "scale=160:90",
+                "-r", "20",
+                "-f", "rawvideo",
+                "-pix_fmt", "rgb24",
+                "pipe:1"
+            },
+            arguments);
+    }
 }
