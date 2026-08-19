@@ -416,17 +416,18 @@
                                 <select id="sceneScheduleBulkSelect" is="emby-select" multiple size="5" style="width: 100%;">
                                     <option value="">Load scheduled cues first</option>
                                 </select>
-                                <div class="fieldDescription">Select up to 50 cues, then enable or disable them, reset execution counters, mark/clear their next automatic occurrence, or delete them, in one atomic operation. Active cues, disabled/futureless new skips, or persistence failures leave the selected set unchanged.</div>
+                                <div class="fieldDescription">Select up to 50 cues, then create disabled copies, enable or disable them, reset execution counters, mark/clear their next automatic occurrence, or delete them, in one atomic operation. Active cues, disabled/futureless new skips, capacity limits, or persistence failures leave the selected set unchanged.</div>
                             </div>
                             <button is="emby-button" type="button" class="raised" id="enableSelectedSceneSchedulesBtn" disabled><span>Enable Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="disableSelectedSceneSchedulesBtn" disabled><span>Disable Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="skipSelectedSceneSchedulesBtn" disabled><span>Skip Next Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSelectedSceneScheduleSkipsBtn" disabled><span>Clear Selected Skips</span></button>
                             <button is="emby-button" type="button" class="raised" id="resetSelectedSceneScheduleRunCountsBtn" disabled><span>Reset Counters</span></button>
+                            <button is="emby-button" type="button" class="raised" id="duplicateSelectedSceneSchedulesBtn" disabled><span>Duplicate Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="deleteSelectedSceneSchedulesBtn" disabled><span>Delete Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="selectAllSceneSchedulesBtn" disabled><span>Select All</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSelectedSceneSchedulesBtn" disabled><span>Clear Selection</span></button>
-                            <div id="sceneScheduleBulkStatus" class="fieldDescription" style="flex: 1 1 260px;">Select scheduled cues to apply a bulk enabled-state, skipped-occurrence, or deletion action.</div>
+                            <div id="sceneScheduleBulkStatus" class="fieldDescription" style="flex: 1 1 260px;">Select scheduled cues to duplicate disabled copies or apply a bulk enabled-state, skipped-occurrence, counter-reset, or deletion action.</div>
                         </div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 0.75em;">
                             <div style="flex: 1 1 220px;">
@@ -3138,6 +3139,7 @@
                     var skipButton = page.querySelector('#skipSelectedSceneSchedulesBtn');
                     var clearSkipsButton = page.querySelector('#clearSelectedSceneScheduleSkipsBtn');
                     var resetCountersButton = page.querySelector('#resetSelectedSceneScheduleRunCountsBtn');
+                    var duplicateButton = page.querySelector('#duplicateSelectedSceneSchedulesBtn');
                     var deleteButton = page.querySelector('#deleteSelectedSceneSchedulesBtn');
                     var selectAllButton = page.querySelector('#selectAllSceneSchedulesBtn');
                     var clearButton = page.querySelector('#clearSelectedSceneSchedulesBtn');
@@ -3146,6 +3148,7 @@
                     if (skipButton) skipButton.disabled = !hasSelection;
                     if (clearSkipsButton) clearSkipsButton.disabled = !hasSelection;
                     if (resetCountersButton) resetCountersButton.disabled = !hasSelection;
+                    if (duplicateButton) duplicateButton.disabled = !hasSelection;
                     if (deleteButton) deleteButton.disabled = !hasSelection;
                     if (selectAllButton) selectAllButton.disabled = optionCount === 0 || selectedIds.length === optionCount;
                     if (clearButton) clearButton.disabled = !hasSelection;
@@ -3305,6 +3308,55 @@
                                 console.error("Failed to reset bulk scene schedule run counts:", err);
                                 if (statusEl) {
                                     statusEl.textContent = "Unable to reset the selected counters. Active cues or a persistence failure block the atomic operation.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                                HueConfigurationPage.updateSceneScheduleBulkButtons(page);
+                            });
+                        });
+                },
+                duplicateSceneSchedulesBulk: function (page) {
+                    if (!page) return;
+                    var scheduleIds = HueConfigurationPage.getSelectedSceneScheduleBulkIds(page);
+                    var statusEl = page.querySelector('#sceneScheduleBulkStatus');
+                    if (!scheduleIds.length) {
+                        Dashboard.alert("Select at least one scheduled cue first.");
+                        return;
+                    }
+
+                    Dashboard.confirm(
+                        "Create disabled copies of " + scheduleIds.length + " selected scheduled cue" + (scheduleIds.length === 1 ? "" : "s") + "? Copies receive fresh counters and IDs; the original cues remain unchanged.",
+                        "Duplicate Selected Cues",
+                        function (confirmed) {
+                            if (!confirmed) return;
+                            var button = page.querySelector('#duplicateSelectedSceneSchedulesBtn');
+                            if (button) button.disabled = true;
+                            if (statusEl) {
+                                statusEl.textContent = "Creating disabled copies of the selected scheduled cues...";
+                                statusEl.style.color = "";
+                            }
+                            var selectedScheduleControl = page.querySelector('#sceneScheduleSelect');
+                            var selectedScheduleId = selectedScheduleControl ? selectedScheduleControl.value : '';
+                            ApiClient.ajax({
+                                type: "POST",
+                                url: ApiClient.getUrl("HueSync/SceneSchedules/BulkDuplicate"),
+                                data: JSON.stringify({ scheduleIds: scheduleIds }),
+                                contentType: "application/json",
+                                dataType: "json"
+                            }).then(function (response) {
+                                var message = response && (response.message || response.Message);
+                                var copies = response && (response.schedules || response.Schedules);
+                                var firstCopy = Array.isArray(copies) && copies.length
+                                    ? (copies[0].id !== undefined ? copies[0].id : copies[0].Id)
+                                    : selectedScheduleId;
+                                if (statusEl) {
+                                    statusEl.textContent = message || "Disabled scheduled-cue copies created.";
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                                return HueConfigurationPage.loadSceneSchedules(page, firstCopy);
+                            }).catch(function (err) {
+                                console.error("Failed to bulk duplicate scene schedules:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = "Unable to duplicate the selected cues. Capacity, validation, missing IDs, or persistence failure blocked the atomic operation.";
                                     statusEl.style.color = "#d9534f";
                                 }
                                 HueConfigurationPage.updateSceneScheduleBulkButtons(page);
@@ -7651,6 +7703,10 @@
 
             document.querySelector('#resetSelectedSceneScheduleRunCountsBtn').addEventListener('click', function () {
                 HueConfigurationPage.resetSceneSchedulesRunCountsBulk(this.closest('.page'));
+            });
+
+            document.querySelector('#duplicateSelectedSceneSchedulesBtn').addEventListener('click', function () {
+                HueConfigurationPage.duplicateSceneSchedulesBulk(this.closest('.page'));
             });
 
             document.querySelector('#deleteSelectedSceneSchedulesBtn').addEventListener('click', function () {

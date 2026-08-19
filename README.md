@@ -188,6 +188,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/SceneSchedules/{id}/Enabled` | Enable or disable one cue without changing its schedule definition. Active cues cannot be changed, and an exhausted finite cue must be reset before it can be enabled; the response remains credential-free. |
 | `POST /HueSync/SceneSchedules/BulkEnabled` | Atomically enable or disable up to 50 selected cue IDs with `{ "scheduleIds": ["..."], "enabled": true|false }`. Every ID is normalized and validated before persistence; active cues, exhausted finite cues, unknown IDs, and save failures leave the entire selection unchanged. The response includes updated credential-free cue summaries and counts. |
 | `POST /HueSync/SceneSchedules/BulkSkipNext` | Atomically mark or clear the next automatic occurrence for up to 50 selected cue IDs with `{ "scheduleIds": ["..."], "skipNextOccurrence": true|false }`. New skip markers require enabled, non-exhausted cues with a future occurrence; active cues, disabled/futureless cues, unknown IDs, and save failures leave the entire selection unchanged. Manual Run Now remains available and the response includes updated credential-free cue summaries. |
+| `POST /HueSync/SceneSchedules/BulkDuplicate` | Atomically create disabled copies of up to 50 selected scheduled-cue IDs with `{ "scheduleIds": ["..."] }`. Every ID is resolved before mutation; capacity limits, validation failures, unknown IDs, or save failure leave the originals and full schedule collection unchanged. Copies receive fresh IDs, unique bounded names, reset execution counters, and cleared Skip Next markers. |
 | `POST /HueSync/SceneSchedules/BulkDelete` | Atomically delete up to 50 selected cue IDs with `{ "scheduleIds": ["..."] }`. Every ID is resolved before mutation; active cues, unknown IDs, and save failures leave the entire selection unchanged. Retained cue history remains available as an audit trail, and the response includes deleted credential-free cue summaries and the remaining count. |
 | `POST /HueSync/SceneSchedules/{id}/SkipNext` | Mark exactly one upcoming automatic occurrence to be skipped without changing recurrence, limits, or the saved scene. Active, disabled, exhausted, or futureless cues are rejected; manual Run Now remains available. |
 | `DELETE /HueSync/SceneSchedules/{id}/SkipNext` | Clear a pending skip so the next eligible automatic occurrence runs normally. |
@@ -392,7 +393,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.139 (Current)
+### Version 1.5.140 (Current)
+- **Atomic bulk cue duplication**: create disabled copies of up to 50 selected scheduled cues with fresh IDs, unique bounded names, reset counters, and cleared Skip Next markers
+- **All-or-nothing capacity safety**: missing IDs, schedule-capacity limits, validation failures, and persistence failures leave the original cue collection unchanged
+- **Administrator cue variants**: add Duplicate Selected beside bulk enable/disable, skip, counter-reset, and deletion controls
+
+### Version 1.5.139
 - **Atomic bulk mapping enable/disable**: change up to 50 selected per-user mappings together with all IDs resolved before any mutation
 - **Lifecycle-safe state changes**: scheduled-cue dependencies block disabling, incomplete custom targets block enabling, and persistence failures restore the complete selected state
 - **Administrator mapping controls**: add Enable Selected and Disable Selected actions; disabling clears stored custom bridge targets and never returns credentials

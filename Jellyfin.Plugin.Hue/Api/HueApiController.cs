@@ -3190,6 +3190,133 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Creates disabled, independently editable copies of several scene cues in one
+        /// administrator operation. Every selected ID is resolved before any copy is
+        /// created; copies receive fresh IDs, unique bounded names, reset counters, and
+        /// cleared Skip Next markers. Capacity, validation, and persistence failures leave
+        /// the complete original schedule collection unchanged.
+        /// </summary>
+        [HttpPost("SceneSchedules/BulkDuplicate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueSceneScheduleBulkDuplicateResult> DuplicateSceneSchedulesBulk(
+            [FromBody] HueSceneScheduleBulkDuplicateRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A scheduled-cue selection is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var scheduleIds = (request.ScheduleIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (scheduleIds.Length == 0)
+                return BadRequest("Select at least one scheduled cue.");
+            if (scheduleIds.Length > PluginConfiguration.MaxSceneSchedules)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxSceneSchedules} scheduled cues at once.");
+            }
+
+            config.SceneSchedules ??= new List<HueSceneSchedule>();
+            var selectedSchedules = scheduleIds
+                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
+                    schedule != null &&
+                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingIds = scheduleIds
+                .Where((_, index) => selectedSchedules[index] == null)
+                .ToArray();
+            if (missingIds.Length > 0)
+            {
+                return NotFound(new HueSceneScheduleBulkDuplicateResult
+                {
+                    RequestedCount = scheduleIds.Length,
+                    MissingScheduleIds = missingIds,
+                    Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
+                });
+            }
+
+            var schedules = selectedSchedules
+                .Where(schedule => schedule != null)
+                .Cast<HueSceneSchedule>()
+                .ToArray();
+            var availableCapacity = Math.Max(0, PluginConfiguration.MaxSceneSchedules - config.SceneSchedules.Count);
+            if (schedules.Length > availableCapacity)
+            {
+                return Conflict(new HueSceneScheduleBulkDuplicateResult
+                {
+                    RequestedCount = schedules.Length,
+                    AvailableCapacity = availableCapacity,
+                    Message = $"Only {availableCapacity} scheduled-cue slot(s) remain; no copies were created."
+                });
+            }
+
+            var previousSchedules = config.SceneSchedules;
+            var candidateSchedules = previousSchedules
+                .Where(schedule => schedule != null)
+                .Select(CloneSceneSchedule)
+                .ToList();
+            var duplicates = new List<HueSceneSchedule>(schedules.Length);
+            foreach (var source in schedules)
+            {
+                var duplicate = CloneSceneSchedule(source);
+                duplicate.Id = Guid.NewGuid().ToString("N");
+                duplicate.Name = BuildDuplicateSceneScheduleName(candidateSchedules, source.Name);
+                duplicate.RunCount = 0;
+                duplicate.Enabled = false;
+                duplicate.SkipNextOccurrence = false;
+                candidateSchedules.Add(duplicate);
+                duplicates.Add(duplicate);
+            }
+
+            config.SceneSchedules = candidateSchedules;
+            var validationErrors = config.ValidateSceneSchedules();
+            if (validationErrors.Count > 0)
+            {
+                config.SceneSchedules = previousSchedules;
+                return BadRequest(new HueSceneScheduleBulkDuplicateResult
+                {
+                    RequestedCount = schedules.Length,
+                    DuplicatedCount = 0,
+                    Message = "The selected scene-cue copies are invalid; no copies were created.",
+                    ValidationErrors = validationErrors
+                });
+            }
+
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.SceneSchedules = previousSchedules;
+                _logger?.LogError(ex, "Could not persist bulk duplicate of Hue scene schedules");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The selected scene-cue copies could not be saved; no copies were retained.");
+            }
+
+            return Ok(new HueSceneScheduleBulkDuplicateResult
+            {
+                RequestedCount = schedules.Length,
+                DuplicatedCount = duplicates.Count,
+                Message = duplicates.Count == 1
+                    ? "Created one disabled scheduled-cue copy with a fresh counter."
+                    : $"Created {duplicates.Count} disabled scheduled-cue copies with fresh counters.",
+                Schedules = duplicates.Select(schedule => ToSceneScheduleResult(schedule, config)).ToArray()
+            });
+        }
+
+        /// <summary>
         /// Deletes one scene cue by its stable ID.
         /// </summary>
         [HttpDelete("SceneSchedules/{id}")]
@@ -7256,6 +7383,42 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonPropertyName("enabled")]
         public bool Enabled { get; set; }
+    }
+
+    /// <summary>
+    /// Request shape for atomically creating disabled copies of several scene cues by ID.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkDuplicateRequest
+    {
+        [JsonPropertyName("scheduleIds")]
+        public List<string> ScheduleIds { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic bulk scheduled-cue duplication operation.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkDuplicateResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("duplicatedCount")]
+        public int DuplicatedCount { get; set; }
+
+        [JsonPropertyName("availableCapacity")]
+        public int AvailableCapacity { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("missingScheduleIds")]
+        public IReadOnlyList<string> MissingScheduleIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("validationErrors")]
+        public IReadOnlyList<string> ValidationErrors { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("schedules")]
+        public IReadOnlyList<HueSceneScheduleResult> Schedules { get; set; } = Array.Empty<HueSceneScheduleResult>();
     }
 
     /// <summary>

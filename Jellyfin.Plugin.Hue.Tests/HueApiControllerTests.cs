@@ -2618,6 +2618,165 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_BulkDuplicateCreatesDisabledFreshCopiesAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-copy-one",
+                    Name = "Bulk Copy One",
+                    PresetName = "Bulk Evening",
+                    Priority = 61,
+                    TimeOfDay = "20:15",
+                    MaxRuns = 4,
+                    RunCount = 3,
+                    Enabled = true,
+                    SkipNextOccurrence = true
+                },
+                new()
+                {
+                    Id = "bulk-copy-two",
+                    Name = "Bulk Copy Two",
+                    PresetName = "Bulk Evening",
+                    Priority = 12,
+                    TimeOfDay = "21:15",
+                    MaxRuns = 6,
+                    RunCount = 2,
+                    Enabled = false
+                },
+                new()
+                {
+                    Id = "bulk-copy-untouched",
+                    Name = "Bulk Copy Untouched",
+                    PresetName = "Bulk Evening",
+                    TimeOfDay = "22:15",
+                    Enabled = true
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var action = controller.DuplicateSceneSchedulesBulk(new HueSceneScheduleBulkDuplicateRequest
+        {
+            ScheduleIds = new List<string> { " BULK-COPY-ONE ", "bulk-copy-two", "bulk-copy-one" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleBulkDuplicateResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.DuplicatedCount);
+        Assert.Equal(new[] { "Bulk Copy One (Copy)", "Bulk Copy Two (Copy)" }, result.Schedules.Select(schedule => schedule.Name));
+        Assert.All(result.Schedules, schedule =>
+        {
+            Assert.False(schedule.Enabled);
+            Assert.Equal(0, schedule.RunCount);
+            Assert.False(schedule.SkipNextOccurrence);
+            Assert.NotEqual("bulk-copy-one", schedule.Id);
+            Assert.NotEqual("bulk-copy-two", schedule.Id);
+        });
+        Assert.Equal(5, configuration.SceneSchedules.Count);
+        Assert.True(configuration.SceneSchedules.Single(schedule => schedule.Id == "bulk-copy-one").Enabled);
+        Assert.Equal(3, configuration.SceneSchedules.Single(schedule => schedule.Id == "bulk-copy-one").RunCount);
+        Assert.True(configuration.SceneSchedules.Single(schedule => schedule.Id == "bulk-copy-untouched").Enabled);
+        Assert.Equal(61, result.Schedules[0].Priority);
+        Assert.Equal(12, result.Schedules[1].Priority);
+        Assert.Equal(result.Schedules.Count, result.Schedules.Select(schedule => schedule.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
+    public void SceneSchedules_BulkDuplicateRefusesMissingIdsAndCapacityAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk Missing" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "bulk-missing-existing", Name = "Existing", PresetName = "Bulk Missing" }
+            }
+        });
+        var controller = CreateController();
+
+        var missing = controller.DuplicateSceneSchedulesBulk(new HueSceneScheduleBulkDuplicateRequest
+        {
+            ScheduleIds = new List<string> { "bulk-missing-existing", "not-present" }
+        });
+
+        var missingResponse = Assert.IsType<NotFoundObjectResult>(missing.Result);
+        var missingResult = Assert.IsType<HueSceneScheduleBulkDuplicateResult>(missingResponse.Value);
+        Assert.Equal(new[] { "not-present" }, missingResult.MissingScheduleIds);
+        Assert.Single(configuration.SceneSchedules);
+
+        var capacitySchedules = Enumerable.Range(1, PluginConfiguration.MaxSceneSchedules - 1)
+            .Select(index => new HueSceneSchedule
+            {
+                Id = $"bulk-capacity-{index}",
+                Name = $"Capacity {index}",
+                PresetName = "Bulk Capacity",
+                TimeOfDay = "20:00",
+                DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask
+            })
+            .ToList();
+        var capacityConfiguration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk Capacity" } },
+            SceneSchedules = capacitySchedules
+        });
+        var capacityController = CreateController();
+
+        var capacity = capacityController.DuplicateSceneSchedulesBulk(new HueSceneScheduleBulkDuplicateRequest
+        {
+            ScheduleIds = new List<string> { "bulk-capacity-1", "bulk-capacity-2" }
+        });
+
+        var capacityResponse = Assert.IsType<ConflictObjectResult>(capacity.Result);
+        var capacityResult = Assert.IsType<HueSceneScheduleBulkDuplicateResult>(capacityResponse.Value);
+        Assert.Equal(2, capacityResult.RequestedCount);
+        Assert.Equal(1, capacityResult.AvailableCapacity);
+        Assert.Equal(PluginConfiguration.MaxSceneSchedules - 1, capacityConfiguration.SceneSchedules.Count);
+    }
+
+    [Fact]
+    public void SceneSchedules_BulkDuplicatePersistenceFailureRestoresCollection()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("bulk cue duplicate persistence failed"));
+        var schedules = new List<HueSceneSchedule>
+        {
+            new()
+            {
+                Id = "bulk-persist-source",
+                Name = "Bulk persistence source",
+                PresetName = "Bulk Persistence",
+                RunCount = 2,
+                Enabled = true
+            }
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk Persistence" } },
+            SceneSchedules = schedules
+        }, serializer.Object);
+
+        var action = CreateController().DuplicateSceneSchedulesBulk(new HueSceneScheduleBulkDuplicateRequest
+        {
+            ScheduleIds = new List<string> { "bulk-persist-source" }
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Same(schedules, configuration.SceneSchedules);
+        Assert.Single(configuration.SceneSchedules);
+        Assert.Equal(2, configuration.SceneSchedules[0].RunCount);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
     public void SceneSchedules_SavesAndReturnsOneTimeCueWithoutWeekdayMask()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
