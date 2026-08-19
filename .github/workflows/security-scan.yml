@@ -24,7 +24,7 @@ concurrency:
 jobs:
   gitleaks:
     name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
+    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,7 +54,7 @@ jobs:
 
   semgrep:
     name: Static analysis (semgrep)
-    runs-on: ubuntu-latest
+    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
