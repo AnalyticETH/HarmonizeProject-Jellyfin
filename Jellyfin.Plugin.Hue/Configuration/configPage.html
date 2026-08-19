@@ -8371,6 +8371,9 @@
                     if (e.target._hueSceneScheduleRequest) {
                         HueConfigurationPage.cancelSceneScheduleRun(e.target);
                     }
+                    if (e.target._hueSceneScheduleBulkRequest) {
+                        HueConfigurationPage.cancelSceneSchedulesBulk(e.target);
+                    }
                     if (e.target._hueDiagnosticsRequest || e.target._hueTargetDiagnosticsRequest || e.target._hueSupportBundleRequest) {
                         HueConfigurationPage.cancelDiagnostics(e.target);
                     }

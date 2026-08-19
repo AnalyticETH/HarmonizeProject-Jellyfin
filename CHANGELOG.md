@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.144] - 2026-08-19
+
+### Fixed
+- **Per-cue run serialization**: automatic and manual executions of the same scheduled cue now refuse to overlap, preventing duplicate bridge lifecycles, counters, and history entries
+- **Navigation-safe bulk runs**: leaving the administrator page requests cancellation of an in-flight bulk cue sequence so remaining cues do not continue after the page is gone; bridge cleanup still completes normally
+
 ## [1.5.143] - 2026-08-19
 
 ### Added

@@ -2921,11 +2921,13 @@ public sealed class HueSceneAutomationService : BackgroundService
         CancellationToken cancellationToken,
         bool wasCatchUp = false)
     {
-        if (!TryBeginRun(schedule, out var currentRunCount))
+        if (!TryBeginRun(schedule, out var currentRunCount, out var alreadyRunning))
         {
             var exhausted = Failure(
                 schedule.Id,
-                $"The scene cue has reached its maximum of {schedule.MaxRuns} executions.",
+                alreadyRunning
+                    ? "The scene cue is already running."
+                    : $"The scene cue has reached its maximum of {schedule.MaxRuns} executions.",
                 schedule);
             exhausted.RunCount = currentRunCount;
             return exhausted;
@@ -2977,7 +2979,10 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
-    private bool TryBeginRun(HueSceneSchedule schedule, out int currentRunCount)
+    private bool TryBeginRun(
+        HueSceneSchedule schedule,
+        out int currentRunCount,
+        out bool alreadyRunning)
     {
         var key = schedule.Id?.Trim() ?? string.Empty;
         lock (_runtimeStateLock)
@@ -2992,6 +2997,10 @@ public sealed class HueSceneAutomationService : BackgroundService
             }
 
             currentRunCount = state.RunCount;
+            alreadyRunning = state.ActiveRuns > 0;
+            if (alreadyRunning)
+                return false;
+
             if (schedule.MaxRuns > 0 && state.RunCount + state.ActiveRuns >= schedule.MaxRuns)
                 return false;
 

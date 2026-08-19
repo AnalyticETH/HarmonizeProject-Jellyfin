@@ -2041,6 +2041,56 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task AutomaticCueRun_BlocksOverlappingManualRunForSameCue()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "overlap-app-secret",
+            HueClientKey = "overlap-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Overlap scene", DurationSeconds = 8 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "overlap-cue",
+                    Name = "Overlap cue",
+                    PresetName = "Overlap scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new BlockingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        using var cancellationSource = new CancellationTokenSource();
+        var automaticTask = service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 19, 7, 5, 30, DateTimeKind.Utc),
+            cancellationSource.Token);
+        await streamTester.PreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var manualResult = await service.RunScheduleAsync("overlap-cue");
+
+        Assert.False(manualResult.Succeeded);
+        Assert.Contains("already running", manualResult.Message, StringComparison.OrdinalIgnoreCase);
+        cancellationSource.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => automaticTask);
+    }
+
+    [Fact]
     public async Task ResetSchedulesRunCount_RefusesActiveCueWithoutPartialMutation()
     {
         var configuration = new PluginConfiguration
