@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.107] - 2026-08-19
+
+### Added
+- **Saved scene playlists**: compose up to 20 existing saved scenes into an ordered, reusable playlist with credential-free CRUD, bounded names, and duplicate/delete administrator actions
+- **Sequential playlist previews**: play every scene in order through the restorative lifecycle, with default-target, selected-mapping, and all-enabled-target modes, per-step telemetry, aggregate target outcomes, channel counts, and cleanup warnings
+- **Portable playlist definitions**: include playlist order, target mode, and saved-scene references in credential-safe configuration export/import while preserving server-side bridge credentials
+
+### Security
+- Playlist requests contain only saved-scene names and target selectors; bridge addresses, app keys, client keys, and playback tokens remain server-side and are absent from playlist results and import/export telemetry
+- Playlist references and all enabled targets are preflight-validated before the first bridge call, and each step remains cancellable and state-restoring
+
 ## [1.5.106] - 2026-08-19
 
 ### Added

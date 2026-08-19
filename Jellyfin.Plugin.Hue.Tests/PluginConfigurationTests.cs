@@ -134,6 +134,74 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsOrderedScenesAndEnabledMappingTarget()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Welcome" },
+                new() { Name = "Movie Night", DurationSeconds = 8 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-1", UserName = "Living Room", SyncEnabled = true }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-1",
+                    Name = "Arrival sequence",
+                    PresetNames = new List<string> { "Welcome", "Movie Night", "Welcome" },
+                    TargetUserId = "user-1"
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Empty(config.Validate());
+    }
+
+    [Fact]
+    public void ValidateScenePlaylists_RejectsMissingScenesInvalidTargetAndDuplicateIdentity()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "disabled", SyncEnabled = false }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-1",
+                    Name = "Sequence",
+                    PresetNames = new List<string> { "Welcome", "Missing" },
+                    TargetUserId = "disabled",
+                    TargetAllEnabledMappings = true
+                },
+                new()
+                {
+                    Id = "PLAYLIST-1",
+                    Name = "sequence",
+                    PresetNames = new List<string> { "Welcome" }
+                }
+            }
+        };
+
+        var errors = config.ValidateScenePlaylists();
+
+        Assert.Contains("Scene playlist 1 references a saved scene that does not exist: Missing", errors);
+        Assert.Contains("Scene playlist 1 cannot select all enabled targets and a specific user mapping together", errors);
+        Assert.Contains("Scene playlist 1 references a disabled user mapping", errors);
+        Assert.Contains("Scene playlist 2 duplicates another scene playlist ID", errors);
+        Assert.Contains("Scene playlist 2 duplicates another scene playlist name", errors);
+    }
+
+    [Fact]
     public void ValidateColorPresets_RejectsTooManyScenes()
     {
         var config = new PluginConfiguration

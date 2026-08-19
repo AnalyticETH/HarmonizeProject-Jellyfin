@@ -97,6 +97,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
+    /// A credential-free ordered collection of saved scenes. Playlists retain only scene
+    /// names and an optional target mode; bridge credentials and channel profiles are
+    /// resolved from the current server configuration when the playlist is previewed.
+    /// </summary>
+    public sealed class HueScenePlaylist
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
+        public string Name { get; set; } = string.Empty;
+        public List<string> PresetNames { get; set; } = new List<string>();
+        public string TargetUserId { get; set; } = string.Empty;
+        public bool TargetAllEnabledMappings { get; set; }
+    }
+
+    /// <summary>
     /// A credential-free cue that displays one saved color scene at a selected time-zone
     /// wall-clock time. It can run once on RunDate or recur daily, weekly, monthly-day,
     /// monthly-weekday, or yearly with
@@ -355,6 +369,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int DefaultColorPresetEffectSpeedPercent = 100;
         public const int MaxColorPresets = 50;
         public const int MaxColorPresetNameLength = 64;
+        public const int MaxScenePlaylists = 50;
+        public const int MaxScenePlaylistItems = 20;
+        public const int MaxScenePlaylistNameLength = 64;
         public const int MaxSceneSchedules = 50;
         public const int MaxSceneScheduleNameLength = 64;
         public const int MinSceneSchedulePriority = 0;
@@ -440,6 +457,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// bridge credentials or channel targets.
         /// </summary>
         public List<HueColorPreset> ColorPresets { get; set; } = new List<HueColorPreset>();
+
+        /// <summary>
+        /// Ordered, credential-free collections of saved scenes that can be previewed
+        /// sequentially against the default target, one mapping, or all enabled targets.
+        /// </summary>
+        public List<HueScenePlaylist> ScenePlaylists { get; set; } = new List<HueScenePlaylist>();
 
         /// <summary>
         /// Recurring visual cues that reference the credential-free color presets above.
@@ -1012,6 +1035,108 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Validates one ordered saved-scene playlist. Playlist items reference existing
+        /// color presets by name so a playlist remains credential-free and portable.
+        /// </summary>
+        public static List<string> ValidateScenePlaylist(
+            HueScenePlaylist? playlist,
+            PluginConfiguration? configuration = null,
+            string label = "Scene playlist")
+        {
+            var errors = new List<string>();
+            if (playlist == null)
+            {
+                errors.Add($"{label} is required");
+                return errors;
+            }
+
+            if (string.IsNullOrWhiteSpace(playlist.Id))
+                errors.Add($"{label} requires an ID");
+
+            var name = playlist.Name?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+                errors.Add($"{label} name is required");
+            else if (name.Length > MaxScenePlaylistNameLength)
+                errors.Add($"{label} name must be {MaxScenePlaylistNameLength} characters or fewer");
+            else if (name.Any(char.IsControl))
+                errors.Add($"{label} name must not contain control characters");
+            else if (name.IndexOfAny(new[] { '/', '\\', '?', '#' }) >= 0)
+                errors.Add($"{label} name must not contain path or URL separator characters");
+
+            var presetNames = playlist.PresetNames ?? new List<string>();
+            if (presetNames.Count < 1 || presetNames.Count > MaxScenePlaylistItems)
+            {
+                errors.Add($"{label} must contain between 1 and {MaxScenePlaylistItems} saved scenes");
+            }
+
+            for (var index = 0; index < presetNames.Count; index++)
+            {
+                var presetName = presetNames[index]?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(presetName))
+                {
+                    errors.Add($"{label} scene {index + 1} is required");
+                    continue;
+                }
+
+                if (configuration != null &&
+                    !(configuration.ColorPresets ?? new List<HueColorPreset>()).Any(preset =>
+                        preset != null &&
+                        string.Equals(preset.Name?.Trim(), presetName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    errors.Add($"{label} references a saved scene that does not exist: {presetName}");
+                }
+            }
+
+            var targetUserId = playlist.TargetUserId?.Trim() ?? string.Empty;
+            if (playlist.TargetAllEnabledMappings && !string.IsNullOrWhiteSpace(targetUserId))
+                errors.Add($"{label} cannot select all enabled targets and a specific user mapping together");
+
+            if (!string.IsNullOrWhiteSpace(targetUserId))
+            {
+                var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
+                if (mapping == null)
+                    errors.Add($"{label} references a user mapping that does not exist");
+                else if (!mapping.SyncEnabled)
+                    errors.Add($"{label} references a disabled user mapping");
+            }
+
+            return errors;
+        }
+
+        /// <summary>
+        /// Validates the complete playlist collection, including bounded size and unique
+        /// IDs/names used by the administrator page and API routes.
+        /// </summary>
+        public List<string> ValidateScenePlaylists()
+        {
+            var errors = new List<string>();
+            if (ScenePlaylists == null)
+                return errors;
+
+            if (ScenePlaylists.Count > MaxScenePlaylists)
+                errors.Add($"No more than {MaxScenePlaylists} scene playlists may be saved");
+
+            var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < ScenePlaylists.Count; index++)
+            {
+                var label = $"Scene playlist {index + 1}";
+                var playlist = ScenePlaylists[index];
+                errors.AddRange(ValidateScenePlaylist(playlist, this, label));
+                var id = playlist?.Id?.Trim();
+                if (!string.IsNullOrWhiteSpace(id) && !seenIds.Add(id))
+                    errors.Add($"{label} duplicates another scene playlist ID");
+                var name = playlist?.Name?.Trim();
+                if (!string.IsNullOrWhiteSpace(name) && !seenNames.Add(name))
+                    errors.Add($"{label} duplicates another scene playlist name");
+            }
+
+            return errors;
+        }
+
+        /// <summary>
         /// Validates the complete reusable preset collection, including names that must
         /// be unique so the UI can address a preset deterministically.
         /// </summary>
@@ -1451,6 +1576,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             var errors = new List<string>();
 
             errors.AddRange(ValidateColorPresets());
+            errors.AddRange(ValidateScenePlaylists());
             errors.AddRange(ValidateSceneSchedules());
 
             if (SceneAutomationCatchUpMinutes < MinSceneAutomationCatchUpMinutes ||

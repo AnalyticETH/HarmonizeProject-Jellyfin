@@ -732,6 +732,57 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunPlaylistPreview_RunsSavedScenesInOrderAndAggregatesTargetOutcome()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "playlist-app-secret",
+            HueClientKey = "playlist-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, BrightnessPercent = 80, DurationSeconds = 1 },
+                new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, BrightnessPercent = 70, DurationSeconds = 2 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-1",
+                    Name = "Evening sequence",
+                    PresetNames = new List<string> { "Warm", "Cool" }
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("playlist-1", result.PlaylistId);
+        Assert.Equal("Evening sequence", result.PlaylistName);
+        Assert.Equal(new[] { 25, 220 }, streamTester.Reds);
+        Assert.Equal(new[] { "Warm", "Cool" }, result.Steps.Select(step => step.PresetName));
+        Assert.All(result.Steps, step => Assert.True(step.Succeeded));
+        var target = Assert.Single(result.TargetResults);
+        Assert.Equal("Default bridge target", target.TargetLabel);
+        Assert.True(target.Succeeded);
+        Assert.Equal(2, target.CompletedStepCount);
+        Assert.Equal(2, target.TotalStepCount);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("playlist-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_DisablesFiniteCueAtPersistedExecutionLimit()
     {
         var configuration = new PluginConfiguration

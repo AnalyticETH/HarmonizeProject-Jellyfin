@@ -414,6 +414,47 @@ namespace Jellyfin.Plugin.Hue.Api
             };
         }
 
+        internal static HueScenePlaylistResult ToScenePlaylistResult(
+            HueScenePlaylist playlist,
+            PluginConfiguration config)
+        {
+            var targetUserId = playlist.TargetUserId?.Trim() ?? string.Empty;
+            var mapping = string.IsNullOrWhiteSpace(targetUserId)
+                ? null
+                : config.UserMappings?.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
+            var targetLabel = playlist.TargetAllEnabledMappings
+                ? "All enabled targets"
+                : string.IsNullOrWhiteSpace(targetUserId)
+                    ? "Default bridge target"
+                    : mapping == null
+                        ? "Missing user mapping"
+                        : string.IsNullOrWhiteSpace(mapping.UserName)
+                            ? $"User mapping {mapping.UserId?.Trim() ?? targetUserId}"
+                            : mapping.UserName.Trim();
+            var presetNames = (playlist.PresetNames ?? new List<string>())
+                .Select(name => name?.Trim() ?? string.Empty)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToArray();
+            var totalDuration = presetNames
+                .Select(name => config.ColorPresets?.FirstOrDefault(preset =>
+                    preset != null &&
+                    string.Equals(preset.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+                .Where(preset => preset != null)
+                .Sum(preset => Math.Max(0, preset!.DurationSeconds));
+            return new HueScenePlaylistResult
+            {
+                Id = playlist.Id?.Trim() ?? string.Empty,
+                Name = playlist.Name?.Trim() ?? string.Empty,
+                PresetNames = presetNames,
+                TargetUserId = targetUserId,
+                TargetAllEnabledMappings = playlist.TargetAllEnabledMappings,
+                TargetLabel = targetLabel,
+                TotalDurationSeconds = totalDuration
+            };
+        }
+
         private static HueColorPreset CloneColorPreset(HueColorPreset preset)
         {
             return new HueColorPreset
@@ -429,6 +470,44 @@ namespace Jellyfin.Plugin.Hue.Api
                 TransitionSeconds = preset.TransitionSeconds,
                 TransitionOutSeconds = preset.TransitionOutSeconds
             };
+        }
+
+        private static HueScenePlaylist CloneScenePlaylist(HueScenePlaylist playlist)
+        {
+            return new HueScenePlaylist
+            {
+                Id = playlist.Id,
+                Name = playlist.Name,
+                PresetNames = (playlist.PresetNames ?? new List<string>()).ToList(),
+                TargetUserId = playlist.TargetUserId,
+                TargetAllEnabledMappings = playlist.TargetAllEnabledMappings
+            };
+        }
+
+        private static string BuildDuplicateScenePlaylistName(
+            IEnumerable<HueScenePlaylist> playlists,
+            string? sourceName)
+        {
+            var existingNames = new HashSet<string>(
+                playlists
+                    .Where(playlist => playlist != null)
+                    .Select(playlist => playlist.Name?.Trim() ?? string.Empty)
+                    .Where(name => !string.IsNullOrWhiteSpace(name)),
+                StringComparer.OrdinalIgnoreCase);
+            var baseName = string.IsNullOrWhiteSpace(sourceName) ? "Saved playlist" : sourceName.Trim();
+            for (var copyNumber = 1; copyNumber <= PluginConfiguration.MaxScenePlaylists + 1; copyNumber++)
+            {
+                var suffix = copyNumber == 1 ? " (Copy)" : $" (Copy {copyNumber})";
+                var availableBaseLength = Math.Max(1, PluginConfiguration.MaxScenePlaylistNameLength - suffix.Length);
+                var truncatedBase = baseName.Length > availableBaseLength
+                    ? baseName[..availableBaseLength].TrimEnd()
+                    : baseName;
+                var candidate = truncatedBase + suffix;
+                if (!existingNames.Contains(candidate))
+                    return candidate;
+            }
+
+            return $"Playlist copy {Guid.NewGuid():N}"[..PluginConfiguration.MaxScenePlaylistNameLength];
         }
 
         private static string BuildDuplicateColorPresetName(
@@ -1365,6 +1444,275 @@ namespace Jellyfin.Plugin.Hue.Api
 
             Plugin.Instance?.SaveConfiguration();
             return Ok(new { message = "Color preset deleted successfully." });
+        }
+
+        /// <summary>
+        /// Lists ordered saved-scene playlists without returning bridge credentials.
+        /// </summary>
+        [HttpGet("ScenePlaylists")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<IEnumerable<HueScenePlaylistResult>> GetScenePlaylists()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            config.ScenePlaylists ??= new List<HueScenePlaylist>();
+            return Ok(config.ScenePlaylists
+                .Where(playlist => playlist != null)
+                .OrderBy(playlist => playlist.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(playlist => ToScenePlaylistResult(playlist, config)));
+        }
+
+        /// <summary>
+        /// Saves or updates an ordered saved-scene playlist. Only scene references and
+        /// target mode are persisted; credentials remain in the server configuration.
+        /// </summary>
+        [HttpPost("ScenePlaylists")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HueScenePlaylistResult> SaveScenePlaylist(
+            [FromBody] HueScenePlaylistRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A scene playlist is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var playlist = request.ToConfigurationPlaylist();
+            if (string.IsNullOrWhiteSpace(playlist.Id))
+                playlist.Id = Guid.NewGuid().ToString("N");
+            config.ScenePlaylists ??= new List<HueScenePlaylist>();
+            var existingIndex = config.ScenePlaylists.FindIndex(existing =>
+                existing != null &&
+                string.Equals(existing.Id?.Trim(), playlist.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+            var candidatePlaylists = config.ScenePlaylists
+                .Where(existing => existing != null)
+                .Select(CloneScenePlaylist)
+                .ToList();
+            if (existingIndex >= 0)
+            {
+                var candidateIndex = candidatePlaylists.FindIndex(existing =>
+                    string.Equals(existing.Id?.Trim(), playlist.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+                candidatePlaylists[candidateIndex] = playlist;
+            }
+            else
+            {
+                if (candidatePlaylists.Count >= PluginConfiguration.MaxScenePlaylists)
+                {
+                    return BadRequest(new
+                    {
+                        message = $"No more than {PluginConfiguration.MaxScenePlaylists} scene playlists may be saved.",
+                        errors = new[] { $"No more than {PluginConfiguration.MaxScenePlaylists} scene playlists may be saved" }
+                    });
+                }
+
+                candidatePlaylists.Add(playlist);
+            }
+
+            var validationConfiguration = new PluginConfiguration
+            {
+                ColorPresets = config.ColorPresets ?? new List<HueColorPreset>(),
+                UserMappings = config.UserMappings ?? new List<UserBridgeMapping>(),
+                ScenePlaylists = candidatePlaylists
+            };
+            var validationErrors = validationConfiguration.ValidateScenePlaylists();
+            if (validationErrors.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = "Scene playlist is invalid.",
+                    errors = validationErrors
+                });
+            }
+
+            var previousPlaylists = config.ScenePlaylists.ToList();
+            config.ScenePlaylists = candidatePlaylists;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ScenePlaylists = previousPlaylists;
+                _logger?.LogError(ex, "Could not persist Hue scene playlist {0}", playlist.Name);
+                return StatusCode(StatusCodes.Status500InternalServerError, "The scene playlist could not be saved.");
+            }
+
+            return Ok(ToScenePlaylistResult(playlist, config));
+        }
+
+        /// <summary>
+        /// Previews one saved-scene playlist sequentially. The optional request can select
+        /// a different credential-free target mode for this run without changing the saved
+        /// playlist; all target credentials and channel profiles stay server-side.
+        /// </summary>
+        [HttpPost("ScenePlaylists/{name}/Preview")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<HueScenePlaylistRunResult>> PreviewScenePlaylist(
+            string name,
+            [FromBody] HueScenePlaylistPreviewRequest? request,
+            CancellationToken cancellationToken = default)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            if (string.IsNullOrWhiteSpace(name))
+                return NotFound("Scene playlist not found.");
+
+            config.ScenePlaylists ??= new List<HueScenePlaylist>();
+            var source = config.ScenePlaylists.FirstOrDefault(playlist =>
+                playlist != null &&
+                string.Equals(playlist.Name?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (source == null)
+                return NotFound("Scene playlist not found.");
+
+            var playlist = CloneScenePlaylist(source);
+            request ??= new HueScenePlaylistPreviewRequest();
+            var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
+            if (request.TargetAllEnabledMappings == true && !string.IsNullOrWhiteSpace(targetUserId))
+                return BadRequest("A scene playlist preview cannot select all enabled targets and a specific user mapping together.");
+            if (request.TargetAllEnabledMappings.HasValue)
+            {
+                playlist.TargetAllEnabledMappings = request.TargetAllEnabledMappings.Value;
+                playlist.TargetUserId = request.TargetAllEnabledMappings.Value ? string.Empty : targetUserId;
+            }
+            else if (!string.IsNullOrWhiteSpace(targetUserId))
+            {
+                playlist.TargetAllEnabledMappings = false;
+                playlist.TargetUserId = targetUserId;
+            }
+
+            var validationErrors = PluginConfiguration.ValidateScenePlaylist(playlist, config);
+            if (validationErrors.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = "The scene playlist is invalid.",
+                    errors = validationErrors
+                });
+            }
+
+            if (_streamTester == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
+            if (_sceneAutomationService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+            if (_syncService?.IsSyncing == true)
+                return Conflict("Stop active playback before running a Hue scene playlist.");
+
+            var result = await _sceneAutomationService.RunPlaylistPreviewAsync(
+                playlist,
+                cancellationToken).ConfigureAwait(false);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// Creates a safe independent copy of a saved-scene playlist.
+        /// </summary>
+        [HttpPost("ScenePlaylists/{name}/Duplicate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public ActionResult<HueScenePlaylistResult> DuplicateScenePlaylist(string name)
+        {
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+            if (string.IsNullOrWhiteSpace(name))
+                return NotFound("Scene playlist not found.");
+
+            config.ScenePlaylists ??= new List<HueScenePlaylist>();
+            var source = config.ScenePlaylists.FirstOrDefault(playlist =>
+                playlist != null &&
+                string.Equals(playlist.Name?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (source == null)
+                return NotFound("Scene playlist not found.");
+            if (config.ScenePlaylists.Count >= PluginConfiguration.MaxScenePlaylists)
+                return Conflict($"No more than {PluginConfiguration.MaxScenePlaylists} scene playlists may be saved.");
+
+            var duplicate = CloneScenePlaylist(source);
+            duplicate.Id = Guid.NewGuid().ToString("N");
+            duplicate.Name = BuildDuplicateScenePlaylistName(config.ScenePlaylists, source.Name);
+            var previousPlaylists = config.ScenePlaylists;
+            var candidatePlaylists = previousPlaylists
+                .Where(playlist => playlist != null)
+                .Select(CloneScenePlaylist)
+                .ToList();
+            candidatePlaylists.Add(duplicate);
+            var validationConfiguration = new PluginConfiguration
+            {
+                ColorPresets = config.ColorPresets ?? new List<HueColorPreset>(),
+                UserMappings = config.UserMappings ?? new List<UserBridgeMapping>(),
+                ScenePlaylists = candidatePlaylists
+            };
+            var validationErrors = validationConfiguration.ValidateScenePlaylists();
+            if (validationErrors.Count > 0)
+                return BadRequest(new { message = "The scene playlist copy is invalid.", errors = validationErrors });
+
+            config.ScenePlaylists = candidatePlaylists;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ScenePlaylists = previousPlaylists;
+                _logger?.LogError(ex, "Could not persist duplicate Hue scene playlist {0}", source.Name);
+                return StatusCode(StatusCodes.Status500InternalServerError, "The scene playlist copy could not be saved.");
+            }
+
+            return Ok(ToScenePlaylistResult(duplicate, config));
+        }
+
+        /// <summary>
+        /// Deletes one saved-scene playlist by name.
+        /// </summary>
+        [HttpDelete("ScenePlaylists/{name}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult DeleteScenePlaylist(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return NotFound("Scene playlist not found.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            config.ScenePlaylists ??= new List<HueScenePlaylist>();
+            var previousPlaylists = config.ScenePlaylists.ToList();
+            var removed = config.ScenePlaylists.RemoveAll(playlist =>
+                playlist != null &&
+                string.Equals(playlist.Name?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (removed == 0)
+                return NotFound("Scene playlist not found.");
+
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ScenePlaylists = previousPlaylists;
+                _logger?.LogError(ex, "Could not persist deletion of Hue scene playlist {0}", name);
+                return StatusCode(StatusCodes.Status500InternalServerError, "The scene playlist could not be deleted.");
+            }
+
+            return Ok(new { message = "Scene playlist deleted successfully." });
         }
 
         /// <summary>
@@ -2704,8 +3052,8 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Imports global settings, per-user profiles, color scenes, and scheduled scene
-        /// cues atomically. Blank
+        /// Imports global settings, per-user profiles, color scenes, scene playlists, and
+        /// scheduled scene cues atomically. Blank
         /// global or mapping keys preserve credentials already stored for the same target;
         /// secrets included explicitly in an import are accepted but never echoed back.
         /// </summary>
@@ -2742,12 +3090,17 @@ namespace Jellyfin.Plugin.Hue.Api
             var existingPresets = (config.ColorPresets ?? new List<HueColorPreset>())
                 .Where(preset => preset != null)
                 .ToList();
+            var existingPlaylists = (config.ScenePlaylists ?? new List<HueScenePlaylist>())
+                .Where(playlist => playlist != null)
+                .Select(CloneScenePlaylist)
+                .ToList();
             var existingSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
                 .Where(schedule => schedule != null)
                 .Select(CloneSceneSchedule)
                 .ToList();
             var importedMappings = request.UserMappings ?? new List<UserBridgeMappingImport>();
             var importedPresets = request.ColorPresets ?? new List<HueColorPresetRequest>();
+            var importedPlaylists = request.ScenePlaylists ?? new List<HueScenePlaylistRequest>();
             var importedSchedules = request.SceneSchedules ?? new List<HueSceneScheduleRequest>();
             var validationErrors = new List<string>();
             var seenUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2819,6 +3172,31 @@ namespace Jellyfin.Plugin.Hue.Api
                 validationErrors.Add($"No more than {PluginConfiguration.MaxColorPresets} color presets may be saved.");
             }
 
+            var candidatePlaylists = request.ReplaceScenePlaylists
+                ? new List<HueScenePlaylist>()
+                : existingPlaylists.Select(CloneScenePlaylist).ToList();
+            foreach (var playlistRequest in importedPlaylists)
+            {
+                var playlist = playlistRequest?.ToConfigurationPlaylist() ?? new HueScenePlaylist();
+                if (string.IsNullOrWhiteSpace(playlist.Id))
+                    playlist.Id = Guid.NewGuid().ToString("N");
+
+                var existingIndex = candidatePlaylists.FindIndex(existing =>
+                    string.Equals(existing.Id?.Trim(), playlist.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (existingIndex >= 0)
+                    candidatePlaylists[existingIndex] = playlist;
+                else
+                    candidatePlaylists.Add(playlist);
+            }
+
+            var playlistValidationConfiguration = new PluginConfiguration
+            {
+                ColorPresets = candidatePresets,
+                UserMappings = candidateMappings,
+                ScenePlaylists = candidatePlaylists
+            };
+            validationErrors.AddRange(playlistValidationConfiguration.ValidateScenePlaylists());
+
             var candidateSchedules = request.ReplaceSceneSchedules
                 ? new List<HueSceneSchedule>()
                 : existingSchedules.Select(CloneSceneSchedule).ToList();
@@ -2870,6 +3248,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var scheduleValidationConfiguration = new PluginConfiguration
             {
                 ColorPresets = candidatePresets,
+                ScenePlaylists = candidatePlaylists,
                 UserMappings = candidateMappings,
                 SceneSchedules = candidateSchedules
             };
@@ -2883,6 +3262,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var previousClientKey = config.HueClientKey;
             var previousMappings = config.UserMappings ?? new List<UserBridgeMapping>();
             var previousPresets = config.ColorPresets ?? new List<HueColorPreset>();
+            var previousPlaylists = config.ScenePlaylists ?? new List<HueScenePlaylist>();
             var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
             var globalAppKeyPreserved = string.IsNullOrWhiteSpace(request.Configuration.HueAppKey) &&
                 !request.Configuration.ClearStoredCredentials &&
@@ -2894,6 +3274,7 @@ namespace Jellyfin.Plugin.Hue.Api
             request.Configuration.ApplyTo(config);
             config.UserMappings = candidateMappings;
             config.ColorPresets = candidatePresets;
+            config.ScenePlaylists = candidatePlaylists;
             config.SceneSchedules = candidateSchedules;
             var completeValidationErrors = config.Validate();
             if (completeValidationErrors.Count > 0)
@@ -2903,6 +3284,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 config.HueClientKey = previousClientKey;
                 config.UserMappings = previousMappings;
                 config.ColorPresets = previousPresets;
+                config.ScenePlaylists = previousPlaylists;
                 config.SceneSchedules = previousSchedules;
                 return BadRequest(new
                 {
@@ -2924,6 +3306,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 config.HueClientKey = previousClientKey;
                 config.UserMappings = previousMappings;
                 config.ColorPresets = previousPresets;
+                config.ScenePlaylists = previousPlaylists;
                 config.SceneSchedules = previousSchedules;
                 // Keep the response credential-free while retaining the exception in the
                 // server log for the administrator's normal Jellyfin diagnostics.
@@ -2935,9 +3318,11 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 MappingsImported = importedMappingValues.Count,
                 ColorPresetsImported = importedPresets.Count,
+                ScenePlaylistsImported = importedPlaylists.Count,
                 SceneSchedulesImported = importedSchedules.Count,
                 TotalMappings = candidateMappings.Count,
                 TotalColorPresets = candidatePresets.Count,
+                TotalScenePlaylists = candidatePlaylists.Count,
                 TotalSceneSchedules = candidateSchedules.Count,
                 GlobalAppKeyPreserved = globalAppKeyPreserved,
                 GlobalClientKeyPreserved = globalClientKeyPreserved,
@@ -3563,6 +3948,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public HuePluginConfigurationSettings Configuration { get; set; } = new();
         public IReadOnlyList<UserBridgeMappingSummary> UserMappings { get; set; } = Array.Empty<UserBridgeMappingSummary>();
         public IReadOnlyList<HueColorPresetResult> ColorPresets { get; set; } = Array.Empty<HueColorPresetResult>();
+        public IReadOnlyList<HueScenePlaylistResult> ScenePlaylists { get; set; } = Array.Empty<HueScenePlaylistResult>();
         public IReadOnlyList<HueSceneScheduleResult> SceneSchedules { get; set; } = Array.Empty<HueSceneScheduleResult>();
 
         public static HueConfigurationExportDocument From(PluginConfiguration config)
@@ -3582,6 +3968,10 @@ namespace Jellyfin.Plugin.Hue.Api
                     .Where(preset => preset != null)
                     .Select(HueApiController.ToColorPresetResult)
                     .ToArray(),
+                ScenePlaylists = (config.ScenePlaylists ?? new List<HueScenePlaylist>())
+                    .Where(playlist => playlist != null)
+                    .Select(playlist => HueApiController.ToScenePlaylistResult(playlist, config))
+                    .ToArray(),
                 SceneSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
                     .Where(schedule => schedule != null)
                     .Select(schedule => HueApiController.ToSceneScheduleResult(schedule, config))
@@ -3600,9 +3990,11 @@ namespace Jellyfin.Plugin.Hue.Api
         public HuePluginConfigurationSettings? Configuration { get; set; }
         public List<UserBridgeMappingImport> UserMappings { get; set; } = new();
         public List<HueColorPresetRequest> ColorPresets { get; set; } = new();
+        public List<HueScenePlaylistRequest> ScenePlaylists { get; set; } = new();
         public List<HueSceneScheduleRequest> SceneSchedules { get; set; } = new();
         public bool ReplaceMappings { get; set; } = true;
         public bool ReplaceColorPresets { get; set; } = true;
+        public bool ReplaceScenePlaylists { get; set; } = true;
         public bool ReplaceSceneSchedules { get; set; } = true;
     }
 
@@ -3614,9 +4006,11 @@ namespace Jellyfin.Plugin.Hue.Api
         public string Message { get; set; } = string.Empty;
         public int MappingsImported { get; set; }
         public int ColorPresetsImported { get; set; }
+        public int ScenePlaylistsImported { get; set; }
         public int SceneSchedulesImported { get; set; }
         public int TotalMappings { get; set; }
         public int TotalColorPresets { get; set; }
+        public int TotalScenePlaylists { get; set; }
         public int TotalSceneSchedules { get; set; }
         public bool GlobalAppKeyPreserved { get; set; }
         public bool GlobalClientKeyPreserved { get; set; }
@@ -3962,6 +4356,81 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("transitionOutSeconds")]
         public int TransitionOutSeconds { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free saved-scene playlist metadata returned by administrator APIs.
+    /// </summary>
+    public sealed class HueScenePlaylistResult
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("presetNames")]
+        public IReadOnlyList<string> PresetNames { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("targetUserId")]
+        public string TargetUserId { get; set; } = string.Empty;
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool TargetAllEnabledMappings { get; set; }
+
+        [JsonPropertyName("targetLabel")]
+        public string TargetLabel { get; set; } = string.Empty;
+
+        [JsonPropertyName("totalDurationSeconds")]
+        public int TotalDurationSeconds { get; set; }
+    }
+
+    /// <summary>
+    /// Request shape for saving an ordered credential-free scene playlist.
+    /// </summary>
+    public sealed class HueScenePlaylistRequest
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("presetNames")]
+        public List<string> PresetNames { get; set; } = new();
+
+        [JsonPropertyName("targetUserId")]
+        public string TargetUserId { get; set; } = string.Empty;
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool TargetAllEnabledMappings { get; set; }
+
+        public HueScenePlaylist ToConfigurationPlaylist()
+        {
+            return new HueScenePlaylist
+            {
+                Id = Id?.Trim() ?? string.Empty,
+                Name = Name?.Trim() ?? string.Empty,
+                PresetNames = (PresetNames ?? new List<string>())
+                    .Select(name => name?.Trim() ?? string.Empty)
+                    .ToList(),
+                TargetUserId = TargetAllEnabledMappings ? string.Empty : TargetUserId?.Trim() ?? string.Empty,
+                TargetAllEnabledMappings = TargetAllEnabledMappings
+            };
+        }
+    }
+
+    /// <summary>
+    /// Optional per-run target override for a saved-scene playlist preview. The persisted
+    /// playlist remains unchanged.
+    /// </summary>
+    public sealed class HueScenePlaylistPreviewRequest
+    {
+        [JsonPropertyName("targetUserId")]
+        public string? TargetUserId { get; set; }
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool? TargetAllEnabledMappings { get; set; }
     }
 
     /// <summary>

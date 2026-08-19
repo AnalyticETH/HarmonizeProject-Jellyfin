@@ -1371,6 +1371,222 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task ScenePlaylists_CrudAndPreviewRunsOrderedScenesWithoutReturningCredentials()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "playlist-global-app-secret",
+            HueClientKey = "playlist-global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, DurationSeconds = 1 },
+                new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, DurationSeconds = 2 }
+            }
+        });
+        var controller = CreateController();
+
+        var saved = controller.SaveScenePlaylist(new HueScenePlaylistRequest
+        {
+            Name = " Evening sequence ",
+            PresetNames = new List<string> { "Warm", "Cool" }
+        });
+        var savedResponse = Assert.IsType<OkObjectResult>(saved.Result);
+        var savedResult = Assert.IsType<HueScenePlaylistResult>(savedResponse.Value);
+        Assert.Equal("Evening sequence", savedResult.Name);
+        Assert.Equal(3, savedResult.TotalDurationSeconds);
+        Assert.Equal("Default bridge target", savedResult.TargetLabel);
+        Assert.DoesNotContain("playlist-global-app-secret", JsonSerializer.Serialize(savedResult), StringComparison.Ordinal);
+
+        var listedResponse = Assert.IsType<OkObjectResult>(controller.GetScenePlaylists().Result);
+        var listed = Assert.IsAssignableFrom<IEnumerable<HueScenePlaylistResult>>(listedResponse.Value).ToArray();
+        Assert.Single(listed);
+        Assert.Equal(new[] { "Warm", "Cool" }, listed[0].PresetNames);
+
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<string>(),
+                It.IsAny<int>()))
+            .ReturnsAsync(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Playlist step completed."
+            });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var preview = await controller.PreviewScenePlaylist(
+            "evening sequence",
+            new HueScenePlaylistPreviewRequest());
+
+        var previewResponse = Assert.IsType<OkObjectResult>(preview.Result);
+        var result = Assert.IsType<HueScenePlaylistRunResult>(previewResponse.Value);
+        Assert.True(result.Succeeded);
+        Assert.Equal(new[] { "Warm", "Cool" }, result.Steps.Select(step => step.PresetName));
+        Assert.Equal(new[] { 25, 220 }, streamTester.Invocations
+            .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
+            .Select(invocation => (int)invocation.Arguments[6]!)
+            .ToArray());
+        var target = Assert.Single(result.TargetResults);
+        Assert.True(target.Succeeded);
+        Assert.Equal(2, target.CompletedStepCount);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("playlist-global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-global-client-secret", serialized, StringComparison.Ordinal);
+
+        var duplicate = controller.DuplicateScenePlaylist("evening sequence");
+        var duplicateResponse = Assert.IsType<OkObjectResult>(duplicate.Result);
+        var duplicateResult = Assert.IsType<HueScenePlaylistResult>(duplicateResponse.Value);
+        Assert.Equal("Evening sequence (Copy)", duplicateResult.Name);
+        Assert.Equal(2, configuration.ScenePlaylists.Count);
+
+        var deleted = controller.DeleteScenePlaylist(duplicateResult.Name);
+        Assert.IsType<OkObjectResult>(deleted);
+        Assert.Single(configuration.ScenePlaylists);
+    }
+
+    [Fact]
+    public async Task ScenePlaylists_AllTargetsAggregatesEachStepAndNeverLeaksMappingCredentials()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "playlist-global-app-secret",
+            HueClientKey = "playlist-global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Broadcast scene", Red = 100, Green = 40, Blue = 20, DurationSeconds = 1 },
+                new() { Name = "Broadcast finale", Red = 240, Green = 180, Blue = 60, DurationSeconds = 1 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-kitchen",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "playlist-mapping-app-secret",
+                    HueClientKey = "playlist-mapping-client-secret",
+                    EntertainmentAreaId = "kitchen-area",
+                    ChannelIdsOverride = "1"
+                }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "broadcast-playlist",
+                    Name = "Broadcast",
+                    PresetNames = new List<string> { "Broadcast scene", "Broadcast finale" },
+                    TargetAllEnabledMappings = true
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0},{\"channel_id\":1}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<JsonElement>(), It.IsAny<IReadOnlySet<int>?>(), It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>()))
+            .Returns((string bridgeIp, string _, string _, string _, JsonElement _, IReadOnlySet<int>? _, int _, int _, int _, int _, int _, CancellationToken _, int _, int _, string _, int _) =>
+                Task.FromResult(new HueStreamProbeResult
+                {
+                    Succeeded = !string.Equals(bridgeIp, "192.168.1.101", StringComparison.Ordinal),
+                    Message = string.Equals(bridgeIp, "192.168.1.101", StringComparison.Ordinal)
+                        ? "Kitchen playlist step failed."
+                        : "Default playlist step completed."
+                }));
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var action = await controller.PreviewScenePlaylist(
+            "Broadcast",
+            new HueScenePlaylistPreviewRequest());
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueScenePlaylistRunResult>(response.Value);
+        Assert.True(result.TargetAllEnabledMappings);
+        Assert.False(result.Succeeded);
+        Assert.Equal(2, result.Steps.Count);
+        Assert.Equal(2, result.TargetResults.Count);
+        var defaultTarget = Assert.Single(result.TargetResults.Where(target => target.TargetLabel == "Default bridge target"));
+        Assert.True(defaultTarget.Succeeded);
+        Assert.Equal(2, defaultTarget.CompletedStepCount);
+        var kitchenTarget = Assert.Single(result.TargetResults.Where(target => target.TargetLabel == "Kitchen"));
+        Assert.False(kitchenTarget.Succeeded);
+        Assert.Equal(2, kitchenTarget.CompletedStepCount);
+        streamTester.Verify(tester => tester.PreviewAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<JsonElement>(),
+            It.IsAny<IReadOnlySet<int>?>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(),
+            It.IsAny<int>(), It.IsAny<CancellationToken>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(),
+            It.IsAny<int>()), Times.Exactly(4));
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("playlist-global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-global-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-mapping-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-mapping-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ScenePlaylists_MissingSceneReturnsBadRequestWithoutContactingBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "playlist-app-secret",
+            HueClientKey = "playlist-client-secret",
+            EntertainmentAreaId = "global-area",
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "broken-playlist",
+                    Name = "Broken",
+                    PresetNames = new List<string> { "Missing scene" }
+                }
+            }
+        });
+        var action = await CreateController(Mock.Of<IHueStreamTester>()).PreviewScenePlaylist(
+            "Broken",
+            new HueScenePlaylistPreviewRequest());
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("scene playlist", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Preview_WithInvalidColorOrDurationReturnsBadRequestWithoutTouchingBridge()
     {
         var controller = CreateController(Mock.Of<IHueStreamTester>());
@@ -3386,6 +3602,84 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("Private viewer", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("PersistedSessionHistory", serialized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("secret-app", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConfigurationExportAndImport_PreservesScenePlaylistsWithoutCredentials()
+    {
+        var sourceConfiguration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "source-app-secret",
+            HueClientKey = "source-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Sunrise", Red = 240, Green = 120, Blue = 40, DurationSeconds = 3 },
+                new() { Name = "Midnight", Red = 20, Green = 30, Blue = 90, DurationSeconds = 5 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-portable",
+                    Name = "Portable sequence",
+                    PresetNames = new List<string> { "Sunrise", "Midnight" },
+                    TargetAllEnabledMappings = true
+                }
+            }
+        };
+        var exported = HueConfigurationExportDocument.From(sourceConfiguration);
+        var exportedPlaylist = Assert.Single(exported.ScenePlaylists);
+        Assert.Equal("playlist-portable", exportedPlaylist.Id);
+        Assert.Equal(new[] { "Sunrise", "Midnight" }, exportedPlaylist.PresetNames);
+        Assert.True(exportedPlaylist.TargetAllEnabledMappings);
+        Assert.Equal(8, exportedPlaylist.TotalDurationSeconds);
+        var serialized = JsonSerializer.Serialize(exported);
+        Assert.DoesNotContain("source-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("source-client-secret", serialized, StringComparison.Ordinal);
+
+        var destination = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.110",
+            HueAppKey = "destination-app-secret",
+            HueClientKey = "destination-client-secret",
+            EntertainmentAreaId = "destination-area"
+        });
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            SchemaVersion = exported.SchemaVersion,
+            Configuration = exported.Configuration,
+            ColorPresets = new List<HueColorPresetRequest>
+            {
+                new() { Name = "Sunrise", Red = 240, Green = 120, Blue = 40, DurationSeconds = 3 },
+                new() { Name = "Midnight", Red = 20, Green = 30, Blue = 90, DurationSeconds = 5 }
+            },
+            ScenePlaylists = new List<HueScenePlaylistRequest>
+            {
+                new()
+                {
+                    Id = exportedPlaylist.Id,
+                    Name = exportedPlaylist.Name,
+                    PresetNames = exportedPlaylist.PresetNames.ToList(),
+                    TargetAllEnabledMappings = exportedPlaylist.TargetAllEnabledMappings
+                }
+            }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConfigurationImportResult>(response.Value);
+        Assert.Equal(1, result.ScenePlaylistsImported);
+        Assert.Equal(1, result.TotalScenePlaylists);
+        Assert.Equal("destination-app-secret", destination.HueAppKey);
+        Assert.Equal("destination-client-secret", destination.HueClientKey);
+        var imported = Assert.Single(destination.ScenePlaylists);
+        Assert.Equal("playlist-portable", imported.Id);
+        Assert.Equal(new[] { "Sunrise", "Midnight" }, imported.PresetNames);
+        Assert.True(imported.TargetAllEnabledMappings);
+        var serializedResult = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("destination-app-secret", serializedResult, StringComparison.Ordinal);
+        Assert.DoesNotContain("destination-client-secret", serializedResult, StringComparison.Ordinal);
     }
 
     [Fact]
