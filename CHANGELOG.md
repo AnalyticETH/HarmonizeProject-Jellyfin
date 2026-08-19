@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.159] - 2026-08-19
+
+### Added
+- **Audio-reactive playback**: choose Audio-only or All-media playback scopes to decode a bounded PCM window and map low/mid/high spectral energy to spatial Hue colors
+- **Safe audio capture**: emit tokenized FFmpeg `s16le` output without shell parsing, with the same bridge leases, light restoration, retries, seek recovery, cancellation, and stall cleanup as video
+- **Credential-safe telemetry**: audio sessions reuse existing status/history targets and preserve the default AllVideo behavior for existing installations
+- **Regression coverage**: verify audio scope selection, deterministic band analysis/color mapping, and safe FFmpeg audio arguments
+
 ## [1.5.158] - 2026-08-19
 
 ### Added

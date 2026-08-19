@@ -8377,7 +8377,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
         var validationBody = System.Text.Json.JsonSerializer.Serialize(response.Value);
         Assert.Contains("target FPS override must be between 1 and 60", validationBody, StringComparison.Ordinal);
-        Assert.Contains("playback media scope override must be AllVideo, Movies, Episodes, or OtherVideo", validationBody, StringComparison.Ordinal);
+        Assert.Contains("playback media scope override must be AllVideo, Movies, Episodes, OtherVideo, Audio, or AllMedia", validationBody, StringComparison.Ordinal);
         Assert.Contains("FFmpeg stall timeout override must be between 1 and 60 seconds", validationBody, StringComparison.Ordinal);
         Assert.Contains("network retry attempts override must be between 0 and 10", validationBody, StringComparison.Ordinal);
         Assert.Contains("channel IDs override must be a comma-separated list of IDs from 0 to 65535", validationBody, StringComparison.Ordinal);

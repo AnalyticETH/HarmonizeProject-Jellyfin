@@ -219,6 +219,58 @@ namespace Jellyfin.Plugin.Hue.Video
             return arguments;
         }
 
+        /// <summary>
+        /// Builds a safe FFmpeg command that emits a bounded-rate stereo PCM stream for
+        /// audio-reactive Hue synchronization. The output is deliberately uncompressed
+        /// signed 16-bit little-endian samples so the service can analyze it without a
+        /// native audio dependency or shell interpolation.
+        /// </summary>
+        internal static IReadOnlyList<string> BuildAudioFfmpegArguments(
+            string audioPath,
+            bool useGpu,
+            string customFlags,
+            double seekPositionSeconds,
+            int sampleRate = 8000,
+            int channels = 2)
+        {
+            if (string.IsNullOrWhiteSpace(audioPath))
+                throw new ArgumentException("An audio path is required.", nameof(audioPath));
+
+            if (sampleRate <= 0)
+                throw new ArgumentOutOfRangeException(nameof(sampleRate), "Audio sample rate must be positive.");
+
+            if (channels <= 0)
+                throw new ArgumentOutOfRangeException(nameof(channels), "Audio channel count must be positive.");
+
+            var arguments = new List<string>();
+            if (useGpu)
+            {
+                arguments.Add("-hwaccel");
+                arguments.Add("auto");
+            }
+
+            arguments.AddRange(ParseCustomArguments(customFlags));
+            if (seekPositionSeconds > 1.0)
+            {
+                arguments.Add("-ss");
+                arguments.Add(seekPositionSeconds.ToString("F3", CultureInfo.InvariantCulture));
+            }
+
+            arguments.Add("-i");
+            arguments.Add(audioPath);
+            arguments.Add("-vn");
+            arguments.Add("-ac");
+            arguments.Add(channels.ToString(CultureInfo.InvariantCulture));
+            arguments.Add("-ar");
+            arguments.Add(sampleRate.ToString(CultureInfo.InvariantCulture));
+            arguments.Add("-f");
+            arguments.Add("s16le");
+            arguments.Add("-acodec");
+            arguments.Add("pcm_s16le");
+            arguments.Add("pipe:1");
+            return arguments;
+        }
+
         internal static string BuildVideoFilter(int frameWidth, int frameHeight)
             => BuildVideoFilter(frameWidth, frameHeight, PluginConfiguration.VideoScalingModeStretch);
 
@@ -359,7 +411,8 @@ namespace Jellyfin.Plugin.Hue.Video
             }
 
             // A streamer owns one FFmpeg process. Stop any previous process before
-            // replacing the field so repeated playback-start events cannot leak it.
+            // validating/replacing the command so an invalid new request cannot leave
+            // an older capture running unexpectedly.
             Stop();
 
             // NOTE: We deliberately omit -re here.
@@ -386,6 +439,68 @@ namespace Jellyfin.Plugin.Hue.Video
                 return null;
             }
 
+            return StartProcess(arguments, videoPath, ffmpegPath);
+        }
+
+        /// <summary>
+        /// Starts FFmpeg in audio-reactive mode and returns its raw PCM output stream.
+        /// </summary>
+        public Stream? StartAudioFfmpeg(
+            string audioPath,
+            bool useGpu = true,
+            string customFlags = "",
+            string ffmpegPath = "ffmpeg",
+            double seekPositionSeconds = 0,
+            int sampleRate = 8000,
+            int channels = 2)
+        {
+            if (string.IsNullOrWhiteSpace(audioPath))
+            {
+                _logger.LogError("Audio path is null or empty");
+                return null;
+            }
+
+            if (!File.Exists(audioPath))
+            {
+                _logger.LogError("Audio file not found: {0}", audioPath);
+                return null;
+            }
+
+            if (double.IsNaN(seekPositionSeconds) || double.IsInfinity(seekPositionSeconds) || seekPositionSeconds < 0)
+            {
+                _logger.LogWarning("Ignoring invalid FFmpeg audio seek position {0}", seekPositionSeconds);
+                seekPositionSeconds = 0;
+            }
+
+            // Stop an earlier video/audio capture before parsing a replacement command;
+            // malformed custom flags must not leave the previous process alive.
+            Stop();
+
+            IReadOnlyList<string> arguments;
+            try
+            {
+                arguments = BuildAudioFfmpegArguments(
+                    audioPath,
+                    useGpu,
+                    customFlags,
+                    seekPositionSeconds,
+                    sampleRate,
+                    channels);
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Invalid FFmpeg custom flags; refusing to start the audio process.");
+                return null;
+            }
+
+            return StartProcess(arguments, audioPath, ffmpegPath);
+        }
+
+        private Stream? StartProcess(
+            IReadOnlyList<string> arguments,
+            string mediaPath,
+            string ffmpegPath)
+        {
             var startInfo = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
@@ -397,7 +512,7 @@ namespace Jellyfin.Plugin.Hue.Video
             foreach (var argument in arguments)
                 startInfo.ArgumentList.Add(argument);
 
-            _logger.LogInformation("Starting FFmpeg process for {0}", videoPath);
+            _logger.LogInformation("Starting FFmpeg process for {0}", mediaPath);
 
             try
             {
@@ -428,9 +543,7 @@ namespace Jellyfin.Plugin.Hue.Video
                         {
                             var line = reader.ReadLine();
                             if (!string.IsNullOrEmpty(line))
-                            {
                                 _logger.LogDebug("FFmpeg: {0}", line);
-                            }
                         }
                     }
                     catch (Exception ex)
@@ -440,7 +553,7 @@ namespace Jellyfin.Plugin.Hue.Video
                 }, monitorToken);
 
                 // Monitor process health — uses capturedProcess to avoid the race where
-                // Stop() sets _ffmpegProcess = null while this task is still running
+                // Stop() sets _ffmpegProcess = null while this task is still running.
                 _ = Task.Run(async () =>
                 {
                     try
@@ -460,7 +573,7 @@ namespace Jellyfin.Plugin.Hue.Video
                                 !IsHealthy(capturedProcess, startTime, lastFrameTime, NormalizeStallTimeout(StallTimeoutSeconds)))
                             {
                                 _logger.LogWarning(
-                                    "FFmpeg appears stalled — no frames in {0}+ seconds. Processed {1} frames total.",
+                                    "FFmpeg appears stalled — no media samples in {0}+ seconds. Processed {1} samples total.",
                                     NormalizeStallTimeout(StallTimeoutSeconds),
                                     FramesProcessed);
                             }
@@ -479,7 +592,6 @@ namespace Jellyfin.Plugin.Hue.Video
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start FFmpeg process. Ensure ffmpeg is installed and in PATH.");
-                // Clean up partially-started process to prevent leaks
                 try
                 { if (_ffmpegProcess != null && !_ffmpegProcess.HasExited) _ffmpegProcess.Kill(); }
                 catch { }

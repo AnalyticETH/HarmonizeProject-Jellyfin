@@ -22,7 +22,7 @@ public class PluginConfigurationTests
         var config = new PluginConfiguration { PlaybackMediaFilter = "Trailers" };
 
         Assert.False(PluginConfiguration.TryNormalizePlaybackMediaFilter(config.PlaybackMediaFilter, out _));
-        Assert.Contains("Playback media scope must be AllVideo, Movies, Episodes, or OtherVideo", config.Validate());
+        Assert.Contains("Playback media scope must be AllVideo, Movies, Episodes, OtherVideo, Audio, or AllMedia", config.Validate());
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public class PluginConfigurationTests
             }
         };
 
-        Assert.Contains("User mapping 1 playback media scope override must be AllVideo, Movies, Episodes, or OtherVideo", config.Validate());
+        Assert.Contains("User mapping 1 playback media scope override must be AllVideo, Movies, Episodes, OtherVideo, Audio, or AllMedia", config.Validate());
     }
 
     [Fact]

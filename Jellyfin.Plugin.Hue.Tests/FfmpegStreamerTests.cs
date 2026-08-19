@@ -122,4 +122,31 @@ public sealed class FfmpegStreamerTests
             },
             arguments);
     }
+
+    [Fact]
+    public void BuildAudioFfmpegArguments_UsesSafePcmTokensAndSeek()
+    {
+        var arguments = FfmpegStreamer.BuildAudioFfmpegArguments(
+            "/media/Music/Live Set \"2026\".flac",
+            useGpu: true,
+            customFlags: "-threads 2 -filter_threads \"1\"",
+            seekPositionSeconds: 12.3456);
+
+        Assert.Equal(
+            new[]
+            {
+                "-hwaccel", "auto",
+                "-threads", "2",
+                "-filter_threads", "1",
+                "-ss", "12.346",
+                "-i", "/media/Music/Live Set \"2026\".flac",
+                "-vn",
+                "-ac", "2",
+                "-ar", "8000",
+                "-f", "s16le",
+                "-acodec", "pcm_s16le",
+                "pipe:1"
+            },
+            arguments);
+    }
 }

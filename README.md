@@ -60,8 +60,8 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Hue App Key** | "Username" for the REST API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it, or use Link Bridge to replace it. |
 | **Hue Client Key** | "ClientKey" for the streaming API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it, or use Link Bridge to replace it. |
 | **Entertainment Area ID** | UUID of the specific area to sync. |
-| **Playback Media Scope** | Choose whether Hue Sync starts for all video items (default), movies only, TV episodes only, or other video such as music/home videos. Changing the scope does not interrupt an active session; normal progress and stop events still perform cleanup. |
-| **Per-User Playback Media Scope** | Each per-user mapping can inherit the global scope or override it for that user's playback, so a room or family profile can restrict sync independently. Existing sessions still clean up normally when the effective scope changes. |
+| **Playback Media Scope** | Choose whether Hue Sync starts for all video items (default), movies only, TV episodes only, other video such as music/home videos, audio-only music, or all video and audio. Audio scopes decode a bounded PCM window and map low/mid/high energy to a spatial Hue visualizer; changing the scope does not interrupt an active session, and normal progress/stop events still perform cleanup. |
+| **Per-User Playback Media Scope** | Each per-user mapping can inherit the global scope or override it for that user's playback, including audio-only or all-media reactive mode, so a room or family profile can restrict sync independently. Existing sessions still clean up normally when the effective scope changes. |
 | **Target FPS** | Frames per second to process (Default: 20). Lower = less CPU. |
 | **Frame Sampling Resolution** | RGB frame size used for color extraction: 80×45 (lowest CPU), 160×90 (default), or 320×180 (more spatial detail). |
 | **Video Fit Mode** | Stretch (default), Fit with letterbox bars, or Crop to fill the 16:9 sampling frame while preserving source aspect ratio. |
@@ -229,7 +229,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/Configuration/ValidateImport` | Preflight a configuration import without mutating settings or contacting Hue: apply schema normalization, saved-scene/playlist/cue dependency checks, complete configuration validation, and matching-key preservation analysis. The credential-free result includes validation errors, planned object totals, `canImport` (false while playback is active), and a normalized `diff` with added/removed/changed/unchanged counts for mappings, color presets, playlists, and schedules plus global settings/key change flags. |
 | `POST /HueSync/Configuration/Import` | Atomically restore an export document, including saved scene playlists and scene cues. Matching stored global/mapping keys are preserved when omitted; explicit global or mapping keys may be supplied for migration, playlist renames migrate matching cue references by stable playlist ID, and invalid documents leave the current configuration unchanged. The configuration page keeps replacement keys in memory only and sends them once in this request. Active playback must be stopped first. |
 | `POST /HueSync/Stop` | Stop Hue output for the current playback session, restore lights, and leave Jellyfin playback running. Pass `playSessionId` to stop one listed concurrent session. |
-| `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global playback media scope, global channel profile, recurring scene-automation pause preference, bounded missed-cue recovery window, and opt-in persistent session/cue-history preferences, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. Failed persistence restores the complete prior settings and retained history and returns a sanitized server error. |
+| `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global video/audio playback media scope, global channel profile, recurring scene-automation pause preference, bounded missed-cue recovery window, and opt-in persistent session/cue-history preferences, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. Failed persistence restores the complete prior settings and retained history and returns a sanitized server error. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients; `userId` can select a matching stored custom mapping, but POST is preferred so keys do not appear in URLs. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback-media-scope/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |
 | `GET /HueSync/UserMappings/{userId}/Dependencies` | Inspect one mapping's credential-free scheduled-cue and saved-playlist target dependencies before disabling or deleting it. Returns `canDisable`, `canDelete`, dependent cue and playlist counts, and bounded IDs/names/enabled state; bridge credentials and target details are never returned. |
@@ -406,7 +406,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.158 (Current)
+### Version 1.5.159 (Current)
+- **Audio-reactive playback**: choose Audio-only or All-media playback scopes to decode a bounded PCM window and drive low/mid/high spectral energy through spatial Hue colors, with existing bridge leases, light restoration, retries, seek recovery, per-user scopes, and sanitized telemetry preserved
+- **Safe audio capture**: emit tokenized FFmpeg `s16le` output without shell parsing, use cancellation/stall cleanup identical to video, and keep the default AllVideo behavior unchanged
+
+### Version 1.5.158
 - **Aurora scene effect**: use a deterministic drifting green/cyan/blue/violet Aurora effect in manual previews, saved scenes, playlists, and scheduled cues; its RGB seed controls output level while effect speed controls the wave
 
 ### Version 1.5.157
@@ -549,11 +553,11 @@ Benchmarks measure:
 - **Administrator selection workflow**: add select-all, clear-selection, and post-action credential-free status refresh controls
 
 ### Version 1.5.129
-- **Per-user playback media scope**: inherit the global scope or override it per user mapping for all video, movies, TV episodes, or other video while retaining safe cleanup for active sessions
+- **Per-user playback media scope**: inherit the global scope or override it per user mapping for all video, movies, TV episodes, other video, audio-only music, or all media while retaining safe cleanup for active sessions
 - **Effective status and portability**: expose the active effective scope and carry credential-free overrides through mapping summaries and backup/restore
 
 ### Version 1.5.128
-- **Playback media scope**: choose all video, movies, TV episodes, or other video as the global start policy; existing sessions still receive cleanup lifecycle events when the policy changes
+- **Playback media scope**: choose all video, movies, TV episodes, other video, audio-only music, or all media as the global start policy; existing sessions still receive cleanup lifecycle events when the policy changes
 - **Visible policy telemetry**: expose the selected scope through configuration, Live Sync Status, diagnostics, and credential-safe exports
 
 ### Version 1.5.127

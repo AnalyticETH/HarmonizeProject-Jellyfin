@@ -15,6 +15,16 @@ public sealed class HueSyncServiceTests
         Assert.False(HueSyncService.IsSupportedVideoPlaybackItem(null));
     }
 
+    [Fact]
+    public void IsSupportedPlaybackItem_AcceptsAudioWithoutTreatingItAsVideo()
+    {
+        var audio = new MediaBrowser.Controller.Entities.Audio.Audio();
+
+        Assert.True(HueSyncService.IsAudioPlaybackItem(audio));
+        Assert.True(HueSyncService.IsSupportedPlaybackItem(audio));
+        Assert.False(HueSyncService.IsSupportedVideoPlaybackItem(audio));
+    }
+
     [Theory]
     [InlineData(PluginConfiguration.PlaybackMediaFilterAllVideo, true, true, true)]
     [InlineData(PluginConfiguration.PlaybackMediaFilterMovies, true, false, false)]
@@ -59,6 +69,54 @@ public sealed class HueSyncServiceTests
         Assert.False(HueSyncService.MatchesPlaybackMediaFilter(
             new MediaBrowser.Controller.Entities.Movies.Movie(),
             config.GetPlaybackMediaFilterForUser(userId)));
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.PlaybackMediaFilterAllVideo, false)]
+    [InlineData(PluginConfiguration.PlaybackMediaFilterAudio, true)]
+    [InlineData(PluginConfiguration.PlaybackMediaFilterAllMedia, true)]
+    [InlineData("audio", true)]
+    public void MatchesPlaybackMediaFilter_SelectsAudioScopes(
+        string filter,
+        bool expectedAudio)
+    {
+        var audio = new MediaBrowser.Controller.Entities.Audio.Audio();
+
+        Assert.Equal(expectedAudio, HueSyncService.MatchesPlaybackMediaFilter(audio, filter));
+        Assert.False(HueSyncService.MatchesPlaybackMediaFilter(
+            new MediaBrowser.Controller.Entities.Movies.Movie(),
+            PluginConfiguration.PlaybackMediaFilterAudio));
+    }
+
+    [Fact]
+    public void AnalyzeAudioSamplesAndBuildAudioColorsAreDeterministicAndSpatial()
+    {
+        var pcm = new byte[800 * 2 * 2];
+        for (var index = 0; index < pcm.Length; index += 4)
+        {
+            pcm[index] = 0xff;
+            pcm[index + 1] = 0x1f;
+            pcm[index + 2] = 0xff;
+            pcm[index + 3] = 0x1f;
+        }
+
+        var energy = HueSyncService.AnalyzeAudioSamples(pcm, pcm.Length);
+        Assert.InRange(energy.Rms, 0.24, 0.27);
+        Assert.True(energy.Low >= 0);
+        Assert.True(energy.Mid >= 0);
+        Assert.True(energy.High >= 0);
+
+        var lights = new Dictionary<int, (double x, double z)>
+        {
+            [1] = (-1, 0),
+            [2] = (1, 0)
+        };
+        var first = HueSyncService.BuildAudioChannelColors(lights, energy, frameIndex: 4);
+        var second = HueSyncService.BuildAudioChannelColors(lights, energy, frameIndex: 4);
+
+        Assert.Equal(first[1], second[1]);
+        Assert.Equal(first[2], second[2]);
+        Assert.NotEqual(first[1], first[2]);
     }
 
     [Fact]

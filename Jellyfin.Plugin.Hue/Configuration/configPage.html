@@ -711,8 +711,10 @@
                                 <option value="Movies">Movies only</option>
                                 <option value="Episodes">TV episodes only</option>
                                 <option value="OtherVideo">Other video (music/home videos)</option>
+                                <option value="Audio">Audio only (music)</option>
+                                <option value="AllMedia">All video and audio</option>
                             </select>
-                            <div class="fieldDescription">Choose which Jellyfin video item types can start Hue Sync. Changing this does not interrupt an active session; its normal progress and stop events still clean up safely.</div>
+                            <div class="fieldDescription">Choose which Jellyfin video or audio item types can start Hue Sync. Audio uses a low/mid/high-band reactive visualizer. Changing this does not interrupt an active session; its normal progress and stop events still clean up safely.</div>
                         </div>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="targetFps">Target FPS</label>
@@ -888,8 +890,10 @@
                                         <option value="Movies">Movies only</option>
                                         <option value="Episodes">TV episodes only</option>
                                         <option value="OtherVideo">Other video (music/home videos)</option>
+                                        <option value="Audio">Audio only (music)</option>
+                                        <option value="AllMedia">All video and audio</option>
                                     </select>
-                                    <div class="fieldDescription">Choose which video item types can start Hue Sync for this user. Blank inherits the global Playback Media Scope.</div>
+                                    <div class="fieldDescription">Choose which video or audio item types can start Hue Sync for this user. Audio uses a low/mid/high-band reactive visualizer; blank inherits the global Playback Media Scope.</div>
                                 </div>
 
                                 <div class="inputContainer">

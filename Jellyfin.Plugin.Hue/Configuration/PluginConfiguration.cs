@@ -374,6 +374,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string PlaybackMediaFilterMovies = "Movies";
         public const string PlaybackMediaFilterEpisodes = "Episodes";
         public const string PlaybackMediaFilterOtherVideo = "OtherVideo";
+        public const string PlaybackMediaFilterAudio = "Audio";
+        public const string PlaybackMediaFilterAllMedia = "AllMedia";
 
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
@@ -466,7 +468,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
             PlaybackMediaFilterAllVideo,
             PlaybackMediaFilterMovies,
             PlaybackMediaFilterEpisodes,
-            PlaybackMediaFilterOtherVideo
+            PlaybackMediaFilterOtherVideo,
+            PlaybackMediaFilterAudio,
+            PlaybackMediaFilterAllMedia
         };
 
         /// <summary>
@@ -957,7 +961,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (!string.IsNullOrWhiteSpace(playbackMediaFilterOverride) &&
                 !TryNormalizePlaybackMediaFilter(playbackMediaFilterOverride, out _))
             {
-                errors.Add($"{label} playback media scope override must be AllVideo, Movies, Episodes, or OtherVideo");
+                errors.Add($"{label} playback media scope override must be AllVideo, Movies, Episodes, OtherVideo, Audio, or AllMedia");
             }
 
             return errors;
@@ -1860,7 +1864,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             errors.AddRange(ValidateSceneSchedules());
 
             if (!TryNormalizePlaybackMediaFilter(PlaybackMediaFilter, out _))
-                errors.Add("Playback media scope must be AllVideo, Movies, Episodes, or OtherVideo");
+                errors.Add("Playback media scope must be AllVideo, Movies, Episodes, OtherVideo, Audio, or AllMedia");
 
             if (SceneAutomationCatchUpMinutes < MinSceneAutomationCatchUpMinutes ||
                 SceneAutomationCatchUpMinutes > MaxSceneAutomationCatchUpMinutes)

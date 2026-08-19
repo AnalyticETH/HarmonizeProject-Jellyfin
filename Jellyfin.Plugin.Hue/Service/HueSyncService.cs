@@ -43,6 +43,12 @@ namespace Jellyfin.Plugin.Hue.Service
         private const int DefaultFfmpegStallTimeoutSeconds = 5;
         private const int MaxConsecutiveDtlsSendFailures = 5;
 
+        // Audio-reactive capture uses a small, dependency-free PCM window. Eight kHz is
+        // sufficient for the low/mid/high bands while keeping per-frame work bounded.
+        private const int AudioSampleRate = 8000;
+        private const int AudioChannels = 2;
+        private const int AudioBytesPerSample = 2;
+
         // Jellyfin emits progress events throughout playback. Small timing differences
         // between those events are normal, so only a meaningful discontinuity is treated
         // as a seek that needs a fresh FFmpeg capture position.
@@ -273,7 +279,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
         /// <summary>
         /// Reconnects Hue synchronization when the plugin is started while Jellyfin is
-        /// already playing a video. Jellyfin does not replay PlaybackStart for a service
+        /// already playing supported media. Jellyfin does not replay PlaybackStart for a service
         /// that subscribes after the session began, so without this recovery the viewer
         /// would need to stop and restart playback manually.
         ///
@@ -292,7 +298,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         session.PlayState != null &&
                         !session.PlayState.IsPaused &&
                         session.FullNowPlayingItem != null &&
-                        IsSupportedVideoPlaybackItem(session.FullNowPlayingItem) &&
+                        IsSupportedPlaybackItem(session.FullNowPlayingItem) &&
                         !string.IsNullOrWhiteSpace(session.Id))
                     .ToArray();
 
@@ -924,13 +930,29 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
-        /// Hue synchronization extracts video frames, so audio-only and other non-video
-        /// playback events must never enter the FFmpeg video lifecycle.
+        /// Hue synchronization extracts video frames or an audio waveform, so unrelated
+        /// Jellyfin playback events must never enter the FFmpeg lifecycle.
         /// </summary>
         internal static bool IsSupportedVideoPlaybackItem(BaseItem? item)
         {
             return item is MediaBrowser.Controller.Entities.Video ||
                    item?.MediaType == Jellyfin.Data.Enums.MediaType.Video;
+        }
+
+        /// <summary>
+        /// Identifies audio-only playback items. Audio synchronization is opt-in through
+        /// the Audio or AllMedia playback scope; keeping this predicate independent of
+        /// configuration lets startup recovery and lifecycle cleanup observe the session
+        /// before the effective scope decides whether to activate Hue.
+        /// </summary>
+        internal static bool IsAudioPlaybackItem(BaseItem? item)
+        {
+            return item?.MediaType == Jellyfin.Data.Enums.MediaType.Audio;
+        }
+
+        internal static bool IsSupportedPlaybackItem(BaseItem? item)
+        {
+            return IsSupportedVideoPlaybackItem(item) || IsAudioPlaybackItem(item);
         }
 
         /// <summary>
@@ -940,22 +962,28 @@ namespace Jellyfin.Plugin.Hue.Service
         /// </summary>
         internal static bool MatchesPlaybackMediaFilter(BaseItem? item, string? playbackMediaFilter)
         {
-            if (!IsSupportedVideoPlaybackItem(item))
+            if (!IsSupportedPlaybackItem(item))
                 return false;
+
+            var isAudio = IsAudioPlaybackItem(item);
+            var isVideo = IsSupportedVideoPlaybackItem(item);
 
             if (!PluginConfiguration.TryNormalizePlaybackMediaFilter(playbackMediaFilter, out var normalized))
                 normalized = PluginConfiguration.PlaybackMediaFilterAllVideo;
 
             return normalized switch
             {
+                PluginConfiguration.PlaybackMediaFilterAudio => isAudio,
+                PluginConfiguration.PlaybackMediaFilterAllMedia => isVideo || isAudio,
                 PluginConfiguration.PlaybackMediaFilterMovies =>
-                    item is MediaBrowser.Controller.Entities.Movies.Movie,
+                    isVideo && item is MediaBrowser.Controller.Entities.Movies.Movie,
                 PluginConfiguration.PlaybackMediaFilterEpisodes =>
-                    item is MediaBrowser.Controller.Entities.TV.Episode,
+                    isVideo && item is MediaBrowser.Controller.Entities.TV.Episode,
                 PluginConfiguration.PlaybackMediaFilterOtherVideo =>
+                    isVideo &&
                     item is not MediaBrowser.Controller.Entities.Movies.Movie &&
                     item is not MediaBrowser.Controller.Entities.TV.Episode,
-                _ => true
+                _ => isVideo
             };
         }
 
@@ -1029,7 +1057,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (_lastError != null && _lastError.StartsWith("The DTLS stream could not send", StringComparison.Ordinal))
                 {
                     _runtimeState = "Syncing";
-                    _runtimeMessage = "Streaming video colors to Hue.";
+                    _runtimeMessage = "Streaming media colors to Hue.";
                     _lastError = null;
                 }
             }
@@ -1378,9 +1406,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
-            if (!IsSupportedVideoPlaybackItem(e.Item))
+            if (!IsSupportedPlaybackItem(e.Item))
             {
-                _logger.LogDebug("Skipping non-video playback item {0}; Hue Sync supports video playback only", e.Item?.Name ?? "Unknown");
+                _logger.LogDebug("Skipping unsupported playback item {0}; Hue Sync supports video and audio playback", e.Item?.Name ?? "Unknown");
                 var publishUnsupportedStatus = false;
                 lock (_syncLock)
                 {
@@ -1390,7 +1418,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 if (publishUnsupportedStatus)
-                    SetRuntimeStatus("Idle", "Hue Sync supports video playback only.");
+                    SetRuntimeStatus("Idle", "Hue Sync supports video or audio playback, depending on the selected media scope.");
                 return;
             }
 
@@ -1505,7 +1533,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
             }
 
-            if (e.Item != null && !IsSupportedVideoPlaybackItem(e.Item))
+            if (e.Item != null && !IsSupportedPlaybackItem(e.Item))
             {
                 lock (_syncLock)
                 {
@@ -1642,7 +1670,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             e = NormalizeRecoveredPlaybackEvent(e);
 
-            if (e.Item != null && !IsSupportedVideoPlaybackItem(e.Item))
+            if (e.Item != null && !IsSupportedPlaybackItem(e.Item))
                 return;
 
             lock (_syncLock)
@@ -2771,6 +2799,342 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
+        /// <summary>
+        /// Converts a raw PCM window into low, middle, and high-band energy. The small
+        /// direct DFT keeps the visualizer deterministic and avoids pulling a native DSP
+        /// package into the Jellyfin plugin.
+        /// </summary>
+        internal static (double Rms, double Low, double Mid, double High) AnalyzeAudioSamples(
+            byte[] buffer,
+            int bytesRead,
+            int sampleRate = AudioSampleRate,
+            int channels = AudioChannels)
+        {
+            if (buffer == null || bytesRead < AudioBytesPerSample || sampleRate <= 0 || channels <= 0)
+                return (0, 0, 0, 0);
+
+            var sampleCount = Math.Min(bytesRead, buffer.Length) / (AudioBytesPerSample * channels);
+            if (sampleCount <= 0)
+                return (0, 0, 0, 0);
+
+            var mono = new double[sampleCount];
+            double sumSquares = 0;
+            for (var index = 0; index < sampleCount; index++)
+            {
+                var offset = index * AudioBytesPerSample * channels;
+                var sum = 0.0;
+                for (var channel = 0; channel < channels; channel++)
+                {
+                    var sampleOffset = offset + channel * AudioBytesPerSample;
+                    var raw = (short)(buffer[sampleOffset] | (buffer[sampleOffset + 1] << 8));
+                    sum += raw / (double)short.MaxValue;
+                }
+
+                var value = Math.Clamp(sum / channels, -1.0, 1.0);
+                mono[index] = value;
+                sumSquares += value * value;
+            }
+
+            var rms = Math.Sqrt(sumSquares / sampleCount);
+            var low = CalculateAudioBandEnergy(mono, sampleRate, 90);
+            var mid = CalculateAudioBandEnergy(mono, sampleRate, 420);
+            var high = CalculateAudioBandEnergy(mono, sampleRate, 1600);
+            return (rms, low, mid, high);
+        }
+
+        private static double CalculateAudioBandEnergy(double[] samples, int sampleRate, double frequency)
+        {
+            if (samples.Length == 0)
+                return 0;
+
+            var real = 0.0;
+            var imaginary = 0.0;
+            var phaseStep = 2 * Math.PI * frequency / sampleRate;
+            for (var index = 0; index < samples.Length; index++)
+            {
+                var phase = phaseStep * index;
+                real += samples[index] * Math.Cos(phase);
+                imaginary -= samples[index] * Math.Sin(phase);
+            }
+
+            return Math.Clamp(2 * Math.Sqrt(real * real + imaginary * imaginary) / samples.Length, 0, 1);
+        }
+
+        /// <summary>
+        /// Maps the analyzed bands onto an entertainment area's spatial channels. Left
+        /// channels favor bass, the center favors mids, and right channels favor treble,
+        /// while every channel retains a shared beat/loudness envelope.
+        /// </summary>
+        internal static Dictionary<int, byte[]> BuildAudioChannelColors(
+            IReadOnlyDictionary<int, (double x, double z)> lights,
+            (double Rms, double Low, double Mid, double High) energy,
+            long frameIndex,
+            int brightnessBoost = 100)
+        {
+            var colors = new Dictionary<int, byte[]>(lights.Count);
+            var loudness = Math.Clamp(energy.Rms * 2.8 * Math.Clamp(brightnessBoost, 50, 200) / 100.0, 0, 1);
+            var totalBands = energy.Low + energy.Mid + energy.High;
+            var dominantHue = totalBands <= 0.0001
+                ? 0.58
+                : (energy.Low * 0.02 + energy.Mid * 0.34 + energy.High * 0.66) / totalBands;
+
+            foreach (var light in lights)
+            {
+                var x = Math.Clamp((light.Value.x + 1) / 2.0, 0, 1);
+                var z = Math.Clamp((light.Value.z + 1) / 2.0, 0, 1);
+                var spatialPulse = 0.58 + 0.42 * (0.5 + 0.5 * Math.Sin(frameIndex * 0.37 + x * Math.PI * 2 + z));
+                var value = Math.Clamp(0.025 + loudness * spatialPulse, 0, 1);
+                var hue = (dominantHue + (x - 0.5) * 0.14 + (z - 0.5) * 0.04 + frameIndex * 0.0025) % 1.0;
+                if (hue < 0)
+                    hue += 1;
+
+                var saturation = Math.Clamp(0.68 + loudness * 0.28, 0, 1);
+                colors[light.Key] = HsvToRgb(hue, saturation, value);
+            }
+
+            return colors;
+        }
+
+        private static byte[] HsvToRgb(double hue, double saturation, double value)
+        {
+            hue = ((hue % 1) + 1) % 1;
+            saturation = Math.Clamp(saturation, 0, 1);
+            value = Math.Clamp(value, 0, 1);
+            var scaled = hue * 6;
+            var sector = (int)Math.Floor(scaled);
+            var fraction = scaled - sector;
+            var p = value * (1 - saturation);
+            var q = value * (1 - saturation * fraction);
+            var t = value * (1 - saturation * (1 - fraction));
+            var rgb = (sector % 6) switch
+            {
+                0 => (value, t, p),
+                1 => (q, value, p),
+                2 => (p, value, t),
+                3 => (p, q, value),
+                4 => (t, p, value),
+                _ => (value, p, q)
+            };
+
+            return new[]
+            {
+                (byte)Math.Round(rgb.Item1 * 255, MidpointRounding.AwayFromZero),
+                (byte)Math.Round(rgb.Item2 * 255, MidpointRounding.AwayFromZero),
+                (byte)Math.Round(rgb.Item3 * 255, MidpointRounding.AwayFromZero)
+            };
+        }
+
+        private async Task RunAudioSyncLoop(
+            Stream audioStream,
+            Dictionary<int, (double x, double z)> lights,
+            string areaId,
+            int targetFrameDurationMs,
+            int targetFps,
+            CancellationTokenSource expectedSyncCts,
+            string playSessionId,
+            int colorSmoothingPercent,
+            (
+                int BrightnessBoost,
+                int RedGain,
+                int GreenGain,
+                int BlueGain,
+                int ColorSaturation,
+                int HueShiftDegrees,
+                int OutputBrightnessPercent,
+                int BlackoutThreshold,
+                int ColorChangeThreshold) colorProcessingSettings)
+        {
+            var samplesPerChunk = Math.Max(80, AudioSampleRate / Math.Clamp(targetFps, MinFps, MaxFps));
+            var chunkSize = samplesPerChunk * AudioChannels * AudioBytesPerSample;
+            var buffer = new byte[chunkSize];
+            var token = expectedSyncCts.Token;
+            var streamEnded = false;
+            var streamFailed = false;
+            var consecutiveSendFailures = 0;
+            var previousChannelColors = new Dictionary<int, byte[]>();
+            long frameIndex = 0;
+
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    var loopTimer = Stopwatch.StartNew();
+                    var sampleRead = await ReadFrameAsync(
+                        audioStream,
+                        buffer,
+                        chunkSize,
+                        token,
+                        GetFrameReadTimeout()).ConfigureAwait(false);
+                    if (sampleRead.TimedOut)
+                    {
+                        streamFailed = true;
+                        SetRuntimeError("FFmpeg stopped producing audio samples within the configured stall timeout.");
+                        _logger.LogError(
+                            "FFmpeg audio stream stalled after {0} bytes; stopping Hue sync for session {1}",
+                            sampleRead.BytesRead,
+                            playSessionId);
+                        break;
+                    }
+
+                    if (sampleRead.BytesRead < chunkSize)
+                    {
+                        if (!token.IsCancellationRequested)
+                        {
+                            streamEnded = true;
+                            SetRuntimeStatus("Ended", "The audio stream ended.");
+                        }
+                        break;
+                    }
+
+                    _ffmpegStreamer?.MarkFrameRead();
+                    var energy = AnalyzeAudioSamples(buffer, sampleRead.BytesRead, AudioSampleRate, AudioChannels);
+                    var channelColors = BuildAudioChannelColors(
+                        lights,
+                        energy,
+                        frameIndex++,
+                        colorProcessingSettings.BrightnessBoost);
+
+                    var isBlackout = colorProcessingSettings.BlackoutThreshold > 0 &&
+                        channelColors.Count > 0 &&
+                        channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0) < colorProcessingSettings.BlackoutThreshold;
+                    if (isBlackout)
+                    {
+                        previousChannelColors.Clear();
+                        var blackColors = channelColors.Keys.ToDictionary(
+                            key => key,
+                            _ => new byte[] { 0, 0, 0, 0, 0, 0 });
+                        var blackoutSent = await _hueStreamer!.SendColors(
+                            areaId,
+                            blackColors,
+                            colorProcessingSettings.ColorChangeThreshold,
+                            token);
+                        if (!HandleDtlsSendResult(blackoutSent, token, ref consecutiveSendFailures))
+                        {
+                            streamFailed = true;
+                            break;
+                        }
+
+                        await DelayForLoopAsync(loopTimer, targetFrameDurationMs, token).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    if (colorSmoothingPercent > 0)
+                    {
+                        channelColors = ApplyTemporalSmoothing(
+                            channelColors,
+                            previousChannelColors,
+                            colorSmoothingPercent);
+                        previousChannelColors = channelColors;
+                    }
+                    else
+                    {
+                        previousChannelColors.Clear();
+                    }
+
+                    var processedColors = new Dictionary<int, byte[]>(channelColors.Count);
+                    foreach (var color in channelColors)
+                    {
+                        double r = color.Value[0];
+                        double g = color.Value[1];
+                        double b = color.Value[2];
+
+                        if (colorProcessingSettings.BrightnessBoost != 100)
+                        {
+                            var multiplier = colorProcessingSettings.BrightnessBoost / 100.0;
+                            r = Math.Min(255, r * multiplier);
+                            g = Math.Min(255, g * multiplier);
+                            b = Math.Min(255, b * multiplier);
+                        }
+
+                        if (colorProcessingSettings.RedGain != 100 ||
+                            colorProcessingSettings.GreenGain != 100 ||
+                            colorProcessingSettings.BlueGain != 100)
+                        {
+                            var gained = ApplyColorChannelGains(
+                                r,
+                                g,
+                                b,
+                                colorProcessingSettings.RedGain,
+                                colorProcessingSettings.GreenGain,
+                                colorProcessingSettings.BlueGain);
+                            r = gained.Red;
+                            g = gained.Green;
+                            b = gained.Blue;
+                        }
+
+                        if (colorProcessingSettings.ColorSaturation != 100 ||
+                            colorProcessingSettings.HueShiftDegrees != 0)
+                        {
+                            var (hue, saturation, lightness) = RgbToHsl(r / 255.0, g / 255.0, b / 255.0);
+                            saturation = Math.Clamp(
+                                saturation * (colorProcessingSettings.ColorSaturation / 100.0),
+                                0,
+                                1);
+                            hue = ApplyHueShift(hue, colorProcessingSettings.HueShiftDegrees);
+                            var adjusted = HslToRgb(hue, saturation, lightness);
+                            r = adjusted.r * 255;
+                            g = adjusted.g * 255;
+                            b = adjusted.b * 255;
+                        }
+
+                        r = ApplyOutputBrightness(r, colorProcessingSettings.OutputBrightnessPercent);
+                        g = ApplyOutputBrightness(g, colorProcessingSettings.OutputBrightnessPercent);
+                        b = ApplyOutputBrightness(b, colorProcessingSettings.OutputBrightnessPercent);
+
+                        var r16 = (byte)(Math.Clamp(r, 0, 255) / ColorDivisor);
+                        var g16 = (byte)(Math.Clamp(g, 0, 255) / ColorDivisor);
+                        var b16 = (byte)(Math.Clamp(b, 0, 255) / ColorDivisor);
+                        processedColors[color.Key] = new[] { r16, r16, g16, g16, b16, b16 };
+                    }
+
+                    var sent = await _hueStreamer!.SendColors(
+                        areaId,
+                        processedColors,
+                        colorProcessingSettings.ColorChangeThreshold,
+                        token);
+                    if (!HandleDtlsSendResult(sent, token, ref consecutiveSendFailures))
+                    {
+                        streamFailed = true;
+                        break;
+                    }
+
+                    await DelayForLoopAsync(loopTimer, targetFrameDurationMs, token).ConfigureAwait(false);
+                }
+            }
+            catch (TaskCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                streamFailed = true;
+                _logger.LogError(ex, "Error in audio sync loop");
+                if (!token.IsCancellationRequested)
+                    SetRuntimeError("The audio sync loop stopped unexpectedly.");
+            }
+            finally
+            {
+                try
+                { audioStream.Dispose(); }
+                catch { }
+
+                if (!token.IsCancellationRequested && (streamEnded || streamFailed))
+                    ObserveTask(FinalizeSyncLoopAsync(token, expectedSyncCts, playSessionId, streamEnded));
+            }
+        }
+
+        private static async Task DelayForLoopAsync(
+            Stopwatch loopTimer,
+            int targetFrameDurationMs,
+            CancellationToken token)
+        {
+            if (targetFrameDurationMs <= 0)
+                return;
+
+            var remaining = targetFrameDurationMs - (int)Math.Min(int.MaxValue, loopTimer.ElapsedMilliseconds);
+            if (remaining > 0)
+                await Task.Delay(remaining, token).ConfigureAwait(false);
+        }
+
         private async Task FinalizeSyncLoopAsync(
             CancellationToken token,
             CancellationTokenSource expectedSyncCts,
@@ -2916,10 +3280,10 @@ namespace Jellyfin.Plugin.Hue.Service
             PlaybackProgressEventArgs e,
             bool preserveSessionMetadata)
         {
-            if (!IsSupportedVideoPlaybackItem(e.Item))
+            if (!IsSupportedPlaybackItem(e.Item))
             {
-                _logger.LogDebug("Skipping non-video playback item {0}; Hue Sync supports video playback only", e.Item?.Name ?? "Unknown");
-                SetRuntimeStatus("Idle", "Hue Sync supports video playback only.");
+                _logger.LogDebug("Skipping unsupported playback item {0}; Hue Sync supports video and audio playback", e.Item?.Name ?? "Unknown");
+                SetRuntimeStatus("Idle", "Hue Sync supports video or audio playback, depending on the selected media scope.");
                 return;
             }
 
@@ -3024,6 +3388,18 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
+            var isAudioPlayback = IsAudioPlaybackItem(e.Item);
+            var playbackMediaFilter = GetPlaybackMediaFilter(e);
+            if (!MatchesPlaybackMediaFilter(e.Item, playbackMediaFilter))
+            {
+                _logger.LogDebug(
+                    "Skipping playback item {0}; configured Hue Sync media scope is {1}",
+                    e.Item?.Name ?? "Unknown",
+                    playbackMediaFilter);
+                SetRuntimeStatus("Idle", $"Hue Sync playback media scope excludes this item ({playbackMediaFilter}).");
+                return;
+            }
+
             var (useCinemaMode, brightnessDimLevel, restoreLightState) = ResolvePlaybackSettings(config, userId);
             var pauseBehavior = ResolvePauseBehavior(config, userId);
             var performanceSettings = ResolvePerformanceSettings(config, userId);
@@ -3123,9 +3499,9 @@ namespace Jellyfin.Plugin.Hue.Service
                     _bridgeAreaDeactivated = false;
                     _syncStartTime = preservedSyncStartTime ?? DateTime.UtcNow;
                     _currentItemName = e.Item?.Name;
-                    _currentFrameResolution = frameResolution;
-                    _currentVideoScalingMode = videoScalingMode;
-                    _currentVideoDeinterlaceMode = videoDeinterlaceMode;
+                    _currentFrameResolution = isAudioPlayback ? null : frameResolution;
+                    _currentVideoScalingMode = isAudioPlayback ? null : videoScalingMode;
+                    _currentVideoDeinterlaceMode = isAudioPlayback ? null : videoDeinterlaceMode;
                     _currentTargetFps = targetFps;
                     _currentSamplingBreadthPercent = performanceSettings.SamplingBreadthPercent;
                     _currentSamplingMode = performanceSettings.SamplingMode;
@@ -3334,7 +3710,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     : DefaultFrameDurationMs;
                 var (frameWidth, frameHeight) = PluginConfiguration.GetFrameDimensions(frameResolution);
 
-                // Seek to current playback position so lights sync to what's actually on screen
+                // Seek to current playback position so lights sync to the current media position.
                 double seekSeconds = 0;
                 if (e.PlaybackPositionTicks.HasValue && e.PlaybackPositionTicks.Value > 0)
                     seekSeconds = TimeSpan.FromTicks(e.PlaybackPositionTicks.Value).TotalSeconds;
@@ -3342,21 +3718,35 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (token.IsCancellationRequested)
                     return;
                 _ffmpegStreamer!.StallTimeoutSeconds = executionSettings.FfmpegStallTimeoutSeconds;
-                videoStream = _ffmpegStreamer!.StartFfmpeg(
-                    videoPath,
-                    targetFps,
-                    executionSettings.UseGpu,
-                    executionSettings.CustomFfmpegFlags,
-                    _mediaEncoder.EncoderPath,
-                    seekPositionSeconds: seekSeconds,
-                    frameWidth: frameWidth,
-                    frameHeight: frameHeight,
-                    scalingMode: videoScalingMode,
-                    deinterlaceMode: videoDeinterlaceMode);
+                videoStream = isAudioPlayback
+                    ? _ffmpegStreamer!.StartAudioFfmpeg(
+                        videoPath,
+                        executionSettings.UseGpu,
+                        executionSettings.CustomFfmpegFlags,
+                        _mediaEncoder.EncoderPath,
+                        seekPositionSeconds: seekSeconds,
+                        sampleRate: AudioSampleRate,
+                        channels: AudioChannels)
+                    : _ffmpegStreamer!.StartFfmpeg(
+                        videoPath,
+                        targetFps,
+                        executionSettings.UseGpu,
+                        executionSettings.CustomFfmpegFlags,
+                        _mediaEncoder.EncoderPath,
+                        seekPositionSeconds: seekSeconds,
+                        frameWidth: frameWidth,
+                        frameHeight: frameHeight,
+                        scalingMode: videoScalingMode,
+                        deinterlaceMode: videoDeinterlaceMode);
                 if (videoStream == null)
                 {
-                    _logger.LogWarning("FFmpeg stream could not be started for path {0}", videoPath);
-                    SetRuntimeError("FFmpeg could not start the video capture stream.");
+                    _logger.LogWarning(
+                        "FFmpeg {0} stream could not be started for path {1}",
+                        isAudioPlayback ? "audio" : "video",
+                        videoPath);
+                    SetRuntimeError(isAudioPlayback
+                        ? "FFmpeg could not start the audio capture stream."
+                        : "FFmpeg could not start the video capture stream.");
                     return;
                 }
 
@@ -3365,20 +3755,40 @@ namespace Jellyfin.Plugin.Hue.Service
                 var samplingBreadthPercent = performanceSettings.SamplingBreadthPercent;
                 var samplingMode = performanceSettings.SamplingMode;
 
-                // Let RunSyncLoop own disposal even when cancellation wins before scheduling.
-                SetRuntimeStatus("Syncing", "Streaming video colors to Hue.");
-                _ = Task.Run(() => RunSyncLoopWithSampling(
-                    videoStream!,
-                    lights,
-                    areaId,
-                    targetFrameDurationMs,
-                    syncCts,
-                    e.PlaySessionId,
-                    samplingBreadthPercent,
-                    samplingMode,
-                    frameResolution,
-                    performanceSettings.ColorSmoothingPercent,
-                    colorProcessingSettings));
+                // Let the selected loop own disposal even when cancellation wins before scheduling.
+                SetRuntimeStatus(
+                    "Syncing",
+                    isAudioPlayback
+                        ? "Streaming audio-reactive colors to Hue."
+                        : "Streaming video colors to Hue.");
+                if (isAudioPlayback)
+                {
+                    _ = Task.Run(() => RunAudioSyncLoop(
+                        videoStream!,
+                        lights,
+                        areaId,
+                        targetFrameDurationMs,
+                        targetFps,
+                        syncCts,
+                        e.PlaySessionId,
+                        performanceSettings.ColorSmoothingPercent,
+                        colorProcessingSettings));
+                }
+                else
+                {
+                    _ = Task.Run(() => RunSyncLoopWithSampling(
+                        videoStream!,
+                        lights,
+                        areaId,
+                        targetFrameDurationMs,
+                        syncCts,
+                        e.PlaySessionId,
+                        samplingBreadthPercent,
+                        samplingMode,
+                        frameResolution,
+                        performanceSettings.ColorSmoothingPercent,
+                        colorProcessingSettings));
+                }
                 syncLoopStarted = true;
             }
             catch (Exception ex)

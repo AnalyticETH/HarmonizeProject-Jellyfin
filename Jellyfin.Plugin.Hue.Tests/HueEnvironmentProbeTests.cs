@@ -52,7 +52,9 @@ public sealed class HueEnvironmentProbeTests
     [Fact]
     public async Task CheckAsync_ReportsVersionForAvailableExecutable()
     {
-        var probe = new HueEnvironmentProbe("dotnet", "dotnet", "--version");
+        var processPath = Environment.ProcessPath;
+        Assert.False(string.IsNullOrWhiteSpace(processPath));
+        var probe = new HueEnvironmentProbe(processPath!, processPath!, "--version");
 
         var result = await probe.CheckAsync();
 
