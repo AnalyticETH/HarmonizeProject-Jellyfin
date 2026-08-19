@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.114] - 2026-08-19
+
+### Added
+- **Complete saved-scene dependency graph**: show scheduled cues that reach a scene through a dependent playlist, including direct-versus-playlist reference type and the playlist name
+- **Transactional saved-scene deletion**: roll back the in-memory scene collection and return a sanitized 500 response if persistence fails
+
+### Security
+- Dependency results remain credential-free and expose only bounded scene, playlist, and cue labels/counts; bridge addresses, app keys, client keys, playback tokens, and target details remain server-side
+
 ## [1.5.113] - 2026-08-19
 
 ### Added

@@ -1910,7 +1910,8 @@ public sealed class HueApiControllerTests : IDisposable
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
-                new() { Id = "cue-1", Name = "Opening cue", PresetName = " accent ", Enabled = true }
+                new() { Id = "cue-1", Name = "Opening cue", PresetName = " accent ", Enabled = true },
+                new() { Id = "cue-2", Name = "Playlist cue", PlaylistName = " opening ", Enabled = false }
             }
         });
 
@@ -1921,15 +1922,21 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("Accent", result.Name);
         Assert.False(result.CanDelete);
         Assert.Equal(1, result.PlaylistCount);
-        Assert.Equal(1, result.ScheduledCueCount);
+        Assert.Equal(2, result.ScheduledCueCount);
         var playlist = Assert.Single(result.Playlists);
         Assert.Equal("playlist-1", playlist.Id);
         Assert.Equal("Opening", playlist.Name);
         Assert.Equal(2, playlist.ReferenceCount);
-        var schedule = Assert.Single(result.ScheduledCues);
-        Assert.Equal("cue-1", schedule.Id);
-        Assert.Equal("Opening cue", schedule.Name);
-        Assert.True(schedule.Enabled);
+        var directSchedule = Assert.Single(result.ScheduledCues.Where(schedule => schedule.ReferenceType == "DirectScene"));
+        Assert.Equal("cue-1", directSchedule.Id);
+        Assert.Equal("Opening cue", directSchedule.Name);
+        Assert.True(directSchedule.Enabled);
+        Assert.Empty(directSchedule.PlaylistName);
+        var playlistSchedule = Assert.Single(result.ScheduledCues.Where(schedule => schedule.ReferenceType == "Playlist"));
+        Assert.Equal("cue-2", playlistSchedule.Id);
+        Assert.Equal("Playlist cue", playlistSchedule.Name);
+        Assert.False(playlistSchedule.Enabled);
+        Assert.Equal("opening", playlistSchedule.PlaylistName);
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("secret-app-key", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-client-key", serialized, StringComparison.Ordinal);

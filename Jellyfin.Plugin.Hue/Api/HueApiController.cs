@@ -1322,9 +1322,10 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Lists the credential-free playlist and direct scheduled-cue references for
-        /// one saved scene so administrators can review dependencies before changing or
-        /// deleting it. Bridge credentials and target details are never included.
+        /// Lists the credential-free playlist and scheduled-cue dependency graph for one
+        /// saved scene so administrators can review dependencies before changing or
+        /// deleting it. This includes cues that execute a dependent playlist. Bridge
+        /// credentials and target details are never included.
         /// </summary>
         [HttpGet("ColorPresets/{name}/Dependencies")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1359,15 +1360,35 @@ namespace Jellyfin.Plugin.Hue.Api
                 .OrderBy(playlist => playlist.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(playlist => playlist.Id, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+            var dependentPlaylistNames = new HashSet<string>(
+                playlists
+                    .Select(playlist => playlist.Name)
+                    .Where(playlistName => !string.IsNullOrWhiteSpace(playlistName)),
+                StringComparer.OrdinalIgnoreCase);
+            var directSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
                 .Where(schedule => schedule != null &&
                     string.Equals(schedule.PresetName?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase))
                 .Select(schedule => new HueColorPresetScheduleDependencyResult
                 {
                     Id = schedule.Id?.Trim() ?? string.Empty,
                     Name = schedule.Name?.Trim() ?? string.Empty,
-                    Enabled = schedule.Enabled
-                })
+                    Enabled = schedule.Enabled,
+                    ReferenceType = "DirectScene"
+                });
+            var playlistSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+                .Where(schedule => schedule != null &&
+                    !string.Equals(schedule.PresetName?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase) &&
+                    dependentPlaylistNames.Contains(schedule.PlaylistName?.Trim() ?? string.Empty))
+                .Select(schedule => new HueColorPresetScheduleDependencyResult
+                {
+                    Id = schedule.Id?.Trim() ?? string.Empty,
+                    Name = schedule.Name?.Trim() ?? string.Empty,
+                    Enabled = schedule.Enabled,
+                    ReferenceType = "Playlist",
+                    PlaylistName = schedule.PlaylistName?.Trim() ?? string.Empty
+                });
+            var schedules = playlistSchedules
+                .Concat(directSchedules)
                 .OrderBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
@@ -1647,13 +1668,15 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult DeleteColorPreset(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
                 return NotFound("Color preset not found.");
 
-            var config = Plugin.Instance?.Configuration;
-            if (config == null)
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
             var normalizedName = name.Trim();
@@ -1676,13 +1699,28 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             config.ColorPresets ??= new List<HueColorPreset>();
-            var removed = config.ColorPresets.RemoveAll(existing =>
+            var previousPresets = config.ColorPresets;
+            var candidatePresets = previousPresets.ToList();
+            var removed = candidatePresets.RemoveAll(existing =>
                 existing != null &&
                 string.Equals(existing.Name?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase));
             if (removed == 0)
                 return NotFound("Color preset not found.");
 
-            Plugin.Instance?.SaveConfiguration();
+            config.ColorPresets = candidatePresets;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ColorPresets = previousPresets;
+                _logger?.LogError(ex, "Could not persist deleted Hue color preset {0}", normalizedName);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The color preset deletion could not be saved.");
+            }
+
             return Ok(new { message = "Color preset deleted successfully." });
         }
 
@@ -4735,7 +4773,7 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// One direct scheduled-cue reference to a scene.
+    /// One direct or playlist-backed scheduled-cue reference to a scene.
     /// </summary>
     public sealed class HueColorPresetScheduleDependencyResult
     {
@@ -4747,6 +4785,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("enabled")]
         public bool Enabled { get; init; }
+
+        [JsonPropertyName("referenceType")]
+        public string ReferenceType { get; init; } = string.Empty;
+
+        [JsonPropertyName("playlistName")]
+        public string PlaylistName { get; init; } = string.Empty;
     }
 
     /// <summary>

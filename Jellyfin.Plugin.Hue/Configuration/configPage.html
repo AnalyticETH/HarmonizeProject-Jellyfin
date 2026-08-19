@@ -2115,9 +2115,9 @@
                             var scheduleCount = response && (response.scheduledCueCount !== undefined ? response.scheduledCueCount : response.ScheduledCueCount);
                             var details = ["Saved scene: " + resultName];
                             if (canDelete) {
-                                details.push("No playlist or direct scheduled-cue references were found. The scene can be deleted safely.");
+                                details.push("No playlist or scheduled-cue references were found. The scene can be deleted safely.");
                             } else {
-                                details.push("References: " + playlistCount + " playlist(s), " + scheduleCount + " direct scheduled cue(s).");
+                                details.push("References: " + playlistCount + " playlist(s), " + scheduleCount + " scheduled cue(s).");
                                 playlists.forEach(function (playlist) {
                                     if (!playlist) return;
                                     var playlistName = playlist.name !== undefined ? playlist.name : playlist.Name;
@@ -2128,14 +2128,19 @@
                                     if (!schedule) return;
                                     var scheduleName = schedule.name !== undefined ? schedule.name : schedule.Name;
                                     var enabled = schedule.enabled !== undefined ? schedule.enabled : schedule.Enabled;
-                                    details.push("Scheduled cue: " + (scheduleName || "Unnamed") + (enabled ? " (enabled)" : " (disabled)"));
+                                    var referenceType = schedule.referenceType !== undefined ? schedule.referenceType : schedule.ReferenceType;
+                                    var playlistName = schedule.playlistName !== undefined ? schedule.playlistName : schedule.PlaylistName;
+                                    var referenceLabel = referenceType === "Playlist"
+                                        ? " (playlist: " + (playlistName || "Unnamed") + ")"
+                                        : " (direct scene)";
+                                    details.push("Scheduled cue: " + (scheduleName || "Unnamed") + referenceLabel + (enabled ? " (enabled)" : " (disabled)"));
                                 });
                             }
                             Dashboard.alert(details.join("\n"));
                             if (statusEl) {
                                 statusEl.textContent = canDelete
                                     ? "No saved-scene references found; the scene can be deleted safely."
-                                    : "This scene is referenced by " + playlistCount + " playlist(s) and " + scheduleCount + " direct scheduled cue(s).";
+                                    : "This scene is referenced by " + playlistCount + " playlist(s) and " + scheduleCount + " scheduled cue(s).";
                                 statusEl.style.color = canDelete ? "#8bc34a" : "#f0ad4e";
                             }
                         })
