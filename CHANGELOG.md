@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.102] - 2026-08-19
+
+### Added
+- **Saved-scene duplication**: add a credential-free administrator action and `POST /HueSync/ColorPresets/{name}/Duplicate` endpoint for creating editable variants without re-entering visual settings
+- **Safe scene copies**: preserve effect, animation speed, RGB color, brightness, duration, and fade transitions while assigning a bounded unique name and leaving the source scene and its scheduled cues unchanged
+
+### Security
+- Duplicate requests are administrator-authorized, validate the complete resulting preset collection before persistence, roll back failed saves, and never expose bridge credentials or playback tokens
+
 ## [1.5.101] - 2026-08-19
 
 ### Added

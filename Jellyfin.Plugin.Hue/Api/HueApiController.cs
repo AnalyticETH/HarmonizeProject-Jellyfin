@@ -414,6 +414,58 @@ namespace Jellyfin.Plugin.Hue.Api
             };
         }
 
+        private static HueColorPreset CloneColorPreset(HueColorPreset preset)
+        {
+            return new HueColorPreset
+            {
+                Name = preset.Name,
+                Effect = preset.Effect,
+                EffectSpeedPercent = preset.EffectSpeedPercent,
+                Red = preset.Red,
+                Green = preset.Green,
+                Blue = preset.Blue,
+                BrightnessPercent = preset.BrightnessPercent,
+                DurationSeconds = preset.DurationSeconds,
+                TransitionSeconds = preset.TransitionSeconds,
+                TransitionOutSeconds = preset.TransitionOutSeconds
+            };
+        }
+
+        private static string BuildDuplicateColorPresetName(
+            IEnumerable<HueColorPreset> presets,
+            string? sourceName)
+        {
+            var existingNames = new HashSet<string>(
+                presets
+                    .Where(preset => preset != null)
+                    .Select(preset => preset.Name?.Trim() ?? string.Empty)
+                    .Where(name => !string.IsNullOrWhiteSpace(name)),
+                StringComparer.OrdinalIgnoreCase);
+            var baseName = string.IsNullOrWhiteSpace(sourceName)
+                ? "Saved scene"
+                : sourceName.Trim();
+
+            for (var copyNumber = 1; copyNumber <= PluginConfiguration.MaxColorPresets + 1; copyNumber++)
+            {
+                var suffix = copyNumber == 1
+                    ? " (Copy)"
+                    : $" (Copy {copyNumber})";
+                var availableBaseLength = Math.Max(
+                    1,
+                    PluginConfiguration.MaxColorPresetNameLength - suffix.Length);
+                var truncatedBase = baseName.Length > availableBaseLength
+                    ? baseName[..availableBaseLength].TrimEnd()
+                    : baseName;
+                var candidate = truncatedBase + suffix;
+                if (!existingNames.Contains(candidate))
+                    return candidate;
+            }
+
+            // The preset collection is bounded, so the loop above always returns. Keep
+            // a bounded unique fallback for malformed legacy configurations.
+            return $"Scene copy {Guid.NewGuid():N}"[..PluginConfiguration.MaxColorPresetNameLength];
+        }
+
         internal static HueSceneScheduleResult ToSceneScheduleResult(
             HueSceneSchedule schedule,
             PluginConfiguration config)
@@ -1005,6 +1057,77 @@ namespace Jellyfin.Plugin.Hue.Api
 
             plugin.SaveConfiguration();
             return Ok(ToColorPresetResult(preset));
+        }
+
+        /// <summary>
+        /// Creates a safe copy of one reusable preview scene. The copy keeps all visual
+        /// and transition metadata, receives a bounded unique name, and can be edited
+        /// independently without changing the source scene or its scheduled cues.
+        /// </summary>
+        [HttpPost("ColorPresets/{name}/Duplicate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueColorPresetResult> DuplicateColorPreset(string name)
+        {
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            if (string.IsNullOrWhiteSpace(name))
+                return NotFound("Color preset not found.");
+
+            config.ColorPresets ??= new List<HueColorPreset>();
+            var source = config.ColorPresets.FirstOrDefault(preset =>
+                preset != null &&
+                string.Equals(preset.Name?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (source == null)
+                return NotFound("Color preset not found.");
+
+            if (config.ColorPresets.Count >= PluginConfiguration.MaxColorPresets)
+            {
+                return Conflict(
+                    $"No more than {PluginConfiguration.MaxColorPresets} color presets may be saved.");
+            }
+
+            var duplicate = CloneColorPreset(source);
+            duplicate.Name = BuildDuplicateColorPresetName(config.ColorPresets, source.Name);
+
+            var previousPresets = config.ColorPresets;
+            var candidatePresets = previousPresets
+                .Where(preset => preset != null)
+                .Select(CloneColorPreset)
+                .ToList();
+            candidatePresets.Add(duplicate);
+            config.ColorPresets = candidatePresets;
+            var validationErrors = config.ValidateColorPresets();
+            if (validationErrors.Count > 0)
+            {
+                config.ColorPresets = previousPresets;
+                return BadRequest(new
+                {
+                    message = "The color preset copy is invalid.",
+                    errors = validationErrors
+                });
+            }
+
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ColorPresets = previousPresets;
+                _logger?.LogError(ex, "Could not persist duplicate Hue color preset {0}", source.Name);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The color preset copy could not be saved.");
+            }
+
+            return Ok(ToColorPresetResult(duplicate));
         }
 
         /// <summary>

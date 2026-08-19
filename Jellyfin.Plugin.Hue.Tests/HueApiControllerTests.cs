@@ -1216,6 +1216,93 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void DuplicateColorPreset_CopiesVisualMetadataWithUniqueName()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new()
+                {
+                    Name = "Movie Night",
+                    Effect = PluginConfiguration.ColorPresetEffectCandle,
+                    EffectSpeedPercent = 225,
+                    Red = 230,
+                    Green = 90,
+                    Blue = 20,
+                    BrightnessPercent = 75,
+                    DurationSeconds = 8,
+                    TransitionSeconds = 2,
+                    TransitionOutSeconds = 3
+                }
+            }
+        });
+
+        var action = CreateController().DuplicateColorPreset(" movie night ");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueColorPresetResult>(response.Value);
+        Assert.Equal("Movie Night (Copy)", result.Name);
+        Assert.Equal(PluginConfiguration.ColorPresetEffectCandle, result.Effect);
+        Assert.Equal(225, result.EffectSpeedPercent);
+        Assert.Equal(8, result.DurationSeconds);
+        Assert.Equal(2, result.TransitionSeconds);
+        Assert.Equal(3, result.TransitionOutSeconds);
+        Assert.Equal(2, configuration.ColorPresets.Count);
+        var duplicate = configuration.ColorPresets.Single(preset => preset.Name == result.Name);
+        Assert.Equal(230, duplicate.Red);
+        Assert.Equal(90, duplicate.Green);
+        Assert.Equal(20, duplicate.Blue);
+    }
+
+    [Fact]
+    public void DuplicateColorPreset_UsesNextUniqueBoundedName()
+    {
+        var sourceName = new string('A', PluginConfiguration.MaxColorPresetNameLength);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = sourceName },
+                new() { Name = sourceName[..(PluginConfiguration.MaxColorPresetNameLength - " (Copy)".Length)] + " (Copy)" }
+            }
+        });
+
+        var action = CreateController().DuplicateColorPreset(sourceName);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueColorPresetResult>(response.Value);
+        Assert.Equal(PluginConfiguration.MaxColorPresetNameLength, result.Name.Length);
+        Assert.EndsWith(" (Copy 2)", result.Name, StringComparison.Ordinal);
+        Assert.Equal(3, configuration.ColorPresets.Count);
+    }
+
+    [Fact]
+    public void DuplicateColorPreset_RejectsMissingSourceAndCapacityLimit()
+    {
+        var missingConfiguration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Existing" } }
+        });
+
+        var missing = CreateController().DuplicateColorPreset("Missing");
+        Assert.IsType<NotFoundObjectResult>(missing.Result);
+        Assert.Single(missingConfiguration.ColorPresets);
+
+        var fullConfiguration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = Enumerable.Range(0, PluginConfiguration.MaxColorPresets)
+                .Select(index => new HueColorPreset { Name = $"Scene {index}" })
+                .ToList()
+        });
+
+        var full = CreateController().DuplicateColorPreset("Scene 0");
+        var response = Assert.IsType<ConflictObjectResult>(full.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Equal(PluginConfiguration.MaxColorPresets, fullConfiguration.ColorPresets.Count);
+    }
+
+    [Fact]
     public void DeleteColorPreset_RemovesSceneAndReportsMissingNames()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

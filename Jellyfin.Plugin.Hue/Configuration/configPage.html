@@ -285,11 +285,14 @@
                             <button is="emby-button" type="button" class="raised" id="savePreviewPresetBtn">
                                 <span>Save / Update Scene</span>
                             </button>
+                            <button is="emby-button" type="button" class="raised" id="duplicatePreviewPresetBtn" disabled>
+                                <span>Duplicate Scene</span>
+                            </button>
                             <button is="emby-button" type="button" class="raised" id="deletePreviewPresetBtn" disabled>
                                 <span>Delete Scene</span>
                             </button>
                         </div>
-                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Scenes contain no bridge credentials.</div>
+                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Use Duplicate Scene to create a safe editable variant. Scenes contain no bridge credentials.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -1700,8 +1703,12 @@
                 updatePresetButtons: function (page) {
                     var selectEl = page.querySelector('#previewPresetSelect');
                     var deleteBtn = page.querySelector('#deletePreviewPresetBtn');
+                    var duplicateBtn = page.querySelector('#duplicatePreviewPresetBtn');
                     if (deleteBtn) {
                         deleteBtn.disabled = !selectEl || !selectEl.value;
+                    }
+                    if (duplicateBtn) {
+                        duplicateBtn.disabled = !selectEl || !selectEl.value;
                     }
                 },
                 applyColorPreset: function (page) {
@@ -1737,6 +1744,48 @@
                         statusEl.style.color = "#8bc34a";
                     }
                     HueConfigurationPage.updatePresetButtons(page);
+                },
+                duplicateColorPreset: function (page) {
+                    var selectEl = page.querySelector('#previewPresetSelect');
+                    var statusEl = page.querySelector('#previewPresetStatus');
+                    var name = selectEl ? selectEl.value : '';
+                    if (!name) {
+                        Dashboard.alert("Choose a saved scene first.");
+                        return;
+                    }
+
+                    var button = page.querySelector('#duplicatePreviewPresetBtn');
+                    if (button) button.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Duplicating scene...";
+                        statusEl.style.color = "";
+                    }
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Duplicate"),
+                        dataType: "json"
+                    }).then(function (response) {
+                        var duplicateName = response && (response.name || response.Name);
+                        if (!duplicateName) {
+                            throw new Error("The duplicated scene name was not returned.");
+                        }
+                        if (statusEl) {
+                            statusEl.textContent = "Scene '" + name + "' duplicated as '" + duplicateName + "'.";
+                            statusEl.style.color = "#8bc34a";
+                        }
+                        return HueConfigurationPage.loadColorPresets(page, duplicateName).then(function () {
+                            HueConfigurationPage.applyColorPreset(page);
+                        });
+                    }).catch(function (err) {
+                        console.error("Failed to duplicate color preset:", err);
+                        if (statusEl) {
+                            statusEl.textContent = "Unable to duplicate the saved scene. Check the scene limit and server log.";
+                            statusEl.style.color = "#d9534f";
+                        }
+                        HueConfigurationPage.updatePresetButtons(page);
+                    }).finally(function () {
+                        HueConfigurationPage.updatePresetButtons(page);
+                    });
                 },
                 saveColorPreset: function (page) {
                     var nameEl = page.querySelector('#previewPresetName');
@@ -5217,6 +5266,10 @@
 
             document.querySelector('#savePreviewPresetBtn').addEventListener('click', function () {
                 HueConfigurationPage.saveColorPreset(this.closest('.page'));
+            });
+
+            document.querySelector('#duplicatePreviewPresetBtn').addEventListener('click', function () {
+                HueConfigurationPage.duplicateColorPreset(this.closest('.page'));
             });
 
             document.querySelector('#deletePreviewPresetBtn').addEventListener('click', function () {
