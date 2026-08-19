@@ -923,35 +923,11 @@ namespace Jellyfin.Plugin.Hue.Api
                     previewSchedule,
                     previewPreset,
                     cancellationToken).ConfigureAwait(false);
-                return Ok(new HuePreviewResult
-                {
-                    Succeeded = broadcastResult.Succeeded,
-                    Message = broadcastResult.Message,
-                    CleanupWarning = broadcastResult.CleanupWarning,
-                    TargetAllEnabledMappings = true,
-                    TargetResults = broadcastResult.TargetResults
-                        .Select(target => new HuePreviewTargetResult
-                        {
-                            TargetLabel = target.TargetLabel,
-                            Succeeded = target.Succeeded,
-                            Message = target.Message,
-                            CleanupWarning = target.CleanupWarning,
-                            AvailableChannelCount = target.AvailableChannelCount,
-                            SelectedChannelCount = target.SelectedChannelCount
-                        })
-                        .ToArray(),
-                    Red = request.Red,
-                    Green = request.Green,
-                    Blue = request.Blue,
-                    Effect = effect,
-                    EffectSpeedPercent = request.EffectSpeedPercent,
-                    BrightnessPercent = request.BrightnessPercent,
-                    DurationSeconds = request.DurationSeconds,
-                    TransitionSeconds = request.TransitionSeconds,
-                    TransitionOutSeconds = request.TransitionOutSeconds,
-                    AvailableChannelCount = broadcastResult.TargetResults.Sum(target => target.AvailableChannelCount),
-                    SelectedChannelCount = broadcastResult.TargetResults.Sum(target => target.SelectedChannelCount)
-                });
+                return Ok(BuildPreviewResult(
+                    broadcastResult,
+                    previewSchedule,
+                    previewPreset,
+                    targetAllEnabledMappings: true));
             }
 
             HashSet<int>? requestedChannelIds = null;
@@ -1065,6 +1041,126 @@ namespace Jellyfin.Plugin.Hue.Api
                 AvailableChannelCount = availableChannelIds.Count,
                 SelectedChannelCount = requestedChannelIds?.Count ?? availableChannelIds.Count
             });
+        }
+
+        /// <summary>
+        /// Displays one saved scene through server-side target resolution. The request
+        /// carries only the saved scene name and optional target mode; bridge credentials
+        /// and channel profiles remain in the persisted Jellyfin configuration.
+        /// </summary>
+        [HttpPost("ColorPresets/{name}/Preview")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<HuePreviewResult>> PreviewColorPreset(
+            string name,
+            [FromBody] HueSavedColorPresetPreviewRequest? request,
+            CancellationToken cancellationToken = default)
+        {
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            if (string.IsNullOrWhiteSpace(name))
+                return NotFound("Color preset not found.");
+
+            config.ColorPresets ??= new List<HueColorPreset>();
+            var preset = config.ColorPresets.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Name?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (preset == null)
+                return NotFound("Color preset not found.");
+
+            var validationErrors = PluginConfiguration.ValidateColorPreset(preset);
+            if (validationErrors.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = "The saved scene is invalid.",
+                    errors = validationErrors
+                });
+            }
+
+            request ??= new HueSavedColorPresetPreviewRequest();
+            var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
+            if (request.TargetAllEnabledMappings && !string.IsNullOrWhiteSpace(targetUserId))
+                return BadRequest("A saved-scene preview cannot select all enabled targets and a specific user mapping together.");
+
+            if (_streamTester == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
+
+            if (_sceneAutomationService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+
+            if (_syncService?.IsSyncing == true)
+                return Conflict("Stop active playback before running a Hue scene preview.");
+
+            var previewSchedule = new HueSceneSchedule
+            {
+                Id = "saved-scene-preview",
+                Name = preset.Name?.Trim() ?? name.Trim(),
+                PresetName = preset.Name?.Trim() ?? name.Trim(),
+                TargetUserId = request.TargetAllEnabledMappings ? string.Empty : targetUserId,
+                TargetAllEnabledMappings = request.TargetAllEnabledMappings,
+                DurationSeconds = 0
+            };
+            if (!HueSceneAutomationService.TryResolveTargets(config, previewSchedule, out _, out var targetError))
+                return BadRequest(targetError);
+
+            var previewPreset = CloneColorPreset(preset);
+            PluginConfiguration.TryNormalizeColorPresetEffect(previewPreset.Effect, out var normalizedEffect);
+            previewPreset.Effect = normalizedEffect;
+            var previewResult = await _sceneAutomationService.RunPreviewAsync(
+                previewSchedule,
+                previewPreset,
+                cancellationToken).ConfigureAwait(false);
+            return Ok(BuildPreviewResult(
+                previewResult,
+                previewSchedule,
+                previewPreset,
+                request.TargetAllEnabledMappings));
+        }
+
+        private static HuePreviewResult BuildPreviewResult(
+            HueSceneAutomationRunResult run,
+            HueSceneSchedule schedule,
+            HueColorPreset preset,
+            bool targetAllEnabledMappings)
+        {
+            PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
+            var targetResults = run.TargetResults
+                .Select(target => new HuePreviewTargetResult
+                {
+                    TargetLabel = target.TargetLabel,
+                    Succeeded = target.Succeeded,
+                    Message = target.Message,
+                    CleanupWarning = target.CleanupWarning,
+                    AvailableChannelCount = target.AvailableChannelCount,
+                    SelectedChannelCount = target.SelectedChannelCount
+                })
+                .ToArray();
+            return new HuePreviewResult
+            {
+                Succeeded = run.Succeeded,
+                Message = run.Message,
+                CleanupWarning = run.CleanupWarning,
+                TargetAllEnabledMappings = targetAllEnabledMappings,
+                TargetResults = targetResults,
+                Red = preset.Red,
+                Green = preset.Green,
+                Blue = preset.Blue,
+                Effect = effect,
+                EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                BrightnessPercent = preset.BrightnessPercent,
+                DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset),
+                TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset),
+                TransitionOutSeconds = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset),
+                AvailableChannelCount = targetResults.Sum(target => target.AvailableChannelCount),
+                SelectedChannelCount = targetResults.Sum(target => target.SelectedChannelCount)
+            };
         }
 
         /// <summary>
@@ -3635,6 +3731,19 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("transitionOutSeconds")]
         public int TransitionOutSeconds { get; set; }
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool TargetAllEnabledMappings { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free request for previewing a saved scene against the default target,
+    /// one enabled user mapping, or every distinct enabled target.
+    /// </summary>
+    public sealed class HueSavedColorPresetPreviewRequest
+    {
+        [JsonPropertyName("targetUserId")]
+        public string? TargetUserId { get; set; }
 
         [JsonPropertyName("targetAllEnabledMappings")]
         public bool TargetAllEnabledMappings { get; set; }

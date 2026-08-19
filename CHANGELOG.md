@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.106] - 2026-08-19
+
+### Added
+- **Saved-scene preview endpoint**: preview a persisted scene by name through `POST /HueSync/ColorPresets/{name}/Preview` against the default target, a selected enabled mapping, or every distinct enabled target
+- **Saved-scene administrator actions**: add default-target and all-enabled-target buttons beside the saved-scene selector, with sequential per-target status for broadcast previews
+- **Consistent preview telemetry**: return the saved effect, animation speed, RGB/brightness, effective duration and fades, target outcomes, channel counts, and cleanup warnings through the same sanitized result shape as immediate previews
+
+### Security
+- Saved-scene previews resolve bridge credentials and channel profiles only from server-side configuration; the browser sends a scene name and target mode, and no app keys, client keys, bridge addresses, or playback tokens enter the result
+- Invalid saved scenes, incomplete enabled targets, conflicting target selections, and active playback are rejected before a preview starts
+
 ## [1.5.105] - 2026-08-19
 
 ### Added

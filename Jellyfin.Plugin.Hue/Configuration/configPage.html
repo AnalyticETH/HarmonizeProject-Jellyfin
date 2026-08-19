@@ -281,6 +281,12 @@
                             <button is="emby-button" type="button" class="raised" id="applyPreviewPresetBtn">
                                 <span>Apply Scene</span>
                             </button>
+                            <button is="emby-button" type="button" class="raised" id="previewSavedPresetBtn">
+                                <span>Preview Saved Scene</span>
+                            </button>
+                            <button is="emby-button" type="button" class="raised" id="previewSavedPresetAllBtn">
+                                <span>Preview Saved Scene on All Targets</span>
+                            </button>
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="previewPresetName">Scene Name</label>
                                 <input id="previewPresetName" type="text" is="emby-input" maxlength="64" placeholder="e.g. Movie Night" />
@@ -295,7 +301,7 @@
                                 <span>Delete Scene</span>
                             </button>
                         </div>
-                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Use Duplicate Scene to create a safe editable variant. Scenes contain no bridge credentials.</div>
+                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Preview Saved Scene runs the selected saved scene through the server-side target profile; Preview Saved Scene on All Targets runs it sequentially on every distinct enabled target. Use Duplicate Scene to create a safe editable variant. Scenes contain no bridge credentials.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -1475,6 +1481,18 @@
                         dataType: "json"
                     });
                 },
+                fetchSavedColorPreview: function (name, targetUserId, targetAllEnabledMappings) {
+                    return ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Preview"),
+                        data: JSON.stringify({
+                            targetUserId: targetAllEnabledMappings ? "" : (targetUserId || ""),
+                            targetAllEnabledMappings: !!targetAllEnabledMappings
+                        }),
+                        contentType: "application/json",
+                        dataType: "json"
+                    });
+                },
                 getPreviewValues: function (page) {
                     var color = page.querySelector('#previewColor').value || '#ffffff';
                     var hex = color.replace('#', '');
@@ -1552,9 +1570,13 @@
                     var cancelButton = page && page.querySelector('#cancelPreviewBtn');
                     var defaultButton = page && page.querySelector('#previewColorBtn');
                     var allTargetsButton = page && page.querySelector('#previewAllTargetsBtn');
+                    var savedButton = page && page.querySelector('#previewSavedPresetBtn');
+                    var savedAllTargetsButton = page && page.querySelector('#previewSavedPresetAllBtn');
                     var mappingButton = page && page.querySelector('#mappingPreviewColorBtn');
                     if (defaultButton) defaultButton.disabled = busy;
                     if (allTargetsButton) allTargetsButton.disabled = busy;
+                    if (savedButton) savedButton.disabled = busy;
+                    if (savedAllTargetsButton) savedAllTargetsButton.disabled = busy;
                     if (mappingButton) mappingButton.disabled = busy;
                     if (cancelButton) {
                         cancelButton.style.display = busy ? "" : "none";
@@ -1728,6 +1750,53 @@
                         .catch(function (err) {
                             console.error("All-target color preview error:", err);
                             statusEl.textContent = "All-target preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying.";
+                            statusEl.style.color = "#d9534f";
+                        })
+                        .finally(function () {
+                            if (page._huePreviewRequest === request) {
+                                page._huePreviewRequest = null;
+                                page._huePreviewStatusElement = null;
+                                HueConfigurationPage.setPreviewBusy(page, false);
+                            }
+                            Dashboard.hideLoadingMsg();
+                        });
+                },
+                previewSavedPreset: function (page, allTargets) {
+                    if (page._huePreviewRequest) {
+                        Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
+                        return;
+                    }
+
+                    var selectEl = page.querySelector('#previewPresetSelect');
+                    var name = selectEl ? selectEl.value : '';
+                    var statusEl = page.querySelector('#previewColorStatus');
+                    var button = page.querySelector(allTargets ? '#previewSavedPresetAllBtn' : '#previewSavedPresetBtn');
+                    if (!name) {
+                        Dashboard.alert("Choose a saved scene first.");
+                        return;
+                    }
+
+                    if (button) button.disabled = true;
+                    page._huePreviewStatusElement = statusEl;
+                    statusEl.textContent = allTargets
+                        ? "Saving each target's light state and previewing the saved scene sequentially..."
+                        : "Saving the default target's light state and previewing the saved scene...";
+                    statusEl.style.color = "";
+                    Dashboard.showLoadingMsg();
+                    var request = HueConfigurationPage.fetchSavedColorPreview(name, "", allTargets);
+                    page._huePreviewRequest = request;
+                    HueConfigurationPage.setPreviewBusy(page, true);
+                    request
+                        .then(function (response) {
+                            var result = HueConfigurationPage.previewMessage(response, allTargets);
+                            statusEl.textContent = result.text;
+                            statusEl.style.color = result.tone === "success" ? "#8bc34a" : "#d9534f";
+                        })
+                        .catch(function (err) {
+                            console.error("Saved color preview error:", err);
+                            statusEl.textContent = allTargets
+                                ? "Saved-scene preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying."
+                                : "Saved-scene preview failed. Verify the default target in System Diagnostics and stop active playback before retrying.";
                             statusEl.style.color = "#d9534f";
                         })
                         .finally(function () {
@@ -5359,6 +5428,14 @@
 
             document.querySelector('#applyPreviewPresetBtn').addEventListener('click', function () {
                 HueConfigurationPage.applyColorPreset(this.closest('.page'));
+            });
+
+            document.querySelector('#previewSavedPresetBtn').addEventListener('click', function () {
+                HueConfigurationPage.previewSavedPreset(this.closest('.page'), false);
+            });
+
+            document.querySelector('#previewSavedPresetAllBtn').addEventListener('click', function () {
+                HueConfigurationPage.previewSavedPreset(this.closest('.page'), true);
             });
 
             document.querySelector('#savePreviewPresetBtn').addEventListener('click', function () {
