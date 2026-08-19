@@ -80,6 +80,12 @@ public sealed class HueSyncServiceLifecycleTests
         SetPrivateField(service, "_activeChannelIds", new HashSet<int> { 9, 2 });
         SetPrivateField(service, "_activeRestoreLightState", true);
         var activeUserId = Guid.NewGuid();
+        Plugin.Instance!.Configuration.PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterMovies;
+        Plugin.Instance.Configuration.UserMappings.Add(new UserBridgeMapping
+        {
+            UserId = activeUserId.ToString(),
+            PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterEpisodes
+        });
         SetPrivateField(service, "_currentUserId", activeUserId);
         SetPrivateField(service, "_currentUserName", "Living Room Viewer");
         SetPrivateField(service, "_currentItemName", "Feature film");
@@ -103,6 +109,7 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal("Feature film", status.CurrentItem);
         Assert.Equal(activeUserId.ToString(), status.ActiveUserId);
         Assert.Equal("Living Room Viewer", status.ActiveUserName);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, status.ActivePlaybackMediaFilter);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, status.ActiveFrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, status.ActiveVideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, status.ActiveVideoDeinterlaceMode);
@@ -145,6 +152,7 @@ public sealed class HueSyncServiceLifecycleTests
         var stoppedStatus = service.GetRuntimeStatus();
         Assert.Null(stoppedStatus.ActiveUserId);
         Assert.Null(stoppedStatus.ActiveUserName);
+        Assert.Null(stoppedStatus.ActivePlaybackMediaFilter);
         Assert.Equal(0, stoppedStatus.SeekRestartCount);
         Assert.Null(stoppedStatus.LastSeekPositionSeconds);
     }

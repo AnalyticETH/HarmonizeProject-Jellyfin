@@ -772,6 +772,18 @@
                                 </div>
 
                                 <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingPlaybackMediaFilterOverride">Playback Media Scope Override</label>
+                                    <select id="mappingPlaybackMediaFilterOverride" is="emby-select">
+                                        <option value="">Inherit global scope</option>
+                                        <option value="AllVideo">All video</option>
+                                        <option value="Movies">Movies only</option>
+                                        <option value="Episodes">TV episodes only</option>
+                                        <option value="OtherVideo">Other video (music/home videos)</option>
+                                    </select>
+                                    <div class="fieldDescription">Choose which video item types can start Hue Sync for this user. Blank inherits the global Playback Media Scope.</div>
+                                </div>
+
+                                <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="mappingBrightnessDimLevelOverride">Cinema Dim Level Override (%)</label>
                                     <input id="mappingBrightnessDimLevelOverride" type="number" min="0" max="100" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user cinema dim level (0-100%).</div>
@@ -4613,7 +4625,9 @@
                         var currentItem = HueConfigurationPage.readStatusField(status, "CurrentItem", "—");
                         var activeUserId = HueConfigurationPage.readStatusField(status, "ActiveUserId", "");
                         var activeUserName = HueConfigurationPage.readStatusField(status, "ActiveUserName", "");
-                        var playbackMediaFilter = HueConfigurationPage.readStatusField(status, "ConfiguredPlaybackMediaFilter", "AllVideo");
+                        var configuredPlaybackMediaFilter = HueConfigurationPage.readStatusField(status, "ConfiguredPlaybackMediaFilter", "AllVideo");
+                        var activePlaybackMediaFilter = HueConfigurationPage.readStatusField(status, "ActivePlaybackMediaFilter", null);
+                        var playbackMediaFilter = activePlaybackMediaFilter || configuredPlaybackMediaFilter;
                         var frameResolution = HueConfigurationPage.readStatusField(status, "ActiveFrameResolution", "—");
                         var scalingMode = HueConfigurationPage.readStatusField(status, "ActiveVideoScalingMode", "—");
                         var deinterlaceMode = HueConfigurationPage.readStatusField(status, "ActiveVideoDeinterlaceMode", "—");
@@ -5536,6 +5550,7 @@
                             });
                             var hasPlaybackProfile = [
                                 getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride'),
+                                getMappingValue('PlaybackMediaFilterOverride', 'playbackMediaFilterOverride'),
                                 getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride'),
                                 getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride'),
                                 getMappingValue('RestoreLightStateOverride', 'restoreLightStateOverride')
@@ -5616,6 +5631,7 @@
                         '#mappingRefreshAreasBtn',
                         '#mappingAreaManual',
                         '#mappingUseCinemaModeOverride',
+                        '#mappingPlaybackMediaFilterOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -6236,6 +6252,7 @@
                         EntertainmentAreaId: areaId,
                         EntertainmentAreaName: areaName,
                         UseCinemaModeOverride: readOptionalBoolean('mappingUseCinemaModeOverride'),
+                        PlaybackMediaFilterOverride: readOptionalString('mappingPlaybackMediaFilterOverride'),
                         BrightnessDimLevelOverride: readOptionalNumber('mappingBrightnessDimLevelOverride'),
                         PauseBehaviorOverride: readOptionalString('mappingPauseBehaviorOverride'),
                         RestoreLightStateOverride: readOptionalBoolean('mappingRestoreLightStateOverride'),
@@ -6312,6 +6329,7 @@
                     if (syncEnabledEl) syncEnabledEl.checked = true;
                     var profileSelectors = [
                         '#mappingUseCinemaModeOverride',
+                        '#mappingPlaybackMediaFilterOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -6390,6 +6408,7 @@
                             return typeof mapping[pascalName] !== 'undefined' ? mapping[pascalName] : mapping[camelName];
                         };
                         var useCinemaModeOverride = getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride');
+                        var playbackMediaFilterOverride = getMappingValue('PlaybackMediaFilterOverride', 'playbackMediaFilterOverride');
                         var brightnessDimLevelOverride = getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride');
                         var pauseBehaviorOverride = getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride');
                         var restoreLightStateOverride = getMappingValue('RestoreLightStateOverride', 'restoreLightStateOverride');
@@ -6444,6 +6463,7 @@
                         page.querySelector('#mappingClientKey').placeholder = hasClientKey ? "Stored securely; leave blank to keep" : "Enter Hue Client Key";
                         page.querySelector('#mappingSyncEnabled').checked = syncEnabled;
                         page.querySelector('#mappingUseCinemaModeOverride').value = useCinemaModeOverride == null ? "" : String(useCinemaModeOverride).toLowerCase();
+                        page.querySelector('#mappingPlaybackMediaFilterOverride').value = playbackMediaFilterOverride == null ? "" : playbackMediaFilterOverride;
                         page.querySelector('#mappingBrightnessDimLevelOverride').value = brightnessDimLevelOverride == null ? "" : brightnessDimLevelOverride;
                         page.querySelector('#mappingPauseBehaviorOverride').value = pauseBehaviorOverride == null ? "" : pauseBehaviorOverride;
                         page.querySelector('#mappingRestoreLightStateOverride').value = restoreLightStateOverride == null ? "" : String(restoreLightStateOverride).toLowerCase();

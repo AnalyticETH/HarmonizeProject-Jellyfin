@@ -26,6 +26,48 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void PlaybackMediaFilter_PerUserOverrideInheritsOrReplacesGlobalScope()
+    {
+        var userId = Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterMovies,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString() }
+            }
+        };
+
+        Assert.Null(config.GetPlaybackMediaFilterOverrideForUser(userId));
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterMovies, config.GetPlaybackMediaFilterForUser(userId));
+
+        config.UserMappings[0].PlaybackMediaFilterOverride = " episodes ";
+
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, config.GetPlaybackMediaFilterOverrideForUser(userId));
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, config.GetPlaybackMediaFilterForUser(userId));
+        Assert.Empty(config.Validate());
+    }
+
+    [Fact]
+    public void PlaybackMediaFilter_PerUserOverrideRejectsUnknownValues()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-key",
+            HueClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-1", PlaybackMediaFilterOverride = "Trailers" }
+            }
+        };
+
+        Assert.Contains("User mapping 1 playback media scope override must be AllVideo, Movies, Episodes, or OtherVideo", config.Validate());
+    }
+
+    [Fact]
     public void ValidateColorPresets_AllowsValidReusableScene()
     {
         var config = new PluginConfiguration

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.129] - 2026-08-19
+
+### Added
+- **Per-user playback media scope**: let each user mapping inherit the global all-video/movies/episodes/other-video policy or override it for that user's room/profile
+- **Consistent lifecycle safety**: apply the effective per-user scope to new and recovered starts while preserving progress and stop cleanup for active sessions
+- **Credential-free observability**: include the override in mapping summaries, backup/restore documents, and effective active-session status without exposing bridge secrets
+
 ## [1.5.128] - 2026-08-19
 
 ### Added

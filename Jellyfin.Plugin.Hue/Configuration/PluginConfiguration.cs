@@ -28,6 +28,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? BrightnessDimLevelOverride { get; set; }
         public string? PauseBehaviorOverride { get; set; }
         public bool? RestoreLightStateOverride { get; set; }
+        public string? PlaybackMediaFilterOverride { get; set; }
 
         // Optional per-user color profile overrides. Null values inherit the global setting.
         public int? BrightnessBoostOverride { get; set; }
@@ -484,6 +485,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Normalizes an optional per-user playback scope while preserving invalid text
+        /// for configuration validation feedback. Blank values become null so inheritance
+        /// remains explicit in persisted mapping profiles.
+        /// </summary>
+        public static string? NormalizeOptionalPlaybackMediaFilter(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            return TryNormalizePlaybackMediaFilter(value, out var normalized)
+                ? normalized
+                : value.Trim();
+        }
+
+        /// <summary>
         /// Clamps persisted or telemetry-only effect speed values to the supported range.
         /// Request and configuration validation still rejects out-of-range user input.
         /// </summary>
@@ -624,6 +640,33 @@ namespace Jellyfin.Plugin.Hue.Configuration
             var userIdText = userId.ToString();
             var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
             return mapping?.SyncEnabled ?? true;
+        }
+
+        /// <summary>
+        /// Gets the optional per-user playback media scope override. A blank value means
+        /// the global playback scope is inherited.
+        /// </summary>
+        public string? GetPlaybackMediaFilterOverrideForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return NormalizeOptionalPlaybackMediaFilter(mapping?.PlaybackMediaFilterOverride);
+        }
+
+        /// <summary>
+        /// Gets the effective playback media scope for a user, falling back to the global
+        /// setting when the mapping does not override it. Invalid legacy values are kept
+        /// fail-open for playback; normal configuration validation still reports them.
+        /// </summary>
+        public string GetPlaybackMediaFilterForUser(Guid userId)
+        {
+            var overrideFilter = GetPlaybackMediaFilterOverrideForUser(userId);
+            if (overrideFilter != null && TryNormalizePlaybackMediaFilter(overrideFilter, out var normalizedOverride))
+                return normalizedOverride;
+
+            return TryNormalizePlaybackMediaFilter(PlaybackMediaFilter, out var normalizedGlobal)
+                ? normalizedGlobal
+                : PlaybackMediaFilterAllVideo;
         }
 
         /// <summary>
@@ -875,6 +918,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 !string.Equals(pauseBehaviorOverride, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase))
             {
                 errors.Add($"{label} pause behavior override must be KeepLastColors or RestoreLightState");
+            }
+
+            var playbackMediaFilterOverride = mapping.PlaybackMediaFilterOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(playbackMediaFilterOverride) &&
+                !TryNormalizePlaybackMediaFilter(playbackMediaFilterOverride, out _))
+            {
+                errors.Add($"{label} playback media scope override must be AllVideo, Movies, Episodes, or OtherVideo");
             }
 
             return errors;

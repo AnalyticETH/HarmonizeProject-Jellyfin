@@ -602,6 +602,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 CurrentItem = currentItem,
                 ActiveUserId = isSyncing ? currentUserId?.ToString() : null,
                 ActiveUserName = isSyncing ? currentUserName : null,
+                ActivePlaybackMediaFilter = isSyncing
+                    ? Plugin.Instance?.Configuration?.GetPlaybackMediaFilterForUser(currentUserId ?? Guid.Empty)
+                    : null,
                 ActiveFrameResolution = isSyncing ? currentFrameResolution : null,
                 ActiveVideoScalingMode = isSyncing ? currentVideoScalingMode : null,
                 ActiveVideoDeinterlaceMode = isSyncing ? currentVideoDeinterlaceMode : null,
@@ -972,6 +975,12 @@ namespace Jellyfin.Plugin.Hue.Service
             return config == null || config.IsSyncEnabledForUser(e.Session?.UserId ?? Guid.Empty);
         }
 
+        private string GetPlaybackMediaFilter(PlaybackProgressEventArgs e)
+        {
+            return Plugin.Instance?.Configuration?.GetPlaybackMediaFilterForUser(e.Session?.UserId ?? Guid.Empty)
+                ?? PluginConfiguration.PlaybackMediaFilterAllVideo;
+        }
+
         /// <summary>
         /// Determines whether two playback progress samples describe a real seek rather
         /// than ordinary progress between Jellyfin notifications. The comparison uses the
@@ -1282,7 +1291,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             e = NormalizeRecoveredPlaybackEvent(e);
             if (!IsPlaybackUserSyncEnabled(e) ||
-                !MatchesPlaybackMediaFilter(e.Item, Plugin.Instance?.Configuration?.PlaybackMediaFilter))
+                !MatchesPlaybackMediaFilter(e.Item, GetPlaybackMediaFilter(e)))
                 return;
 
             if (!PrepareExternalPlaybackStart(e))
@@ -1385,16 +1394,13 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
-            var playbackMediaFilter = Plugin.Instance?.Configuration?.PlaybackMediaFilter;
+            var playbackMediaFilter = GetPlaybackMediaFilter(e);
             if (!MatchesPlaybackMediaFilter(e.Item, playbackMediaFilter))
             {
-                var normalizedFilter = PluginConfiguration.TryNormalizePlaybackMediaFilter(playbackMediaFilter, out var filter)
-                    ? filter
-                    : PluginConfiguration.PlaybackMediaFilterAllVideo;
                 _logger.LogDebug(
                     "Skipping playback item {0}; configured Hue Sync media scope is {1}",
                     e.Item?.Name ?? "Unknown",
-                    normalizedFilter);
+                    playbackMediaFilter);
                 var publishFilteredStatus = false;
                 lock (_syncLock)
                 {
@@ -1404,7 +1410,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 if (publishFilteredStatus)
-                    SetRuntimeStatus("Idle", $"Hue Sync playback media scope excludes this item ({normalizedFilter}).");
+                    SetRuntimeStatus("Idle", $"Hue Sync playback media scope excludes this item ({playbackMediaFilter}).");
                 return;
             }
 
@@ -3856,6 +3862,7 @@ namespace Jellyfin.Plugin.Hue.Service
         /// </summary>
         public string? ActiveUserId { get; init; }
         public string? ActiveUserName { get; init; }
+        public string? ActivePlaybackMediaFilter { get; init; }
         public string? ActiveFrameResolution { get; init; }
         public string? ActiveVideoScalingMode { get; init; }
         public string? ActiveVideoDeinterlaceMode { get; init; }

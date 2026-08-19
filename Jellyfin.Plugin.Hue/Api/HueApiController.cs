@@ -3018,6 +3018,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 CleanupWarning = runtime?.CleanupWarning,
                 ActiveUserId = runtime?.ActiveUserId,
                 ActiveUserName = runtime?.ActiveUserName,
+                ActivePlaybackMediaFilter = runtime?.ActivePlaybackMediaFilter,
                 ActiveBridgeIp = runtime?.ActiveBridgeIp,
                 ActiveEntertainmentAreaId = runtime?.ActiveEntertainmentAreaId,
                 ActiveTargetFps = runtime?.ActiveTargetFps,
@@ -4029,6 +4030,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 BrightnessDimLevelOverride = source.BrightnessDimLevelOverride,
                 PauseBehaviorOverride = source.PauseBehaviorOverride?.Trim(),
                 RestoreLightStateOverride = source.RestoreLightStateOverride,
+                PlaybackMediaFilterOverride = PluginConfiguration.NormalizeOptionalPlaybackMediaFilter(source.PlaybackMediaFilterOverride),
                 BrightnessBoostOverride = source.BrightnessBoostOverride,
                 RedGainOverride = source.RedGainOverride,
                 GreenGainOverride = source.GreenGainOverride,
@@ -4173,7 +4175,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Gets all user-to-bridge mappings without returning stored credentials. Optional
-        /// per-user playback, color-threshold, performance, execution, channel, and restoration profile values are included because they are not secret.
+        /// per-user playback media scope, playback, color-threshold, performance, execution,
+        /// channel, and restoration profile values are included because they are not secret.
         /// </summary>
         [HttpGet("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -4237,7 +4240,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
-        /// synchronization without storing bridge credentials and can override playback, color processing and scene thresholds,
+        /// synchronization without storing bridge credentials and can override playback media scope, playback behavior, color processing and scene thresholds,
         /// capture-performance, execution, channel selection, or light-restoration settings.
         /// </summary>
         [HttpPost("UserMappings")]
@@ -4286,6 +4289,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     errors = overrideErrors
                 });
             }
+
+            mapping.PlaybackMediaFilterOverride = PluginConfiguration.NormalizeOptionalPlaybackMediaFilter(mapping.PlaybackMediaFilterOverride);
 
             var plugin = Plugin.Instance;
             var config = plugin?.Configuration;
@@ -4641,6 +4646,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? BrightnessDimLevelOverride { get; set; }
         public string? PauseBehaviorOverride { get; set; }
         public bool? RestoreLightStateOverride { get; set; }
+        public string? PlaybackMediaFilterOverride { get; set; }
         public int? BrightnessBoostOverride { get; set; }
         public int? RedGainOverride { get; set; }
         public int? GreenGainOverride { get; set; }
@@ -4680,6 +4686,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 BrightnessDimLevelOverride = mapping.BrightnessDimLevelOverride,
                 PauseBehaviorOverride = mapping.PauseBehaviorOverride,
                 RestoreLightStateOverride = mapping.RestoreLightStateOverride,
+                PlaybackMediaFilterOverride = mapping.PlaybackMediaFilterOverride,
                 BrightnessBoostOverride = mapping.BrightnessBoostOverride,
                 RedGainOverride = mapping.RedGainOverride,
                 GreenGainOverride = mapping.GreenGainOverride,
@@ -5844,6 +5851,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? CleanupWarning { get; set; }
         public string? ActiveUserId { get; set; }
         public string? ActiveUserName { get; set; }
+        public string? ActivePlaybackMediaFilter { get; set; }
         public string? ActiveBridgeIp { get; set; }
         public string? ActiveEntertainmentAreaId { get; set; }
         public int? ActiveTargetFps { get; set; }

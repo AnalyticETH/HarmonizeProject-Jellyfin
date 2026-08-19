@@ -3930,6 +3930,7 @@ public sealed class HueApiControllerTests : IDisposable
                     BrightnessDimLevelOverride = 10,
                     PauseBehaviorOverride = PluginConfiguration.PauseBehaviorRestoreLightState,
                     RestoreLightStateOverride = true,
+                    PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterEpisodes,
                     BrightnessBoostOverride = 150,
                     RedGainOverride = 120,
                     GreenGainOverride = 90,
@@ -3967,6 +3968,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)10, mapping.BrightnessDimLevelOverride);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, mapping.PauseBehaviorOverride);
         Assert.Equal((bool?)true, mapping.RestoreLightStateOverride);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, mapping.PlaybackMediaFilterOverride);
         Assert.Equal((int?)150, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)120, mapping.RedGainOverride);
         Assert.Equal((int?)90, mapping.GreenGainOverride);
@@ -4195,6 +4197,7 @@ public sealed class HueApiControllerTests : IDisposable
                     HueAppKey = "mapping-app-secret",
                     HueClientKey = "mapping-client-secret",
                     EntertainmentAreaId = "area-2",
+                    PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterMovies,
                     BrightnessBoostOverride = 135
                 }
             },
@@ -4239,6 +4242,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(mapping.HasAppKey);
         Assert.True(mapping.HasClientKey);
         Assert.Equal(135, mapping.BrightnessBoostOverride);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterMovies, mapping.PlaybackMediaFilterOverride);
         Assert.Single(document.ColorPresets);
         Assert.Single(document.SceneSchedules);
         Assert.Equal("Morning cue", document.SceneSchedules[0].Name);
@@ -4729,6 +4733,7 @@ public sealed class HueApiControllerTests : IDisposable
                     HueAppKey = "mapping-app-secret",
                     HueClientKey = "mapping-client-secret",
                     EntertainmentAreaId = "area-2",
+                    PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterMovies,
                     BrightnessBoostOverride = 100
                 }
             },
@@ -4756,6 +4761,7 @@ public sealed class HueApiControllerTests : IDisposable
                     SyncEnabled = summary.SyncEnabled,
                     HueBridgeIp = summary.HueBridgeIp,
                     EntertainmentAreaId = summary.EntertainmentAreaId,
+                    PlaybackMediaFilterOverride = summary.PlaybackMediaFilterOverride,
                     BrightnessBoostOverride = 150
                 })
                 .ToList(),
@@ -4793,6 +4799,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(22, configuration.SceneAutomationCatchUpMinutes);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterMovies, mapping.PlaybackMediaFilterOverride);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
         Assert.Equal(150, mapping.BrightnessBoostOverride);
         Assert.Equal("New Scene", Assert.Single(configuration.ColorPresets).Name);
@@ -5163,6 +5170,7 @@ public sealed class HueApiControllerTests : IDisposable
             BrightnessDimLevelOverride = 20,
             PauseBehaviorOverride = PluginConfiguration.PauseBehaviorKeepLastColors,
             RestoreLightStateOverride = false,
+            PlaybackMediaFilterOverride = " episodes ",
             BrightnessBoostOverride = 125,
             RedGainOverride = 115,
             GreenGainOverride = 95,
@@ -5196,6 +5204,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)20, mapping.BrightnessDimLevelOverride);
         Assert.Equal(PluginConfiguration.PauseBehaviorKeepLastColors, mapping.PauseBehaviorOverride);
         Assert.Equal((bool?)false, mapping.RestoreLightStateOverride);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, mapping.PlaybackMediaFilterOverride);
         Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)115, mapping.RedGainOverride);
         Assert.Equal((int?)95, mapping.GreenGainOverride);
@@ -5356,6 +5365,7 @@ public sealed class HueApiControllerTests : IDisposable
             SyncEnabled = false,
             BrightnessDimLevelOverride = 101,
             PauseBehaviorOverride = "InvalidPauseBehavior",
+            PlaybackMediaFilterOverride = "Trailers",
             TargetFpsOverride = 0,
             FfmpegStallTimeoutSecondsOverride = 0,
             NetworkRetryAttemptsOverride = 11,
@@ -5366,6 +5376,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
         var validationBody = System.Text.Json.JsonSerializer.Serialize(response.Value);
         Assert.Contains("target FPS override must be between 1 and 60", validationBody, StringComparison.Ordinal);
+        Assert.Contains("playback media scope override must be AllVideo, Movies, Episodes, or OtherVideo", validationBody, StringComparison.Ordinal);
         Assert.Contains("FFmpeg stall timeout override must be between 1 and 60 seconds", validationBody, StringComparison.Ordinal);
         Assert.Contains("network retry attempts override must be between 0 and 10", validationBody, StringComparison.Ordinal);
         Assert.Contains("channel IDs override must be a comma-separated list of IDs from 0 to 65535", validationBody, StringComparison.Ordinal);

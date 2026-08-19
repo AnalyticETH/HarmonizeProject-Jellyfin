@@ -40,6 +40,28 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void MatchesPlaybackMediaFilter_UsesTheEffectivePerUserScope()
+    {
+        var userId = Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterMovies,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString(), PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterEpisodes }
+            }
+        };
+
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, config.GetPlaybackMediaFilterForUser(userId));
+        Assert.True(HueSyncService.MatchesPlaybackMediaFilter(
+            new MediaBrowser.Controller.Entities.TV.Episode(),
+            config.GetPlaybackMediaFilterForUser(userId)));
+        Assert.False(HueSyncService.MatchesPlaybackMediaFilter(
+            new MediaBrowser.Controller.Entities.Movies.Movie(),
+            config.GetPlaybackMediaFilterForUser(userId)));
+    }
+
+    [Fact]
     public void IsPlaybackSeek_RecognizesBackwardAndLargeForwardJumps()
     {
         var start = DateTime.UtcNow;
