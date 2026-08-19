@@ -297,11 +297,14 @@
                             <button is="emby-button" type="button" class="raised" id="duplicatePreviewPresetBtn" disabled>
                                 <span>Duplicate Scene</span>
                             </button>
+                            <button is="emby-button" type="button" class="raised" id="renamePreviewPresetBtn" disabled>
+                                <span>Rename Scene</span>
+                            </button>
                             <button is="emby-button" type="button" class="raised" id="deletePreviewPresetBtn" disabled>
                                 <span>Delete Scene</span>
                             </button>
                         </div>
-                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Preview Saved Scene runs the selected saved scene through the server-side target profile; Preview Saved Scene on All Targets runs it sequentially on every distinct enabled target. Use Duplicate Scene to create a safe editable variant. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
+                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Preview Saved Scene runs the selected saved scene through the server-side target profile; Preview Saved Scene on All Targets runs it sequentially on every distinct enabled target. Use Duplicate Scene to create a safe editable variant, or enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -1935,11 +1938,15 @@
                     var selectEl = page.querySelector('#previewPresetSelect');
                     var deleteBtn = page.querySelector('#deletePreviewPresetBtn');
                     var duplicateBtn = page.querySelector('#duplicatePreviewPresetBtn');
+                    var renameBtn = page.querySelector('#renamePreviewPresetBtn');
                     if (deleteBtn) {
                         deleteBtn.disabled = !selectEl || !selectEl.value;
                     }
                     if (duplicateBtn) {
                         duplicateBtn.disabled = !selectEl || !selectEl.value;
+                    }
+                    if (renameBtn) {
+                        renameBtn.disabled = !selectEl || !selectEl.value;
                     }
                 },
                 applyColorPreset: function (page) {
@@ -2013,6 +2020,62 @@
                         console.error("Failed to duplicate color preset:", err);
                         if (statusEl) {
                             statusEl.textContent = "Unable to duplicate the saved scene. Check the scene limit and server log.";
+                            statusEl.style.color = "#d9534f";
+                        }
+                        HueConfigurationPage.updatePresetButtons(page);
+                    }).finally(function () {
+                        HueConfigurationPage.updatePresetButtons(page);
+                    });
+                },
+                renameColorPreset: function (page) {
+                    var selectEl = page.querySelector('#previewPresetSelect');
+                    var nameEl = page.querySelector('#previewPresetName');
+                    var statusEl = page.querySelector('#previewPresetStatus');
+                    var name = selectEl ? selectEl.value : '';
+                    var newName = nameEl ? nameEl.value.trim() : '';
+                    if (!name) {
+                        Dashboard.alert("Choose a saved scene first.");
+                        return;
+                    }
+                    if (!newName) {
+                        Dashboard.alert("Enter the new scene name first.");
+                        return;
+                    }
+                    if (newName === name) {
+                        Dashboard.alert("Enter a different scene name, or use Save / Update Scene for visual edits.");
+                        return;
+                    }
+
+                    var button = page.querySelector('#renamePreviewPresetBtn');
+                    var selectedSchedule = page.querySelector('#sceneScheduleSelect');
+                    var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
+                    if (button) button.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Renaming scene and migrating its references...";
+                        statusEl.style.color = "";
+                    }
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Rename"),
+                        data: JSON.stringify({ newName: newName }),
+                        contentType: "application/json",
+                        dataType: "json"
+                    }).then(function (response) {
+                        var renamedName = response && (response.name || response.Name) || newName;
+                        if (nameEl) nameEl.value = renamedName;
+                        if (statusEl) {
+                            statusEl.textContent = "Scene '" + name + "' renamed to '" + renamedName + "'; playlist and scheduled-cue references were migrated.";
+                            statusEl.style.color = "#8bc34a";
+                        }
+                        return HueConfigurationPage.loadColorPresets(page, renamedName).then(function () {
+                            return HueConfigurationPage.loadScenePlaylists(page).then(function () {
+                                return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                            });
+                        });
+                    }).catch(function (err) {
+                        console.error("Failed to rename color preset:", err);
+                        if (statusEl) {
+                            statusEl.textContent = "Unable to rename the saved scene. Check that the new name is valid and not already in use.";
                             statusEl.style.color = "#d9534f";
                         }
                         HueConfigurationPage.updatePresetButtons(page);
@@ -5967,6 +6030,10 @@
 
             document.querySelector('#duplicatePreviewPresetBtn').addEventListener('click', function () {
                 HueConfigurationPage.duplicateColorPreset(this.closest('.page'));
+            });
+
+            document.querySelector('#renamePreviewPresetBtn').addEventListener('click', function () {
+                HueConfigurationPage.renameColorPreset(this.closest('.page'));
             });
 
             document.querySelector('#deletePreviewPresetBtn').addEventListener('click', function () {

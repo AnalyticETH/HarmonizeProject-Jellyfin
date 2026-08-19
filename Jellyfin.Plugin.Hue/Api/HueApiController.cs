@@ -1377,6 +1377,135 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Renames one reusable preview scene while migrating every saved-playlist and
+        /// direct scheduled-cue reference that uses the old name. The complete candidate
+        /// scene configuration is validated before it replaces the current configuration.
+        /// </summary>
+        [HttpPost("ColorPresets/{name}/Rename")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueColorPresetResult> RenameColorPreset(
+            string name,
+            [FromBody] HueColorPresetRenameRequest? request)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return NotFound("Color preset not found.");
+
+            if (request == null || string.IsNullOrWhiteSpace(request.NewName))
+                return BadRequest("A new color preset name is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var sourceName = name.Trim();
+            var targetName = request.NewName.Trim();
+            config.ColorPresets ??= new List<HueColorPreset>();
+            var source = config.ColorPresets.FirstOrDefault(preset =>
+                preset != null &&
+                string.Equals(preset.Name?.Trim(), sourceName, StringComparison.OrdinalIgnoreCase));
+            if (source == null)
+                return NotFound("Color preset not found.");
+
+            if (string.Equals(source.Name?.Trim(), targetName, StringComparison.Ordinal))
+                return BadRequest("The new color preset name must differ from the current name.");
+
+            var collision = config.ColorPresets.Any(preset =>
+                preset != null &&
+                !ReferenceEquals(preset, source) &&
+                string.Equals(preset.Name?.Trim(), targetName, StringComparison.OrdinalIgnoreCase));
+            if (collision)
+                return Conflict("A color preset with the new name already exists.");
+
+            var previousPresets = config.ColorPresets;
+            var previousPlaylists = config.ScenePlaylists ?? new List<HueScenePlaylist>();
+            var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
+            var candidatePresets = previousPresets
+                .Where(preset => preset != null)
+                .Select(CloneColorPreset)
+                .ToList();
+            var candidateSource = candidatePresets.First(preset =>
+                string.Equals(preset.Name?.Trim(), sourceName, StringComparison.OrdinalIgnoreCase));
+            candidateSource.Name = targetName;
+
+            var candidatePlaylists = previousPlaylists
+                .Where(playlist => playlist != null)
+                .Select(playlist =>
+                {
+                    var clone = CloneScenePlaylist(playlist);
+                    clone.PresetNames = (clone.PresetNames ?? new List<string>())
+                        .Select(presetName => string.Equals(
+                                presetName.Trim(),
+                                sourceName,
+                                StringComparison.OrdinalIgnoreCase)
+                            ? targetName
+                            : presetName)
+                        .ToList();
+                    return clone;
+                })
+                .ToList();
+            var candidateSchedules = previousSchedules
+                .Where(schedule => schedule != null)
+                .Select(schedule =>
+                {
+                    var clone = CloneSceneSchedule(schedule);
+                    if (string.Equals(
+                            clone.PresetName?.Trim(),
+                            sourceName,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        clone.PresetName = targetName;
+                    }
+
+                    return clone;
+                })
+                .ToList();
+
+            var validationConfiguration = new PluginConfiguration
+            {
+                ColorPresets = candidatePresets,
+                ScenePlaylists = candidatePlaylists,
+                SceneSchedules = candidateSchedules,
+                UserMappings = config.UserMappings ?? new List<UserBridgeMapping>()
+            };
+            var validationErrors = validationConfiguration.ValidateColorPresets();
+            validationErrors.AddRange(validationConfiguration.ValidateScenePlaylists());
+            validationErrors.AddRange(validationConfiguration.ValidateSceneSchedules());
+            if (validationErrors.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = "The renamed color preset configuration is invalid.",
+                    errors = validationErrors
+                });
+            }
+
+            config.ColorPresets = candidatePresets;
+            config.ScenePlaylists = candidatePlaylists;
+            config.SceneSchedules = candidateSchedules;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ColorPresets = previousPresets;
+                config.ScenePlaylists = previousPlaylists;
+                config.SceneSchedules = previousSchedules;
+                _logger?.LogError(ex, "Could not persist renamed Hue color preset {0}", sourceName);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The color preset rename could not be saved.");
+            }
+
+            return Ok(ToColorPresetResult(candidateSource));
+        }
+
+        /// <summary>
         /// Creates a safe copy of one reusable preview scene. The copy keeps all visual
         /// and transition metadata, receives a bounded unique name, and can be edited
         /// independently without changing the source scene or its scheduled cues.
@@ -4458,6 +4587,15 @@ namespace Jellyfin.Plugin.Hue.Api
                 TransitionOutSeconds = TransitionOutSeconds
             };
         }
+    }
+
+    /// <summary>
+    /// Credential-free request to rename a saved scene and migrate its references.
+    /// </summary>
+    public sealed class HueColorPresetRenameRequest
+    {
+        [JsonPropertyName("newName")]
+        public string NewName { get; set; } = string.Empty;
     }
 
     public class HueColorPresetResult

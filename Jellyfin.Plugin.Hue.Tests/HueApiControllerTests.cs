@@ -1796,6 +1796,102 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void RenameColorPreset_MigratesReferencesAndPreservesVisualMetadata()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new()
+                {
+                    Name = "Movie Night",
+                    Effect = PluginConfiguration.ColorPresetEffectCandle,
+                    EffectSpeedPercent = 225,
+                    Red = 230,
+                    Green = 90,
+                    Blue = 20,
+                    BrightnessPercent = 75,
+                    DurationSeconds = 8,
+                    TransitionSeconds = 2,
+                    TransitionOutSeconds = 3
+                }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-1",
+                    Name = "Movie sequence",
+                    PresetNames = new List<string> { " movie night ", "Movie Night" }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "cue-1",
+                    Name = "Movie cue",
+                    PresetName = " MOVIE NIGHT "
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var action = controller.RenameColorPreset(
+            " movie night ",
+            new HueColorPresetRenameRequest { NewName = " New Year's Eve " });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueColorPresetResult>(response.Value);
+        Assert.Equal("New Year's Eve", result.Name);
+        Assert.Equal(PluginConfiguration.ColorPresetEffectCandle, result.Effect);
+        Assert.Equal(225, result.EffectSpeedPercent);
+        Assert.Equal(230, result.Red);
+        Assert.Equal(90, result.Green);
+        Assert.Equal(20, result.Blue);
+        Assert.Equal(75, result.BrightnessPercent);
+        Assert.Equal(8, result.DurationSeconds);
+        Assert.Equal(2, result.TransitionSeconds);
+        Assert.Equal(3, result.TransitionOutSeconds);
+
+        var preset = Assert.Single(configuration.ColorPresets);
+        Assert.Equal("New Year's Eve", preset.Name);
+        Assert.Equal(new[] { "New Year's Eve", "New Year's Eve" }, configuration.ScenePlaylists[0].PresetNames);
+        Assert.Equal("New Year's Eve", configuration.SceneSchedules[0].PresetName);
+    }
+
+    [Fact]
+    public void RenameColorPreset_RejectsMissingBlankAndCollidingNamesWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Original", Red = 10 },
+                new() { Name = "Existing", Red = 20 }
+            }
+        });
+        var controller = CreateController();
+
+        var missing = controller.RenameColorPreset(
+            "Missing",
+            new HueColorPresetRenameRequest { NewName = "Renamed" });
+        Assert.IsType<NotFoundObjectResult>(missing.Result);
+
+        var blank = controller.RenameColorPreset(
+            "Original",
+            new HueColorPresetRenameRequest { NewName = "  " });
+        Assert.IsType<BadRequestObjectResult>(blank.Result);
+
+        var collision = controller.RenameColorPreset(
+            "Original",
+            new HueColorPresetRenameRequest { NewName = " existing " });
+        var collisionResponse = Assert.IsType<ConflictObjectResult>(collision.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, collisionResponse.StatusCode);
+        Assert.Equal(new[] { "Original", "Existing" }, configuration.ColorPresets.Select(preset => preset.Name));
+    }
+
+    [Fact]
     public void SaveColorPreset_InvalidValuesReturnsBadRequestWithoutSaving()
     {
         var configuration = InstallConfiguration(new PluginConfiguration());

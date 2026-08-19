@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.112] - 2026-08-19
+
+### Added
+- **Reference-safe saved-scene rename**: preserve all visual/effect metadata while atomically migrating matching saved-playlist and direct scheduled-cue references to the new name
+- **Administrator rename workflow**: enter a replacement scene name and use Rename Scene so existing automation follows the scene instead of being left behind by a save-as action
+
+### Security
+- Rename results and dependency migration contain only bounded scene names and counts; bridge addresses, app keys, client keys, playback tokens, and private user data remain server-side
+
 ## [1.5.111] - 2026-08-19
 
 ### Added
