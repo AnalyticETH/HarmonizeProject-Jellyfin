@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.116] - 2026-08-19
+
+### Added
+- **Per-user mapping dependency audit**: inspect every scheduled cue that targets a user mapping through `GET /HueSync/UserMappings/{userId}/Dependencies`, including cue IDs, names, and enabled state
+- **Administrator mapping reference inspection**: add View Cue References to each per-user mapping so disabling or deleting a referenced mapping is explainable before an action is attempted
+
+### Security
+- Mapping dependency results remain credential-free and expose only bounded user and cue labels/counts; bridge addresses, app keys, client keys, playback tokens, and target details remain server-side
+
+### Reliability
+- **Transactional mapping lifecycle**: roll back in-memory mapping changes and return sanitized 500 responses when mapping save or deletion persistence fails
+
 ## [1.5.115] - 2026-08-19
 
 ### Added

@@ -682,7 +682,7 @@
                         <legend>Per-User Bridge Mappings</legend>
                         <div class="fieldDescription" style="margin-bottom: 1em;">
                             Map individual Jellyfin users to specific Hue bridges and entertainment areas.
-                            Users without a mapping will use the default bridge settings above. To keep a per-user profile while using that same bridge, leave every bridge target field blank.
+                            Users without a mapping will use the default bridge settings above. To keep a per-user profile while using that same bridge, leave every bridge target field blank. Use View Cue References before disabling or deleting a mapping that scheduled cues may use.
                         </div>
 
                         <div id="userMappingsList" style="margin-bottom: 1em;">
@@ -5154,6 +5154,7 @@
                             html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid)">Edit</button> ';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid)">View Cue References</button> ';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid)">Delete</button>';
                             html += '</td></tr>';
                         });
@@ -6068,6 +6069,46 @@
 
                 cancelMappingEdit: function (page) {
                     HueConfigurationPage.resetMappingForm(page);
+                },
+
+                inspectUserMappingDependencies: function (page, userId) {
+                    if (!userId) {
+                        Dashboard.alert("Choose a user mapping first.");
+                        return;
+                    }
+
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings/" + encodeURIComponent(userId) + "/Dependencies"))
+                        .then(function (response) {
+                            var userName = response && (response.userName || response.UserName) || userId;
+                            var canDelete = response && (response.canDelete !== undefined ? response.canDelete : response.CanDelete);
+                            var canDisable = response && (response.canDisable !== undefined ? response.canDisable : response.CanDisable);
+                            var cueCount = response && (response.scheduledCueCount !== undefined ? response.scheduledCueCount : response.ScheduledCueCount) || 0;
+                            var cues = response && (response.scheduledCues || response.ScheduledCues) || [];
+                            var details = ["User mapping: " + userName];
+                            if (canDelete && canDisable) {
+                                details.push("No scheduled-cue references were found. The mapping can be disabled or deleted safely.");
+                            } else {
+                                details.push("References: " + cueCount + " scheduled cue(s).");
+                                details.push(canDisable
+                                    ? "The mapping can be disabled, but deletion remains blocked until those cues are changed or removed."
+                                    : "Disabling and deletion remain blocked until those cues are changed or removed.");
+                                cues.forEach(function (cue) {
+                                    if (!cue) return;
+                                    var cueName = cue.name !== undefined ? cue.name : cue.Name;
+                                    var enabled = cue.enabled !== undefined ? cue.enabled : cue.Enabled;
+                                    details.push("Scheduled cue: " + (cueName || "Unnamed") + (enabled ? " (enabled)" : " (disabled)"));
+                                });
+                            }
+                            Dashboard.alert(details.join("\n"));
+                        })
+                        .catch(function (err) {
+                            console.error("Failed to inspect user mapping dependencies:", err);
+                            Dashboard.alert("Unable to inspect mapping references: " + (err.message || err));
+                        })
+                        .finally(function () {
+                            Dashboard.hideLoadingMsg();
+                        });
                 },
 
                 deleteUserMapping: function (page, userId) {

@@ -3788,6 +3788,78 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetUserMappingDependencies_ReturnsCredentialFreeCueDetails()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Viewer",
+                    SyncEnabled = true,
+                    HueAppKey = "mapping-dependency-app-secret",
+                    HueClientKey = "mapping-dependency-client-secret"
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "mapping-cue-disabled",
+                    Name = "Disabled mapping cue",
+                    TargetUserId = " USER-1 ",
+                    Enabled = false
+                },
+                new()
+                {
+                    Id = "mapping-cue-enabled",
+                    Name = "Enabled mapping cue",
+                    TargetUserId = "user-1",
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "other-mapping-cue",
+                    Name = "Other mapping cue",
+                    TargetUserId = "user-2",
+                    Enabled = true
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var action = controller.GetUserMappingDependencies(" USER-1 ");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingDependenciesResult>(response.Value);
+        Assert.Equal("user-1", result.UserId);
+        Assert.Equal("Viewer", result.UserName);
+        Assert.True(result.SyncEnabled);
+        Assert.False(result.CanDisable);
+        Assert.False(result.CanDelete);
+        Assert.Equal(2, result.ScheduledCueCount);
+        Assert.Equal(new[] { "Disabled mapping cue", "Enabled mapping cue" }, result.ScheduledCues.Select(cue => cue.Name));
+        Assert.False(result.ScheduledCues[0].Enabled);
+        Assert.True(result.ScheduledCues[1].Enabled);
+        Assert.Equal(new[] { "mapping-cue-disabled", "mapping-cue-enabled" }, result.ScheduledCues.Select(cue => cue.Id));
+
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("mapping-dependency-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("mapping-dependency-client-secret", serialized, StringComparison.Ordinal);
+
+        configuration.SceneSchedules.Clear();
+        var noReferences = controller.GetUserMappingDependencies("user-1");
+        var noReferencesResponse = Assert.IsType<OkObjectResult>(noReferences.Result);
+        var noReferencesResult = Assert.IsType<HueUserMappingDependenciesResult>(noReferencesResponse.Value);
+        Assert.True(noReferencesResult.CanDisable);
+        Assert.True(noReferencesResult.CanDelete);
+        Assert.Equal(0, noReferencesResult.ScheduledCueCount);
+        Assert.Empty(noReferencesResult.ScheduledCues);
+    }
+
+    [Fact]
     public void GetConfiguration_ExcludesPerUserMappings()
     {
         InstallConfiguration(new PluginConfiguration
@@ -4973,6 +5045,23 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Empty(mapping.HueClientKey);
         Assert.Empty(mapping.HueBridgeIp);
         Assert.Empty(mapping.EntertainmentAreaId);
+    }
+
+    [Fact]
+    public void DeleteUserMapping_UnreferencedMappingIsRemoved()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-delete", UserName = "Viewer", SyncEnabled = false }
+            }
+        });
+
+        var action = CreateController().DeleteUserMapping(" USER-DELETE ");
+
+        Assert.IsType<OkObjectResult>(action);
+        Assert.Empty(configuration.UserMappings);
     }
 
     private HueApiController CreateController(

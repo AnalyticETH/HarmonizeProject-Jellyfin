@@ -109,6 +109,10 @@ accepts one active stream. The Live Sync Status panel lists each active session,
 and stop control; stopping one session leaves the other viewer and Jellyfin playback running.
 Existing mappings can be updated with **Edit** or removed with **Delete**. Editing keeps the
 selected Jellyfin user fixed while allowing the bridge address, credentials, and area to change.
+Use **View Cue References** beside a mapping to inspect the credential-free scheduled-cue list
+before disabling or deleting it; referenced mappings remain protected until those cues are changed
+or removed. Mapping saves and deletes are transactional, so a persistence failure restores the
+previous in-memory mapping collection.
 To keep a per-user profile while using the global bridge, create or edit an enabled mapping and
 leave Bridge Address, App Key, Client Key, and Entertainment Area blank; those target fields
 inherit the global configuration. Enter all four fields when targeting a custom bridge.
@@ -199,6 +203,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET/POST /HueSync/Configuration` | Read or update default plugin settings, including the global channel profile, recurring scene-automation pause preference, bounded missed-cue recovery window, and opt-in persistent session/cue-history preferences, without serializing per-user mappings or global credentials to the configuration page. Responses expose `hasAppKey`/`hasClientKey` presence flags; blank key fields preserve stored values and `clearStoredCredentials` explicitly removes both global keys. |
 | `GET /HueSync/EntertainmentAreas` | Legacy query-string-compatible area loading for existing clients; `userId` can select a matching stored custom mapping, but POST is preferred so keys do not appear in URLs. |
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |
+| `GET /HueSync/UserMappings/{userId}/Dependencies` | Inspect one mapping's credential-free scheduled-cue dependencies before disabling or deleting it. Returns `canDisable`, `canDelete`, the dependent cue count, and cue IDs/names/enabled state; bridge credentials and target details are never returned. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 
 ### Generating Hue Credentials (Manual Fallback)
@@ -370,7 +375,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.115 (Current)
+### Version 1.5.116 (Current)
+- **Per-user mapping dependency audit**: inspect every scheduled cue that targets a user mapping through a credential-free API before disabling or deleting it
+- **Transactional mapping lifecycle**: roll back in-memory mapping changes and return sanitized persistence errors for failed save/delete operations
+- **Administrator reference inspection**: use View Cue References beside each per-user mapping to understand dependency protections without trial-and-error
+
+### Version 1.5.115
 - **Saved-playlist dependency audit**: inspect every scheduled cue that references a playlist through a credential-free API before deletion
 - **Administrator cue-reference inspection**: use View Cue References in the Saved Scene Playlists editor to understand why deletion is blocked without trial-and-error
 

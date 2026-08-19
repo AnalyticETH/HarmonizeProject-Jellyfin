@@ -3915,6 +3915,55 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Inspects scheduled-cue references to one user mapping without returning bridge
+        /// credentials or target details. The result lets an administrator understand why
+        /// disabling or deleting a mapping may be blocked before changing it.
+        /// </summary>
+        [HttpGet("UserMappings/{userId}/Dependencies")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<HueUserMappingDependenciesResult> GetUserMappingDependencies(string userId)
+        {
+            if (string.IsNullOrWhiteSpace(userId))
+                return NotFound("User mapping not found.");
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var normalizedUserId = userId.Trim();
+            var mapping = config.UserMappings?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.UserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase));
+            if (mapping == null)
+                return NotFound("Mapping not found for the specified user.");
+
+            var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+                .Where(schedule => schedule != null &&
+                    string.Equals(schedule.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase))
+                .Select(schedule => new HueUserMappingScheduleDependencyResult
+                {
+                    Id = schedule.Id?.Trim() ?? string.Empty,
+                    Name = schedule.Name?.Trim() ?? string.Empty,
+                    Enabled = schedule.Enabled
+                })
+                .OrderBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            return Ok(new HueUserMappingDependenciesResult
+            {
+                UserId = mapping.UserId?.Trim() ?? normalizedUserId,
+                UserName = mapping.UserName?.Trim() ?? string.Empty,
+                SyncEnabled = mapping.SyncEnabled,
+                CanDisable = !mapping.SyncEnabled || schedules.Length == 0,
+                CanDelete = schedules.Length == 0,
+                ScheduledCueCount = schedules.Length,
+                ScheduledCues = schedules
+            });
+        }
+
+        /// <summary>
         /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
         /// synchronization without storing bridge credentials and can override playback, color processing and scene thresholds,
         /// capture-performance, execution, channel selection, or light-restoration settings.
@@ -3923,6 +3972,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult SaveUserMapping([FromBody] UserBridgeMapping mapping)
         {
             if (mapping == null)
@@ -4047,13 +4097,25 @@ namespace Jellyfin.Plugin.Hue.Api
                 mapping.EntertainmentAreaName = string.Empty;
             }
 
-            // Remove existing mapping for this user if exists
-            config.UserMappings.RemoveAll(m => string.Equals(m.UserId, mapping.UserId, StringComparison.OrdinalIgnoreCase));
+            var previousMappings = config.UserMappings.ToList();
+            var candidateMappings = previousMappings
+                .Where(existing => existing != null)
+                .ToList();
+            candidateMappings.RemoveAll(existing =>
+                string.Equals(existing.UserId, mapping.UserId, StringComparison.OrdinalIgnoreCase));
+            candidateMappings.Add(mapping);
+            config.UserMappings = candidateMappings;
 
-            // Add the new/updated mapping
-            config.UserMappings.Add(mapping);
-
-            plugin.SaveConfiguration();
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.UserMappings = previousMappings;
+                _logger?.LogError(ex, "Could not persist Hue user mapping {0}", mapping.UserId);
+                return StatusCode(StatusCodes.Status500InternalServerError, "The user mapping could not be saved.");
+            }
 
             return Ok(new { message = "Mapping saved successfully." });
         }
@@ -4065,6 +4127,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult DeleteUserMapping(string userId)
         {
             if (string.IsNullOrWhiteSpace(userId))
@@ -4072,28 +4135,46 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("User ID is required.");
             }
 
-            var config = Plugin.Instance?.Configuration;
-            if (config == null)
+            var normalizedUserId = userId.Trim();
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
             {
                 return NotFound("Plugin configuration not available.");
             }
 
             var scheduledCueCount = config.SceneSchedules?.Count(schedule =>
                 schedule != null &&
-                string.Equals(schedule.TargetUserId?.Trim(), userId.Trim(), StringComparison.OrdinalIgnoreCase)) ?? 0;
+                string.Equals(schedule.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase)) ?? 0;
             if (scheduledCueCount > 0)
             {
                 return Conflict($"This user mapping is used by {scheduledCueCount} scheduled cue(s). Delete or update those cues first.");
             }
 
             config.UserMappings ??= new List<UserBridgeMapping>();
-            var removed = config.UserMappings.RemoveAll(m => string.Equals(m.UserId, userId, StringComparison.OrdinalIgnoreCase));
+            var previousMappings = config.UserMappings.ToList();
+            var candidateMappings = previousMappings
+                .Where(mapping => mapping != null)
+                .ToList();
+            var removed = candidateMappings.RemoveAll(mapping =>
+                string.Equals(mapping.UserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase));
             if (removed == 0)
             {
                 return NotFound("Mapping not found for the specified user.");
             }
 
-            Plugin.Instance?.SaveConfiguration();
+            config.UserMappings = candidateMappings;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.UserMappings = previousMappings;
+                _logger?.LogError(ex, "Could not persist deletion of Hue user mapping {0}", normalizedUserId);
+                return StatusCode(StatusCodes.Status500InternalServerError, "The user mapping could not be deleted.");
+            }
 
             return Ok(new { message = "Mapping deleted successfully." });
         }
@@ -4330,6 +4411,49 @@ namespace Jellyfin.Plugin.Hue.Api
                 ColorSmoothingPercentOverride = mapping.ColorSmoothingPercentOverride
             };
         }
+    }
+
+    /// <summary>
+    /// Credential-free dependency summary for one per-user bridge mapping.
+    /// </summary>
+    public sealed class HueUserMappingDependenciesResult
+    {
+        [JsonPropertyName("userId")]
+        public string UserId { get; init; } = string.Empty;
+
+        [JsonPropertyName("userName")]
+        public string UserName { get; init; } = string.Empty;
+
+        [JsonPropertyName("syncEnabled")]
+        public bool SyncEnabled { get; init; }
+
+        [JsonPropertyName("canDisable")]
+        public bool CanDisable { get; init; }
+
+        [JsonPropertyName("canDelete")]
+        public bool CanDelete { get; init; }
+
+        [JsonPropertyName("scheduledCueCount")]
+        public int ScheduledCueCount { get; init; }
+
+        [JsonPropertyName("scheduledCues")]
+        public IReadOnlyList<HueUserMappingScheduleDependencyResult> ScheduledCues { get; init; } =
+            Array.Empty<HueUserMappingScheduleDependencyResult>();
+    }
+
+    /// <summary>
+    /// One credential-free scheduled-cue reference to a per-user bridge mapping.
+    /// </summary>
+    public sealed class HueUserMappingScheduleDependencyResult
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = string.Empty;
+
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; init; }
     }
 
     /// <summary>
