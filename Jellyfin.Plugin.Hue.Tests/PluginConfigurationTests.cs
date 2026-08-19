@@ -175,6 +175,37 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_RejectsPriorityOutsideBounds()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "too-high",
+                    Name = "Too high",
+                    PresetName = "Evening",
+                    Priority = PluginConfiguration.MaxSceneSchedulePriority + 1
+                },
+                new()
+                {
+                    Id = "too-low",
+                    Name = "Too low",
+                    PresetName = "Evening",
+                    Priority = PluginConfiguration.MinSceneSchedulePriority - 1
+                }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+
+        Assert.Contains($"Scene schedule 1 priority must be between {PluginConfiguration.MinSceneSchedulePriority} and {PluginConfiguration.MaxSceneSchedulePriority}", errors);
+        Assert.Contains($"Scene schedule 2 priority must be between {PluginConfiguration.MinSceneSchedulePriority} and {PluginConfiguration.MaxSceneSchedulePriority}", errors);
+    }
+
+    [Fact]
     public void Validate_RejectsSceneAutomationCatchUpWindowOutsideBounds()
     {
         var tooLarge = new PluginConfiguration

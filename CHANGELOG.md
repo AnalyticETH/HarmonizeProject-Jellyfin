@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.101] - 2026-08-19
+
+### Added
+- **Deterministic scheduled-cue priorities**: add a bounded 0-100 per-cue priority so higher-priority automatic cues run first when multiple cues are due together, while equal priorities retain saved configuration order
+- **Priority-aware administration**: expose priority through credential-free CRUD, backup/restore, status, occurrence previews, duplication, and the scheduled-cue editor
+
+### Security
+- Priority values are validated server-side, default to zero for existing configurations, and never expose bridge credentials or playback tokens
+
 ## [1.5.100] - 2026-08-19
 
 ### Added

@@ -662,6 +662,76 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_HigherPriorityCueRunsFirstAndEqualPriorityKeepsSavedOrder()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "priority-app-secret",
+            HueClientKey = "priority-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Low", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 },
+                new() { Name = "High", Red = 200, Green = 120, Blue = 60, BrightnessPercent = 80, DurationSeconds = 1 },
+                new() { Name = "Equal", Red = 90, Green = 80, Blue = 70, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "low-priority",
+                    Name = "Low priority",
+                    PresetName = "Low",
+                    Priority = 10,
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                },
+                new()
+                {
+                    Id = "high-priority",
+                    Name = "High priority",
+                    PresetName = "High",
+                    Priority = 90,
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                },
+                new()
+                {
+                    Id = "equal-priority",
+                    Name = "Equal priority",
+                    PresetName = "Equal",
+                    Priority = 10,
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        Assert.Equal(new[] { 200, 10, 90 }, streamTester.Reds);
+        Assert.All(configuration.SceneSchedules, schedule => Assert.Equal(1, schedule.RunCount));
+    }
+
+    [Fact]
     public async Task RunDueSchedules_DisablesFiniteCueAtPersistedExecutionLimit()
     {
         var configuration = new PluginConfiguration
@@ -1756,5 +1826,52 @@ public sealed class HueSceneAutomationServiceTests
                 Message = "Unexpected completion."
             };
         }
+    }
+
+    private sealed class RecordingStreamTester : IHueStreamTester
+    {
+        public List<int> Reds { get; } = new();
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "Not used by this test."
+            });
+
+        public Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        {
+            Reds.Add(red);
+            return Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Displayed scheduled scene."
+            });
+        }
+
+        public bool CancelActiveDiagnostic() => false;
     }
 }

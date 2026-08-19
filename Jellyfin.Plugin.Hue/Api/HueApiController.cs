@@ -451,6 +451,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Id = schedule.Id,
                 Name = schedule.Name,
                 PresetName = schedule.PresetName,
+                Priority = schedule.Priority,
                 Effect = effect,
                 EffectSpeedPercent = preset == null
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
@@ -491,6 +492,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Id = schedule.Id,
                 Name = schedule.Name,
                 PresetName = schedule.PresetName,
+                Priority = schedule.Priority,
                 TargetUserId = schedule.TargetUserId,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId,
@@ -1224,6 +1226,7 @@ namespace Jellyfin.Plugin.Hue.Api
                             ScheduleId = occurrence.ScheduleId,
                             ScheduleName = occurrence.ScheduleName,
                             PresetName = occurrence.PresetName,
+                            Priority = occurrence.Priority,
                             Effect = effect,
                             EffectSpeedPercent = preset == null
                                 ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
@@ -1290,6 +1293,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "X-HUE-TIMEZONE", occurrence.TimeZoneId);
                 AppendIcsLine(builder, "X-HUE-RECURRENCE", occurrence.Recurrence);
                 AppendIcsLine(builder, "X-HUE-RECURRENCE-INTERVAL", occurrence.RecurrenceInterval.ToString(CultureInfo.InvariantCulture));
+                AppendIcsLine(builder, "X-HUE-PRIORITY", occurrence.Priority.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-EFFECT", occurrence.Effect);
                 AppendIcsLine(builder, "X-HUE-EFFECT-SPEED-PERCENT", occurrence.EffectSpeedPercent.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-SECONDS", occurrence.TransitionSeconds.ToString(CultureInfo.InvariantCulture));
@@ -1453,6 +1457,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.MaxRuns = candidateSchedules[existingIndex].MaxRuns;
                 if (!request.RunCount.HasValue)
                     schedule.RunCount = candidateSchedules[existingIndex].RunCount;
+                if (!request.Priority.HasValue)
+                    schedule.Priority = candidateSchedules[existingIndex].Priority;
                 if (!request.SkipNextOccurrence.HasValue)
                     schedule.SkipNextOccurrence = candidateSchedules[existingIndex].SkipNextOccurrence;
                 candidateSchedules[existingIndex] = schedule;
@@ -2488,6 +2494,8 @@ namespace Jellyfin.Plugin.Hue.Api
                         schedule.MaxRuns = candidateSchedules[existingIndex].MaxRuns;
                     if (scheduleRequest != null && !scheduleRequest.RunCount.HasValue)
                         schedule.RunCount = candidateSchedules[existingIndex].RunCount;
+                    if (scheduleRequest != null && !scheduleRequest.Priority.HasValue)
+                        schedule.Priority = candidateSchedules[existingIndex].Priority;
                     candidateSchedules[existingIndex] = schedule;
                 }
                 else
@@ -3553,6 +3561,8 @@ namespace Jellyfin.Plugin.Hue.Api
     /// target; runDate selects a one-time cue, otherwise daily, weekly, monthly-day,
     /// monthly-weekday, or yearly date rules in the selected cue timezone apply. RecurrenceInterval
     /// controls the number of calendar units between runs and requires startDate when greater than one.
+    /// Priority is bounded from 0 through 100; higher values run first when automatic cues are due together,
+    /// and omitted priority preserves an existing cue's value during ordinary edits.
     /// DurationSeconds is zero
     /// to inherit the saved scene's
     /// duration or a bounded per-cue override; the saved scene's optional fade-in and fade-out
@@ -3570,6 +3580,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetName")]
         public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("priority")]
+        public int? Priority { get; set; }
 
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
@@ -3635,6 +3648,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Id = Id?.Trim() ?? string.Empty,
                 Name = Name?.Trim() ?? string.Empty,
                 PresetName = PresetName?.Trim() ?? string.Empty,
+                Priority = Priority ?? PluginConfiguration.MinSceneSchedulePriority,
                 TargetUserId = TargetUserId?.Trim() ?? string.Empty,
                 TimeOfDay = TimeOfDay?.Trim() ?? string.Empty,
                 TimeZoneId = TimeZoneId?.Trim() ?? string.Empty,
@@ -3674,6 +3688,7 @@ namespace Jellyfin.Plugin.Hue.Api
     /// Credential-free scene cue returned by the administrator API, including the effective
     /// saved-scene fade-in/fade-out, optional per-cue duration override, daily, weekly, monthly-day, monthly-weekday, or yearly recurrence,
     /// bounded recurrence intervals, finite execution limits, one-time date, inclusive bounds,
+    /// and deterministic execution priority,
     /// and normalized excluded calendar dates.
     /// </summary>
     public sealed class HueSceneScheduleResult
@@ -3686,6 +3701,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetName")]
         public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("priority")]
+        public int Priority { get; set; }
 
         [JsonPropertyName("effect")]
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
@@ -3773,6 +3791,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetName")]
         public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("priority")]
+        public int Priority { get; set; }
 
         [JsonPropertyName("effect")]
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;

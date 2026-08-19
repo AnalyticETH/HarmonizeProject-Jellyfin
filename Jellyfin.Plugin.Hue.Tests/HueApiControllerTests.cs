@@ -1252,6 +1252,7 @@ public sealed class HueApiControllerTests : IDisposable
         {
             Name = " Evening Cue ",
             PresetName = "evening",
+            Priority = 42,
             TargetUserId = "user-1",
             TimeOfDay = "07:05",
             TimeZoneId = TimeZoneInfo.Utc.Id,
@@ -1268,6 +1269,7 @@ public sealed class HueApiControllerTests : IDisposable
         var savedResult = Assert.IsType<HueSceneScheduleResult>(savedResponse.Value);
         Assert.False(string.IsNullOrWhiteSpace(savedResult.Id));
         Assert.Equal("Living Room", savedResult.TargetLabel);
+        Assert.Equal(42, savedResult.Priority);
         Assert.Equal("07:05", savedResult.TimeOfDay);
         Assert.Equal(TimeZoneInfo.Utc.Id, savedResult.TimeZoneId);
         Assert.Equal("2026-08-01", savedResult.StartDate);
@@ -1281,6 +1283,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(150, savedResult.EffectSpeedPercent);
         Assert.Equal(new[] { "2026-12-24", "2026-12-31" }, configuration.SceneSchedules[0].ExcludedDates);
         Assert.Equal(12, configuration.SceneSchedules[0].DurationSeconds);
+        Assert.Equal(42, configuration.SceneSchedules[0].Priority);
         Assert.Single(configuration.SceneSchedules);
 
         var updated = controller.SaveSceneSchedule(new HueSceneScheduleRequest
@@ -1297,11 +1300,13 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.False(configuration.SceneSchedules[0].Enabled);
         Assert.Equal(3, configuration.SceneSchedules[0].MaxRuns);
         Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.Equal(42, configuration.SceneSchedules[0].Priority);
 
         var list = controller.GetSceneSchedules();
         var listResponse = Assert.IsType<OkObjectResult>(list.Result);
         var listed = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleResult>>(listResponse.Value));
         Assert.Equal("Evening Cue Updated", listed.Name);
+        Assert.Equal(42, listed.Priority);
         Assert.Equal(string.Empty, listed.TimeZoneId);
         var serialized = System.Text.Json.JsonSerializer.Serialize(listed);
         Assert.DoesNotContain("secret-app-key", serialized, StringComparison.Ordinal);
@@ -1326,6 +1331,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = "original-cue",
                     Name = "Evening Cue",
                     PresetName = "Evening",
+                    Priority = 73,
                     TargetUserId = "",
                     TimeOfDay = "21:30",
                     TimeZoneId = TimeZoneInfo.Utc.Id,
@@ -1350,6 +1356,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.NotEqual("original-cue", duplicate.Id);
         Assert.Equal("Evening Cue (Copy)", duplicate.Name);
         Assert.Equal("Evening", duplicate.PresetName);
+        Assert.Equal(73, duplicate.Priority);
         Assert.Equal(TimeZoneInfo.Utc.Id, duplicate.TimeZoneId);
         Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, duplicate.Recurrence);
         Assert.Equal(2, duplicate.RecurrenceInterval);
@@ -1364,6 +1371,7 @@ public sealed class HueApiControllerTests : IDisposable
         var savedDuplicate = configuration.SceneSchedules.Single(schedule => schedule.Id == duplicate.Id);
         Assert.False(savedDuplicate.Enabled);
         Assert.Equal(0, savedDuplicate.RunCount);
+        Assert.Equal(73, savedDuplicate.Priority);
 
         var secondAction = controller.DuplicateSceneSchedule("original-cue");
         var secondResponse = Assert.IsType<OkObjectResult>(secondAction.Result);
@@ -2182,6 +2190,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = "cue-1",
                     Name = "Evening cue",
                     PresetName = "Evening",
+                    Priority = 61,
                     TimeOfDay = "23:59",
                     StartDate = "2026-08-01",
                     EndDate = "2026-12-31",
@@ -2207,6 +2216,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(status.ServiceAvailable);
         Assert.False(status.AutomationEnabled);
         Assert.Equal("cue-1", schedule.ScheduleId);
+        Assert.Equal(61, schedule.Priority);
         Assert.Equal("Default bridge target", schedule.TargetLabel);
         Assert.Equal("2026-08-01", schedule.StartDate);
         Assert.Equal("2026-12-31", schedule.EndDate);
@@ -2246,6 +2256,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = "cue-1",
                     Name = "Living cue",
                     PresetName = "Evening",
+                    Priority = 80,
                     TargetUserId = "user-1",
                     TimeOfDay = cueTime,
                     TimeZoneId = TimeZoneInfo.Local.Id,
@@ -2273,6 +2284,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(2, result.Occurrences.Count);
         Assert.True(result.Occurrences[0].UtcTime <= result.Occurrences[1].UtcTime);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.DurationSeconds == 7);
+        Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Priority == 80);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.TransitionSeconds == 2);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.TransitionOutSeconds == 3);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Effect == PluginConfiguration.ColorPresetEffectPulse);
@@ -2314,6 +2326,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = "calendar-cue",
                     Name = "Movie, Night; Cue",
                     PresetName = "Evening",
+                    Priority = 64,
                     TimeOfDay = cueTime,
                     TimeZoneId = TimeZoneInfo.Local.Id,
                     DurationSeconds = 4,
@@ -2336,6 +2349,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("DTEND:", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-EFFECT:Rainbow\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-EFFECT-SPEED-PERCENT:225\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-PRIORITY:64\r\n", calendar, StringComparison.Ordinal);
         var startText = calendar.Split("\r\n", StringSplitOptions.None)
             .Single(line => line.StartsWith("DTSTART:", StringComparison.Ordinal))
             .Substring("DTSTART:".Length);
@@ -2814,6 +2828,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = "cue-1",
                     Name = "Morning cue",
                     PresetName = "Accent",
+                    Priority = 55,
                     TimeOfDay = "08:15",
                     StartDate = "2026-08-01",
                     EndDate = "2026-12-31",
@@ -2846,6 +2861,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Single(document.ColorPresets);
         Assert.Single(document.SceneSchedules);
         Assert.Equal("Morning cue", document.SceneSchedules[0].Name);
+        Assert.Equal(55, document.SceneSchedules[0].Priority);
         Assert.Equal("2026-08-01", document.SceneSchedules[0].StartDate);
         Assert.Equal("2026-12-31", document.SceneSchedules[0].EndDate);
         Assert.Equal(new[] { "2026-12-24" }, document.SceneSchedules[0].ExcludedDates);
@@ -2926,6 +2942,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = exportedCue.Id,
                     Name = exportedCue.Name,
                     PresetName = exportedCue.PresetName,
+                    Priority = exportedCue.Priority,
                     TimeOfDay = exportedCue.TimeOfDay,
                     TimeZoneId = exportedCue.TimeZoneId,
                     RunDate = exportedCue.RunDate,
@@ -2948,6 +2965,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.SceneScheduleLastWeekOfMonth, importedCue.WeekOfMonth);
         Assert.Equal((int)DayOfWeek.Friday, importedCue.DayOfWeek);
         Assert.Equal(exportedCue.DurationSeconds, importedCue.DurationSeconds);
+        Assert.Equal(exportedCue.Priority, importedCue.Priority);
         Assert.Equal(exportedCue.MaxRuns, importedCue.MaxRuns);
         Assert.Equal(exportedCue.RunCount, importedCue.RunCount);
         Assert.Equal(0, importedCue.DaysOfWeekMask);

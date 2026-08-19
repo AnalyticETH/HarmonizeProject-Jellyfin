@@ -414,6 +414,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleId = schedule.Id?.Trim() ?? string.Empty,
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
+                Priority = schedule.Priority,
                 Effect = effect,
                 EffectSpeedPercent = preset == null
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
@@ -660,6 +661,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleId = schedule.Id?.Trim() ?? string.Empty,
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
+                Priority = schedule.Priority,
                 Effect = PluginConfiguration.ColorPresetEffectSolid,
                 EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(effectSpeedPercent),
                 DurationSeconds = schedule.DurationSeconds,
@@ -1427,7 +1429,14 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         var schedules = config.SceneSchedules?
             .Where(schedule => schedule != null)
-            .Select(CloneSchedule)
+            .Select((schedule, index) => new
+            {
+                Schedule = CloneSchedule(schedule),
+                Index = index
+            })
+            .OrderByDescending(entry => entry.Schedule.Priority)
+            .ThenBy(entry => entry.Index)
+            .Select(entry => entry.Schedule)
             .ToArray();
         if (schedules == null || schedules.Length == 0)
             return;
@@ -2120,6 +2129,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Id = source.Id,
             Name = source.Name,
             PresetName = source.PresetName,
+            Priority = source.Priority,
             TargetUserId = source.TargetUserId,
             TimeOfDay = source.TimeOfDay,
             TimeZoneId = source.TimeZoneId,
@@ -2274,6 +2284,9 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("presetName")]
     public string PresetName { get; init; } = string.Empty;
 
+    [JsonPropertyName("priority")]
+    public int Priority { get; init; }
+
     [JsonPropertyName("effect")]
     public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
 
@@ -2327,6 +2340,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("presetName")]
     public string PresetName { get; init; } = string.Empty;
+
+    [JsonPropertyName("priority")]
+    public int Priority { get; init; }
 
     [JsonPropertyName("effect")]
     public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;

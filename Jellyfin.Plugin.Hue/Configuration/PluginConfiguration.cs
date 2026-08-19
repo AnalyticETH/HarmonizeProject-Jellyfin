@@ -105,12 +105,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// scene's hold duration for this event only or stop after a bounded number of executions.
     /// The target is resolved from the global bridge or a persisted user mapping when the cue
     /// runs; credentials are never stored here.
+    /// When multiple cues are due together, higher-priority cues run first. Equal priorities
+    /// retain their saved configuration order.
     /// </summary>
     public sealed class HueSceneSchedule
     {
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
         public string Name { get; set; } = string.Empty;
         public string PresetName { get; set; } = string.Empty;
+        /// <summary>
+        /// Relative execution priority when multiple cues are due together. Zero preserves the
+        /// default ordering; higher values run first, up to the configured maximum.
+        /// </summary>
+        public int Priority { get; set; }
         public string TargetUserId { get; set; } = string.Empty;
         public string TimeOfDay { get; set; } = "20:00";
         /// <summary>
@@ -317,6 +324,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxColorPresetNameLength = 64;
         public const int MaxSceneSchedules = 50;
         public const int MaxSceneScheduleNameLength = 64;
+        public const int MinSceneSchedulePriority = 0;
+        public const int MaxSceneSchedulePriority = 100;
         public const int MaxSceneScheduleExcludedDates = 100;
         public const int AllSceneScheduleDaysMask = 127;
         public const string SceneScheduleRecurrenceWeekly = "Weekly";
@@ -1037,6 +1046,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
                          string.Equals(preset.Name?.Trim(), schedule.PresetName.Trim(), StringComparison.OrdinalIgnoreCase)))
             {
                 errors.Add($"{label} references a saved scene that does not exist");
+            }
+
+            if (schedule.Priority < MinSceneSchedulePriority ||
+                schedule.Priority > MaxSceneSchedulePriority)
+            {
+                errors.Add($"{label} priority must be between {MinSceneSchedulePriority} and {MaxSceneSchedulePriority}");
             }
 
             if (!TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
