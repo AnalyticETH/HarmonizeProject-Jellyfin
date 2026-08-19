@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.Json.Serialization;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.Hue.Configuration
@@ -119,6 +120,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int Priority { get; set; }
         public string TargetUserId { get; set; } = string.Empty;
+        /// <summary>
+        /// When true, the cue fans out sequentially to the global target and every enabled
+        /// user mapping with a distinct bridge/area target. TargetUserId must remain blank.
+        /// Existing schedules default to false so their single-target behavior is unchanged.
+        /// </summary>
+        public bool TargetAllEnabledMappings { get; set; }
         public string TimeOfDay { get; set; } = "20:00";
         /// <summary>
         /// Optional system time-zone ID for this cue. Blank preserves the original
@@ -259,8 +266,27 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool WasCatchUp { get; set; }
         public string Message { get; set; } = string.Empty;
         public string? CleanupWarning { get; set; }
+        public List<HueSceneScheduleTargetResult> TargetResults { get; set; } = new List<HueSceneScheduleTargetResult>();
         public DateTime RunAtUtc { get; set; }
         public int RunCount { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free outcome for one target in a scheduled-scene run.
+    /// </summary>
+    public sealed class HueSceneScheduleTargetResult
+    {
+        [JsonPropertyName("targetLabel")]
+        public string TargetLabel { get; set; } = string.Empty;
+
+        [JsonPropertyName("succeeded")]
+        public bool Succeeded { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("cleanupWarning")]
+        public string? CleanupWarning { get; set; }
     }
 
     /// <summary>
@@ -1182,6 +1208,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!string.IsNullOrWhiteSpace(schedule.TargetUserId))
             {
+                if (schedule.TargetAllEnabledMappings)
+                    errors.Add($"{label} cannot select all enabled targets and a specific user mapping together");
+
                 var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
                     candidate != null &&
                     string.Equals(candidate.UserId?.Trim(), schedule.TargetUserId.Trim(), StringComparison.OrdinalIgnoreCase));

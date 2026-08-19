@@ -1509,6 +1509,49 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TryResolveTargets_BroadcastIncludesDistinctEnabledTargetsAndDeduplicatesInheritedMappings()
+    {
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "inherited", UserName = "Inherited", SyncEnabled = true },
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area"
+                },
+                new()
+                {
+                    UserId = "disabled",
+                    UserName = "Disabled",
+                    SyncEnabled = false,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "disabled-app",
+                    HueClientKey = "disabled-client",
+                    EntertainmentAreaId = "disabled-area"
+                }
+            }
+        };
+
+        var schedule = new HueSceneSchedule { TargetAllEnabledMappings = true };
+
+        Assert.True(HueSceneAutomationService.TryResolveTargets(config, schedule, out var targets, out var error));
+        Assert.Empty(error);
+        Assert.Equal(new[] { "Default bridge target", "Kitchen" }, targets.Select(target => target.TargetLabel));
+        Assert.DoesNotContain(JsonSerializer.Serialize(schedule), "mapping-app-secret", StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunSchedule_ResolvesPresetAndReturnsSanitizedResult()
     {
         InstallConfiguration(new PluginConfiguration
@@ -1598,6 +1641,99 @@ public sealed class HueSceneAutomationServiceTests
         Assert.DoesNotContain("client-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("app-secret", JsonSerializer.Serialize(status), StringComparison.Ordinal);
         Assert.DoesNotContain("client-secret", JsonSerializer.Serialize(status), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunSchedule_BroadcastRunsSequentiallyAndReportsEachTarget()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening", Red = 20, Green = 30, Blue = 40 } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area"
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "broadcast-cue",
+                    Name = "Whole home welcome",
+                    PresetName = "Evening",
+                    TargetAllEnabledMappings = true
+                }
+            }
+        });
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                20,
+                30,
+                40,
+                100,
+                5,
+                It.IsAny<CancellationToken>(),
+                0,
+                0,
+                PluginConfiguration.ColorPresetEffectSolid,
+                100))
+            .Returns((string bridgeIp, string appKey, string clientKey, string areaId, JsonElement areaConfiguration,
+                IReadOnlySet<int>? channelIds, int red, int green, int blue, int brightnessPercent, int durationSeconds,
+                CancellationToken cancellationToken, int transitionSeconds, int transitionOutSeconds, string effect,
+                int effectSpeedPercent) => Task.FromResult(new HueStreamProbeResult
+                {
+                    Succeeded = !string.Equals(bridgeIp, "192.168.1.101", StringComparison.Ordinal),
+                    Message = string.Equals(bridgeIp, "192.168.1.101", StringComparison.Ordinal)
+                        ? "Kitchen was unavailable."
+                        : "Displayed scheduled scene."
+                }));
+
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunScheduleAsync("broadcast-cue");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("All enabled targets", result.TargetLabel);
+        Assert.Equal(2, result.TargetResults.Count);
+        Assert.Equal("Default bridge target", result.TargetResults[0].TargetLabel);
+        Assert.True(result.TargetResults[0].Succeeded);
+        Assert.Equal("Kitchen", result.TargetResults[1].TargetLabel);
+        Assert.False(result.TargetResults[1].Succeeded);
+        Assert.Contains("Kitchen", result.Message, StringComparison.Ordinal);
+        Assert.Equal(2, service.GetHistory().Single().TargetResults.Count);
+        var runtime = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(2, runtime.LastTargetResults.Count);
+        Assert.False(runtime.LastTargetResults[1].Succeeded);
+        streamTester.Verify(tester => tester.PreviewAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<JsonElement>(),
+            It.IsAny<IReadOnlySet<int>?>(), 20, 30, 40, 100, 5, It.IsAny<CancellationToken>(), 0, 0,
+            PluginConfiguration.ColorPresetEffectSolid, 100), Times.Exactly(2));
     }
 
     [Fact]

@@ -175,6 +175,72 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsBroadcastTarget()
+    {
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-key",
+            HueClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app",
+                    HueClientKey = "mapping-client",
+                    EntertainmentAreaId = "area-2"
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "broadcast",
+                    Name = "House welcome",
+                    PresetName = "Evening",
+                    TargetAllEnabledMappings = true
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsBroadcastTargetWithSpecificMapping()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-1", SyncEnabled = true }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "conflict",
+                    Name = "Conflicting cue",
+                    PresetName = "Evening",
+                    TargetAllEnabledMappings = true,
+                    TargetUserId = "user-1"
+                }
+            }
+        };
+
+        Assert.Contains(
+            "Scene schedule 1 cannot select all enabled targets and a specific user mapping together",
+            config.ValidateSceneSchedules());
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsPriorityOutsideBounds()
     {
         var config = new PluginConfiguration

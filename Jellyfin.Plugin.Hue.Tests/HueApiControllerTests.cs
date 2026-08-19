@@ -1406,6 +1406,46 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_BroadcastTargetRoundTripsAndPreservesOnPartialUpdate()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            SceneSchedules = new List<HueSceneSchedule>()
+        });
+        var controller = CreateController();
+
+        var saved = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Whole home welcome",
+            PresetName = "Welcome",
+            TargetAllEnabledMappings = true,
+            TimeOfDay = "08:00",
+            DaysOfWeekMask = 127
+        });
+
+        var savedResult = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(saved.Result).Value);
+        Assert.True(savedResult.TargetAllEnabledMappings);
+        Assert.Equal("All enabled targets", savedResult.TargetLabel);
+        Assert.True(configuration.SceneSchedules[0].TargetAllEnabledMappings);
+
+        var updated = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = savedResult.Id,
+            Name = "Whole home welcome updated",
+            PresetName = "Welcome",
+            TimeOfDay = "09:00",
+            DaysOfWeekMask = 127,
+            Enabled = false
+        });
+
+        var updatedResult = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(updated.Result).Value);
+        Assert.True(updatedResult.TargetAllEnabledMappings);
+        Assert.Equal("All enabled targets", updatedResult.TargetLabel);
+        Assert.True(configuration.SceneSchedules[0].TargetAllEnabledMappings);
+    }
+
+    [Fact]
     public void SceneSchedules_DuplicateCreatesDisabledFreshCueWithUniqueIdentity()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

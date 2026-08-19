@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.103] - 2026-08-19
+
+### Added
+- **All-enabled-target scheduled cues**: add a credential-free broadcast target mode that runs one saved scene sequentially on the default bridge and every distinct enabled user-mapped target
+- **Per-target telemetry**: expose sanitized success/failure and cleanup outcomes for each target through immediate runs, status, history, and persisted history
+- **Portable target mode**: preserve the broadcast setting through schedule CRUD, duplication, upcoming occurrences, calendar metadata, and credential-safe backup/restore
+
+### Security
+- Broadcast schedules contain only a boolean mode flag; bridge addresses, app keys, client keys, and playback tokens remain server-side
+- Target execution is sequential and restorative, continues to report independent target failures, and rejects incomplete enabled targets before starting
+
 ## [1.5.102] - 2026-08-19
 
 ### Added

@@ -108,6 +108,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 state.LastWasCatchUp = false;
                 state.LastMessage = null;
                 state.LastCleanupWarning = null;
+                state.LastTargetResults = Array.Empty<HueSceneScheduleTargetResult>();
             }
 
             schedule.RunCount = 0;
@@ -433,6 +434,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 MonthOfYear = schedule.MonthOfYear,
                 WeekOfMonth = schedule.WeekOfMonth,
                 DayOfWeek = schedule.DayOfWeek,
+                TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                 TargetLabel = ResolveTargetLabel(config, schedule),
                 TimeOfDay = schedule.TimeOfDay?.Trim() ?? string.Empty,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
@@ -460,6 +462,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 LastWasCatchUp = runtime.LastWasCatchUp,
                 LastMessage = runtime.LastMessage,
                 LastCleanupWarning = runtime.LastCleanupWarning,
+                LastTargetResults = runtime.LastTargetResults?.Select(CloneTargetResult).ToArray()
+                    ?? Array.Empty<HueSceneScheduleTargetResult>(),
                 IsRunning = runtime.ActiveRuns > 0
             };
         }).ToArray();
@@ -662,6 +666,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 Priority = schedule.Priority,
+                TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                 Effect = PluginConfiguration.ColorPresetEffectSolid,
                 EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(effectSpeedPercent),
                 DurationSeconds = schedule.DurationSeconds,
@@ -1291,7 +1296,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (preset == null)
             return new HueSceneScheduleReadiness(false, "The saved scene no longer exists.");
 
-        if (!TryResolveTarget(config, schedule, out _, out var targetError))
+        if (!TryResolveTargets(config, schedule, out _, out var targetError))
             return new HueSceneScheduleReadiness(false, targetError);
 
         return new HueSceneScheduleReadiness(true, "Ready; bridge reachability is checked when the cue runs.");
@@ -1306,6 +1311,121 @@ public sealed class HueSceneAutomationService : BackgroundService
         out HueSceneAutomationTargetDescription description,
         out string error)
     {
+        if (schedule == null)
+        {
+            description = new HueSceneAutomationTargetDescription();
+            error = "Scene automation configuration is unavailable.";
+            return false;
+        }
+
+        if (schedule.TargetAllEnabledMappings)
+        {
+            description = new HueSceneAutomationTargetDescription();
+            error = "The schedule selects all enabled targets; resolve the target collection instead.";
+            return false;
+        }
+
+        return TryResolveSingleTarget(config, schedule, schedule.TargetUserId, out description, out error);
+    }
+
+    /// <summary>
+    /// Resolves the credential-bearing targets for a cue without exposing those credentials
+    /// outside this service. Broadcast cues include the valid global target followed by each
+    /// distinct enabled custom mapping target; inherited mappings are intentionally deduplicated.
+    /// </summary>
+    internal static bool TryResolveTargets(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        out IReadOnlyList<HueSceneAutomationTargetDescription> targets,
+        out string error)
+    {
+        targets = Array.Empty<HueSceneAutomationTargetDescription>();
+        error = string.Empty;
+        if (config == null || schedule == null)
+        {
+            error = "Scene automation configuration is unavailable.";
+            return false;
+        }
+
+        if (!schedule.TargetAllEnabledMappings)
+        {
+            if (!TryResolveSingleTarget(config, schedule, schedule.TargetUserId, out var target, out error))
+                return false;
+
+            targets = new[] { target };
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(schedule.TargetUserId))
+        {
+            error = "A broadcast scene cue cannot also select a specific user mapping.";
+            return false;
+        }
+
+        var resolved = new List<HueSceneAutomationTargetDescription>();
+        var seenTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var globalConfigured = !string.IsNullOrWhiteSpace(config.HueBridgeIp) ||
+                               !string.IsNullOrWhiteSpace(config.HueAppKey) ||
+                               !string.IsNullOrWhiteSpace(config.HueClientKey) ||
+                               !string.IsNullOrWhiteSpace(config.EntertainmentAreaId) ||
+                               !string.IsNullOrWhiteSpace(config.ChannelIds);
+        var globalResolved = TryResolveSingleTarget(config, schedule, string.Empty, out var globalTarget, out var globalError);
+        if (globalResolved)
+        {
+            resolved.Add(globalTarget);
+            seenTargets.Add(GetTargetIdentity(globalTarget));
+        }
+        else if (globalConfigured)
+        {
+            error = $"The default bridge target is not ready for broadcast: {globalError}";
+            return false;
+        }
+
+        foreach (var mapping in config.UserMappings?.Where(candidate => candidate != null && candidate.SyncEnabled) ?? Enumerable.Empty<UserBridgeMapping>())
+        {
+            if (string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
+            {
+                if (!globalResolved)
+                {
+                    error = $"Enabled mapping '{GetMappingLabel(mapping)}' inherits the default target, which is not configured.";
+                    return false;
+                }
+
+                // An inherited mapping is the same physical target as the global entry.
+                continue;
+            }
+
+            var mappingSchedule = new HueSceneSchedule
+            {
+                TargetUserId = mapping.UserId
+            };
+            if (!TryResolveSingleTarget(config, mappingSchedule, mapping.UserId, out var mappingTarget, out var mappingError))
+            {
+                error = $"Target '{GetMappingLabel(mapping)}' is not ready for broadcast: {mappingError}";
+                return false;
+            }
+
+            if (seenTargets.Add(GetTargetIdentity(mappingTarget)))
+                resolved.Add(mappingTarget);
+        }
+
+        if (resolved.Count == 0)
+        {
+            error = "Broadcast scene cues require at least one configured enabled target.";
+            return false;
+        }
+
+        targets = resolved;
+        return true;
+    }
+
+    private static bool TryResolveSingleTarget(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        string? requestedTargetUserId,
+        out HueSceneAutomationTargetDescription description,
+        out string error)
+    {
         description = new HueSceneAutomationTargetDescription();
         error = string.Empty;
         if (config == null || schedule == null)
@@ -1314,7 +1434,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
         }
 
-        var targetUserId = schedule.TargetUserId?.Trim() ?? string.Empty;
+        var targetUserId = requestedTargetUserId?.Trim() ?? string.Empty;
         var bridgeIp = config.HueBridgeIp?.Trim() ?? string.Empty;
         var appKey = config.HueAppKey?.Trim() ?? string.Empty;
         var clientKey = config.HueClientKey?.Trim() ?? string.Empty;
@@ -1400,6 +1520,14 @@ public sealed class HueSceneAutomationService : BackgroundService
         };
         return true;
     }
+
+    private static string GetTargetIdentity(HueSceneAutomationTargetDescription target)
+        => $"{target.BridgeIp.Trim().TrimEnd('.').ToLowerInvariant()}|{target.EntertainmentAreaId.Trim().ToLowerInvariant()}";
+
+    private static string GetMappingLabel(UserBridgeMapping mapping)
+        => string.IsNullOrWhiteSpace(mapping.UserName)
+            ? $"User mapping {mapping.UserId?.Trim() ?? "unknown"}"
+            : mapping.UserName.Trim();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -1560,6 +1688,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.LastWasCatchUp = result.WasCatchUp;
             state.LastMessage = result.Message;
             state.LastCleanupWarning = null;
+            state.LastTargetResults = Array.Empty<HueSceneScheduleTargetResult>();
             result.RunCount = state.RunCount;
         }
 
@@ -1635,38 +1764,70 @@ public sealed class HueSceneAutomationService : BackgroundService
             return Failure(schedule.Id, "The scene schedule references a saved scene that no longer exists.", schedule);
         }
 
-        if (!TryResolveTarget(config, schedule, out var target, out var targetError))
+        if (!TryResolveTargets(config, schedule, out var targets, out var targetError))
             return Failure(schedule.Id, targetError, schedule);
 
-        _hueClient.RetryAttempts = target.RetryAttempts;
+        PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
+        var targetResults = new List<HueSceneScheduleTargetResult>();
+        foreach (var target in targets)
+        {
+            var targetResult = await RunScheduleTargetAsync(
+                schedule,
+                preset,
+                target,
+                cancellationToken).ConfigureAwait(false);
+            targetResults.Add(targetResult);
+        }
 
-        JsonElement? areaConfiguration;
+        var succeededCount = targetResults.Count(result => result.Succeeded);
+        var allSucceeded = targetResults.Count > 0 && succeededCount == targetResults.Count;
+        var message = BuildAggregateRunMessage(targetResults, succeededCount);
+        var cleanupWarning = string.Join(
+            " ",
+            targetResults
+                .Where(result => !string.IsNullOrWhiteSpace(result.CleanupWarning))
+                .Select(result => $"{result.TargetLabel}: {result.CleanupWarning!.Trim()}"));
+        return new HueSceneAutomationRunResult
+        {
+            ScheduleId = schedule.Id,
+            ScheduleName = schedule.Name?.Trim() ?? string.Empty,
+            PresetName = preset.Name?.Trim() ?? string.Empty,
+            Effect = effect,
+            EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+            TargetLabel = ResolveTargetLabel(config, schedule),
+            Succeeded = allSucceeded,
+            Message = message,
+            CleanupWarning = string.IsNullOrWhiteSpace(cleanupWarning) ? null : cleanupWarning,
+            TargetResults = targetResults,
+            RunAtUtc = DateTime.UtcNow
+        };
+    }
+
+    private async Task<HueSceneScheduleTargetResult> RunScheduleTargetAsync(
+        HueSceneSchedule schedule,
+        HueColorPreset preset,
+        HueSceneAutomationTargetDescription target,
+        CancellationToken cancellationToken)
+    {
         try
         {
-            areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
+            _hueClient.RetryAttempts = target.RetryAttempts;
+            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
                 target.BridgeIp,
                 target.AppKey,
                 target.EntertainmentAreaId,
                 cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
+            if (areaConfiguration == null)
+            {
+                return new HueSceneScheduleTargetResult
+                {
+                    TargetLabel = target.TargetLabel,
+                    Succeeded = false,
+                    Message = "The Hue bridge did not return the configured entertainment area."
+                };
+            }
 
-        if (areaConfiguration == null)
-        {
-            return Failure(
-                schedule.Id,
-                "The Hue bridge did not return the configured entertainment area.",
-                schedule,
-                target.TargetLabel);
-        }
-
-        HueStreamProbeResult preview;
-        try
-        {
-            preview = await _streamTester.PreviewAsync(
+            var preview = await _streamTester.PreviewAsync(
                 target.BridgeIp,
                 target.AppKey,
                 target.ClientKey,
@@ -1683,6 +1844,13 @@ public sealed class HueSceneAutomationService : BackgroundService
                 GetEffectiveTransitionOutSeconds(schedule, preset),
                 preset.Effect,
                 PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent)).ConfigureAwait(false);
+            return new HueSceneScheduleTargetResult
+            {
+                TargetLabel = target.TargetLabel,
+                Succeeded = preview.Succeeded,
+                Message = preview.Message,
+                CleanupWarning = preview.CleanupWarning
+            };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1690,24 +1858,35 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Hue scene schedule {0} failed while displaying preset", schedule.Name);
-            return Failure(schedule.Id, "The scheduled scene preview failed unexpectedly.", schedule, target.TargetLabel);
+            _logger.LogWarning(ex, "Hue scene schedule {0} failed for target {1}", schedule.Name, target.TargetLabel);
+            return new HueSceneScheduleTargetResult
+            {
+                TargetLabel = target.TargetLabel,
+                Succeeded = false,
+                Message = "The scheduled scene preview failed unexpectedly."
+            };
         }
+    }
 
-        PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
-        return new HueSceneAutomationRunResult
-        {
-            ScheduleId = schedule.Id,
-            ScheduleName = schedule.Name?.Trim() ?? string.Empty,
-            PresetName = preset.Name?.Trim() ?? string.Empty,
-            Effect = effect,
-            EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
-            TargetLabel = target.TargetLabel,
-            Succeeded = preview.Succeeded,
-            Message = preview.Message,
-            CleanupWarning = preview.CleanupWarning,
-            RunAtUtc = DateTime.UtcNow
-        };
+    private static string BuildAggregateRunMessage(
+        IReadOnlyList<HueSceneScheduleTargetResult> targetResults,
+        int succeededCount)
+    {
+        if (targetResults.Count == 1)
+            return targetResults[0].Message?.Trim() ?? string.Empty;
+
+        var total = targetResults.Count;
+        if (succeededCount == total)
+            return $"Displayed scheduled scene on all {total} enabled targets.";
+
+        var failures = string.Join(
+            "; ",
+            targetResults
+                .Where(result => !result.Succeeded)
+                .Select(result => $"{result.TargetLabel}: {result.Message}"));
+        return succeededCount == 0
+            ? $"No enabled targets completed the scheduled scene. {failures}"
+            : $"Displayed scheduled scene on {succeededCount} of {total} enabled targets. Failed targets: {failures}";
     }
 
     private async Task<HueSceneAutomationRunResult> RunScheduleTrackedAsync(
@@ -1822,6 +2001,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.LastWasCatchUp = result?.WasCatchUp ?? false;
             state.LastMessage = result?.Message ?? "The scheduled scene ended without a result.";
             state.LastCleanupWarning = result?.CleanupWarning;
+            state.LastTargetResults = result?.TargetResults?.Select(CloneTargetResult).ToArray()
+                ?? Array.Empty<HueSceneScheduleTargetResult>();
             if (result != null)
                 result.RunCount = state.RunCount;
 
@@ -1947,6 +2128,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     state.LastWasCatchUp = latest.WasCatchUp;
                     state.LastMessage = latest.Message;
                     state.LastCleanupWarning = latest.CleanupWarning;
+                    state.LastTargetResults = latest.TargetResults?.Select(CloneTargetResult).ToArray()
+                        ?? Array.Empty<HueSceneScheduleTargetResult>();
                 }
             }
         }
@@ -2015,6 +2198,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             WasCatchUp = result.WasCatchUp,
             Message = result.Message,
             CleanupWarning = result.CleanupWarning,
+            TargetResults = result.TargetResults?.Select(CloneTargetResult).ToList()
+                ?? new List<HueSceneScheduleTargetResult>(),
             RunAtUtc = result.RunAtUtc,
             RunCount = result.RunCount
         };
@@ -2037,6 +2222,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             WasCatchUp = source.WasCatchUp,
             Message = source.Message?.Trim() ?? string.Empty,
             CleanupWarning = source.CleanupWarning?.Trim(),
+            TargetResults = source.TargetResults?.Where(target => target != null)
+                .Select(CloneTargetResult)
+                .ToList() ?? new List<HueSceneScheduleTargetResult>(),
             RunAtUtc = source.RunAtUtc,
             RunCount = Math.Max(0, source.RunCount)
         };
@@ -2059,6 +2247,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             WasCatchUp = entry.WasCatchUp,
             Message = entry.Message?.Trim() ?? string.Empty,
             CleanupWarning = entry.CleanupWarning?.Trim(),
+            TargetResults = entry.TargetResults?.Where(target => target != null)
+                .Select(CloneTargetResult)
+                .ToArray() ?? Array.Empty<HueSceneScheduleTargetResult>(),
             RunAtUtc = entry.RunAtUtc,
             RunCount = Math.Max(0, entry.RunCount)
         };
@@ -2079,6 +2270,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             WasCatchUp = source.WasCatchUp,
             Message = source.Message,
             CleanupWarning = source.CleanupWarning,
+            TargetResults = source.TargetResults?.Select(CloneTargetResult).ToArray()
+                ?? Array.Empty<HueSceneScheduleTargetResult>(),
             RunAtUtc = source.RunAtUtc,
             RunCount = source.RunCount
         };
@@ -2086,6 +2279,9 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     internal static string ResolveTargetLabel(PluginConfiguration? config, HueSceneSchedule schedule)
     {
+        if (schedule.TargetAllEnabledMappings)
+            return "All enabled targets";
+
         var targetUserId = schedule.TargetUserId?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(targetUserId))
             return "Default bridge target";
@@ -2131,6 +2327,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PresetName = source.PresetName,
             Priority = source.Priority,
             TargetUserId = source.TargetUserId,
+            TargetAllEnabledMappings = source.TargetAllEnabledMappings,
             TimeOfDay = source.TimeOfDay,
             TimeZoneId = source.TimeZoneId,
             Recurrence = source.Recurrence,
@@ -2149,6 +2346,17 @@ public sealed class HueSceneAutomationService : BackgroundService
             DaysOfWeekMask = source.DaysOfWeekMask,
             Enabled = source.Enabled,
             SkipNextOccurrence = source.SkipNextOccurrence
+        };
+    }
+
+    private static HueSceneScheduleTargetResult CloneTargetResult(HueSceneScheduleTargetResult source)
+    {
+        return new HueSceneScheduleTargetResult
+        {
+            TargetLabel = source.TargetLabel?.Trim() ?? string.Empty,
+            Succeeded = source.Succeeded,
+            Message = source.Message?.Trim() ?? string.Empty,
+            CleanupWarning = source.CleanupWarning?.Trim()
         };
     }
 
@@ -2181,6 +2389,7 @@ internal sealed class HueSceneScheduleRuntimeState
     public bool LastWasCatchUp { get; set; }
     public string? LastMessage { get; set; }
     public string? LastCleanupWarning { get; set; }
+    public IReadOnlyList<HueSceneScheduleTargetResult> LastTargetResults { get; set; } = Array.Empty<HueSceneScheduleTargetResult>();
 
     public HueSceneScheduleRuntimeState Clone()
     {
@@ -2193,7 +2402,14 @@ internal sealed class HueSceneScheduleRuntimeState
             LastSkipped = LastSkipped,
             LastWasCatchUp = LastWasCatchUp,
             LastMessage = LastMessage,
-            LastCleanupWarning = LastCleanupWarning
+            LastCleanupWarning = LastCleanupWarning,
+            LastTargetResults = LastTargetResults?.Select(target => new HueSceneScheduleTargetResult
+            {
+                TargetLabel = target.TargetLabel,
+                Succeeded = target.Succeeded,
+                Message = target.Message,
+                CleanupWarning = target.CleanupWarning
+            }).ToArray() ?? Array.Empty<HueSceneScheduleTargetResult>()
         };
     }
 }
@@ -2263,6 +2479,9 @@ public sealed class HueSceneAutomationRunResult
     [JsonPropertyName("cleanupWarning")]
     public string? CleanupWarning { get; init; }
 
+    [JsonPropertyName("targetResults")]
+    public IReadOnlyList<HueSceneScheduleTargetResult> TargetResults { get; init; } = Array.Empty<HueSceneScheduleTargetResult>();
+
     [JsonPropertyName("runAtUtc")]
     public DateTime RunAtUtc { get; init; }
 
@@ -2286,6 +2505,9 @@ public sealed class HueSceneScheduleOccurrence
 
     [JsonPropertyName("priority")]
     public int Priority { get; init; }
+
+    [JsonPropertyName("targetAllEnabledMappings")]
+    public bool TargetAllEnabledMappings { get; init; }
 
     [JsonPropertyName("effect")]
     public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
@@ -2385,6 +2607,12 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("targetLabel")]
     public string TargetLabel { get; init; } = string.Empty;
+
+    [JsonPropertyName("targetAllEnabledMappings")]
+    public bool TargetAllEnabledMappings { get; init; }
+
+    [JsonPropertyName("lastTargetResults")]
+    public IReadOnlyList<HueSceneScheduleTargetResult> LastTargetResults { get; init; } = Array.Empty<HueSceneScheduleTargetResult>();
 
     [JsonPropertyName("timeOfDay")]
     public string TimeOfDay { get; init; } = string.Empty;

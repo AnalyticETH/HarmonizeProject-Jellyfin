@@ -476,7 +476,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 : config.UserMappings?.FirstOrDefault(candidate =>
                     candidate != null &&
                     string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
-            var targetLabel = string.IsNullOrWhiteSpace(targetUserId)
+            var targetLabel = schedule.TargetAllEnabledMappings
+                ? "All enabled targets"
+                : string.IsNullOrWhiteSpace(targetUserId)
                 ? "Default bridge target"
                 : mapping == null
                     ? "Missing user mapping"
@@ -509,6 +511,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                     : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                 TargetUserId = targetUserId,
+                TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                 TargetLabel = targetLabel,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
@@ -546,6 +549,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetName = schedule.PresetName,
                 Priority = schedule.Priority,
                 TargetUserId = schedule.TargetUserId,
+                TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                 TimeOfDay = schedule.TimeOfDay,
                 TimeZoneId = schedule.TimeZoneId,
                 Recurrence = schedule.Recurrence,
@@ -1367,6 +1371,7 @@ namespace Jellyfin.Plugin.Hue.Api
                             DurationSeconds = effectiveDuration,
                             TransitionSeconds = occurrence.TransitionSeconds,
                             TransitionOutSeconds = occurrence.TransitionOutSeconds,
+                            TargetAllEnabledMappings = occurrence.TargetAllEnabledMappings,
                             TargetLabel = ToSceneScheduleResult(schedule, config).TargetLabel,
                             TimeZoneId = occurrence.TimeZoneId,
                             TimeZoneDisplayName = occurrence.TimeZoneDisplayName,
@@ -1582,6 +1587,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.RunCount = candidateSchedules[existingIndex].RunCount;
                 if (!request.Priority.HasValue)
                     schedule.Priority = candidateSchedules[existingIndex].Priority;
+                if (!request.TargetAllEnabledMappings.HasValue)
+                    schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
                 if (!request.SkipNextOccurrence.HasValue)
                     schedule.SkipNextOccurrence = candidateSchedules[existingIndex].SkipNextOccurrence;
                 candidateSchedules[existingIndex] = schedule;
@@ -2619,6 +2626,8 @@ namespace Jellyfin.Plugin.Hue.Api
                         schedule.RunCount = candidateSchedules[existingIndex].RunCount;
                     if (scheduleRequest != null && !scheduleRequest.Priority.HasValue)
                         schedule.Priority = candidateSchedules[existingIndex].Priority;
+                    if (scheduleRequest != null && !scheduleRequest.TargetAllEnabledMappings.HasValue)
+                        schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
                     candidateSchedules[existingIndex] = schedule;
                 }
                 else
@@ -3681,6 +3690,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Request shape for one saved-scene cue. TargetUserId is blank for the global bridge
+    /// target or when TargetAllEnabledMappings is true; the latter fans out to the global
+    /// target and every distinct enabled custom mapping target.
     /// target; runDate selects a one-time cue, otherwise daily, weekly, monthly-day,
     /// monthly-weekday, or yearly date rules in the selected cue timezone apply. RecurrenceInterval
     /// controls the number of calendar units between runs and requires startDate when greater than one.
@@ -3709,6 +3720,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool? TargetAllEnabledMappings { get; set; }
 
         [JsonPropertyName("timeOfDay")]
         public string TimeOfDay { get; set; } = "20:00";
@@ -3773,6 +3787,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetName = PresetName?.Trim() ?? string.Empty,
                 Priority = Priority ?? PluginConfiguration.MinSceneSchedulePriority,
                 TargetUserId = TargetUserId?.Trim() ?? string.Empty,
+                TargetAllEnabledMappings = TargetAllEnabledMappings ?? false,
                 TimeOfDay = TimeOfDay?.Trim() ?? string.Empty,
                 TimeZoneId = TimeZoneId?.Trim() ?? string.Empty,
                 Recurrence = Recurrence?.Trim() ?? string.Empty,
@@ -3812,7 +3827,8 @@ namespace Jellyfin.Plugin.Hue.Api
     /// saved-scene fade-in/fade-out, optional per-cue duration override, daily, weekly, monthly-day, monthly-weekday, or yearly recurrence,
     /// bounded recurrence intervals, finite execution limits, one-time date, inclusive bounds,
     /// and deterministic execution priority,
-    /// and normalized excluded calendar dates.
+    /// and normalized excluded calendar dates. TargetAllEnabledMappings exposes the optional
+    /// sequential fan-out mode without returning any bridge credentials.
     /// </summary>
     public sealed class HueSceneScheduleResult
     {
@@ -3836,6 +3852,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool TargetAllEnabledMappings { get; set; }
 
         [JsonPropertyName("targetLabel")]
         public string TargetLabel { get; set; } = string.Empty;
@@ -3953,6 +3972,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetLabel")]
         public string TargetLabel { get; set; } = string.Empty;
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool TargetAllEnabledMappings { get; set; }
 
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;

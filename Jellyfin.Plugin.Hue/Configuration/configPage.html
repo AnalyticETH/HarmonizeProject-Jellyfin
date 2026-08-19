@@ -297,7 +297,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. The saved scene's effect and 25-400% animation speed are inherited by every cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. The saved scene's effect and 25-400% animation speed are inherited by every cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, with per-target outcomes in run history. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -431,6 +431,7 @@
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTarget">Target</label>
                                 <select id="sceneScheduleTarget" is="emby-select" style="width: 100%;">
                                     <option value="">Default bridge target</option>
+                                    <option value="__all_enabled_targets__">All enabled targets</option>
                                 </select>
                             </div>
                             <label style="display: flex; align-items: center; gap: 0.5em; padding-bottom: 0.45em;">
@@ -1916,7 +1917,7 @@
 
                         var targetSelect = page.querySelector('#sceneScheduleTarget');
                         if (targetSelect) {
-                            targetSelect.innerHTML = '<option value="">Default bridge target</option>';
+                            targetSelect.innerHTML = '<option value="">Default bridge target</option><option value="__all_enabled_targets__">All enabled targets</option>';
                             mappings.forEach(function (mapping) {
                                 var userId = mapping && (mapping.userId !== undefined ? mapping.userId : mapping.UserId);
                                 if (!userId) return;
@@ -2688,7 +2689,10 @@
                         scheduleTimeZoneSelect.appendChild(unavailableTimeZone);
                         scheduleTimeZoneSelect.value = scheduleTimeZoneId;
                     }
-                    page.querySelector('#sceneScheduleTarget').value = get('TargetUserId', 'targetUserId', '');
+                    var targetAllEnabledMappings = get('TargetAllEnabledMappings', 'targetAllEnabledMappings', false) === true;
+                    page.querySelector('#sceneScheduleTarget').value = targetAllEnabledMappings
+                        ? '__all_enabled_targets__'
+                        : get('TargetUserId', 'targetUserId', '');
                     page.querySelector('#sceneScheduleEnabled').checked = get('Enabled', 'enabled', true) !== false;
                     HueConfigurationPage.setSceneScheduleDaysMask(page, get('DaysOfWeekMask', 'daysOfWeekMask', 127));
                     HueConfigurationPage.updateSceneScheduleRecurrenceMode(page, false);
@@ -2818,6 +2822,8 @@
                         statusEl.textContent = "Saving scheduled cue...";
                         statusEl.style.color = "";
                     }
+                    var targetValue = page.querySelector('#sceneScheduleTarget').value || '';
+                    var targetAllEnabledMappings = targetValue === '__all_enabled_targets__';
                     ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/SceneSchedules"),
@@ -2825,7 +2831,8 @@
                             id: select.value || '',
                             name: name,
                             presetName: presetName,
-                            targetUserId: page.querySelector('#sceneScheduleTarget').value || '',
+                            targetUserId: targetAllEnabledMappings ? '' : targetValue,
+                            targetAllEnabledMappings: targetAllEnabledMappings,
                             timeOfDay: timeOfDay,
                             durationSeconds: durationSeconds,
                             maxRuns: maxRuns,
