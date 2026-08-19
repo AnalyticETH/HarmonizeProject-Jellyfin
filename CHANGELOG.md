@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.146] - 2026-08-19
+
+### Added
+- **Persisted saved-playlist targets**: save the global bridge, every enabled mapping, or a deliberate subset of enabled mappings with optional default-bridge inclusion; selected target mode survives playlist CRUD, previews, duplication, scheduled playlist cues, and credential-safe backup/restore
+- **Playlist target lifecycle safety**: validate selected mapping IDs atomically and include saved-playlist target references in mapping dependency reports and disable/delete protection
+- **Administrator target editor**: use an exclusive All enabled option or a deliberate multi-selection for saved playlists while normal previews preserve each playlist's saved target mode
+
 ## [1.5.145] - 2026-08-19
 
 ### Added

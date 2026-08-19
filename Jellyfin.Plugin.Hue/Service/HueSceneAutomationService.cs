@@ -1533,18 +1533,27 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (presets.Any(preset => preset == null))
             return PlaylistFailure(playlist, "The scene playlist references a saved scene that no longer exists.");
 
+        var hasTargetOverride = targetUserIdsOverride != null || includeDefaultTargetOverride;
+        var effectiveTargetUserIds = hasTargetOverride
+            ? targetUserIdsOverride?.Select(value => value?.Trim() ?? string.Empty).ToList() ?? new List<string>()
+            : (playlist.TargetUserIds ?? new List<string>())
+                .Select(value => value?.Trim() ?? string.Empty)
+                .ToList();
+        var effectiveIncludeDefaultTarget = hasTargetOverride
+            ? includeDefaultTargetOverride
+            : playlist.IncludeDefaultTarget;
         var targetSchedule = new HueSceneSchedule
         {
             Id = "scene-playlist-preview",
             Name = playlist.Name?.Trim() ?? string.Empty,
             PresetName = presets[0]!.Name?.Trim() ?? string.Empty,
-            TargetUserId = targetUserIdsOverride != null || includeDefaultTargetOverride
+            TargetUserId = hasTargetOverride || effectiveIncludeDefaultTarget || effectiveTargetUserIds.Count > 0
                 ? string.Empty
                 : playlist.TargetAllEnabledMappings ? string.Empty : playlist.TargetUserId?.Trim() ?? string.Empty,
-            TargetUserIds = targetUserIdsOverride?.Select(value => value?.Trim() ?? string.Empty).ToList()
-                ?? new List<string>(),
-            IncludeDefaultTarget = includeDefaultTargetOverride,
-            TargetAllEnabledMappings = targetUserIdsOverride == null && !includeDefaultTargetOverride &&
+            TargetUserIds = effectiveTargetUserIds,
+            IncludeDefaultTarget = effectiveIncludeDefaultTarget,
+            TargetAllEnabledMappings = !hasTargetOverride && !effectiveIncludeDefaultTarget &&
+                effectiveTargetUserIds.Count == 0 &&
                 playlist.TargetAllEnabledMappings
         };
         if (!TryResolveTargets(config, targetSchedule, out _, out var targetError))
@@ -1669,6 +1678,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PluginConfiguration.MinScenePlaylistRepeatCount,
                     PluginConfiguration.MaxScenePlaylistRepeatCount),
             TargetAllEnabledMappings = playlist?.TargetAllEnabledMappings == true,
+            TargetUserIds = playlist?.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                ?? Array.Empty<string>(),
+            IncludeDefaultTarget = playlist?.IncludeDefaultTarget == true,
             Succeeded = false,
             Message = message,
             RunAtUtc = DateTime.UtcNow

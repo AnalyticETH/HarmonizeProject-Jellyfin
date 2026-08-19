@@ -420,6 +420,11 @@ namespace Jellyfin.Plugin.Hue.Api
             PluginConfiguration config)
         {
             var targetUserId = playlist.TargetUserId?.Trim() ?? string.Empty;
+            var targetUserIds = (playlist.TargetUserIds ?? new List<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
             var mapping = string.IsNullOrWhiteSpace(targetUserId)
                 ? null
                 : config.UserMappings?.FirstOrDefault(candidate =>
@@ -427,13 +432,19 @@ namespace Jellyfin.Plugin.Hue.Api
                     string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
             var targetLabel = playlist.TargetAllEnabledMappings
                 ? "All enabled targets"
-                : string.IsNullOrWhiteSpace(targetUserId)
-                    ? "Default bridge target"
-                    : mapping == null
-                        ? "Missing user mapping"
-                        : string.IsNullOrWhiteSpace(mapping.UserName)
-                            ? $"User mapping {mapping.UserId?.Trim() ?? targetUserId}"
-                            : mapping.UserName.Trim();
+                : playlist.IncludeDefaultTarget || targetUserIds.Length > 0
+                    ? playlist.IncludeDefaultTarget
+                        ? targetUserIds.Length == 0
+                            ? "Default bridge target"
+                            : $"Default bridge + {targetUserIds.Length} selected target(s)"
+                        : $"{targetUserIds.Length} selected target(s)"
+                    : string.IsNullOrWhiteSpace(targetUserId)
+                        ? "Default bridge target"
+                        : mapping == null
+                            ? "Missing user mapping"
+                            : string.IsNullOrWhiteSpace(mapping.UserName)
+                                ? $"User mapping {mapping.UserId?.Trim() ?? targetUserId}"
+                                : mapping.UserName.Trim();
             var presetNames = (playlist.PresetNames ?? new List<string>())
                 .Select(name => name?.Trim() ?? string.Empty)
                 .Where(name => !string.IsNullOrWhiteSpace(name))
@@ -461,8 +472,12 @@ namespace Jellyfin.Plugin.Hue.Api
                     playlist.RepeatCount,
                     PluginConfiguration.MinScenePlaylistRepeatCount,
                     PluginConfiguration.MaxScenePlaylistRepeatCount),
-                TargetUserId = targetUserId,
+                TargetUserId = playlist.TargetAllEnabledMappings || playlist.IncludeDefaultTarget || targetUserIds.Length > 0
+                    ? string.Empty
+                    : targetUserId,
                 TargetAllEnabledMappings = playlist.TargetAllEnabledMappings,
+                TargetUserIds = targetUserIds,
+                IncludeDefaultTarget = playlist.IncludeDefaultTarget,
                 TargetLabel = targetLabel,
                 TotalDurationSeconds = totalDuration
             };
@@ -494,6 +509,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetNames = (playlist.PresetNames ?? new List<string>()).ToList(),
                 RepeatCount = playlist.RepeatCount,
                 TargetUserId = playlist.TargetUserId,
+                TargetUserIds = (playlist.TargetUserIds ?? new List<string>()).ToList(),
+                IncludeDefaultTarget = playlist.IncludeDefaultTarget,
                 TargetAllEnabledMappings = playlist.TargetAllEnabledMappings
             };
         }
@@ -2358,15 +2375,26 @@ namespace Jellyfin.Plugin.Hue.Api
             }
             if (request.TargetAllEnabledMappings == true && !string.IsNullOrWhiteSpace(targetUserId))
                 return BadRequest("A scene playlist preview cannot select all enabled targets and a specific user mapping together.");
-            if (request.TargetAllEnabledMappings.HasValue)
+            if (request.TargetUserIds != null || includeDefaultTarget)
+            {
+                playlist.TargetAllEnabledMappings = false;
+                playlist.TargetUserId = string.Empty;
+                playlist.TargetUserIds = targetUserIds ?? new List<string>();
+                playlist.IncludeDefaultTarget = includeDefaultTarget;
+            }
+            else if (request.TargetAllEnabledMappings.HasValue)
             {
                 playlist.TargetAllEnabledMappings = request.TargetAllEnabledMappings.Value;
                 playlist.TargetUserId = request.TargetAllEnabledMappings.Value ? string.Empty : targetUserId;
+                playlist.TargetUserIds = new List<string>();
+                playlist.IncludeDefaultTarget = false;
             }
             else if (!string.IsNullOrWhiteSpace(targetUserId))
             {
                 playlist.TargetAllEnabledMappings = false;
                 playlist.TargetUserId = targetUserId;
+                playlist.TargetUserIds = new List<string>();
+                playlist.IncludeDefaultTarget = false;
             }
 
             var validationErrors = PluginConfiguration.ValidateScenePlaylist(playlist, config);
@@ -2484,16 +2512,22 @@ namespace Jellyfin.Plugin.Hue.Api
                 {
                     playlist.TargetAllEnabledMappings = request.TargetAllEnabledMappings.Value;
                     playlist.TargetUserId = request.TargetAllEnabledMappings.Value ? string.Empty : targetUserId;
+                    playlist.TargetUserIds = new List<string>();
+                    playlist.IncludeDefaultTarget = false;
                 }
                 else
                 {
                     playlist.TargetAllEnabledMappings = false;
                     playlist.TargetUserId = targetUserId;
+                    playlist.TargetUserIds = new List<string>();
+                    playlist.IncludeDefaultTarget = false;
                 }
                 if (selectedTargetOverride)
                 {
                     playlist.TargetAllEnabledMappings = false;
                     playlist.TargetUserId = string.Empty;
+                    playlist.TargetUserIds = targetUserIds ?? new List<string>();
+                    playlist.IncludeDefaultTarget = includeDefaultTarget;
                 }
             }
 
@@ -2505,16 +2539,23 @@ namespace Jellyfin.Plugin.Hue.Api
                 .ToList();
             foreach (var playlist in playlists)
             {
+                var playlistHasSelectedTargets = playlist.IncludeDefaultTarget ||
+                    (playlist.TargetUserIds?.Count ?? 0) > 0;
+                var hasSelectedTargets = selectedTargetOverride || playlistHasSelectedTargets;
                 var targetSchedule = new HueSceneSchedule
                 {
                     Id = "bulk-scene-playlist-preview",
                     Name = playlist.Name?.Trim() ?? string.Empty,
-                    TargetUserId = selectedTargetOverride || playlist.TargetAllEnabledMappings
+                    TargetUserId = hasSelectedTargets || playlist.TargetAllEnabledMappings
                         ? string.Empty
                         : playlist.TargetUserId?.Trim() ?? string.Empty,
-                    TargetUserIds = selectedTargetOverride ? targetUserIds ?? new List<string>() : new List<string>(),
-                    IncludeDefaultTarget = selectedTargetOverride && includeDefaultTarget,
-                    TargetAllEnabledMappings = playlist.TargetAllEnabledMappings
+                    TargetUserIds = selectedTargetOverride
+                        ? targetUserIds ?? new List<string>()
+                        : playlist.TargetUserIds?.ToList() ?? new List<string>(),
+                    IncludeDefaultTarget = selectedTargetOverride
+                        ? includeDefaultTarget
+                        : playlist.IncludeDefaultTarget,
+                    TargetAllEnabledMappings = !hasSelectedTargets && playlist.TargetAllEnabledMappings
                 };
                 if (!HueSceneAutomationService.TryResolveTargets(config, targetSchedule, out _, out var targetError))
                 {
@@ -4103,6 +4144,8 @@ namespace Jellyfin.Plugin.Hue.Api
                             (schedule.TargetUserIds?.Count ?? 0) > 0
                             ? string.Empty
                             : schedule.TargetUserId?.Trim() ?? string.Empty;
+                        scheduledPlaylist.TargetUserIds = schedule.TargetUserIds?.ToList() ?? new List<string>();
+                        scheduledPlaylist.IncludeDefaultTarget = schedule.IncludeDefaultTarget;
                         scheduledPlaylist.TargetAllEnabledMappings = schedule.TargetAllEnabledMappings;
                         validationErrors.AddRange(PluginConfiguration.ValidateScenePlaylist(
                             scheduledPlaylist,
@@ -6494,16 +6537,31 @@ namespace Jellyfin.Plugin.Hue.Api
                 .OrderBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            var playlists = (config.ScenePlaylists ?? new List<HueScenePlaylist>())
+                .Where(playlist => playlist != null &&
+                    (string.Equals(playlist.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase) ||
+                     (playlist.TargetUserIds ?? new List<string>()).Any(targetUserId =>
+                         string.Equals(targetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase))))
+                .Select(playlist => new HueUserMappingPlaylistDependencyResult
+                {
+                    Id = playlist.Id?.Trim() ?? string.Empty,
+                    Name = playlist.Name?.Trim() ?? string.Empty
+                })
+                .OrderBy(playlist => playlist.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(playlist => playlist.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
 
             return new HueUserMappingDependenciesResult
             {
                 UserId = mapping.UserId?.Trim() ?? normalizedUserId,
                 UserName = mapping.UserName?.Trim() ?? string.Empty,
                 SyncEnabled = mapping.SyncEnabled,
-                CanDisable = !mapping.SyncEnabled || schedules.Length == 0,
-                CanDelete = schedules.Length == 0,
+                CanDisable = !mapping.SyncEnabled || (schedules.Length == 0 && playlists.Length == 0),
+                CanDelete = schedules.Length == 0 && playlists.Length == 0,
                 ScheduledCueCount = schedules.Length,
-                ScheduledCues = schedules
+                ScheduledCues = schedules,
+                ScenePlaylistCount = playlists.Length,
+                ScenePlaylists = playlists
             };
         }
 
@@ -6617,9 +6675,14 @@ namespace Jellyfin.Plugin.Hue.Api
                 (string.Equals(schedule.TargetUserId?.Trim(), mapping.UserId.Trim(), StringComparison.OrdinalIgnoreCase) ||
                  (schedule.TargetUserIds ?? new List<string>()).Any(targetUserId =>
                      string.Equals(targetUserId?.Trim(), mapping.UserId.Trim(), StringComparison.OrdinalIgnoreCase)))) ?? 0;
-            if (scheduledCueCount > 0 && !mapping.SyncEnabled)
+            var scenePlaylistCount = config.ScenePlaylists?.Count(playlist =>
+                playlist != null &&
+                (string.Equals(playlist.TargetUserId?.Trim(), mapping.UserId.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                 (playlist.TargetUserIds ?? new List<string>()).Any(targetUserId =>
+                     string.Equals(targetUserId?.Trim(), mapping.UserId.Trim(), StringComparison.OrdinalIgnoreCase)))) ?? 0;
+            if ((scheduledCueCount > 0 || scenePlaylistCount > 0) && !mapping.SyncEnabled)
             {
-                return Conflict($"This user mapping is used by {scheduledCueCount} scheduled cue(s). Delete or update those cues before disabling the mapping.");
+                return Conflict($"This user mapping is used by {scheduledCueCount} scheduled cue(s) and {scenePlaylistCount} saved playlist(s). Delete or update those targets before disabling the mapping.");
             }
 
             config.UserMappings ??= new List<UserBridgeMapping>();
@@ -6737,9 +6800,14 @@ namespace Jellyfin.Plugin.Hue.Api
                 (string.Equals(schedule.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase) ||
                  (schedule.TargetUserIds ?? new List<string>()).Any(targetUserId =>
                      string.Equals(targetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase)))) ?? 0;
-            if (scheduledCueCount > 0)
+            var scenePlaylistCount = config.ScenePlaylists?.Count(playlist =>
+                playlist != null &&
+                (string.Equals(playlist.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase) ||
+                 (playlist.TargetUserIds ?? new List<string>()).Any(targetUserId =>
+                     string.Equals(targetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase)))) ?? 0;
+            if (scheduledCueCount > 0 || scenePlaylistCount > 0)
             {
-                return Conflict($"This user mapping is used by {scheduledCueCount} scheduled cue(s). Delete or update those cues first.");
+                return Conflict($"This user mapping is used by {scheduledCueCount} scheduled cue(s) and {scenePlaylistCount} saved playlist(s). Delete or update those targets first.");
             }
 
             config.UserMappings ??= new List<UserBridgeMapping>();
@@ -6771,8 +6839,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Deletes several per-user bridge mappings by user ID in one administrator
-        /// operation. Every selected mapping is resolved and checked for scheduled-cue
-        /// references before mutation; any missing ID, dependency, or persistence failure
+        /// operation. Every selected mapping is resolved and checked for scheduled-cue or
+        /// saved-playlist target references before mutation; any missing ID, dependency, or persistence failure
         /// leaves the complete mapping collection unchanged.
         /// </summary>
         [HttpPost("UserMappings/BulkDelete")]
@@ -6837,7 +6905,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 return Conflict(new HueUserMappingBulkDeleteResult
                 {
                     RequestedCount = userIds.Length,
-                    Message = "One or more selected user mappings are used by scheduled cues. Delete or update those cues first; no mappings were deleted.",
+                    Message = "One or more selected user mappings are used by scheduled cues or saved playlists. Delete or update those targets first; no mappings were deleted.",
                     BlockedMappings = blockedMappings
                 });
             }
@@ -6879,7 +6947,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Enables or disables several per-user bridge mappings in one administrator
         /// operation. Every selected mapping is resolved and validated before mutation;
-        /// scheduled-cue references block disabling, and disabling scrubs the custom
+        /// scheduled-cue or saved-playlist references block disabling, and disabling scrubs the custom
         /// bridge target exactly like the single-mapping save workflow. A persistence
         /// failure restores every selected mapping's prior state.
         /// </summary>
@@ -6949,7 +7017,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     {
                         SyncEnabled = false,
                         RequestedCount = userIds.Length,
-                        Message = "One or more selected user mappings are used by scheduled cues. Delete or update those cues first; no mappings were disabled.",
+                        Message = "One or more selected user mappings are used by scheduled cues or saved playlists. Delete or update those targets first; no mappings were disabled.",
                         BlockedMappings = blockedMappings
                     });
                 }
@@ -7315,6 +7383,13 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("scheduledCues")]
         public IReadOnlyList<HueUserMappingScheduleDependencyResult> ScheduledCues { get; init; } =
             Array.Empty<HueUserMappingScheduleDependencyResult>();
+
+        [JsonPropertyName("scenePlaylistCount")]
+        public int ScenePlaylistCount { get; init; }
+
+        [JsonPropertyName("scenePlaylists")]
+        public IReadOnlyList<HueUserMappingPlaylistDependencyResult> ScenePlaylists { get; init; } =
+            Array.Empty<HueUserMappingPlaylistDependencyResult>();
     }
 
     /// <summary>
@@ -7330,6 +7405,18 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("enabled")]
         public bool Enabled { get; init; }
+    }
+
+    /// <summary>
+    /// One credential-free saved-playlist reference to a per-user bridge mapping.
+    /// </summary>
+    public sealed class HueUserMappingPlaylistDependencyResult
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = string.Empty;
     }
 
     /// <summary>
@@ -8115,7 +8202,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Credential-free saved-scene playlist metadata returned by administrator APIs,
-    /// including its bounded repeat count.
+    /// including its bounded repeat count and selected target mode.
     /// </summary>
     public sealed class HueScenePlaylistResult
     {
@@ -8260,8 +8347,8 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Request shape for saving an ordered credential-free scene playlist and its bounded
-    /// repeat count.
+    /// Request shape for saving an ordered credential-free scene playlist, its bounded
+    /// repeat count, and either a legacy target mode or a selected mapping subset.
     /// </summary>
     public sealed class HueScenePlaylistRequest
     {
@@ -8280,6 +8367,12 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
 
+        [JsonPropertyName("targetUserIds")]
+        public List<string> TargetUserIds { get; set; } = new();
+
+        [JsonPropertyName("includeDefaultTarget")]
+        public bool IncludeDefaultTarget { get; set; }
+
         [JsonPropertyName("targetAllEnabledMappings")]
         public bool TargetAllEnabledMappings { get; set; }
 
@@ -8293,7 +8386,13 @@ namespace Jellyfin.Plugin.Hue.Api
                     .Select(name => name?.Trim() ?? string.Empty)
                     .ToList(),
                 RepeatCount = RepeatCount,
-                TargetUserId = TargetAllEnabledMappings ? string.Empty : TargetUserId?.Trim() ?? string.Empty,
+                TargetUserId = TargetAllEnabledMappings || IncludeDefaultTarget || (TargetUserIds?.Count ?? 0) > 0
+                    ? string.Empty
+                    : TargetUserId?.Trim() ?? string.Empty,
+                TargetUserIds = (TargetUserIds ?? new List<string>())
+                    .Select(value => value?.Trim() ?? string.Empty)
+                    .ToList(),
+                IncludeDefaultTarget = IncludeDefaultTarget,
                 TargetAllEnabledMappings = TargetAllEnabledMappings
             };
         }

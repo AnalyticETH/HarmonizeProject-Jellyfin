@@ -101,7 +101,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// A credential-free ordered collection of saved scenes. Playlists retain only scene
     /// names, a bounded repeat count, and an optional target mode; bridge credentials and
     /// channel profiles are resolved from the current server configuration when the
-    /// playlist is previewed.
+    /// playlist is previewed. A selected-target playlist can fan out to a deliberate
+    /// subset of enabled user mappings and optionally the global bridge without storing
+    /// any credential-bearing target data.
     /// </summary>
     public sealed class HueScenePlaylist
     {
@@ -114,6 +116,16 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
         public string TargetUserId { get; set; } = string.Empty;
+        /// <summary>
+        /// Optional explicit user-mapping targets for a selected-target playlist. When
+        /// populated, the playlist runs only on these enabled mappings, optionally
+        /// including the global target when <see cref="IncludeDefaultTarget"/> is true.
+        /// </summary>
+        public List<string> TargetUserIds { get; set; } = new List<string>();
+        /// <summary>
+        /// Includes the configured global bridge in an explicit selected-target playlist.
+        /// </summary>
+        public bool IncludeDefaultTarget { get; set; }
         public bool TargetAllEnabledMappings { get; set; }
     }
 
@@ -1246,8 +1258,43 @@ namespace Jellyfin.Plugin.Hue.Configuration
             }
 
             var targetUserId = playlist.TargetUserId?.Trim() ?? string.Empty;
-            if (playlist.TargetAllEnabledMappings && !string.IsNullOrWhiteSpace(targetUserId))
+            var targetUserIds = playlist.TargetUserIds ?? new List<string>();
+            if (targetUserIds.Count > MaxSceneScheduleTargetMappings)
+                errors.Add($"{label} may select no more than {MaxSceneScheduleTargetMappings} user mappings");
+
+            var seenTargetUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < targetUserIds.Count; index++)
+            {
+                var selectedUserId = targetUserIds[index]?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(selectedUserId))
+                {
+                    errors.Add($"{label} selected user mapping {index + 1} is required");
+                    continue;
+                }
+
+                if (!seenTargetUserIds.Add(selectedUserId))
+                {
+                    errors.Add($"{label} selects user mapping {selectedUserId} more than once");
+                    continue;
+                }
+
+                var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.UserId?.Trim(), selectedUserId, StringComparison.OrdinalIgnoreCase));
+                if (mapping == null)
+                    errors.Add($"{label} references a selected user mapping that does not exist: {selectedUserId}");
+                else if (!mapping.SyncEnabled)
+                    errors.Add($"{label} references a disabled selected user mapping: {selectedUserId}");
+            }
+
+            var hasSelectedTargets = playlist.IncludeDefaultTarget || targetUserIds.Count > 0;
+            if (playlist.TargetAllEnabledMappings && !string.IsNullOrWhiteSpace(targetUserId) && !hasSelectedTargets)
                 errors.Add($"{label} cannot select all enabled targets and a specific user mapping together");
+            else if (playlist.TargetAllEnabledMappings && hasSelectedTargets)
+                errors.Add($"{label} cannot combine all enabled targets with a specific or selected target");
+
+            if (!string.IsNullOrWhiteSpace(targetUserId) && hasSelectedTargets)
+                errors.Add($"{label} cannot combine a specific user mapping with selected targets");
 
             if (!string.IsNullOrWhiteSpace(targetUserId))
             {

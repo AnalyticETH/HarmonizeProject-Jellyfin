@@ -338,7 +338,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Saved Scene Playlists</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into an ordered playlist. Each step uses the saved scene's effect, duration, brightness, and fade transitions; the playlist runs sequentially through the restorative preview lifecycle. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, one enabled mapping, or all enabled targets. Playlist definitions contain only scene names, repeat count, and target mode, never bridge credentials. Renaming a playlist automatically updates scheduled cues that use it; use View Cue References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into an ordered playlist. Each step uses the saved scene's effect, duration, brightness, and fade transitions; the playlist runs sequentially through the restorative preview lifecycle. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, all enabled targets, or a deliberate subset of enabled mappings and optionally include the default bridge. Playlist definitions contain only scene names, repeat count, and credential-free target selection, never bridge credentials. Renaming a playlist automatically updates scheduled cues that use it; use View References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="scenePlaylistSelect">Saved Playlist</label>
@@ -349,7 +349,7 @@
                             <button is="emby-button" type="button" class="raised" id="previewScenePlaylistBtn" disabled><span>Preview Playlist</span></button>
                             <button is="emby-button" type="button" class="raised" id="previewScenePlaylistAllBtn" disabled><span>Preview Playlist on All Targets</span></button>
                             <button is="emby-button" type="button" class="raised" id="duplicateScenePlaylistBtn" disabled><span>Duplicate Playlist</span></button>
-                            <button is="emby-button" type="button" class="raised" id="inspectScenePlaylistBtn" disabled><span>View Cue References</span></button>
+                            <button is="emby-button" type="button" class="raised" id="inspectScenePlaylistBtn" disabled><span>View References</span></button>
                             <button is="emby-button" type="button" class="raised" id="deleteScenePlaylistBtn" disabled><span>Delete Playlist</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearScenePlaylistBtn"><span>New Playlist</span></button>
                         </div>
@@ -379,8 +379,8 @@
                             </div>
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="scenePlaylistTarget">Target</label>
-                                <select id="scenePlaylistTarget" is="emby-select" style="width: 100%;">
-                                    <option value="">Default bridge target</option>
+                                <select id="scenePlaylistTarget" is="emby-select" multiple size="5" style="width: 100%;">
+                                    <option value="__default_target__">Default bridge target</option>
                                     <option value="__all_enabled_targets__">All enabled targets</option>
                                 </select>
                             </div>
@@ -394,7 +394,7 @@
                             <button is="emby-button" type="button" class="raised" id="saveScenePlaylistBtn"><span>Save / Update Playlist</span></button>
                         </div>
                         <div id="scenePlaylistItems" style="margin-top: 0.75em;"></div>
-                        <div id="scenePlaylistStatus" class="fieldDescription" style="margin-top: 0.5em;">Select saved scenes in order, add them to the playlist, then save it.</div>
+                        <div id="scenePlaylistStatus" class="fieldDescription" style="margin-top: 0.5em;">Select saved scenes in order, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -792,7 +792,7 @@
                         <legend>Per-User Bridge Mappings</legend>
                         <div class="fieldDescription" style="margin-bottom: 1em;">
                             Map individual Jellyfin users to specific Hue bridges and entertainment areas.
-                            Users without a mapping will use the default bridge settings above. To keep a per-user profile while using that same bridge, leave every bridge target field blank. Use View Cue References before disabling or deleting a mapping that scheduled cues may use.
+                            Users without a mapping will use the default bridge settings above. To keep a per-user profile while using that same bridge, leave every bridge target field blank. Use View References before disabling or deleting a mapping that scheduled cues or saved playlists may use.
                         </div>
 
                         <div id="userMappingsList" style="margin-bottom: 1em;">
@@ -2781,7 +2781,7 @@
 
                         var targetSelect = page.querySelector('#scenePlaylistTarget');
                         if (targetSelect) {
-                            targetSelect.innerHTML = '<option value="">Default bridge target</option><option value="__all_enabled_targets__">All enabled targets</option>';
+                            targetSelect.innerHTML = '<option value="__default_target__">Default bridge target</option><option value="__all_enabled_targets__">All enabled targets</option>';
                             mappings.forEach(function (mapping) {
                                 var userId = mapping && (mapping.userId !== undefined ? mapping.userId : mapping.UserId);
                                 if (!userId) return;
@@ -3022,11 +3022,27 @@
                     var repeatCount = playlist.repeatCount !== undefined ? playlist.repeatCount : (playlist.RepeatCount || 1);
                     var targetAll = playlist.targetAllEnabledMappings !== undefined ? playlist.targetAllEnabledMappings : playlist.TargetAllEnabledMappings;
                     var targetUserId = playlist.targetUserId !== undefined ? playlist.targetUserId : (playlist.TargetUserId || '');
+                    var targetUserIds = playlist.targetUserIds !== undefined ? playlist.targetUserIds : (playlist.TargetUserIds || []);
+                    var includeDefaultTarget = playlist.includeDefaultTarget !== undefined ? playlist.includeDefaultTarget : playlist.IncludeDefaultTarget;
+                    targetUserIds = Array.isArray(targetUserIds) ? targetUserIds : [];
                     page._hueScenePlaylistId = id || '';
                     page._hueScenePlaylistItems = presetNames.slice();
                     page.querySelector('#scenePlaylistName').value = playlistName || '';
                     page.querySelector('#scenePlaylistRepeatCount').value = repeatCount || 1;
-                    page.querySelector('#scenePlaylistTarget').value = targetAll ? '__all_enabled_targets__' : (targetUserId || '');
+                    var targetSelect = page.querySelector('#scenePlaylistTarget');
+                    if (targetSelect) {
+                        Array.prototype.forEach.call(targetSelect.options || [], function (option) {
+                            option.selected = false;
+                        });
+                        var selectedValues = targetAll
+                            ? ['__all_enabled_targets__']
+                            : includeDefaultTarget || targetUserIds.length
+                                ? (includeDefaultTarget ? ['__default_target__'] : []).concat(targetUserIds)
+                                : [targetUserId || '__default_target__'];
+                        Array.prototype.forEach.call(targetSelect.options || [], function (option) {
+                            option.selected = selectedValues.indexOf(option.value) >= 0;
+                        });
+                    }
                     HueConfigurationPage.renderScenePlaylistItems(page);
                     HueConfigurationPage.updateScenePlaylistButtons(page);
                 },
@@ -3039,7 +3055,11 @@
                     var select = page.querySelector('#scenePlaylistSelect');
                     if (name) name.value = '';
                     if (repeatCount) repeatCount.value = '1';
-                    if (target) target.value = '';
+                    if (target) {
+                        Array.prototype.forEach.call(target.options || [], function (option) {
+                            option.selected = option.value === '__default_target__';
+                        });
+                    }
                     if (clearSelect && select) select.value = '';
                     HueConfigurationPage.renderScenePlaylistItems(page);
                     HueConfigurationPage.updateScenePlaylistButtons(page);
@@ -3069,6 +3089,48 @@
                     items[index] = items[target];
                     items[target] = value;
                     HueConfigurationPage.renderScenePlaylistItems(page);
+                },
+                normalizeScenePlaylistTargetSelection: function (page) {
+                    var select = page && page.querySelector('#scenePlaylistTarget');
+                    if (!select) return;
+                    var selected = Array.prototype.slice.call(select.selectedOptions || [])
+                        .map(function (option) { return option && option.value ? option.value : ''; })
+                        .filter(Boolean);
+                    var all = selected.indexOf('__all_enabled_targets__') >= 0;
+                    var defaultTarget = selected.indexOf('__default_target__') >= 0;
+                    var mappingIds = selected.filter(function (value) {
+                        return value !== '__all_enabled_targets__' && value !== '__default_target__';
+                    });
+                    var normalized;
+                    if (all) {
+                        normalized = ['__all_enabled_targets__'];
+                    } else if (defaultTarget) {
+                        normalized = ['__default_target__'].concat(mappingIds);
+                    } else if (mappingIds.length) {
+                        normalized = mappingIds;
+                    } else {
+                        normalized = ['__default_target__'];
+                    }
+                    Array.prototype.forEach.call(select.options || [], function (option) {
+                        option.selected = normalized.indexOf(option.value) >= 0;
+                    });
+                },
+                getScenePlaylistTargetSelection: function (page) {
+                    HueConfigurationPage.normalizeScenePlaylistTargetSelection(page);
+                    var select = page && page.querySelector('#scenePlaylistTarget');
+                    var selected = Array.prototype.slice.call(select && select.selectedOptions || [])
+                        .map(function (option) { return option && option.value ? option.value : ''; })
+                        .filter(Boolean);
+                    var all = selected.indexOf('__all_enabled_targets__') >= 0;
+                    var includeDefaultTarget = selected.indexOf('__default_target__') >= 0;
+                    return {
+                        targetAllEnabledMappings: all,
+                        includeDefaultTarget: !all && includeDefaultTarget,
+                        targetUserIds: all ? [] : selected.filter(function (value) {
+                            return value !== '__default_target__';
+                        }),
+                        targetUserId: all || includeDefaultTarget || selected.length !== 1 ? '' : selected[0]
+                    };
                 },
                 playlistPreviewMessage: function (response, includeTargetDetails) {
                     var result = HueConfigurationPage.previewMessage(response, includeTargetDetails);
@@ -3203,7 +3265,7 @@
                     var repeatText = page.querySelector('#scenePlaylistRepeatCount').value.trim();
                     var repeatCount = repeatText ? Number(repeatText) : 1;
                     var items = Array.isArray(page._hueScenePlaylistItems) ? page._hueScenePlaylistItems : [];
-                    var target = page.querySelector('#scenePlaylistTarget').value || '';
+                    var targetSelection = HueConfigurationPage.getScenePlaylistTargetSelection(page);
                     var status = page.querySelector('#scenePlaylistStatus');
                     var scheduleSelect = page.querySelector('#sceneScheduleSelect');
                     var selectedScheduleId = scheduleSelect ? scheduleSelect.value : '';
@@ -3231,8 +3293,10 @@
                             name: name,
                             presetNames: items,
                             repeatCount: repeatCount,
-                            targetUserId: target === '__all_enabled_targets__' ? '' : target,
-                            targetAllEnabledMappings: target === '__all_enabled_targets__'
+                            targetUserId: targetSelection.targetUserId,
+                            targetUserIds: targetSelection.targetUserIds,
+                            includeDefaultTarget: targetSelection.includeDefaultTarget,
+                            targetAllEnabledMappings: targetSelection.targetAllEnabledMappings
                         }),
                         contentType: "application/json",
                         dataType: "json"
@@ -6801,7 +6865,7 @@
                             html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid)">Edit</button> ';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid)">View Cue References</button> ';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid)">View References</button> ';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid)">Delete</button>';
                             html += '</td></tr>';
                         });
@@ -6865,7 +6929,7 @@
                     var action = syncEnabled ? "Enable" : "Disable";
                     var dependencyWarning = syncEnabled
                         ? "Any incomplete custom bridge target blocks the complete operation."
-                        : "Any scheduled-cue dependency blocks the complete operation, and disabling clears stored custom bridge targets.";
+                        : "Any scheduled-cue or saved-playlist target dependency blocks the complete operation, and disabling clears stored custom bridge targets.";
                     Dashboard.confirm(action + " " + userIds.length + " selected user mapping(s)? " + dependencyWarning, action + " Selected Mappings", function (confirmed) {
                         if (!confirmed) return;
                         var enableBtn = page.querySelector('#enableSelectedUserMappingsBtn');
@@ -6908,12 +6972,12 @@
                         return;
                     }
 
-                    Dashboard.confirm("Delete " + userIds.length + " selected user mapping(s)? Any scheduled-cue dependency blocks the complete operation.", "Delete Selected Mappings", function (confirmed) {
+                    Dashboard.confirm("Delete " + userIds.length + " selected user mapping(s)? Any scheduled-cue or saved-playlist target dependency blocks the complete operation.", "Delete Selected Mappings", function (confirmed) {
                         if (!confirmed) return;
                         var button = page.querySelector('#deleteSelectedUserMappingsBtn');
                         if (button) button.disabled = true;
                         if (statusEl) {
-                            statusEl.textContent = "Checking scheduled-cue dependencies and deleting the selected mappings atomically...";
+                            statusEl.textContent = "Checking scheduled-cue and saved-playlist target dependencies and deleting the selected mappings atomically...";
                             statusEl.style.color = "";
                         }
                         ApiClient.ajax({
@@ -6933,7 +6997,7 @@
                         }).catch(function (err) {
                             console.error("Failed to bulk delete user mappings:", err);
                             if (statusEl) {
-                                statusEl.textContent = "No mappings were deleted. A scheduled-cue dependency, missing mapping, or persistence failure blocked the atomic operation.";
+                                statusEl.textContent = "No mappings were deleted. A scheduled-cue or saved-playlist target dependency, missing mapping, or persistence failure blocked the atomic operation.";
                                 statusEl.style.color = "#d9534f";
                             }
                             HueConfigurationPage.updateUserMappingBulkButtons(page);
@@ -7864,19 +7928,26 @@
                             var canDisable = response && (response.canDisable !== undefined ? response.canDisable : response.CanDisable);
                             var cueCount = response && (response.scheduledCueCount !== undefined ? response.scheduledCueCount : response.ScheduledCueCount) || 0;
                             var cues = response && (response.scheduledCues || response.ScheduledCues) || [];
+                            var playlistCount = response && (response.scenePlaylistCount !== undefined ? response.scenePlaylistCount : response.ScenePlaylistCount) || 0;
+                            var playlists = response && (response.scenePlaylists || response.ScenePlaylists) || [];
                             var details = ["User mapping: " + userName];
                             if (canDelete && canDisable) {
-                                details.push("No scheduled-cue references were found. The mapping can be disabled or deleted safely.");
+                                details.push("No scheduled-cue or saved-playlist target references were found. The mapping can be disabled or deleted safely.");
                             } else {
-                                details.push("References: " + cueCount + " scheduled cue(s).");
+                                details.push("References: " + cueCount + " scheduled cue(s) and " + playlistCount + " saved playlist(s).");
                                 details.push(canDisable
-                                    ? "The mapping can be disabled, but deletion remains blocked until those cues are changed or removed."
-                                    : "Disabling and deletion remain blocked until those cues are changed or removed.");
+                                    ? "The mapping can be disabled, but deletion remains blocked until those targets are changed or removed."
+                                    : "Disabling and deletion remain blocked until those targets are changed or removed.");
                                 cues.forEach(function (cue) {
                                     if (!cue) return;
                                     var cueName = cue.name !== undefined ? cue.name : cue.Name;
                                     var enabled = cue.enabled !== undefined ? cue.enabled : cue.Enabled;
                                     details.push("Scheduled cue: " + (cueName || "Unnamed") + (enabled ? " (enabled)" : " (disabled)"));
+                                });
+                                playlists.forEach(function (playlist) {
+                                    if (!playlist) return;
+                                    var playlistName = playlist.name !== undefined ? playlist.name : playlist.Name;
+                                    details.push("Saved playlist target: " + (playlistName || "Unnamed"));
                                 });
                             }
                             Dashboard.alert(details.join("\n"));
@@ -8025,6 +8096,10 @@
 
             document.querySelector('#scenePlaylistSourceSelect').addEventListener('change', function () {
                 HueConfigurationPage.updateScenePlaylistButtons(this.closest('.page'));
+            });
+
+            document.querySelector('#scenePlaylistTarget').addEventListener('change', function () {
+                HueConfigurationPage.normalizeScenePlaylistTargetSelection(this.closest('.page'));
             });
 
             document.querySelector('#scenePlaylistBulkSelect').addEventListener('change', function () {

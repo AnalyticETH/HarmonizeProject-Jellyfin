@@ -1575,6 +1575,108 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task ScenePlaylists_SelectedTargetsRoundTripAndPreviewOnlyRequestedMappings()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "playlist-global-app-secret",
+            HueClientKey = "playlist-global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Welcome", DurationSeconds = 1 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "kitchen-app-secret",
+                    HueClientKey = "kitchen-client-secret",
+                    EntertainmentAreaId = "kitchen-area"
+                },
+                new()
+                {
+                    UserId = "user-2",
+                    UserName = "Office",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "office-app-secret",
+                    HueClientKey = "office-client-secret",
+                    EntertainmentAreaId = "office-area"
+                }
+            }
+        });
+        var saved = CreateController().SaveScenePlaylist(new HueScenePlaylistRequest
+        {
+            Name = "Selected sequence",
+            PresetNames = new List<string> { "Welcome" },
+            TargetUserIds = new List<string> { " user-1 " },
+            IncludeDefaultTarget = true
+        });
+
+        var savedResponse = Assert.IsType<OkObjectResult>(saved.Result);
+        var savedResult = Assert.IsType<HueScenePlaylistResult>(savedResponse.Value);
+        Assert.Equal(new[] { "user-1" }, savedResult.TargetUserIds);
+        Assert.True(savedResult.IncludeDefaultTarget);
+        Assert.Equal("Default bridge + 1 selected target(s)", savedResult.TargetLabel);
+        Assert.Equal(string.Empty, savedResult.TargetUserId);
+        Assert.Equal(new[] { "user-1" }, configuration.ScenePlaylists[0].TargetUserIds);
+
+        var listed = Assert.IsType<OkObjectResult>(CreateController().GetScenePlaylists().Result);
+        var listedPlaylist = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueScenePlaylistResult>>(listed.Value));
+        Assert.Equal(new[] { "user-1" }, listedPlaylist.TargetUserIds);
+        Assert.True(listedPlaylist.IncludeDefaultTarget);
+
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<string>(),
+                It.IsAny<int>()))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Playlist step completed." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var preview = await CreateController(streamTester.Object, hostedServices: new[] { service })
+            .PreviewScenePlaylist("Selected sequence", new HueScenePlaylistPreviewRequest());
+
+        var previewResponse = Assert.IsType<OkObjectResult>(preview.Result);
+        var result = Assert.IsType<HueScenePlaylistRunResult>(previewResponse.Value);
+        Assert.True(result.Succeeded);
+        Assert.Equal("Default bridge + 1 selected target(s)", result.TargetLabel);
+        Assert.Equal(new[] { "user-1" }, result.TargetUserIds);
+        Assert.True(result.IncludeDefaultTarget);
+        Assert.Equal(new[] { "Default bridge target", "Kitchen" }, result.TargetResults.Select(target => target.TargetLabel));
+        Assert.DoesNotContain(result.TargetResults, target => target.TargetLabel == "Office");
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("playlist-global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("kitchen-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("office-app-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ScenePlaylistRename_MigratesCueReferencesAndReferencedDeleteIsRejected()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -2039,6 +2141,19 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "bulk-playlist-app-secret",
             HueClientKey = "bulk-playlist-client-secret",
             EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "mapping-cool",
+                    UserName = "Cool room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-cool-app-secret",
+                    HueClientKey = "mapping-cool-client-secret",
+                    EntertainmentAreaId = "cool-area"
+                }
+            },
             ColorPresets = new List<HueColorPreset>
             {
                 new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, DurationSeconds = 1 },
@@ -2047,7 +2162,13 @@ public sealed class HueApiControllerTests : IDisposable
             ScenePlaylists = new List<HueScenePlaylist>
             {
                 new() { Id = "playlist-warm", Name = "Warm sequence", PresetNames = new List<string> { "Warm" } },
-                new() { Id = "playlist-cool", Name = "Cool sequence", PresetNames = new List<string> { "Cool" } }
+                new()
+                {
+                    Id = "playlist-cool",
+                    Name = "Cool sequence",
+                    PresetNames = new List<string> { "Cool" },
+                    TargetUserIds = new List<string> { "mapping-cool" }
+                }
             }
         });
         SetupHttpResponse(
@@ -2092,6 +2213,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(0, result.FailedCount);
         Assert.False(result.Canceled);
         Assert.Equal(new[] { "Cool sequence", "Warm sequence" }, result.Results.Select(playlist => playlist.PlaylistName));
+        var coolResult = result.Results[0];
+        Assert.Equal(new[] { "mapping-cool" }, coolResult.TargetUserIds);
+        Assert.False(coolResult.IncludeDefaultTarget);
+        Assert.False(coolResult.TargetAllEnabledMappings);
         Assert.All(result.Results, playlist =>
         {
             Assert.True(playlist.Succeeded);
@@ -2101,6 +2226,11 @@ public sealed class HueApiControllerTests : IDisposable
             .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
             .Select(invocation => (int)invocation.Arguments[6]!)
             .ToArray());
+        Assert.Contains(streamTester.Invocations, invocation =>
+            invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync) &&
+            string.Equals(invocation.Arguments[1] as string, "mapping-cool-app-secret", StringComparison.Ordinal) &&
+            string.Equals(invocation.Arguments[2] as string, "mapping-cool-client-secret", StringComparison.Ordinal) &&
+            string.Equals(invocation.Arguments[3] as string, "cool-area", StringComparison.Ordinal));
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("bulk-playlist-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("bulk-playlist-client-secret", serialized, StringComparison.Ordinal);
@@ -5690,6 +5820,16 @@ public sealed class HueApiControllerTests : IDisposable
                     TargetUserId = "user-2",
                     Enabled = true
                 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "mapping-playlist-selected",
+                    Name = "Kitchen playlist",
+                    PresetNames = new List<string> { "Welcome" },
+                    TargetUserIds = new List<string> { " USER-1 " }
+                }
             }
         });
         var controller = CreateController();
@@ -5704,6 +5844,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.False(result.CanDisable);
         Assert.False(result.CanDelete);
         Assert.Equal(3, result.ScheduledCueCount);
+        Assert.Equal(1, result.ScenePlaylistCount);
+        Assert.Equal("Kitchen playlist", Assert.Single(result.ScenePlaylists).Name);
         Assert.Equal(new[] { "Disabled mapping cue", "Enabled mapping cue", "Selected mapping cue" }, result.ScheduledCues.Select(cue => cue.Name));
         Assert.False(result.ScheduledCues[0].Enabled);
         Assert.True(result.ScheduledCues[1].Enabled);
@@ -5715,6 +5857,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("mapping-dependency-client-secret", serialized, StringComparison.Ordinal);
 
         configuration.SceneSchedules.Clear();
+        configuration.ScenePlaylists.Clear();
         var noReferences = controller.GetUserMappingDependencies("user-1");
         var noReferencesResponse = Assert.IsType<OkObjectResult>(noReferences.Result);
         var noReferencesResult = Assert.IsType<HueUserMappingDependenciesResult>(noReferencesResponse.Value);
@@ -5722,6 +5865,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(noReferencesResult.CanDelete);
         Assert.Equal(0, noReferencesResult.ScheduledCueCount);
         Assert.Empty(noReferencesResult.ScheduledCues);
+        Assert.Equal(0, noReferencesResult.ScenePlaylistCount);
+        Assert.Empty(noReferencesResult.ScenePlaylists);
     }
 
     [Fact]
@@ -6378,6 +6523,10 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "source-app-secret",
             HueClientKey = "source-client-secret",
             EntertainmentAreaId = "area-1",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-1", UserName = "Viewer", SyncEnabled = true }
+            },
             ColorPresets = new List<HueColorPreset>
             {
                 new() { Name = "Sunrise", Red = 240, Green = 120, Blue = 40, DurationSeconds = 3 },
@@ -6391,7 +6540,8 @@ public sealed class HueApiControllerTests : IDisposable
                     Name = "Portable sequence",
                     PresetNames = new List<string> { "Sunrise", "Midnight" },
                     RepeatCount = 2,
-                    TargetAllEnabledMappings = true
+                    TargetUserIds = new List<string> { "user-1" },
+                    IncludeDefaultTarget = true
                 }
             }
         };
@@ -6400,7 +6550,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("playlist-portable", exportedPlaylist.Id);
         Assert.Equal(new[] { "Sunrise", "Midnight" }, exportedPlaylist.PresetNames);
         Assert.Equal(2, exportedPlaylist.RepeatCount);
-        Assert.True(exportedPlaylist.TargetAllEnabledMappings);
+        Assert.Equal(new[] { "user-1" }, exportedPlaylist.TargetUserIds);
+        Assert.True(exportedPlaylist.IncludeDefaultTarget);
+        Assert.False(exportedPlaylist.TargetAllEnabledMappings);
         Assert.Equal(16, exportedPlaylist.TotalDurationSeconds);
         var serialized = JsonSerializer.Serialize(exported);
         Assert.DoesNotContain("source-app-secret", serialized, StringComparison.Ordinal);
@@ -6411,12 +6563,17 @@ public sealed class HueApiControllerTests : IDisposable
             HueBridgeIp = "192.168.1.110",
             HueAppKey = "destination-app-secret",
             HueClientKey = "destination-client-secret",
-            EntertainmentAreaId = "destination-area"
+            EntertainmentAreaId = "destination-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-1", UserName = "Viewer", SyncEnabled = true }
+            }
         });
         var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
         {
             SchemaVersion = exported.SchemaVersion,
             Configuration = exported.Configuration,
+            ReplaceMappings = false,
             ColorPresets = new List<HueColorPresetRequest>
             {
                 new() { Name = "Sunrise", Red = 240, Green = 120, Blue = 40, DurationSeconds = 3 },
@@ -6430,7 +6587,8 @@ public sealed class HueApiControllerTests : IDisposable
                     Name = exportedPlaylist.Name,
                     PresetNames = exportedPlaylist.PresetNames.ToList(),
                     RepeatCount = exportedPlaylist.RepeatCount,
-                    TargetAllEnabledMappings = exportedPlaylist.TargetAllEnabledMappings
+                    TargetUserIds = exportedPlaylist.TargetUserIds.ToList(),
+                    IncludeDefaultTarget = exportedPlaylist.IncludeDefaultTarget
                 }
             }
         });
@@ -6445,7 +6603,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("playlist-portable", imported.Id);
         Assert.Equal(new[] { "Sunrise", "Midnight" }, imported.PresetNames);
         Assert.Equal(2, imported.RepeatCount);
-        Assert.True(imported.TargetAllEnabledMappings);
+        Assert.Equal(new[] { "user-1" }, imported.TargetUserIds);
+        Assert.True(imported.IncludeDefaultTarget);
+        Assert.False(imported.TargetAllEnabledMappings);
         var serializedResult = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("destination-app-secret", serializedResult, StringComparison.Ordinal);
         Assert.DoesNotContain("destination-client-secret", serializedResult, StringComparison.Ordinal);
@@ -7437,6 +7597,46 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Empty(mapping.HueClientKey);
         Assert.Empty(mapping.HueBridgeIp);
         Assert.Empty(mapping.EntertainmentAreaId);
+    }
+
+    [Fact]
+    public void UserMappingLifecycle_RejectsSavedPlaylistTargetDependency()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-playlist", UserName = "Playlist room", SyncEnabled = true }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-dependent",
+                    Name = "Dependent playlist",
+                    PresetNames = new List<string> { "Welcome" },
+                    TargetUserIds = new List<string> { "user-playlist" }
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var disable = controller.SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "user-playlist",
+            UserName = "Playlist room",
+            SyncEnabled = false
+        });
+
+        var disableResponse = Assert.IsType<ConflictObjectResult>(disable);
+        Assert.Contains("saved playlist", disableResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.True(configuration.UserMappings[0].SyncEnabled);
+
+        var delete = controller.DeleteUserMapping("user-playlist");
+
+        var deleteResponse = Assert.IsType<ConflictObjectResult>(delete);
+        Assert.Contains("saved playlist", deleteResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Single(configuration.UserMappings);
     }
 
     [Fact]

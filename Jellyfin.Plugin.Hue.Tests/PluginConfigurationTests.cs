@@ -297,6 +297,50 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsSelectedTargetsAndRejectsInvalidCombinations()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app",
+            EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-1", UserName = "Kitchen", SyncEnabled = true },
+                new() { UserId = "user-2", UserName = "Bedroom", SyncEnabled = true },
+                new() { UserId = "disabled", UserName = "Disabled", SyncEnabled = false }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "selected-playlist",
+                    Name = "Selected sequence",
+                    PresetNames = new List<string> { "Welcome" },
+                    TargetUserIds = new List<string> { " user-1 ", "USER-2" },
+                    IncludeDefaultTarget = true
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+
+        config.ScenePlaylists[0].TargetUserIds.Add("user-1");
+        var duplicateErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 selects user mapping user-1 more than once", duplicateErrors);
+
+        config.ScenePlaylists[0].TargetUserIds = new List<string> { "disabled" };
+        var disabledErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 references a disabled selected user mapping: disabled", disabledErrors);
+
+        config.ScenePlaylists[0].TargetUserIds = new List<string> { "user-1" };
+        config.ScenePlaylists[0].TargetAllEnabledMappings = true;
+        var mixedErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 cannot combine all enabled targets with a specific or selected target", mixedErrors);
+    }
+
+    [Fact]
     public void ValidateColorPresets_RejectsTooManyScenes()
     {
         var config = new PluginConfiguration

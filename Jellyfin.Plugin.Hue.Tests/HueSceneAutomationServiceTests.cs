@@ -2404,6 +2404,77 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunPlaylistPreview_UsesPersistedSelectedTargetsAndPreservesTargetTelemetry()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Welcome", Red = 20, Green = 30, Blue = 40, DurationSeconds = 1 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area"
+                },
+                new()
+                {
+                    UserId = "user-2",
+                    UserName = "Office",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "office-app-secret",
+                    HueClientKey = "office-client-secret",
+                    EntertainmentAreaId = "office-area"
+                }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "selected-playlist",
+                    Name = "Selected sequence",
+                    PresetNames = new List<string> { "Welcome" },
+                    TargetUserIds = new List<string> { "user-1" },
+                    IncludeDefaultTarget = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("Default bridge + 1 selected target(s)", result.TargetLabel);
+        Assert.Equal(new[] { "user-1" }, result.TargetUserIds);
+        Assert.True(result.IncludeDefaultTarget);
+        Assert.Equal(new[] { "Default bridge target", "Kitchen" }, result.TargetResults.Select(target => target.TargetLabel));
+        Assert.DoesNotContain(result.TargetResults, target => target.TargetLabel == "Office");
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("office-app-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunSchedule_ResolvesPresetAndReturnsSanitizedResult()
     {
         InstallConfiguration(new PluginConfiguration
