@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.139] - 2026-08-19
+
+### Added
+- **Atomic bulk mapping enable/disable**: change the sync state of up to 50 selected per-user mappings in one administrator operation
+- **Lifecycle-safe mapping state**: scheduled-cue references block disabling, incomplete custom targets block enabling, and persistence failures restore every selected mapping
+- **Credential hygiene**: disabling mappings clears stored custom bridge targets just like the single-mapping save workflow, with credential-free result summaries
+- **Administrator multi-selection**: add Enable Selected and Disable Selected controls beside mapping cleanup actions
+
 ## [1.5.138] - 2026-08-19
 
 ### Added

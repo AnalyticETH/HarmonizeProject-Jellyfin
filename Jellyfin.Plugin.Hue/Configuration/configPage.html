@@ -797,9 +797,11 @@
                             <div style="display: flex; gap: 0.5em; flex-wrap: wrap; align-items: flex-start;">
                                 <button is="emby-button" type="button" class="raised" id="selectAllUserMappingsBtn" disabled><span>Select All</span></button>
                                 <button is="emby-button" type="button" class="raised" id="clearSelectedUserMappingsBtn" disabled><span>Clear Selection</span></button>
+                                <button is="emby-button" type="button" class="raised" id="enableSelectedUserMappingsBtn" disabled><span>Enable Selected</span></button>
+                                <button is="emby-button" type="button" class="raised" id="disableSelectedUserMappingsBtn" disabled><span>Disable Selected</span></button>
                                 <button is="emby-button" type="button" class="raised" id="deleteSelectedUserMappingsBtn" disabled><span>Delete Selected</span></button>
                             </div>
-                            <div id="userMappingBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select user mappings to delete them together. Any scheduled-cue reference blocks the complete operation.</div>
+                            <div id="userMappingBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select user mappings to enable, disable, or delete them together. Scheduled-cue references block disabling and deletion; disabling also clears stored custom bridge targets.</div>
                         </div>
 
                         <fieldset class="verticalSection" style="background: rgba(255,255,255,0.05); padding: 1em; border-radius: 6px; margin-top: 1em;">
@@ -6230,15 +6232,15 @@
 
                         mappings.forEach(function (mapping) {
                             var userId = mapping.UserId || mapping.userId || '';
-                            if (bulkSelect && userId) {
-                                var bulkOption = document.createElement('option');
-                                bulkOption.value = userId;
-                                bulkOption.textContent = mapping.UserName || mapping.userName || userId;
-                                bulkSelect.appendChild(bulkOption);
-                            }
                             var syncEnabled = typeof mapping.SyncEnabled !== 'undefined'
                                 ? mapping.SyncEnabled !== false
                                 : mapping.syncEnabled !== false;
+                            if (bulkSelect && userId) {
+                                var bulkOption = document.createElement('option');
+                                bulkOption.value = userId;
+                                bulkOption.textContent = (mapping.UserName || mapping.userName || userId) + (syncEnabled ? '' : ' (disabled)');
+                                bulkSelect.appendChild(bulkOption);
+                            }
                             var bridgeIp = mapping.HueBridgeIp || mapping.hueBridgeIp || '';
                             var inheritsDefaultBridge = typeof mapping.InheritsDefaultBridge !== 'undefined'
                                 ? mapping.InheritsDefaultBridge === true
@@ -6349,9 +6351,13 @@
                     var hasOptions = !!bulkSelect && bulkSelect.options.length > 0;
                     var selectAllBtn = page.querySelector('#selectAllUserMappingsBtn');
                     var clearBtn = page.querySelector('#clearSelectedUserMappingsBtn');
+                    var enableBtn = page.querySelector('#enableSelectedUserMappingsBtn');
+                    var disableBtn = page.querySelector('#disableSelectedUserMappingsBtn');
                     var deleteBtn = page.querySelector('#deleteSelectedUserMappingsBtn');
                     if (selectAllBtn) selectAllBtn.disabled = !hasOptions || selectedCount === bulkSelect.options.length;
                     if (clearBtn) clearBtn.disabled = selectedCount === 0;
+                    if (enableBtn) enableBtn.disabled = selectedCount === 0;
+                    if (disableBtn) disableBtn.disabled = selectedCount === 0;
                     if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
                 },
                 selectAllUserMappings: function (page) {
@@ -6365,6 +6371,52 @@
                     if (!bulkSelect) return;
                     Array.prototype.forEach.call(bulkSelect.options, function (option) { option.selected = false; });
                     HueConfigurationPage.updateUserMappingBulkButtons(page);
+                },
+                setUserMappingsEnabledBulk: function (page, syncEnabled) {
+                    var userIds = HueConfigurationPage.getSelectedUserMappingBulkIds(page);
+                    var statusEl = page.querySelector('#userMappingBulkStatus');
+                    if (!userIds.length) {
+                        Dashboard.alert("Select at least one user mapping first.");
+                        return;
+                    }
+
+                    var action = syncEnabled ? "Enable" : "Disable";
+                    var dependencyWarning = syncEnabled
+                        ? "Any incomplete custom bridge target blocks the complete operation."
+                        : "Any scheduled-cue dependency blocks the complete operation, and disabling clears stored custom bridge targets.";
+                    Dashboard.confirm(action + " " + userIds.length + " selected user mapping(s)? " + dependencyWarning, action + " Selected Mappings", function (confirmed) {
+                        if (!confirmed) return;
+                        var enableBtn = page.querySelector('#enableSelectedUserMappingsBtn');
+                        var disableBtn = page.querySelector('#disableSelectedUserMappingsBtn');
+                        if (enableBtn) enableBtn.disabled = true;
+                        if (disableBtn) disableBtn.disabled = true;
+                        if (statusEl) {
+                            statusEl.textContent = "Checking mapping dependencies and applying the selected enabled state atomically...";
+                            statusEl.style.color = "";
+                        }
+                        ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("HueSync/UserMappings/BulkEnabled"),
+                            data: JSON.stringify({ userIds: userIds, syncEnabled: syncEnabled }),
+                            contentType: "application/json",
+                            dataType: "json"
+                        }).then(function (response) {
+                            var updatedCount = response && (response.updatedCount !== undefined ? response.updatedCount : response.UpdatedCount) || userIds.length;
+                            if (statusEl) {
+                                statusEl.textContent = (syncEnabled ? "Enabled " : "Disabled ") + updatedCount + " user mapping(s).";
+                                statusEl.style.color = "#8bc34a";
+                            }
+                            HueConfigurationPage.clearSelectedUserMappings(page);
+                            HueConfigurationPage.loadUserMappings(page);
+                        }).catch(function (err) {
+                            console.error("Failed to bulk update user mapping enabled state:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "No mapping state changed. A dependency, invalid custom target, missing mapping, or persistence failure blocked the atomic operation.";
+                                statusEl.style.color = "#d9534f";
+                            }
+                            HueConfigurationPage.updateUserMappingBulkButtons(page);
+                        });
+                    });
                 },
                 deleteUserMappingsBulk: function (page) {
                     var userIds = HueConfigurationPage.getSelectedUserMappingBulkIds(page);
@@ -7802,6 +7854,14 @@
 
             document.querySelector('#clearSelectedUserMappingsBtn').addEventListener('click', function () {
                 HueConfigurationPage.clearSelectedUserMappings(this.closest('.page'));
+            });
+
+            document.querySelector('#enableSelectedUserMappingsBtn').addEventListener('click', function () {
+                HueConfigurationPage.setUserMappingsEnabledBulk(this.closest('.page'), true);
+            });
+
+            document.querySelector('#disableSelectedUserMappingsBtn').addEventListener('click', function () {
+                HueConfigurationPage.setUserMappingsEnabledBulk(this.closest('.page'), false);
             });
 
             document.querySelector('#deleteSelectedUserMappingsBtn').addEventListener('click', function () {

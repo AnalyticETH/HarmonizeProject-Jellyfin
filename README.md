@@ -102,7 +102,7 @@ To configure per-user mappings:
 5. Select the entertainment area for that bridge
 6. Click **Add User Mapping**
 
-Users without a mapping will use the default bridge settings configured above. The administrator mapping multi-selection controls can delete up to 50 dependency-free mappings atomically; any scheduled-cue reference blocks the complete selection.
+Users without a mapping will use the default bridge settings configured above. The administrator mapping multi-selection controls can enable, disable, or delete up to 50 mappings atomically; scheduled-cue references block disabling and deletion, incomplete custom targets block enabling, and disabling clears stored custom bridge targets.
 
 When different viewers are watching at the same time, sessions mapped to different
 bridge/entertainment-area targets run independent FFmpeg and DTLS pipelines concurrently.
@@ -221,6 +221,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/UserMappings/{userId}/Dependencies` | Inspect one mapping's credential-free scheduled-cue dependencies before disabling or deleting it. Returns `canDisable`, `canDelete`, the dependent cue count, and cue IDs/names/enabled state; bridge credentials and target details are never returned. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
 | `POST /HueSync/UserMappings/BulkDelete` | Atomically delete up to 50 selected user IDs with `{ "userIds": ["..."] }`. Every ID is resolved before mutation; any missing ID, scheduled-cue dependency, or save failure leaves the complete mapping collection unchanged. The credential-free response includes deleted mapping summaries, remaining count, missing IDs, and blocked dependency details. |
+| `POST /HueSync/UserMappings/BulkEnabled` | Atomically enable or disable up to 50 selected user IDs with `{ "userIds": ["..."], "syncEnabled": true|false }`. Missing IDs, scheduled-cue references while disabling, incomplete custom targets while enabling, or save failure leave every selected mapping unchanged. Disabling clears custom bridge credentials/target fields and the credential-free response includes updated summaries, missing IDs, invalid IDs, and blocked dependency details. |
 
 ### Generating Hue Credentials (Manual Fallback)
 If the **Link Bridge** button doesn't work for you, you can generate keys manually:
@@ -391,7 +392,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.138 (Current)
+### Version 1.5.139 (Current)
+- **Atomic bulk mapping enable/disable**: change up to 50 selected per-user mappings together with all IDs resolved before any mutation
+- **Lifecycle-safe state changes**: scheduled-cue dependencies block disabling, incomplete custom targets block enabling, and persistence failures restore the complete selected state
+- **Administrator mapping controls**: add Enable Selected and Disable Selected actions; disabling clears stored custom bridge targets and never returns credentials
+
+### Version 1.5.138
 - **Atomic bulk counter reset**: reset and re-enable up to 50 selected scheduled cues while clearing pending Skip Next markers in one persistence transaction
 - **Lifecycle-safe recovery**: active cues, missing IDs, and persistence failures leave every selected cue unchanged and retained cue history intact
 - **Administrator recovery workflow**: add Reset Counters beside bulk enable/disable, skip, and delete actions

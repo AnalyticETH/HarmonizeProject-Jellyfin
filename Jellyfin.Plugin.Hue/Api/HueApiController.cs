@@ -5464,6 +5464,50 @@ namespace Jellyfin.Plugin.Hue.Api
             };
         }
 
+        private static string? GetUserMappingEnableValidationError(UserBridgeMapping mapping)
+        {
+            var label = string.IsNullOrWhiteSpace(mapping.UserName)
+                ? mapping.UserId?.Trim() ?? "selected mapping"
+                : mapping.UserName.Trim();
+            var bridgeIp = mapping.HueBridgeIp?.Trim() ?? string.Empty;
+            var appKey = mapping.HueAppKey?.Trim() ?? string.Empty;
+            var clientKey = mapping.HueClientKey?.Trim() ?? string.Empty;
+            var areaId = mapping.EntertainmentAreaId?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(bridgeIp))
+            {
+                if (!string.IsNullOrWhiteSpace(appKey) ||
+                    !string.IsNullOrWhiteSpace(clientKey) ||
+                    !string.IsNullOrWhiteSpace(areaId))
+                {
+                    return $"{label}: clear the custom bridge address, credentials, and entertainment area to inherit the global target.";
+                }
+
+                return null;
+            }
+
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(bridgeIp))
+                return $"{label}: the custom bridge address is invalid.";
+
+            if (string.IsNullOrWhiteSpace(appKey) ||
+                string.IsNullOrWhiteSpace(clientKey) ||
+                string.IsNullOrWhiteSpace(areaId))
+            {
+                return $"{label}: a custom bridge target requires an address, App Key, Client Key, and entertainment area ID.";
+            }
+
+            return null;
+        }
+
+        private static void ClearDisabledUserMappingTarget(UserBridgeMapping mapping)
+        {
+            mapping.HueBridgeIp = string.Empty;
+            mapping.HueAppKey = string.Empty;
+            mapping.HueClientKey = string.Empty;
+            mapping.EntertainmentAreaId = string.Empty;
+            mapping.EntertainmentAreaName = string.Empty;
+        }
+
         /// <summary>
         /// Saves or updates a user-to-bridge mapping. A mapping can opt a user out of
         /// synchronization without storing bridge credentials and can override playback media scope, playback behavior, color processing and scene thresholds,
@@ -5593,11 +5637,7 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 // A disabled mapping is only a per-user opt-out. Do not retain stale
                 // bridge credentials or an area that will never be used.
-                mapping.HueBridgeIp = string.Empty;
-                mapping.HueAppKey = string.Empty;
-                mapping.HueClientKey = string.Empty;
-                mapping.EntertainmentAreaId = string.Empty;
-                mapping.EntertainmentAreaName = string.Empty;
+                ClearDisabledUserMappingTarget(mapping);
             }
 
             var previousMappings = config.UserMappings.ToList();
@@ -5786,6 +5826,162 @@ namespace Jellyfin.Plugin.Hue.Api
                 RemainingCount = config.UserMappings.Count,
                 Message = $"Deleted {deletedCount} user mapping(s); scheduled-cue references were checked atomically.",
                 Mappings = deletedResults
+            });
+        }
+
+        /// <summary>
+        /// Enables or disables several per-user bridge mappings in one administrator
+        /// operation. Every selected mapping is resolved and validated before mutation;
+        /// scheduled-cue references block disabling, and disabling scrubs the custom
+        /// bridge target exactly like the single-mapping save workflow. A persistence
+        /// failure restores every selected mapping's prior state.
+        /// </summary>
+        [HttpPost("UserMappings/BulkEnabled")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueUserMappingBulkEnabledResult> SetUserMappingsEnabledBulk(
+            [FromBody] HueUserMappingBulkEnabledRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A user-mapping selection and sync-enabled value are required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var userIds = (request.UserIds ?? new List<string>())
+                .Where(userId => !string.IsNullOrWhiteSpace(userId))
+                .Select(userId => userId.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (userIds.Length == 0)
+                return BadRequest("Select at least one user mapping.");
+            if (userIds.Length > PluginConfiguration.MaxBulkUserMappingUpdates)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxBulkUserMappingUpdates} user mappings at once.");
+            }
+
+            config.UserMappings ??= new List<UserBridgeMapping>();
+            var selectedMappings = userIds
+                .Select(userId => config.UserMappings.FirstOrDefault(mapping =>
+                    mapping != null &&
+                    string.Equals(mapping.UserId?.Trim(), userId, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingUserIds = userIds
+                .Where((_, index) => selectedMappings[index] == null)
+                .ToArray();
+            if (missingUserIds.Length > 0)
+            {
+                return NotFound(new HueUserMappingBulkEnabledResult
+                {
+                    SyncEnabled = request.SyncEnabled,
+                    RequestedCount = userIds.Length,
+                    MissingUserIds = missingUserIds,
+                    Message = $"The requested user mapping(s) were not found: {string.Join(", ", missingUserIds)}."
+                });
+            }
+
+            var mappings = selectedMappings
+                .Where(mapping => mapping != null)
+                .Cast<UserBridgeMapping>()
+                .ToArray();
+            if (!request.SyncEnabled)
+            {
+                var blockedMappings = mappings
+                    .Select(mapping => BuildUserMappingDependenciesResult(mapping, config))
+                    .Where(dependencies => !dependencies.CanDisable)
+                    .ToArray();
+                if (blockedMappings.Length > 0)
+                {
+                    return Conflict(new HueUserMappingBulkEnabledResult
+                    {
+                        SyncEnabled = false,
+                        RequestedCount = userIds.Length,
+                        Message = "One or more selected user mappings are used by scheduled cues. Delete or update those cues first; no mappings were disabled.",
+                        BlockedMappings = blockedMappings
+                    });
+                }
+            }
+            else
+            {
+                var validationErrors = mappings
+                    .Select(mapping => new
+                    {
+                        Mapping = mapping,
+                        Error = GetUserMappingEnableValidationError(mapping)
+                    })
+                    .Where(result => result.Error != null)
+                    .ToArray();
+                if (validationErrors.Length > 0)
+                {
+                    return Conflict(new HueUserMappingBulkEnabledResult
+                    {
+                        SyncEnabled = true,
+                        RequestedCount = userIds.Length,
+                        InvalidUserIds = validationErrors
+                            .Select(result => result.Mapping.UserId?.Trim() ?? string.Empty)
+                            .ToArray(),
+                        Message = string.Join(" ", validationErrors.Select(result => result.Error)) + " No mappings were enabled."
+                    });
+                }
+            }
+
+            var previousStates = mappings.ToDictionary(
+                mapping => mapping,
+                mapping => (
+                    SyncEnabled: mapping.SyncEnabled,
+                    HueBridgeIp: mapping.HueBridgeIp,
+                    HueAppKey: mapping.HueAppKey,
+                    HueClientKey: mapping.HueClientKey,
+                    EntertainmentAreaId: mapping.EntertainmentAreaId,
+                    EntertainmentAreaName: mapping.EntertainmentAreaName));
+
+            foreach (var mapping in mappings)
+            {
+                mapping.SyncEnabled = request.SyncEnabled;
+                if (!request.SyncEnabled)
+                    ClearDisabledUserMappingTarget(mapping);
+            }
+
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                foreach (var mapping in mappings)
+                {
+                    if (!previousStates.TryGetValue(mapping, out var previous))
+                        continue;
+
+                    mapping.SyncEnabled = previous.SyncEnabled;
+                    mapping.HueBridgeIp = previous.HueBridgeIp;
+                    mapping.HueAppKey = previous.HueAppKey;
+                    mapping.HueClientKey = previous.HueClientKey;
+                    mapping.EntertainmentAreaId = previous.EntertainmentAreaId;
+                    mapping.EntertainmentAreaName = previous.EntertainmentAreaName;
+                }
+
+                _logger?.LogError(ex, "Could not persist bulk enabled state for Hue user mappings");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The selected user-mapping enabled state could not be saved; no changes were retained.");
+            }
+
+            return Ok(new HueUserMappingBulkEnabledResult
+            {
+                SyncEnabled = request.SyncEnabled,
+                RequestedCount = mappings.Length,
+                UpdatedCount = mappings.Length,
+                Message = request.SyncEnabled
+                    ? $"Enabled {mappings.Length} user mapping(s) without changing their profiles."
+                    : $"Disabled {mappings.Length} user mapping(s) and cleared their custom bridge targets.",
+                Mappings = mappings.Select(UserBridgeMappingSummary.From).ToArray()
             });
         }
 
@@ -6120,6 +6316,49 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("missingUserIds")]
         public IReadOnlyList<string> MissingUserIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("blockedMappings")]
+        public IReadOnlyList<HueUserMappingDependenciesResult> BlockedMappings { get; set; } =
+            Array.Empty<HueUserMappingDependenciesResult>();
+    }
+
+    /// <summary>
+    /// Request shape for atomically enabling or disabling several per-user bridge mappings.
+    /// </summary>
+    public sealed class HueUserMappingBulkEnabledRequest
+    {
+        [JsonPropertyName("userIds")]
+        public List<string> UserIds { get; set; } = new();
+
+        [JsonPropertyName("syncEnabled")]
+        public bool SyncEnabled { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic per-user mapping enabled-state operation.
+    /// </summary>
+    public sealed class HueUserMappingBulkEnabledResult
+    {
+        [JsonPropertyName("syncEnabled")]
+        public bool SyncEnabled { get; set; }
+
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("updatedCount")]
+        public int UpdatedCount { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("mappings")]
+        public IReadOnlyList<UserBridgeMappingSummary> Mappings { get; set; } = Array.Empty<UserBridgeMappingSummary>();
+
+        [JsonPropertyName("missingUserIds")]
+        public IReadOnlyList<string> MissingUserIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("invalidUserIds")]
+        public IReadOnlyList<string> InvalidUserIds { get; set; } = Array.Empty<string>();
 
         [JsonPropertyName("blockedMappings")]
         public IReadOnlyList<HueUserMappingDependenciesResult> BlockedMappings { get; set; } =

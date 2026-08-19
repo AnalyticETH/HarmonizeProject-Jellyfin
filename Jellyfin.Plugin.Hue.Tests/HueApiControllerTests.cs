@@ -5004,6 +5004,196 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void UserMappings_BulkEnabledChangesSelectedStatesAndScrubsDisabledTargets()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-enabled",
+                    UserName = "Enabled",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "bulk-enabled-app-secret",
+                    HueClientKey = "bulk-enabled-client-secret",
+                    EntertainmentAreaId = "area-enabled",
+                    EntertainmentAreaName = "Enabled Room"
+                },
+                new() { UserId = "user-disabled", UserName = "Disabled", SyncEnabled = false },
+                new() { UserId = "user-keep", UserName = "Keep", SyncEnabled = true }
+            }
+        });
+        var controller = CreateController();
+
+        var disable = controller.SetUserMappingsEnabledBulk(new HueUserMappingBulkEnabledRequest
+        {
+            UserIds = new List<string> { " USER-ENABLED ", "USER-DISABLED", "user-enabled" },
+            SyncEnabled = false
+        });
+
+        var disableResponse = Assert.IsType<OkObjectResult>(disable.Result);
+        var disableResult = Assert.IsType<HueUserMappingBulkEnabledResult>(disableResponse.Value);
+        Assert.False(disableResult.SyncEnabled);
+        Assert.Equal(2, disableResult.RequestedCount);
+        Assert.Equal(2, disableResult.UpdatedCount);
+        Assert.Equal(new[] { "user-enabled", "user-disabled" }, disableResult.Mappings.Select(mapping => mapping.UserId));
+        var disabledMapping = configuration.UserMappings.Single(mapping => mapping.UserId == "user-enabled");
+        Assert.False(disabledMapping.SyncEnabled);
+        Assert.Empty(disabledMapping.HueBridgeIp);
+        Assert.Empty(disabledMapping.HueAppKey);
+        Assert.Empty(disabledMapping.HueClientKey);
+        Assert.Empty(disabledMapping.EntertainmentAreaId);
+        Assert.Empty(disabledMapping.EntertainmentAreaName);
+        Assert.True(configuration.UserMappings.Single(mapping => mapping.UserId == "user-keep").SyncEnabled);
+
+        var serialized = JsonSerializer.Serialize(disableResult);
+        Assert.DoesNotContain("bulk-enabled-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-enabled-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("HueAppKey", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HueClientKey", serialized, StringComparison.OrdinalIgnoreCase);
+
+        var enable = controller.SetUserMappingsEnabledBulk(new HueUserMappingBulkEnabledRequest
+        {
+            UserIds = new List<string> { " user-disabled " },
+            SyncEnabled = true
+        });
+
+        var enableResponse = Assert.IsType<OkObjectResult>(enable.Result);
+        var enableResult = Assert.IsType<HueUserMappingBulkEnabledResult>(enableResponse.Value);
+        Assert.True(enableResult.SyncEnabled);
+        Assert.Equal(1, enableResult.UpdatedCount);
+        Assert.True(configuration.UserMappings.Single(mapping => mapping.UserId == "user-disabled").SyncEnabled);
+    }
+
+    [Fact]
+    public void UserMappings_BulkEnabledRefusesDependenciesAndMissingIdsAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-dependent", UserName = "Dependent", SyncEnabled = true },
+                new() { UserId = "user-free", UserName = "Free", SyncEnabled = true },
+                new() { UserId = "user-keep", UserName = "Keep", SyncEnabled = false }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "mapping-enabled-cue", Name = "Dependent cue", TargetUserId = " USER-DEPENDENT " }
+            }
+        });
+        var controller = CreateController();
+
+        var blocked = controller.SetUserMappingsEnabledBulk(new HueUserMappingBulkEnabledRequest
+        {
+            UserIds = new List<string> { "user-dependent", "user-free" },
+            SyncEnabled = false
+        });
+
+        var blockedResponse = Assert.IsType<ConflictObjectResult>(blocked.Result);
+        var blockedResult = Assert.IsType<HueUserMappingBulkEnabledResult>(blockedResponse.Value);
+        Assert.Equal(2, blockedResult.RequestedCount);
+        var dependency = Assert.Single(blockedResult.BlockedMappings);
+        Assert.Equal("user-dependent", dependency.UserId);
+        Assert.Equal(1, dependency.ScheduledCueCount);
+        Assert.True(configuration.UserMappings.Single(mapping => mapping.UserId == "user-dependent").SyncEnabled);
+        Assert.True(configuration.UserMappings.Single(mapping => mapping.UserId == "user-free").SyncEnabled);
+
+        var missing = controller.SetUserMappingsEnabledBulk(new HueUserMappingBulkEnabledRequest
+        {
+            UserIds = new List<string> { "user-free", "missing-user" },
+            SyncEnabled = false
+        });
+
+        var missingResponse = Assert.IsType<NotFoundObjectResult>(missing.Result);
+        var missingResult = Assert.IsType<HueUserMappingBulkEnabledResult>(missingResponse.Value);
+        Assert.Equal(2, missingResult.RequestedCount);
+        Assert.Equal(new[] { "missing-user" }, missingResult.MissingUserIds);
+        Assert.True(configuration.UserMappings.Single(mapping => mapping.UserId == "user-free").SyncEnabled);
+    }
+
+    [Fact]
+    public void UserMappings_BulkEnabledRefusesIncompleteCustomTargetWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-invalid",
+                    UserName = "Invalid target",
+                    SyncEnabled = false,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "only-app-key",
+                    EntertainmentAreaId = "area-invalid"
+                }
+            }
+        });
+
+        var action = CreateController().SetUserMappingsEnabledBulk(new HueUserMappingBulkEnabledRequest
+        {
+            UserIds = new List<string> { "user-invalid" },
+            SyncEnabled = true
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingBulkEnabledResult>(response.Value);
+        Assert.Equal(new[] { "user-invalid" }, result.InvalidUserIds);
+        Assert.False(configuration.UserMappings[0].SyncEnabled);
+        Assert.Equal("only-app-key", configuration.UserMappings[0].HueAppKey);
+    }
+
+    [Fact]
+    public void UserMappings_BulkEnabledPersistenceFailureRestoresEverySelectedMapping()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("bulk mapping enabled persistence failed"));
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-one",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "user-one-app-secret",
+                    HueClientKey = "user-one-client-secret",
+                    EntertainmentAreaId = "area-one",
+                    EntertainmentAreaName = "Room One"
+                },
+                new()
+                {
+                    UserId = "user-two",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "user-two-app-secret",
+                    HueClientKey = "user-two-client-secret",
+                    EntertainmentAreaId = "area-two",
+                    EntertainmentAreaName = "Room Two"
+                }
+            }
+        }, serializer.Object);
+
+        var action = CreateController().SetUserMappingsEnabledBulk(new HueUserMappingBulkEnabledRequest
+        {
+            UserIds = new List<string> { "user-one", "user-two" },
+            SyncEnabled = false
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.All(configuration.UserMappings, mapping => Assert.True(mapping.SyncEnabled));
+        Assert.Equal("user-one-app-secret", configuration.UserMappings[0].HueAppKey);
+        Assert.Equal("user-two-client-secret", configuration.UserMappings[1].HueClientKey);
+        Assert.Equal(new[] { "area-one", "area-two" }, configuration.UserMappings.Select(mapping => mapping.EntertainmentAreaId));
+    }
+
+    [Fact]
     public void GetConfiguration_ExcludesPerUserMappings()
     {
         InstallConfiguration(new PluginConfiguration
