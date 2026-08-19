@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.158] - 2026-08-19
+
+### Added
+- **Aurora scene effect**: add a deterministic drifting green/cyan/blue/violet palette to manual previews, saved scenes, playlists, and scheduled cues while preserving seed intensity and target restoration
+- **End-to-end effect compatibility**: accept canonical Aurora values through configuration, API, stream generation, administrator controls, backup/restore metadata, and scheduler telemetry
+- **Regression coverage**: verify Aurora phase progression, deterministic frames, configuration normalization, and credential-free API forwarding
+
 ## [1.5.157] - 2026-08-19
 
 ### Added

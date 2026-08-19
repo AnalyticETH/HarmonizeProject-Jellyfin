@@ -323,7 +323,7 @@ public sealed class HueStreamTester : IHueStreamTester
         CancellationToken cancellationToken)
     {
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, or Temperature.");
+            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, or Aurora.");
 
         effect = normalizedEffect;
         if (cancellationToken.IsCancellationRequested)
@@ -813,7 +813,7 @@ public sealed class HueStreamTester : IHueStreamTester
     {
         ArgumentNullException.ThrowIfNull(targetColors);
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, or Temperature.", nameof(effect));
+            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, Temperature, or Aurora.", nameof(effect));
 
         var elapsed = Math.Max(0d, elapsedSeconds);
         var duration = Math.Max(1d, durationSeconds);
@@ -892,6 +892,36 @@ public sealed class HueStreamTester : IHueStreamTester
                     ToRgb16Byte(temperatureRed * intensity), ToRgb16Byte(temperatureRed * intensity),
                     ToRgb16Byte(temperatureGreen * intensity), ToRgb16Byte(temperatureGreen * intensity),
                     ToRgb16Byte(temperatureBlue * intensity), ToRgb16Byte(temperatureBlue * intensity)
+                };
+                continue;
+            }
+
+            if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectAurora, StringComparison.Ordinal))
+            {
+                // Drift through the green, cyan, blue, and violet band used by an
+                // aurora. The seed frame controls output intensity while independent
+                // channel phases create a calm multi-light wave instead of lockstep
+                // color changes. The result is deterministic and bounded like every
+                // other saved-scene effect.
+                var auroraPeriod = 10d / speedMultiplier;
+                var auroraPhase = ((elapsed + (channelId * 0.17d)) % auroraPeriod) / auroraPeriod;
+                var auroraWave = 0.5d + (0.5d * Math.Sin(auroraPhase * 2d * Math.PI));
+                var auroraHue = 70d + (180d * auroraWave);
+                var auroraSaturation = 0.72d + (0.18d * (0.5d + (0.5d * Math.Sin((auroraPhase * 4d * Math.PI) + (channelId * 0.41d)))));
+                var seedValue = Math.Clamp(
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    0d,
+                    1d);
+                var auroraValue = seedValue * (0.72d + (0.28d * (0.5d + (0.5d * Math.Sin((auroraPhase * 2d * Math.PI) + 0.6d)))));
+                var (auroraRed, auroraGreen, auroraBlue) = HsvToRgb(
+                    auroraHue,
+                    Math.Clamp(auroraSaturation, 0d, 1d),
+                    Math.Clamp(auroraValue, 0d, 1d));
+                colors[channelId] = new[]
+                {
+                    ToRgb16Byte(auroraRed), ToRgb16Byte(auroraRed),
+                    ToRgb16Byte(auroraGreen), ToRgb16Byte(auroraGreen),
+                    ToRgb16Byte(auroraBlue), ToRgb16Byte(auroraBlue)
                 };
                 continue;
             }

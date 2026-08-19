@@ -76,7 +76,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
         /// <summary>
-        /// Animation speed for Pulse, Rainbow, Candle, and Temperature effects. Missing values in
+        /// Animation speed for Pulse, Rainbow, Candle, Temperature, and Aurora effects. Missing values in
         /// older configurations deserialize to the neutral 100 percent rate.
         /// </summary>
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
@@ -404,6 +404,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string ColorPresetEffectRainbow = "Rainbow";
         public const string ColorPresetEffectCandle = "Candle";
         public const string ColorPresetEffectTemperature = "Temperature";
+        public const string ColorPresetEffectAurora = "Aurora";
         public const string SceneScheduleEffectPlaylist = "Playlist";
         public const int MinPreviewDurationSeconds = 1;
         public const int MaxPreviewDurationSeconds = 30;
@@ -456,7 +457,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
             ColorPresetEffectPulse,
             ColorPresetEffectRainbow,
             ColorPresetEffectCandle,
-            ColorPresetEffectTemperature
+            ColorPresetEffectTemperature,
+            ColorPresetEffectAurora
         };
 
         private static readonly string[] PlaybackMediaFilters =

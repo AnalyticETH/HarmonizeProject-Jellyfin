@@ -102,6 +102,7 @@ public class PluginConfigurationTests
             PluginConfiguration.ColorPresetEffectRainbow,
             PluginConfiguration.ColorPresetEffectCandle,
             PluginConfiguration.ColorPresetEffectTemperature,
+            PluginConfiguration.ColorPresetEffectAurora,
             " rainbow "
         })
         {
@@ -146,7 +147,7 @@ public class PluginConfigurationTests
             Effect = "Strobe"
         });
 
-        Assert.Contains("Color preset effect must be one of Solid, Pulse, Rainbow, Candle, Temperature", errors);
+        Assert.Contains("Color preset effect must be one of Solid, Pulse, Rainbow, Candle, Temperature, Aurora", errors);
     }
 
     [Fact]

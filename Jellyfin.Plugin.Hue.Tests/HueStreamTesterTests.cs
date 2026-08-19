@@ -278,6 +278,40 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public void BuildEffectColors_AuroraDriftsAcrossGreenBlueAndVioletDeterministically()
+    {
+        var target = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 127, 127, 127, 127, 127, 127 },
+            [2] = new byte[] { 127, 127, 127, 127, 127, 127 }
+        };
+
+        var first = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectAurora,
+            elapsedSeconds: 0,
+            durationSeconds: 5);
+        var later = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectAurora,
+            elapsedSeconds: 2,
+            durationSeconds: 5);
+        var repeat = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectAurora,
+            elapsedSeconds: 0,
+            durationSeconds: 5);
+
+        Assert.Equal(first[1], repeat[1]);
+        Assert.NotEqual(first[1], later[1]);
+        Assert.True(first[1][2] > first[1][0]);
+        Assert.True(first[1][2] > first[1][4]);
+        Assert.True(later[1][0] > first[1][0]);
+        Assert.True(later[1][2] < first[1][2]);
+        Assert.NotEqual(first[1], first[2]);
+    }
+
+    [Fact]
     public async Task PreviewAsync_RejectsTransitionLongerThanDurationWithoutTouchingBridge()
     {
         var handler = new Mock<HttpMessageHandler>();

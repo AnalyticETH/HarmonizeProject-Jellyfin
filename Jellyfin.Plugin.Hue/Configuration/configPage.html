@@ -236,7 +236,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scene Effect Preview</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, hue-cycling Rainbow, warm flickering Candle, or cycling warm-to-cool Temperature effect on the default bridge target—or every distinct enabled target—for a few seconds. Set animation speed from 25% to 400% for non-solid effects. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect, speed, and transitions into scheduled cues. All-target preview uses each target's saved channel profile and runs sequentially, reporting independent outcomes. Capture Current Light Color reads one target or a selected/all-target set, reports each room independently, and seeds this editor with a weighted aggregate RGB/brightness sample, making it easy to save a multi-room snapshot as a reusable scene. Saved Scene Playlists can chain these reusable scenes in a chosen order. Stop active playback before previewing or capturing.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, hue-cycling Rainbow, warm flickering Candle, cycling warm-to-cool Temperature, or drifting green-to-violet Aurora effect on the default bridge target—or every distinct enabled target—for a few seconds. Set animation speed from 25% to 400% for non-solid effects. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect, speed, and transitions into scheduled cues. All-target preview uses each target's saved channel profile and runs sequentially, reporting independent outcomes. Capture Current Light Color reads one target or a selected/all-target set, reports each room independently, and seeds this editor with a weighted aggregate RGB/brightness sample, making it easy to save a multi-room snapshot as a reusable scene. Saved Scene Playlists can chain these reusable scenes in a chosen order. Stop active playback before previewing or capturing.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="previewColor">Color</label>
@@ -250,6 +250,7 @@
                                     <option value="Rainbow">Rainbow</option>
                                     <option value="Candle">Candle</option>
                                     <option value="Temperature">Temperature</option>
+                                    <option value="Aurora">Aurora</option>
                                 </select>
                             </div>
                             <div style="min-width: 130px;">
@@ -1889,8 +1890,8 @@
                     var transitionOut = parseInt(page.querySelector('#previewTransitionOutSeconds').value, 10);
                     var effectEl = page.querySelector('#previewEffect');
                     var effect = effectEl && effectEl.value ? effectEl.value : "Solid";
-                    if (["Solid", "Pulse", "Rainbow", "Candle", "Temperature"].indexOf(effect) < 0) {
-                        throw new Error("Preview effect must be Solid, Pulse, Rainbow, Candle, or Temperature.");
+                    if (["Solid", "Pulse", "Rainbow", "Candle", "Temperature", "Aurora"].indexOf(effect) < 0) {
+                        throw new Error("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, or Aurora.");
                     }
                     brightness = isNaN(brightness) ? 100 : brightness;
                     effectSpeed = isNaN(effectSpeed) ? 100 : effectSpeed;
