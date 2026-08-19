@@ -6207,6 +6207,12 @@ public sealed class HueApiControllerTests : IDisposable
                     ExecutablePath = "/usr/bin/ffmpeg",
                     Version = "ffmpeg version 7.0"
                 },
+                AudioCapture = new HueToolStatus
+                {
+                    Available = true,
+                    ExecutablePath = "/usr/bin/ffmpeg",
+                    Version = "PCM s16le 8000 Hz stereo"
+                },
                 OpenSsl = new HueToolStatus
                 {
                     Available = true,
@@ -6227,6 +6233,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, diagnostics.PlaybackMediaFilter);
         Assert.True(diagnostics.DefaultBridgeConfigured);
         Assert.True(diagnostics.Ffmpeg.Available);
+        Assert.True(diagnostics.AudioCapture.Available);
+        Assert.False(diagnostics.AudioCaptureRequired);
         Assert.True(diagnostics.OpenSsl.Available);
         Assert.True(diagnostics.DiagnosticLifecycleActive);
         Assert.Equal("Diagnostic", diagnostics.BridgeLifecycleState);
@@ -6237,6 +6245,53 @@ public sealed class HueApiControllerTests : IDisposable
         probe.Verify(
             environment => environment.CheckAsync(It.Is<CancellationToken>(token => token.CanBeCanceled)),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task Diagnostics_RequiresAudioCaptureForAudioPlaybackScope()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-secret",
+            HueClientKey = "client-secret",
+            EntertainmentAreaId = "area-1",
+            PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterAudio
+        });
+        var probe = new Mock<IHueEnvironmentProbe>();
+        probe
+            .Setup(environment => environment.CheckAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueEnvironmentProbeResult
+            {
+                Ffmpeg = new HueToolStatus
+                {
+                    Available = true,
+                    ExecutablePath = "/usr/bin/ffmpeg",
+                    Version = "ffmpeg version 7.0"
+                },
+                AudioCapture = new HueToolStatus
+                {
+                    Available = false,
+                    ExecutablePath = "/usr/bin/ffmpeg",
+                    Message = "The FFmpeg audio capture probe timed out."
+                },
+                OpenSsl = new HueToolStatus
+                {
+                    Available = true,
+                    ExecutablePath = "/usr/bin/openssl",
+                    Version = "OpenSSL 3.0"
+                }
+            });
+        var controller = CreateController(null, new HueBridgeLifecycleGate(), probe.Object);
+
+        var action = await controller.GetDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueDiagnosticsResult>(response.Value);
+        Assert.True(diagnostics.AudioCaptureRequired);
+        Assert.False(diagnostics.AudioCapture.Available);
+        Assert.False(diagnostics.CanStartPlayback);
     }
 
     [Fact]

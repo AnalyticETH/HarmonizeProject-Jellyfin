@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.161] - 2026-08-19
+
+### Added
+- **Audio capability diagnostics**: run a bounded, tokenized FFmpeg lavfi sine probe and verify PCM s16le 8 kHz stereo output instead of treating `ffmpeg -version` as proof that audio capture works
+- **Audio readiness gating**: block playback readiness only when the active global or per-user playback scopes can start audio and the capture probe fails
+- **Credential-safe diagnostics**: expose the capture result and whether it is required through System Diagnostics, the API, and support-bundle data without returning command output or secrets
+- **Regression coverage**: verify missing-tool handling, safe capture status propagation, and the diagnostic page's audio-readiness markers
+
 ## [1.5.160] - 2026-08-19
 
 ### Added

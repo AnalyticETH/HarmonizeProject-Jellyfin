@@ -44,6 +44,7 @@ public sealed class HueEnvironmentProbeTests
         var result = await probe.CheckAsync();
 
         Assert.False(result.Ffmpeg.Available);
+        Assert.False(result.AudioCapture.Available);
         Assert.False(result.OpenSsl.Available);
         Assert.Contains("PATH", result.Ffmpeg.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("PATH", result.OpenSsl.Message, StringComparison.OrdinalIgnoreCase);
@@ -60,8 +61,27 @@ public sealed class HueEnvironmentProbeTests
 
         Assert.True(result.Ffmpeg.Available);
         Assert.False(string.IsNullOrWhiteSpace(result.Ffmpeg.Version));
+        Assert.False(result.AudioCapture.Available);
+        Assert.Contains("audio capture", result.AudioCapture.Message, StringComparison.OrdinalIgnoreCase);
         Assert.True(result.OpenSsl.Available);
         Assert.False(string.IsNullOrWhiteSpace(result.OpenSsl.Version));
+    }
+
+    [Fact]
+    public async Task CheckAsync_WhenFfmpegCanCapturePcmReportsAudioCapability()
+    {
+        var ffmpegPath = HueEnvironmentProbe.ResolveExecutable("ffmpeg");
+        var processPath = Environment.ProcessPath;
+        if (ffmpegPath == null || string.IsNullOrWhiteSpace(processPath))
+            return;
+
+        var probe = new HueEnvironmentProbe(ffmpegPath, processPath!, "-version");
+
+        var result = await probe.CheckAsync();
+
+        Assert.True(result.Ffmpeg.Available);
+        Assert.True(result.AudioCapture.Available, result.AudioCapture.Message);
+        Assert.Contains("PCM s16le", result.AudioCapture.Version, StringComparison.Ordinal);
     }
 
     [Fact]

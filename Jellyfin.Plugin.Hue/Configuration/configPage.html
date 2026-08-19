@@ -96,6 +96,7 @@
                         <div style="flex: 1 1 280px;">
                             <div><strong>Plugin configuration:</strong> <span id="diagnosticsConfiguration">—</span></div>
                             <div><strong>FFmpeg:</strong> <span id="diagnosticsFfmpeg">—</span></div>
+                            <div><strong>Audio capture:</strong> <span id="diagnosticsAudioCapture">—</span></div>
                             <div><strong>OpenSSL:</strong> <span id="diagnosticsOpenSsl">—</span></div>
                             <div><strong>Bridge lifecycle:</strong> <span id="diagnosticsBridgeLifecycle">—</span></div>
                         </div>
@@ -118,7 +119,7 @@
                             <span>Cancel Active Diagnostics</span>
                         </button>
                     </div>
-                    <div id="diagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Run diagnostics to verify FFmpeg, OpenSSL, and saved configuration.</div>
+                    <div id="diagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Run diagnostics to verify FFmpeg, PCM audio capture, OpenSSL, and saved configuration.</div>
                     <div id="diagnosticsErrors" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
                     <div id="targetDiagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Validate saved default and per-user bridge targets to confirm that each selected area still has controllable channels and that saved channel profiles contain only IDs available in that area.</div>
                     <div id="targetDiagnosticsTable" style="margin-top: 0.5em; overflow-x: auto;"></div>
@@ -6819,6 +6820,8 @@
                     return request.then(function (diagnostics) {
                         var configurationValid = HueConfigurationPage.readStatusField(diagnostics, "ConfigurationValid", false);
                         var ffmpeg = HueConfigurationPage.readStatusField(diagnostics, "Ffmpeg", {});
+                        var audioCapture = HueConfigurationPage.readStatusField(diagnostics, "AudioCapture", {});
+                        var audioCaptureRequired = HueConfigurationPage.readStatusField(diagnostics, "AudioCaptureRequired", false);
                         var openSsl = HueConfigurationPage.readStatusField(diagnostics, "OpenSsl", {});
                         var bridgeState = HueConfigurationPage.readStatusField(diagnostics, "BridgeLifecycleState", "Unavailable");
                         var canStartPlayback = HueConfigurationPage.readStatusField(diagnostics, "CanStartPlayback", false);
@@ -6833,6 +6836,9 @@
                             ? "Valid"
                             : "Needs attention";
                         page.querySelector('#diagnosticsFfmpeg').textContent = HueConfigurationPage.formatToolDiagnostics(ffmpeg);
+                        page.querySelector('#diagnosticsAudioCapture').textContent = audioCaptureRequired
+                            ? HueConfigurationPage.formatToolDiagnostics(audioCapture)
+                            : "Not required by the active playback scopes";
                         page.querySelector('#diagnosticsOpenSsl').textContent = HueConfigurationPage.formatToolDiagnostics(openSsl);
                         page.querySelector('#diagnosticsBridgeLifecycle').textContent = bridgeState + " · " + String(mappingCount) + " enabled mapping(s)";
                         page.querySelector('#diagnosticsPlaybackReadiness').textContent = canStartPlayback ? "Ready" : "Blocked";

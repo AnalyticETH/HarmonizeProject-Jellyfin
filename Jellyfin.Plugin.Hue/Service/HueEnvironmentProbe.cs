@@ -23,6 +23,11 @@ public interface IHueEnvironmentProbe
 public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
 {
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan AudioProbeTimeout = TimeSpan.FromSeconds(5);
+    private const int MinimumAudioProbeBytes = 800;
+    private const int AudioProbeSampleRate = 8000;
+    private const int AudioProbeChannels = 2;
+    private const string AudioProbeDuration = "0.15";
 
     private readonly string _ffmpegCommand;
     private readonly string _openSslCommand;
@@ -47,10 +52,12 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
     public async Task<HueEnvironmentProbeResult> CheckAsync(CancellationToken cancellationToken = default)
     {
         var ffmpeg = await ProbeToolAsync(_ffmpegCommand, _versionArgument, cancellationToken).ConfigureAwait(false);
+        var audioCapture = await ProbeAudioCaptureAsync(ffmpeg, cancellationToken).ConfigureAwait(false);
         var openSsl = await ProbeToolAsync(_openSslCommand, _versionArgument, cancellationToken).ConfigureAwait(false);
         return new HueEnvironmentProbeResult
         {
             Ffmpeg = ffmpeg,
+            AudioCapture = audioCapture,
             OpenSsl = openSsl
         };
     }
@@ -206,6 +213,138 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         }
     }
 
+    private static async Task<HueToolStatus> ProbeAudioCaptureAsync(
+        HueToolStatus ffmpeg,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!ffmpeg.Available || string.IsNullOrWhiteSpace(ffmpeg.ExecutablePath))
+        {
+            return new HueToolStatus
+            {
+                Available = false,
+                ExecutablePath = ffmpeg.ExecutablePath,
+                Message = "Audio capture probe skipped because FFmpeg is unavailable."
+            };
+        }
+
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = ffmpeg.ExecutablePath,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }
+        };
+
+        var arguments = new[]
+        {
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-f",
+            "lavfi",
+            "-i",
+            $"sine=frequency=440:sample_rate={AudioProbeSampleRate}:duration={AudioProbeDuration}",
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-sn",
+            "-dn",
+            "-ar",
+            AudioProbeSampleRate.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-ac",
+            AudioProbeChannels.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-c:a",
+            "pcm_s16le",
+            "-f",
+            "s16le",
+            "-t",
+            AudioProbeDuration,
+            "pipe:1"
+        };
+        foreach (var argument in arguments)
+            process.StartInfo.ArgumentList.Add(argument);
+
+        try
+        {
+            if (!process.Start())
+            {
+                return new HueToolStatus
+                {
+                    Available = false,
+                    ExecutablePath = ffmpeg.ExecutablePath,
+                    Message = "FFmpeg could not start the PCM audio capture probe."
+                };
+            }
+        }
+        catch
+        {
+            return new HueToolStatus
+            {
+                Available = false,
+                ExecutablePath = ffmpeg.ExecutablePath,
+                Message = "FFmpeg could not start the PCM audio capture probe."
+            };
+        }
+
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(AudioProbeTimeout);
+
+        try
+        {
+            var standardOutputTask = ReadBytesAsync(process.StandardOutput.BaseStream, timeoutSource.Token);
+            var standardErrorTask = process.StandardError.ReadToEndAsync(timeoutSource.Token);
+            await process.WaitForExitAsync(timeoutSource.Token).ConfigureAwait(false);
+            var pcm = await standardOutputTask.ConfigureAwait(false);
+            var standardError = await standardErrorTask.ConfigureAwait(false);
+            var succeeded = process.ExitCode == 0 && pcm.Length >= MinimumAudioProbeBytes;
+            return new HueToolStatus
+            {
+                Available = succeeded,
+                ExecutablePath = ffmpeg.ExecutablePath,
+                Version = succeeded
+                    ? $"PCM s16le {AudioProbeSampleRate} Hz stereo"
+                    : null,
+                Message = succeeded
+                    ? null
+                    : process.ExitCode != 0
+                        ? $"FFmpeg audio capture probe failed: {ExtractVersionLine(null, standardError) ?? "non-zero exit code"}."
+                        : $"FFmpeg audio capture probe returned only {pcm.Length} PCM bytes; at least {MinimumAudioProbeBytes} were expected."
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            StopProcess(process);
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            StopProcess(process);
+            return new HueToolStatus
+            {
+                Available = false,
+                ExecutablePath = ffmpeg.ExecutablePath,
+                Message = "The FFmpeg audio capture probe timed out."
+            };
+        }
+        catch
+        {
+            StopProcess(process);
+            return new HueToolStatus
+            {
+                Available = false,
+                ExecutablePath = ffmpeg.ExecutablePath,
+                Message = "The FFmpeg audio capture probe failed."
+            };
+        }
+    }
+
     private static void StopProcess(Process process)
     {
         try
@@ -218,11 +357,19 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
             // Diagnostics must not mask the original cancellation or probe failure.
         }
     }
+
+    private static async Task<byte[]> ReadBytesAsync(Stream stream, CancellationToken cancellationToken)
+    {
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+        return buffer.ToArray();
+    }
 }
 
 public sealed class HueEnvironmentProbeResult
 {
     public HueToolStatus Ffmpeg { get; init; } = new();
+    public HueToolStatus AudioCapture { get; init; } = new();
     public HueToolStatus OpenSsl { get; init; } = new();
 }
 

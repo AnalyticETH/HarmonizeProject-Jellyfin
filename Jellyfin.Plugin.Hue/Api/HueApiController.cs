@@ -5443,6 +5443,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var diagnosticActive = _bridgeLifecycleGate.IsDiagnosticActive;
             var configurationValid = config != null && configurationErrors.Count == 0;
             var serviceAvailable = _syncService != null;
+            var audioCaptureRequired = config != null && RequiresAudioCapture(config);
 
             return Ok(new HueDiagnosticsResult
             {
@@ -5456,6 +5457,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 CustomUserTargetConfigured = hasCustomUserTarget,
                 ServiceAvailable = serviceAvailable,
                 Ffmpeg = environment.Ffmpeg,
+                AudioCapture = environment.AudioCapture,
+                AudioCaptureRequired = audioCaptureRequired,
                 OpenSsl = environment.OpenSsl,
                 PlaybackLifecycleActive = playbackActive,
                 DiagnosticLifecycleActive = diagnosticActive,
@@ -5470,6 +5473,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 CanStartPlayback = serviceAvailable && configurationValid && (config?.SyncEnabled ?? false) &&
                     (hasDefaultTarget || hasCustomUserTarget) &&
                     environment.Ffmpeg.Available && environment.OpenSsl.Available &&
+                    (!audioCaptureRequired || environment.AudioCapture.Available) &&
                     !diagnosticActive,
                 RuntimeState = runtime?.State ?? "Unavailable",
                 RuntimeMessage = runtime?.Message,
@@ -6065,6 +6069,19 @@ namespace Jellyfin.Plugin.Hue.Api
                 target.BridgeIp.Trim().TrimEnd('.'),
                 target.AreaId.Trim(),
                 channelProfile);
+        }
+
+        private static bool RequiresAudioCapture(PluginConfiguration config)
+        {
+            static bool IsAudioScope(string? scope)
+                => string.Equals(scope, PluginConfiguration.PlaybackMediaFilterAudio, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(scope, PluginConfiguration.PlaybackMediaFilterAllMedia, StringComparison.OrdinalIgnoreCase);
+
+            return IsAudioScope(config.PlaybackMediaFilter) ||
+                config.UserMappings?.Any(mapping =>
+                    mapping != null &&
+                    mapping.SyncEnabled &&
+                    IsAudioScope(mapping.PlaybackMediaFilterOverride)) == true;
         }
 
         private static IEnumerable<HueTarget> EnumerateConfiguredTargets(PluginConfiguration config)
@@ -9926,6 +9943,8 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool CustomUserTargetConfigured { get; init; }
         public bool ServiceAvailable { get; init; }
         public HueToolStatus Ffmpeg { get; init; } = new();
+        public HueToolStatus AudioCapture { get; init; } = new();
+        public bool AudioCaptureRequired { get; init; }
         public HueToolStatus OpenSsl { get; init; } = new();
         public bool PlaybackLifecycleActive { get; init; }
         public bool DiagnosticLifecycleActive { get; init; }
