@@ -243,6 +243,58 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsSavedPlaylistAndRejectsScenePlaylistAmbiguity()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Warm" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-1", Name = "Evening sequence", PresetNames = new List<string> { "Warm" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "playlist-cue", Name = "Playlist cue", PlaylistName = " evening sequence ", TimeZoneId = TimeZoneInfo.Utc.Id },
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+
+        config.SceneSchedules.Add(new HueSceneSchedule
+        {
+            Id = "ambiguous",
+            Name = "Ambiguous cue",
+            PresetName = "Warm",
+            PlaylistName = "Evening sequence"
+        });
+        Assert.Contains(
+            "Scene schedule 2 cannot reference both a saved scene and a playlist",
+            config.ValidateSceneSchedules());
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsPlaylistDurationOverrideAndMissingContent()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Warm" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-1", Name = "Evening sequence", PresetNames = new List<string> { "Warm" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "bad-playlist", Name = "Bad playlist", PlaylistName = "Evening sequence", DurationSeconds = 5 },
+                new() { Id = "missing-content", Name = "Missing content" }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+        Assert.Contains("Scene schedule 1 playlist duration override must be 0; each saved scene keeps its own duration", errors);
+        Assert.Contains("Scene schedule 2 requires a saved scene or playlist", errors);
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_AllowsBroadcastTarget()
     {
         var config = new PluginConfiguration

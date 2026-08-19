@@ -783,6 +783,60 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunScheduleAsync_RunsScheduledPlaylistInOrderAndReturnsPlaylistTelemetry()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "scheduled-playlist-app-secret",
+            HueClientKey = "scheduled-playlist-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "First", Red = 11, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 },
+                new() { Name = "Second", Red = 222, Green = 180, Blue = 140, BrightnessPercent = 70, DurationSeconds = 2 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "scheduled-playlist", Name = "Scheduled sequence", PresetNames = new List<string> { "First", "Second" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "scheduled-playlist-cue",
+                    Name = "Scheduled playlist cue",
+                    PlaylistName = "Scheduled sequence",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunScheduleAsync("scheduled-playlist-cue");
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(PluginConfiguration.SceneScheduleEffectPlaylist, result.Effect);
+        Assert.Equal("Scheduled sequence", result.PlaylistName);
+        Assert.Equal(new[] { "First", "Second" }, result.PlaylistSteps.Select(step => step.PresetName));
+        Assert.Equal(new[] { 11, 222 }, streamTester.Reds);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        var runtime = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal("Scheduled sequence", runtime.PlaylistName);
+        Assert.Equal(2, runtime.PlaylistStepCount);
+        Assert.Equal(3, runtime.PlaylistTotalDurationSeconds);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_DisablesFiniteCueAtPersistedExecutionLimit()
     {
         var configuration = new PluginConfiguration

@@ -577,18 +577,32 @@ namespace Jellyfin.Plugin.Hue.Api
             var preset = config.ColorPresets?.FirstOrDefault(candidate =>
                 candidate != null &&
                 string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
-            PluginConfiguration.TryNormalizeColorPresetEffect(preset?.Effect, out var effect);
+            var playlist = config.ScenePlaylists?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Name?.Trim(), schedule.PlaylistName?.Trim(), StringComparison.OrdinalIgnoreCase));
+            var isPlaylist = !string.IsNullOrWhiteSpace(schedule.PlaylistName);
+            var effect = isPlaylist
+                ? PluginConfiguration.SceneScheduleEffectPlaylist
+                : PluginConfiguration.TryNormalizeColorPresetEffect(preset?.Effect, out var normalizedEffect)
+                    ? normalizedEffect
+                    : PluginConfiguration.ColorPresetEffectSolid;
+            var playlistTotalDuration = isPlaylist
+                ? HueSceneAutomationService.GetPlaylistTotalDurationSeconds(config, playlist)
+                : 0;
 
             return new HueSceneScheduleResult
             {
                 Id = schedule.Id,
                 Name = schedule.Name,
                 PresetName = schedule.PresetName,
+                PlaylistName = schedule.PlaylistName,
                 Priority = schedule.Priority,
                 Effect = effect,
-                EffectSpeedPercent = preset == null
+                EffectSpeedPercent = isPlaylist || preset == null
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                     : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                PlaylistStepCount = playlist?.PresetNames?.Count ?? 0,
+                PlaylistTotalDurationSeconds = playlistTotalDuration,
                 TargetUserId = targetUserId,
                 TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                 TargetLabel = targetLabel,
@@ -604,6 +618,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 MonthOfYear = schedule.MonthOfYear,
                 WeekOfMonth = schedule.WeekOfMonth,
                 DayOfWeek = schedule.DayOfWeek,
+                // Keep the persisted schedule override round-trippable. Playlist total
+                // duration is exposed separately because playlist cues must keep this at 0.
                 DurationSeconds = schedule.DurationSeconds,
                 MaxRuns = schedule.MaxRuns,
                 RunCount = schedule.RunCount,
@@ -614,8 +630,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled,
                 SkipNextOccurrence = schedule.SkipNextOccurrence,
-                TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset),
-                TransitionOutSeconds = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset)
+                TransitionSeconds = isPlaylist ? 0 : HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset),
+                TransitionOutSeconds = isPlaylist ? 0 : HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset)
             };
         }
 
@@ -626,6 +642,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Id = schedule.Id,
                 Name = schedule.Name,
                 PresetName = schedule.PresetName,
+                PlaylistName = schedule.PlaylistName,
                 Priority = schedule.Priority,
                 TargetUserId = schedule.TargetUserId,
                 TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
@@ -1879,10 +1896,20 @@ namespace Jellyfin.Plugin.Hue.Api
                     var preset = config.ColorPresets?.FirstOrDefault(candidate =>
                         candidate != null &&
                         string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
-                    var effectiveDuration = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset);
-                    var effectiveTransition = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset);
-                    var effectiveTransitionOut = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset);
-                    PluginConfiguration.TryNormalizeColorPresetEffect(preset?.Effect, out var effect);
+                    var playlist = config.ScenePlaylists?.FirstOrDefault(candidate =>
+                        candidate != null &&
+                        string.Equals(candidate.Name?.Trim(), schedule.PlaylistName?.Trim(), StringComparison.OrdinalIgnoreCase));
+                    var isPlaylist = !string.IsNullOrWhiteSpace(schedule.PlaylistName);
+                    var effectiveDuration = isPlaylist
+                        ? HueSceneAutomationService.GetPlaylistTotalDurationSeconds(config, playlist)
+                        : HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset);
+                    var effectiveTransition = isPlaylist ? 0 : HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset);
+                    var effectiveTransitionOut = isPlaylist ? 0 : HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset);
+                    var effect = isPlaylist
+                        ? PluginConfiguration.SceneScheduleEffectPlaylist
+                        : PluginConfiguration.TryNormalizeColorPresetEffect(preset?.Effect, out var normalizedEffect)
+                            ? normalizedEffect
+                            : PluginConfiguration.ColorPresetEffectSolid;
                     return HueSceneAutomationService.GetUpcomingOccurrences(
                             schedule,
                             serverLocalNow,
@@ -1893,15 +1920,19 @@ namespace Jellyfin.Plugin.Hue.Api
                             transitionOutSeconds: effectiveTransitionOut,
                             effectSpeedPercent: preset == null
                                 ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
-                                : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent))
+                                : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                            durationSeconds: effectiveDuration)
                         .Select(occurrence => new HueSceneScheduleOccurrenceResult
                         {
                             ScheduleId = occurrence.ScheduleId,
                             ScheduleName = occurrence.ScheduleName,
                             PresetName = occurrence.PresetName,
+                            PlaylistName = occurrence.PlaylistName,
+                            PlaylistStepCount = playlist?.PresetNames?.Count ?? 0,
+                            PlaylistTotalDurationSeconds = isPlaylist ? effectiveDuration : 0,
                             Priority = occurrence.Priority,
                             Effect = effect,
-                            EffectSpeedPercent = preset == null
+                            EffectSpeedPercent = isPlaylist || preset == null
                                 ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                                 : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                             Recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
@@ -1952,7 +1983,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 durationSeconds = Math.Clamp(
                     durationSeconds,
                     PluginConfiguration.MinPreviewDurationSeconds,
-                    PluginConfiguration.MaxPreviewDurationSeconds);
+                    PluginConfiguration.MaxScenePlaylistTotalDurationSeconds);
 
                 AppendIcsLine(builder, "BEGIN", "VEVENT");
                 AppendIcsLine(builder, "UID", BuildIcsUid(occurrence.ScheduleId, utcStart));
@@ -1963,12 +1994,13 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(
                     builder,
                     "DESCRIPTION",
-                    $"Scene: {occurrence.PresetName}; Target: {occurrence.TargetLabel}; Time zone: {occurrence.TimeZoneDisplayName}");
+                    $"{(string.IsNullOrWhiteSpace(occurrence.PlaylistName) ? $"Scene: {occurrence.PresetName}" : $"Playlist: {occurrence.PlaylistName}")}; Target: {occurrence.TargetLabel}; Time zone: {occurrence.TimeZoneDisplayName}");
                 AppendIcsLine(builder, "X-HUE-TIMEZONE", occurrence.TimeZoneId);
                 AppendIcsLine(builder, "X-HUE-RECURRENCE", occurrence.Recurrence);
                 AppendIcsLine(builder, "X-HUE-RECURRENCE-INTERVAL", occurrence.RecurrenceInterval.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-PRIORITY", occurrence.Priority.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-EFFECT", occurrence.Effect);
+                AppendIcsLine(builder, "X-HUE-PLAYLIST-STEPS", occurrence.PlaylistStepCount.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-EFFECT-SPEED-PERCENT", occurrence.EffectSpeedPercent.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-SECONDS", occurrence.TransitionSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-OUT-SECONDS", occurrence.TransitionOutSeconds.ToString(CultureInfo.InvariantCulture));
@@ -4460,6 +4492,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("presetName")]
         public string PresetName { get; set; } = string.Empty;
 
+        [JsonPropertyName("playlistName")]
+        public string PlaylistName { get; set; } = string.Empty;
+
         [JsonPropertyName("priority")]
         public int? Priority { get; set; }
 
@@ -4530,6 +4565,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Id = Id?.Trim() ?? string.Empty,
                 Name = Name?.Trim() ?? string.Empty,
                 PresetName = PresetName?.Trim() ?? string.Empty,
+                PlaylistName = PlaylistName?.Trim() ?? string.Empty,
                 Priority = Priority ?? PluginConfiguration.MinSceneSchedulePriority,
                 TargetUserId = TargetUserId?.Trim() ?? string.Empty,
                 TargetAllEnabledMappings = TargetAllEnabledMappings ?? false,
@@ -4585,6 +4621,15 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetName")]
         public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("playlistName")]
+        public string PlaylistName { get; set; } = string.Empty;
+
+        [JsonPropertyName("playlistStepCount")]
+        public int PlaylistStepCount { get; set; }
+
+        [JsonPropertyName("playlistTotalDurationSeconds")]
+        public int PlaylistTotalDurationSeconds { get; set; }
 
         [JsonPropertyName("priority")]
         public int Priority { get; set; }
@@ -4678,6 +4723,15 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetName")]
         public string PresetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("playlistName")]
+        public string PlaylistName { get; set; } = string.Empty;
+
+        [JsonPropertyName("playlistStepCount")]
+        public int PlaylistStepCount { get; set; }
+
+        [JsonPropertyName("playlistTotalDurationSeconds")]
+        public int PlaylistTotalDurationSeconds { get; set; }
 
         [JsonPropertyName("priority")]
         public int Priority { get; set; }

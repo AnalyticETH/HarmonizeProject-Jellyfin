@@ -1938,6 +1938,52 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_CrudSupportsPlaylistSourcesAndReportsAggregateDuration()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "playlist-api-app-secret",
+            HueClientKey = "playlist-api-client-secret",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", DurationSeconds = 2 },
+                new() { Name = "Cool", DurationSeconds = 3 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-api", Name = "API sequence", PresetNames = new List<string> { "Warm", "Cool" } }
+            }
+        });
+        var controller = CreateController();
+
+        var saved = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Playlist cue",
+            PlaylistName = "API sequence",
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            DaysOfWeekMask = 0
+        });
+
+        var response = Assert.IsType<OkObjectResult>(saved.Result);
+        var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.Equal(string.Empty, result.PresetName);
+        Assert.Equal("API sequence", result.PlaylistName);
+        Assert.Equal(PluginConfiguration.SceneScheduleEffectPlaylist, result.Effect);
+        Assert.Equal(2, result.PlaylistStepCount);
+        Assert.Equal(5, result.PlaylistTotalDurationSeconds);
+        Assert.Equal(0, result.DurationSeconds);
+        Assert.Equal(0, result.TransitionSeconds);
+        Assert.Equal("API sequence", Assert.Single(configuration.SceneSchedules).PlaylistName);
+
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("playlist-api-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-api-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SceneSchedules_BroadcastTargetRoundTripsAndPreservesOnPartialUpdate()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -3680,6 +3726,93 @@ public sealed class HueApiControllerTests : IDisposable
         var serializedResult = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("destination-app-secret", serializedResult, StringComparison.Ordinal);
         Assert.DoesNotContain("destination-client-secret", serializedResult, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConfigurationExportAndImport_PreservesPlaylistBackedCueAndZeroDurationOverride()
+    {
+        var source = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "First", DurationSeconds = 2 },
+                new() { Name = "Second", DurationSeconds = 4 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "portable-playlist", Name = "Portable playlist", PresetNames = new List<string> { "First", "Second" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "portable-playlist-cue",
+                    Name = "Portable playlist cue",
+                    PlaylistName = "Portable playlist",
+                    TimeOfDay = "08:15",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        var exported = HueConfigurationExportDocument.From(source);
+        var exportedCue = Assert.Single(exported.SceneSchedules);
+        Assert.Equal("Portable playlist", exportedCue.PlaylistName);
+        Assert.Equal(PluginConfiguration.SceneScheduleEffectPlaylist, exportedCue.Effect);
+        Assert.Equal(6, exportedCue.PlaylistTotalDurationSeconds);
+        Assert.Equal(0, exportedCue.DurationSeconds);
+
+        var destination = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.111",
+            HueAppKey = "existing-app-secret",
+            HueClientKey = "existing-client-secret",
+            EntertainmentAreaId = "area-destination"
+        });
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            SchemaVersion = exported.SchemaVersion,
+            Configuration = exported.Configuration,
+            ReplaceColorPresets = true,
+            ReplaceScenePlaylists = true,
+            ReplaceSceneSchedules = true,
+            ColorPresets = source.ColorPresets.Select(preset => new HueColorPresetRequest
+            {
+                Name = preset.Name,
+                Red = preset.Red,
+                Green = preset.Green,
+                Blue = preset.Blue,
+                BrightnessPercent = preset.BrightnessPercent,
+                DurationSeconds = preset.DurationSeconds
+            }).ToList(),
+            ScenePlaylists = source.ScenePlaylists.Select(playlist => new HueScenePlaylistRequest
+            {
+                Id = playlist.Id,
+                Name = playlist.Name,
+                PresetNames = playlist.PresetNames.ToList()
+            }).ToList(),
+            SceneSchedules = new List<HueSceneScheduleRequest>
+            {
+                new()
+                {
+                    Id = exportedCue.Id,
+                    Name = exportedCue.Name,
+                    PlaylistName = exportedCue.PlaylistName,
+                    TimeOfDay = exportedCue.TimeOfDay,
+                    TimeZoneId = exportedCue.TimeZoneId,
+                    Recurrence = exportedCue.Recurrence,
+                    DaysOfWeekMask = exportedCue.DaysOfWeekMask,
+                    DurationSeconds = exportedCue.DurationSeconds
+                }
+            }
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        var importedCue = Assert.Single(destination.SceneSchedules);
+        Assert.Equal("Portable playlist", importedCue.PlaylistName);
+        Assert.Equal(string.Empty, importedCue.PresetName);
+        Assert.Equal(0, importedCue.DurationSeconds);
     }
 
     [Fact]

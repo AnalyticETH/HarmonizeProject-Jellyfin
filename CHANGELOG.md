@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.108] - 2026-08-19
+
+### Added
+- **Scheduled playlist cues**: schedule either one saved scene or an ordered saved-scene playlist with the same time-zone, recurrence, date-window, priority, finite-run, skip, cancellation, restoration, status, occurrence, calendar, history, backup, and restore behavior
+- **Playlist run telemetry**: expose credential-free playlist identity, total duration, target aggregates, and ordered per-scene step outcomes for Run Now and automatic executions
+- **Administrator workflow**: select saved scenes or playlists directly in the scheduled-cue editor, with playlist duration overrides disabled because each scene retains its saved hold duration
+
 ## [1.5.107] - 2026-08-19
 
 ### Added

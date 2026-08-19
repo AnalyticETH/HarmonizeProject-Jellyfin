@@ -116,8 +116,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// monthly-weekday, or yearly with
     /// optional date bounds and exclusions. Recurring cues can optionally run every N
     /// calendar days, weeks, months, or years; intervals greater than one use StartDate
-    /// as the cadence anchor. A cue can optionally override the saved
-    /// scene's hold duration for this event only or stop after a bounded number of executions.
+    /// as the cadence anchor. A cue can optionally override the saved scene's hold duration
+    /// for this event only (single-scene cues; playlists retain each scene's saved duration)
+    /// or stop after a bounded number of executions.
     /// The target is resolved from the global bridge or a persisted user mapping when the cue
     /// runs; credentials are never stored here.
     /// When multiple cues are due together, higher-priority cues run first. Equal priorities
@@ -128,6 +129,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
         public string Name { get; set; } = string.Empty;
         public string PresetName { get; set; } = string.Empty;
+        /// <summary>
+        /// Optional ordered saved-scene playlist. Exactly one of PresetName and PlaylistName
+        /// must be populated so existing single-scene cues remain backward compatible.
+        /// </summary>
+        public string PlaylistName { get; set; } = string.Empty;
         /// <summary>
         /// Relative execution priority when multiple cues are due together. Zero preserves the
         /// default ordering; higher values run first, up to the configured maximum.
@@ -272,6 +278,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string ScheduleId { get; set; } = string.Empty;
         public string ScheduleName { get; set; } = string.Empty;
         public string PresetName { get; set; } = string.Empty;
+        public string PlaylistName { get; set; } = string.Empty;
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public string? TargetLabel { get; set; }
@@ -358,6 +365,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string ColorPresetEffectPulse = "Pulse";
         public const string ColorPresetEffectRainbow = "Rainbow";
         public const string ColorPresetEffectCandle = "Candle";
+        public const string SceneScheduleEffectPlaylist = "Playlist";
         public const int MinPreviewDurationSeconds = 1;
         public const int MaxPreviewDurationSeconds = 30;
         public const int MinColorPresetTransitionSeconds = 0;
@@ -371,6 +379,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxColorPresetNameLength = 64;
         public const int MaxScenePlaylists = 50;
         public const int MaxScenePlaylistItems = 20;
+        public const int MaxScenePlaylistTotalDurationSeconds = MaxScenePlaylistItems * MaxPreviewDurationSeconds;
         public const int MaxScenePlaylistNameLength = 64;
         public const int MaxSceneSchedules = 50;
         public const int MaxSceneScheduleNameLength = 64;
@@ -1196,14 +1205,25 @@ namespace Jellyfin.Plugin.Hue.Configuration
             else if (name.IndexOfAny(new[] { '/', '\\', '?', '#' }) >= 0)
                 errors.Add($"{label} name must not contain path or URL separator characters");
 
-            if (string.IsNullOrWhiteSpace(schedule.PresetName))
-                errors.Add($"{label} requires a saved scene");
-            else if (configuration?.ColorPresets != null &&
+            var presetName = schedule.PresetName?.Trim() ?? string.Empty;
+            var playlistName = schedule.PlaylistName?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(presetName) && string.IsNullOrWhiteSpace(playlistName))
+                errors.Add($"{label} requires a saved scene or playlist");
+            else if (!string.IsNullOrWhiteSpace(presetName) && !string.IsNullOrWhiteSpace(playlistName))
+                errors.Add($"{label} cannot reference both a saved scene and a playlist");
+            else if (!string.IsNullOrWhiteSpace(presetName) && configuration?.ColorPresets != null &&
                      !configuration.ColorPresets.Any(preset =>
                          preset != null &&
-                         string.Equals(preset.Name?.Trim(), schedule.PresetName.Trim(), StringComparison.OrdinalIgnoreCase)))
+                         string.Equals(preset.Name?.Trim(), presetName, StringComparison.OrdinalIgnoreCase)))
             {
                 errors.Add($"{label} references a saved scene that does not exist");
+            }
+            else if (!string.IsNullOrWhiteSpace(playlistName) && configuration?.ScenePlaylists != null &&
+                     !configuration.ScenePlaylists.Any(playlist =>
+                         playlist != null &&
+                         string.Equals(playlist.Name?.Trim(), playlistName, StringComparison.OrdinalIgnoreCase)))
+            {
+                errors.Add($"{label} references a saved playlist that does not exist");
             }
 
             if (schedule.Priority < MinSceneSchedulePriority ||
@@ -1230,9 +1250,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (schedule.DayOfMonth < 0 || schedule.DayOfMonth > 31)
                 errors.Add($"{label} day of month must be between 1 and 31 for monthly recurrence");
 
-            if (schedule.DurationSeconds != 0 &&
-                (schedule.DurationSeconds < MinPreviewDurationSeconds ||
-                 schedule.DurationSeconds > MaxPreviewDurationSeconds))
+            if (!string.IsNullOrWhiteSpace(playlistName))
+            {
+                if (schedule.DurationSeconds != 0)
+                    errors.Add($"{label} playlist duration override must be 0; each saved scene keeps its own duration");
+            }
+            else if (schedule.DurationSeconds != 0 &&
+                     (schedule.DurationSeconds < MinPreviewDurationSeconds ||
+                      schedule.DurationSeconds > MaxPreviewDurationSeconds))
             {
                 errors.Add($"{label} duration override must be 0 (inherit scene duration) or between {MinPreviewDurationSeconds} and {MaxPreviewDurationSeconds} seconds");
             }

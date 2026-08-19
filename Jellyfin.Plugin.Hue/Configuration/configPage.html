@@ -347,7 +347,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. The saved scene's effect and 25-400% animation speed are inherited by every cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, with per-target outcomes in run history. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene or an ordered saved-scene playlist automatically at a chosen wall-clock time and time zone. Playlist cues run each saved scene in order and keep every scene's own duration and effect; their total duration is shown in status, calendar, and history. The saved scene's effect and 25-400% animation speed are inherited by every single-scene cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) for the saved scene or playlist; a 1-30 second override is available only for single-scene cues. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, with per-target outcomes in run history. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -369,10 +369,23 @@
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleName">Cue Name</label>
                                 <input id="sceneScheduleName" type="text" maxlength="64" is="emby-input" placeholder="e.g. Evening welcome" />
                             </div>
-                            <div style="flex: 1 1 180px;">
+                            <div style="flex: 0 1 150px;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSourceType">Cue content</label>
+                                <select id="sceneScheduleSourceType" is="emby-select" style="width: 100%;">
+                                    <option value="scene">Saved scene</option>
+                                    <option value="playlist">Saved playlist</option>
+                                </select>
+                            </div>
+                            <div id="sceneSchedulePresetContainer" style="flex: 1 1 180px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneSchedulePresetSelect">Scene</label>
                                 <select id="sceneSchedulePresetSelect" is="emby-select" style="width: 100%;">
                                     <option value="">Save a scene first</option>
+                                </select>
+                            </div>
+                            <div id="sceneSchedulePlaylistContainer" style="display: none; flex: 1 1 220px;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneSchedulePlaylistSelect">Playlist</label>
+                                <select id="sceneSchedulePlaylistSelect" is="emby-select" style="width: 100%;">
+                                    <option value="">Save a playlist first</option>
                                 </select>
                             </div>
                             <div>
@@ -382,7 +395,7 @@
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleDuration">Hold duration (optional)</label>
                                 <input id="sceneScheduleDuration" type="number" min="0" max="30" is="emby-input" placeholder="Scene default" />
-                                <div class="fieldDescription">Blank or 0 uses the saved scene duration; 1-30 seconds overrides it for this cue.</div>
+                                <div id="sceneScheduleDurationDescription" class="fieldDescription">Blank or 0 uses the saved scene duration; 1-30 seconds overrides it for this cue. Playlist cues always use each scene's saved duration.</div>
                             </div>
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleMaxRuns">Maximum executions</label>
@@ -2468,14 +2481,17 @@
                     return Promise.all([
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules")),
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets")),
+                        ApiClient.getJSON(ApiClient.getUrl("HueSync/ScenePlaylists")),
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings")),
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/TimeZones")).catch(function () { return []; })
                     ]).then(function (responses) {
                         var schedules = Array.isArray(responses[0]) ? responses[0] : [];
                         var presets = Array.isArray(responses[1]) ? responses[1] : [];
-                        var mappings = Array.isArray(responses[2]) ? responses[2] : [];
-                        var timeZones = Array.isArray(responses[3]) ? responses[3] : [];
+                        var playlists = Array.isArray(responses[2]) ? responses[2] : [];
+                        var mappings = Array.isArray(responses[3]) ? responses[3] : [];
+                        var timeZones = Array.isArray(responses[4]) ? responses[4] : [];
                         page._hueSceneSchedules = schedules;
+                        page._hueSceneSchedulePlaylists = playlists;
 
                         var presetSelect = page.querySelector('#sceneSchedulePresetSelect');
                         if (presetSelect) {
@@ -2487,6 +2503,20 @@
                                 option.value = name;
                                 option.textContent = name;
                                 presetSelect.appendChild(option);
+                            });
+                        }
+
+                        var playlistSelect = page.querySelector('#sceneSchedulePlaylistSelect');
+                        if (playlistSelect) {
+                            playlistSelect.innerHTML = '<option value="">Choose a saved playlist...</option>';
+                            playlists.forEach(function (playlist) {
+                                var name = playlist && (playlist.name !== undefined ? playlist.name : playlist.Name);
+                                if (!name) return;
+                                var presetNames = playlist.presetNames !== undefined ? playlist.presetNames : playlist.PresetNames;
+                                var option = document.createElement('option');
+                                option.value = name;
+                                option.textContent = name + " (" + (Array.isArray(presetNames) ? presetNames.length : 0) + " scene" + (Array.isArray(presetNames) && presetNames.length === 1 ? "" : "s") + ")";
+                                playlistSelect.appendChild(option);
                             });
                         }
 
@@ -2709,10 +2739,13 @@
                         schedules.forEach(function (schedule) {
                             var name = HueConfigurationPage.readStatusField(schedule, "ScheduleName", "Unnamed cue");
                             var preset = HueConfigurationPage.readStatusField(schedule, "PresetName", "—");
+                            var playlist = HueConfigurationPage.readStatusField(schedule, "PlaylistName", "");
+                            var contentName = playlist || preset;
                             var priority = HueConfigurationPage.readStatusField(schedule, "Priority", 0);
                             var effect = HueConfigurationPage.readStatusField(schedule, "Effect", "Solid");
                             var effectSpeed = HueConfigurationPage.readStatusField(schedule, "EffectSpeedPercent", 100);
                             var duration = HueConfigurationPage.readStatusField(schedule, "DurationSeconds", 0);
+                            var playlistStepCount = HueConfigurationPage.readStatusField(schedule, "PlaylistStepCount", 0);
                             var transition = HueConfigurationPage.readStatusField(schedule, "TransitionSeconds", 0);
                             var transitionOut = HueConfigurationPage.readStatusField(schedule, "TransitionOutSeconds", 0);
                             var recurrence = HueConfigurationPage.readStatusField(schedule, "Recurrence", "Weekly");
@@ -2774,7 +2807,7 @@
                             var transitionLabel = (Number(transition) > 0 || Number(transitionOut) > 0)
                                 ? " · fade " + Number(transition || 0) + "s/" + Number(transitionOut || 0) + "s"
                                 : "";
-                            addCell(String(preset) + " · " + String(effect) + " · speed " + String(Number(effectSpeed || 100)) + "% · " + String(time) + " · " + String(duration || 0) + "s" + transitionLabel + (Number(priority || 0) > 0 ? " · priority " + String(Number(priority)) : "") + " · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
+                            addCell(String(contentName) + (playlist ? " · " + Number(playlistStepCount || 0) + " steps" : "") + " · " + String(effect) + " · speed " + String(Number(effectSpeed || 100)) + "% · " + String(time) + " · " + String(duration || 0) + "s" + transitionLabel + (Number(priority || 0) > 0 ? " · priority " + String(Number(priority)) : "") + " · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
                             addCell(enabled ? ((skipNext ? "Skip next · " : "") + formatScheduleLocal(nextRun) + " · " + String(timeZone)) : "Disabled");
@@ -2996,6 +3029,9 @@
                             var runAt = HueConfigurationPage.readStatusField(run, "RunAtUtc", null);
                             var cueName = HueConfigurationPage.readStatusField(run, "ScheduleName", "Unnamed cue");
                             var presetName = HueConfigurationPage.readStatusField(run, "PresetName", "—");
+                            var playlistName = HueConfigurationPage.readStatusField(run, "PlaylistName", "");
+                            var runContentName = playlistName || presetName;
+                            var playlistSteps = HueConfigurationPage.readStatusField(run, "PlaylistSteps", []);
                             var runEffect = HueConfigurationPage.readStatusField(run, "Effect", "Solid");
                             var runSpeed = Number(HueConfigurationPage.readStatusField(run, "EffectSpeedPercent", 100));
                             var targetLabel = HueConfigurationPage.readStatusField(run, "TargetLabel", "Default bridge target");
@@ -3016,7 +3052,7 @@
                             };
                             addCell(runAt ? new Date(runAt).toLocaleString() : "—");
                             addCell(cueName);
-                            addCell(String(presetName) + " · " + String(runEffect) + " · speed " + String(runSpeed || 100) + "%");
+                            addCell(String(runContentName) + (playlistName ? " · " + (Array.isArray(playlistSteps) ? playlistSteps.length : 0) + " steps" : "") + " · " + String(runEffect) + " · speed " + String(runSpeed || 100) + "%");
                             addCell(targetLabel);
                             var historyResult = skipped ? "Skipped" : (succeeded ? "Succeeded" : "Failed");
                             if (wasCatchUp) historyResult = "Recovered · " + historyResult;
@@ -3118,6 +3154,30 @@
                     Array.prototype.forEach.call(days.options, function (option) {
                         option.selected = (Number(mask) & (Number(option.value) || 0)) !== 0;
                     });
+                },
+                updateSceneScheduleSource: function (page) {
+                    if (!page) return;
+                    var sourceType = page.querySelector('#sceneScheduleSourceType');
+                    var isPlaylist = sourceType && sourceType.value === 'playlist';
+                    var presetContainer = page.querySelector('#sceneSchedulePresetContainer');
+                    var playlistContainer = page.querySelector('#sceneSchedulePlaylistContainer');
+                    var presetSelect = page.querySelector('#sceneSchedulePresetSelect');
+                    var playlistSelect = page.querySelector('#sceneSchedulePlaylistSelect');
+                    var duration = page.querySelector('#sceneScheduleDuration');
+                    var durationDescription = page.querySelector('#sceneScheduleDurationDescription');
+                    if (presetContainer) presetContainer.style.display = isPlaylist ? 'none' : '';
+                    if (playlistContainer) playlistContainer.style.display = isPlaylist ? '' : 'none';
+                    if (presetSelect) presetSelect.disabled = !!isPlaylist;
+                    if (playlistSelect) playlistSelect.disabled = !isPlaylist;
+                    if (duration) {
+                        duration.disabled = !!isPlaylist;
+                        if (isPlaylist) duration.value = '';
+                    }
+                    if (durationDescription) {
+                        durationDescription.textContent = isPlaylist
+                            ? "Playlist cues use each saved scene's duration; the total is calculated automatically."
+                            : "Blank or 0 uses the saved scene duration; 1-30 seconds overrides it for this cue.";
+                    }
                 },
                 updateSceneScheduleRecurrenceMode: function (page, clearRecurringRules) {
                     if (!page) return;
@@ -3239,6 +3299,10 @@
                     };
                     page.querySelector('#sceneScheduleName').value = get('Name', 'name', '');
                     page.querySelector('#sceneSchedulePresetSelect').value = get('PresetName', 'presetName', '');
+                    var playlistName = get('PlaylistName', 'playlistName', '');
+                    page.querySelector('#sceneSchedulePlaylistSelect').value = playlistName;
+                    page.querySelector('#sceneScheduleSourceType').value = playlistName ? 'playlist' : 'scene';
+                    HueConfigurationPage.updateSceneScheduleSource(page);
                     page.querySelector('#sceneScheduleTime').value = get('TimeOfDay', 'timeOfDay', '20:00');
                     page.querySelector('#sceneScheduleDuration').value = get('DurationSeconds', 'durationSeconds', 0) || '';
                     page.querySelector('#sceneScheduleMaxRuns').value = get('MaxRuns', 'maxRuns', 0) || '';
@@ -3279,6 +3343,9 @@
                     if (!page) return;
                     page.querySelector('#sceneScheduleName').value = '';
                     page.querySelector('#sceneSchedulePresetSelect').value = '';
+                    page.querySelector('#sceneSchedulePlaylistSelect').value = '';
+                    page.querySelector('#sceneScheduleSourceType').value = 'scene';
+                    HueConfigurationPage.updateSceneScheduleSource(page);
                     page.querySelector('#sceneScheduleTime').value = '20:00';
                     page.querySelector('#sceneScheduleDuration').value = '';
                     page.querySelector('#sceneScheduleMaxRuns').value = '';
@@ -3302,7 +3369,11 @@
                 },
                 saveSceneSchedule: function (page) {
                     var name = page.querySelector('#sceneScheduleName').value.trim();
+                    var sourceType = page.querySelector('#sceneScheduleSourceType').value || 'scene';
                     var presetName = page.querySelector('#sceneSchedulePresetSelect').value;
+                    var playlistName = page.querySelector('#sceneSchedulePlaylistSelect').value;
+                    if (sourceType === 'playlist') presetName = '';
+                    else playlistName = '';
                     var timeOfDay = page.querySelector('#sceneScheduleTime').value;
                     var durationText = page.querySelector('#sceneScheduleDuration').value.trim();
                     var durationSeconds = durationText ? Number(durationText) : 0;
@@ -3331,25 +3402,26 @@
                         .filter(function (value) { return value; });
                     var daysOfWeekMask = HueConfigurationPage.getSceneScheduleDaysMask(page);
                     var recurrenceMode = String(recurrence).toLowerCase();
-                    if (!name || !presetName || !timeOfDay || (!runDate &&
+                    var contentName = sourceType === 'playlist' ? playlistName : presetName;
+                    if (!name || !contentName || !timeOfDay || (!runDate &&
                         ((recurrenceMode === 'monthly' && !dayOfMonth) ||
                          (recurrenceMode === 'yearly' && (!monthOfYear || !dayOfMonth)) ||
                          (recurrenceMode === 'monthlyweekday' && (!weekOfMonth || dayOfWeek < 0)) ||
                          (recurrenceMode === 'weekly' && !daysOfWeekMask)))) {
                         Dashboard.alert(runDate
-                            ? "Enter a cue name, saved scene, time, and one-time date."
+                            ? "Enter a cue name, saved scene or playlist, time, and one-time date."
                             : (recurrenceMode === 'monthly'
-                                ? "Enter a cue name, saved scene, time, and monthly day of month."
+                                ? "Enter a cue name, saved scene or playlist, time, and monthly day of month."
                                 : (recurrenceMode === 'yearly'
-                                    ? "Enter a cue name, saved scene, time, yearly month, and day of month."
+                                    ? "Enter a cue name, saved scene or playlist, time, yearly month, and day of month."
                                 : (recurrenceMode === 'monthlyweekday'
-                                    ? "Enter a cue name, saved scene, time, and monthly ordinal weekday."
+                                    ? "Enter a cue name, saved scene or playlist, time, and monthly ordinal weekday."
                                     : (recurrenceMode === 'weekly'
-                                    ? "Enter a cue name, saved scene, time, and at least one weekday."
-                                    : "Enter a cue name, saved scene, and time.")))));
+                                    ? "Enter a cue name, saved scene or playlist, time, and at least one weekday."
+                                    : "Enter a cue name, saved scene or playlist, and time.")))));
                         return;
                     }
-                    if (!Number.isInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 30) {
+                    if (sourceType !== 'playlist' && (!Number.isInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 30)) {
                         Dashboard.alert("Hold duration must be blank, 0 (scene default), or a whole number from 1 to 30 seconds.");
                         return;
                     }
@@ -3406,6 +3478,7 @@
                             id: select.value || '',
                             name: name,
                             presetName: presetName,
+                            playlistName: playlistName,
                             targetUserId: targetAllEnabledMappings ? '' : targetValue,
                             targetAllEnabledMappings: targetAllEnabledMappings,
                             timeOfDay: timeOfDay,
@@ -3683,7 +3756,7 @@
                     }
                     var button = page.querySelector('#runSceneScheduleBtn');
                     button.disabled = true;
-                    if (statusEl) statusEl.textContent = "Running scheduled scene...";
+                    if (statusEl) statusEl.textContent = "Running scheduled cue...";
                     var request = ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/SceneSchedules/" + encodeURIComponent(scheduleId) + "/Run"),
@@ -3693,7 +3766,7 @@
                     HueConfigurationPage.updateSceneScheduleButtons(page);
                     request.then(function (result) {
                         var succeeded = result && (result.succeeded !== undefined ? result.succeeded : result.Succeeded);
-                        var message = result && (result.message || result.Message) || "Scene cue completed.";
+                        var message = result && (result.message || result.Message) || "Scheduled cue completed.";
                         if (statusEl) {
                             statusEl.textContent = message;
                             statusEl.style.color = succeeded ? "#8bc34a" : "#d9534f";
@@ -5911,6 +5984,10 @@
 
             document.querySelector('#sceneScheduleSelect').addEventListener('change', function () {
                 HueConfigurationPage.applySceneSchedule(this.closest('.page'), this.value);
+            });
+
+            document.querySelector('#sceneScheduleSourceType').addEventListener('change', function () {
+                HueConfigurationPage.updateSceneScheduleSource(this.closest('.page'));
             });
 
             document.querySelector('#sceneScheduleRunDate').addEventListener('change', function () {
