@@ -825,25 +825,25 @@ public sealed class HueStreamTester : IHueStreamTester
 
             if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectCandle, StringComparison.Ordinal))
             {
-                var red = Math.Clamp(target[0] / 127d, 0d, 1d);
-                var green = Math.Clamp(target[2] / 127d, 0d, 1d);
-                var blue = Math.Clamp(target[4] / 127d, 0d, 1d);
-                var value = Math.Clamp(Math.Max(red, Math.Max(green, blue)), 0d, 1d);
+                var candleRed = Math.Clamp(target[0] / 127d, 0d, 1d);
+                var candleGreen = Math.Clamp(target[2] / 127d, 0d, 1d);
+                var candleBlue = Math.Clamp(target[4] / 127d, 0d, 1d);
+                var candleValue = Math.Clamp(Math.Max(candleRed, Math.Max(candleGreen, candleBlue)), 0d, 1d);
                 const double warmMix = 0.45d;
                 // A candle remains deterministic and bounded while shifting the selected
                 // seed toward a warm amber palette. Each channel receives a different
                 // phase so a multi-light area flickers naturally instead of in lockstep.
-                red = Math.Max(red, value * 0.95d);
-                green = (green * (1d - warmMix)) + (value * 0.62d * warmMix);
-                blue = (blue * (1d - warmMix)) + (value * 0.14d * warmMix);
+                candleRed = Math.Max(candleRed, candleValue * 0.95d);
+                candleGreen = (candleGreen * (1d - warmMix)) + (candleValue * 0.62d * warmMix);
+                candleBlue = (candleBlue * (1d - warmMix)) + (candleValue * 0.14d * warmMix);
                 var flicker = 0.62d +
                     (0.28d * (0.5d + 0.5d * Math.Sin((elapsed * 5.5d) + (channelId * 0.731d)))) +
                     (0.10d * (0.5d + 0.5d * Math.Sin((elapsed * 13d) + (channelId * 1.17d) + 0.9d)));
                 colors[channelId] = new[]
                 {
-                    ToRgb16Byte(red * flicker), ToRgb16Byte(red * flicker),
-                    ToRgb16Byte(green * flicker), ToRgb16Byte(green * flicker),
-                    ToRgb16Byte(blue * flicker), ToRgb16Byte(blue * flicker)
+                    ToRgb16Byte(candleRed * flicker), ToRgb16Byte(candleRed * flicker),
+                    ToRgb16Byte(candleGreen * flicker), ToRgb16Byte(candleGreen * flicker),
+                    ToRgb16Byte(candleBlue * flicker), ToRgb16Byte(candleBlue * flicker)
                 };
                 continue;
             }
