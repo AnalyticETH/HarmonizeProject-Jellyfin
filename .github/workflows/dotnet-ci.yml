@@ -55,7 +55,7 @@ jobs:
       run: node scripts/validate-config-page.mjs
 
     - name: Upload test results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: test-results
@@ -63,7 +63,7 @@ jobs:
         retention-days: 30
 
     - name: Upload code coverage artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: code-coverage
@@ -85,7 +85,7 @@ jobs:
       run: dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj --configuration ${{ env.BUILD_CONFIGURATION }} --no-build --output ./publish
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: jellyfin-plugin-hue
         path: ./publish/
@@ -137,7 +137,7 @@ jobs:
         fi
 
     - name: Upload security scan results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: security-scan
@@ -184,7 +184,7 @@ jobs:
         test "$(unzip -Z1 jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "Jellyfin.Plugin.Hue.dll meta.json "
 
     - name: Upload release package
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: release-package
         path: jellyfin-plugin-hue-release.zip
@@ -205,7 +205,7 @@ jobs:
         echo "3. Restart Jellyfin" >> release-notes.md
 
     - name: Upload release notes
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: release-notes
         path: release-notes.md
