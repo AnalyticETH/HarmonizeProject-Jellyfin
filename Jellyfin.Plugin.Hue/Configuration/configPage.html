@@ -372,6 +372,14 @@
                                 <label class="inputLabel inputLabelUnfocused" for="scenePlaylistBulkSelect">Bulk playlist selection</label>
                                 <select id="scenePlaylistBulkSelect" is="emby-select" multiple size="5" style="width: 100%;"></select>
                             </div>
+                            <div style="flex: 1 1 280px;">
+                                <label class="inputLabel inputLabelUnfocused" for="scenePlaylistBulkPreviewTarget">Bulk preview targets</label>
+                                <select id="scenePlaylistBulkPreviewTarget" is="emby-select" multiple size="5" style="width: 100%;">
+                                    <option value="__saved_target__" selected>Each playlist's saved target</option>
+                                    <option value="__default_target__">Default bridge target</option>
+                                    <option value="__all_enabled_targets__">All enabled targets</option>
+                                </select>
+                            </div>
                             <div style="display: flex; gap: 0.5em; flex-wrap: wrap; align-items: flex-start;">
                                 <button is="emby-button" type="button" class="raised" id="selectAllScenePlaylistsBtn" disabled><span>Select All</span></button>
                                 <button is="emby-button" type="button" class="raised" id="clearSelectedScenePlaylistsBtn" disabled><span>Clear Selection</span></button>
@@ -380,7 +388,7 @@
                                 <button is="emby-button" type="button" class="raised" id="duplicateSelectedScenePlaylistsBtn" disabled><span>Duplicate Selected</span></button>
                                 <button is="emby-button" type="button" class="raised" id="deleteSelectedScenePlaylistsBtn" disabled><span>Delete Selected</span></button>
                             </div>
-                            <div id="scenePlaylistBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select playlists to preview sequentially with restorative state cleanup, duplicate independent copies, or delete them together. Any playlist referenced by a scheduled cue blocks deletion.</div>
+                            <div id="scenePlaylistBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select playlists to preview sequentially with restorative state cleanup. Preview Selected uses each playlist's saved target unless Bulk preview targets is changed; the All Targets button remains an explicit broadcast override. Duplicate independent copies or delete them together. Any playlist referenced by a scheduled cue blocks deletion.</div>
                         </div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-start; flex-wrap: wrap; margin-top: 0.75em;">
                             <div style="flex: 1 1 220px;">
@@ -1911,6 +1919,7 @@
                     var bulkPresetAllTargetsButton = page && page.querySelector('#previewSelectedPreviewPresetsAllBtn');
                     var bulkPlaylistButton = page && page.querySelector('#previewSelectedScenePlaylistsBtn');
                     var bulkPlaylistAllTargetsButton = page && page.querySelector('#previewSelectedScenePlaylistsAllBtn');
+                    var bulkPlaylistTargetSelect = page && page.querySelector('#scenePlaylistBulkPreviewTarget');
                     var mappingButton = page && page.querySelector('#mappingPreviewColorBtn');
                     if (defaultButton) defaultButton.disabled = busy;
                     if (allTargetsButton) allTargetsButton.disabled = busy;
@@ -1924,6 +1933,7 @@
                     if (bulkPresetAllTargetsButton) bulkPresetAllTargetsButton.disabled = busy;
                     if (bulkPlaylistButton) bulkPlaylistButton.disabled = busy;
                     if (bulkPlaylistAllTargetsButton) bulkPlaylistAllTargetsButton.disabled = busy;
+                    if (bulkPlaylistTargetSelect) bulkPlaylistTargetSelect.disabled = busy;
                     if (mappingButton) mappingButton.disabled = busy;
                     if (cancelButton) {
                         cancelButton.style.display = busy ? "" : "none";
@@ -2927,8 +2937,13 @@
                     var playlistSelect = page && page.querySelector('#scenePlaylistSelect');
                     if (!playlistSelect) return Promise.resolve();
                     var bulkSelect = page.querySelector('#scenePlaylistBulkSelect');
+                    var bulkPreviewTargetSelect = page.querySelector('#scenePlaylistBulkPreviewTarget');
+                    var previousBulkPreviewTargetValues = bulkPreviewTargetSelect
+                        ? Array.prototype.slice.call(bulkPreviewTargetSelect.selectedOptions || []).map(function (option) { return option.value; })
+                        : [];
                     playlistSelect.disabled = true;
                     if (bulkSelect) bulkSelect.disabled = true;
+                    if (bulkPreviewTargetSelect) bulkPreviewTargetSelect.disabled = true;
                     return Promise.all([
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/ScenePlaylists")),
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets")),
@@ -2983,8 +2998,21 @@
                         }
 
                         var targetSelect = page.querySelector('#scenePlaylistTarget');
-                        if (targetSelect) {
-                            targetSelect.innerHTML = '<option value="__default_target__">Default bridge target</option><option value="__all_enabled_targets__">All enabled targets</option>';
+                        [
+                            {
+                                select: targetSelect,
+                                prefix: '<option value="__default_target__">Default bridge target</option><option value="__all_enabled_targets__">All enabled targets</option>',
+                                previousValues: []
+                            },
+                            {
+                                select: bulkPreviewTargetSelect,
+                                prefix: '<option value="__saved_target__">Each playlist\'s saved target</option><option value="__default_target__">Default bridge target</option><option value="__all_enabled_targets__">All enabled targets</option>',
+                                previousValues: previousBulkPreviewTargetValues
+                            }
+                        ].forEach(function (targetDefinition) {
+                            var select = targetDefinition.select;
+                            if (!select) return;
+                            select.innerHTML = targetDefinition.prefix;
                             mappings.forEach(function (mapping) {
                                 var userId = mapping && (mapping.userId !== undefined ? mapping.userId : mapping.UserId);
                                 if (!userId) return;
@@ -2993,9 +3021,15 @@
                                 var option = document.createElement('option');
                                 option.value = userId;
                                 option.textContent = (userName || userId) + (enabled ? "" : " (disabled)");
-                                targetSelect.appendChild(option);
+                                select.appendChild(option);
                             });
-                        }
+                            if (targetDefinition.previousValues.length) {
+                                Array.prototype.forEach.call(select.options || [], function (option) {
+                                    option.selected = targetDefinition.previousValues.indexOf(option.value) >= 0;
+                                });
+                            }
+                        });
+                        HueConfigurationPage.normalizeScenePlaylistBulkPreviewTargetSelection(page);
 
                         playlistSelect.value = selectedName || "";
                         if (playlistSelect.value) {
@@ -3013,6 +3047,7 @@
                     }).finally(function () {
                         playlistSelect.disabled = false;
                         if (bulkSelect) bulkSelect.disabled = false;
+                        if (bulkPreviewTargetSelect) bulkPreviewTargetSelect.disabled = false;
                         HueConfigurationPage.updateScenePlaylistBulkButtons(page);
                     });
                 },
@@ -3100,12 +3135,14 @@
                     var clear = page && page.querySelector('#clearSelectedScenePlaylistsBtn');
                     var previewButton = page && page.querySelector('#previewSelectedScenePlaylistsBtn');
                     var previewAllButton = page && page.querySelector('#previewSelectedScenePlaylistsAllBtn');
+                    var previewTargetSelect = page && page.querySelector('#scenePlaylistBulkPreviewTarget');
                     var duplicateButton = page && page.querySelector('#duplicateSelectedScenePlaylistsBtn');
                     var deleteButton = page && page.querySelector('#deleteSelectedScenePlaylistsBtn');
                     if (selectAll) selectAll.disabled = !hasPlaylists;
                     if (clear) clear.disabled = !hasSelection;
                     if (previewButton) previewButton.disabled = !hasSelection;
                     if (previewAllButton) previewAllButton.disabled = !hasSelection;
+                    if (previewTargetSelect) previewTargetSelect.disabled = !hasPlaylists;
                     if (duplicateButton) duplicateButton.disabled = !hasSelection;
                     if (deleteButton) deleteButton.disabled = !hasSelection;
                 },
@@ -3318,6 +3355,51 @@
                         option.selected = normalized.indexOf(option.value) >= 0;
                     });
                 },
+                normalizeScenePlaylistBulkPreviewTargetSelection: function (page) {
+                    var select = page && page.querySelector('#scenePlaylistBulkPreviewTarget');
+                    if (!select) return;
+                    var selected = Array.prototype.slice.call(select.selectedOptions || [])
+                        .map(function (option) { return option && option.value ? option.value : ''; })
+                        .filter(Boolean);
+                    var saved = selected.indexOf('__saved_target__') >= 0;
+                    var all = selected.indexOf('__all_enabled_targets__') >= 0;
+                    var defaultTarget = selected.indexOf('__default_target__') >= 0;
+                    var mappingIds = selected.filter(function (value) {
+                        return value !== '__saved_target__' && value !== '__all_enabled_targets__' && value !== '__default_target__';
+                    });
+                    var normalized;
+                    if (saved) {
+                        normalized = ['__saved_target__'];
+                    } else if (all) {
+                        normalized = ['__all_enabled_targets__'];
+                    } else if (defaultTarget || mappingIds.length) {
+                        normalized = (defaultTarget ? ['__default_target__'] : []).concat(mappingIds);
+                    } else {
+                        normalized = ['__saved_target__'];
+                    }
+                    Array.prototype.forEach.call(select.options || [], function (option) {
+                        option.selected = normalized.indexOf(option.value) >= 0;
+                    });
+                },
+                getScenePlaylistBulkPreviewTargetSelection: function (page) {
+                    HueConfigurationPage.normalizeScenePlaylistBulkPreviewTargetSelection(page);
+                    var select = page && page.querySelector('#scenePlaylistBulkPreviewTarget');
+                    var selected = Array.prototype.slice.call(select && select.selectedOptions || [])
+                        .map(function (option) { return option && option.value ? option.value : ''; })
+                        .filter(Boolean);
+                    var saved = selected.indexOf('__saved_target__') >= 0;
+                    var all = selected.indexOf('__all_enabled_targets__') >= 0;
+                    var includeDefaultTarget = selected.indexOf('__default_target__') >= 0;
+                    return {
+                        preserveSavedTarget: saved,
+                        targetAllEnabledMappings: saved ? null : all,
+                        includeDefaultTarget: saved ? null : !all && includeDefaultTarget,
+                        targetUserIds: saved ? null : all ? null : selected.filter(function (value) {
+                            return value !== '__saved_target__' && value !== '__default_target__' && value !== '__all_enabled_targets__';
+                        }),
+                        targetUserId: ''
+                    };
+                },
                 getScenePlaylistTargetSelection: function (page) {
                     HueConfigurationPage.normalizeScenePlaylistTargetSelection(page);
                     var select = page && page.querySelector('#scenePlaylistTarget');
@@ -3405,8 +3487,17 @@
                         return;
                     }
 
+                    var targetSelection = allTargets
+                        ? { preserveSavedTarget: false, targetAllEnabledMappings: true, targetUserIds: null, includeDefaultTarget: false, targetUserId: '' }
+                        : HueConfigurationPage.getScenePlaylistBulkPreviewTargetSelection(page);
+                    var targetSummary = allTargets || targetSelection.targetAllEnabledMappings
+                        ? "on every enabled target"
+                        : targetSelection.preserveSavedTarget
+                            ? "using each playlist's saved target"
+                            : "on the selected targets";
+
                     Dashboard.confirm(
-                        "Preview " + ids.length + " selected saved playlist" + (ids.length === 1 ? "" : "s") + (allTargets ? " on every enabled target" : " using each playlist's saved target") + "? Each playlist runs sequentially and restores light state before the next.",
+                        "Preview " + ids.length + " selected saved playlist" + (ids.length === 1 ? "" : "s") + " " + targetSummary + "? Each playlist runs sequentially and restores light state before the next.",
                         allTargets ? "Preview Selected Playlists on All Targets" : "Preview Selected Playlists",
                         function (confirmed) {
                             if (!confirmed) return;
@@ -3415,7 +3506,11 @@
                             if (status) {
                                 status.textContent = allTargets
                                     ? "Saving each target's light state and previewing the selected playlists sequentially..."
-                                    : "Saving each playlist target's light state and previewing the selected playlists sequentially...";
+                                    : targetSelection.preserveSavedTarget
+                                        ? "Saving each playlist target's light state and previewing the selected playlists sequentially..."
+                                        : targetSelection.targetAllEnabledMappings
+                                            ? "Saving each target's light state and previewing the selected playlists sequentially..."
+                                            : "Saving the selected target states and previewing the selected playlists sequentially...";
                                 status.style.color = '';
                             }
                             page._huePreviewStatusElement = status;
@@ -3423,7 +3518,13 @@
                             var request = ApiClient.ajax({
                                 type: "POST",
                                 url: ApiClient.getUrl("HueSync/ScenePlaylists/BulkPreview"),
-                                data: JSON.stringify({ playlistIds: ids, targetAllEnabledMappings: allTargets ? true : null }),
+                                data: JSON.stringify({
+                                    playlistIds: ids,
+                                    targetUserId: targetSelection.targetUserId || "",
+                                    targetUserIds: targetSelection.targetUserIds,
+                                    includeDefaultTarget: targetSelection.includeDefaultTarget,
+                                    targetAllEnabledMappings: targetSelection.targetAllEnabledMappings
+                                }),
                                 contentType: "application/json",
                                 dataType: "json"
                             });
@@ -3448,9 +3549,11 @@
                             }).catch(function (err) {
                                 console.error("Bulk scene playlist preview error:", err);
                                 if (status) {
-                                    status.textContent = allTargets
+                                    status.textContent = allTargets || targetSelection.targetAllEnabledMappings
                                         ? "Bulk playlist preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying."
-                                        : "Bulk playlist preview failed. Verify each saved playlist target in System Diagnostics and stop active playback before retrying.";
+                                        : targetSelection.preserveSavedTarget
+                                            ? "Bulk playlist preview failed. Verify each saved playlist target in System Diagnostics and stop active playback before retrying."
+                                            : "Bulk playlist preview failed. Verify each selected target in System Diagnostics and stop active playback before retrying.";
                                     status.style.color = "#d9534f";
                                 }
                             }).finally(function () {
@@ -8311,6 +8414,10 @@
 
             document.querySelector('#scenePlaylistTarget').addEventListener('change', function () {
                 HueConfigurationPage.normalizeScenePlaylistTargetSelection(this.closest('.page'));
+            });
+
+            document.querySelector('#scenePlaylistBulkPreviewTarget').addEventListener('change', function () {
+                HueConfigurationPage.normalizeScenePlaylistBulkPreviewTargetSelection(this.closest('.page'));
             });
 
             document.querySelector('#scenePlaylistBulkSelect').addEventListener('change', function () {

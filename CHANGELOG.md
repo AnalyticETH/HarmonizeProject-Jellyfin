@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.149] - 2026-08-19
+
+### Added
+- **Target-aware bulk playlist previews**: preview selected saved playlists on each playlist's saved target, the default bridge, every enabled target, or a deliberate subset of enabled mappings with optional default-bridge inclusion
+- **Credential-free playlist target override**: send only nullable target-selection metadata from the administrator page while the server resolves persisted credentials and channel profiles
+- **Administrator bulk target picker**: add an exclusive saved-target/default/all choice and multi-select mapping override beside playlist bulk actions
+- **Bulk target regression coverage**: verify selected playlist previews fan out to the default bridge and selected mapping without exposing credentials
+
 ## [1.5.148] - 2026-08-19
 
 ### Added

@@ -400,7 +400,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.148 (Current)
+### Version 1.5.149 (Current)
+- **Target-aware bulk playlist previews**: preview selected saved playlists using each playlist's saved target by default, or choose the default bridge, every enabled target, or a deliberate subset of enabled mappings with optional default-bridge inclusion
+- **Credential-free playlist target override**: the browser sends only selected IDs and mode flags; persisted credentials, channel profiles, validation, and restorative execution remain server-side
+- **Administrator bulk target picker**: use the exclusive saved-target/default/all options or combine selected mappings for Preview Selected, while Preview Selected on All Targets remains an explicit broadcast action
+
+### Version 1.5.148
 - **Raw preview target parity**: run administrator color previews on the default bridge, every enabled target, or a deliberate subset of enabled mappings with optional default-bridge inclusion
 - **Credential-free raw preview execution**: selected-target previews resolve persisted credentials and channel profiles server-side and return selected IDs, default inclusion, and per-target outcomes without secrets
 - **Administrator target picker**: add a multi-select target control to the raw color preview while retaining explicit all-target broadcast controls

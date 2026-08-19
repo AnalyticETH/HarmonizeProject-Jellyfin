@@ -2474,6 +2474,99 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task ScenePlaylistsBulkPreview_SelectedTargetOverrideUsesDefaultAndMappingTargets()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-override-global-app-secret",
+            HueClientKey = "bulk-override-global-client-secret",
+            EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "mapping-selected",
+                    UserName = "Selected room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "bulk-override-mapping-app-secret",
+                    HueClientKey = "bulk-override-mapping-client-secret",
+                    EntertainmentAreaId = "selected-area"
+                }
+            },
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, DurationSeconds = 1 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-override",
+                    Name = "Override sequence",
+                    PresetNames = new List<string> { "Warm" },
+                    TargetUserIds = new List<string> { "mapping-selected" }
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<string>(),
+                It.IsAny<int>()))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Selected-target playlist completed." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var action = await controller.PreviewScenePlaylistsBulk(new HueScenePlaylistBulkPreviewRequest
+        {
+            PlaylistIds = new List<string> { "playlist-override" },
+            TargetUserIds = new List<string> { "mapping-selected" },
+            IncludeDefaultTarget = true
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueScenePlaylistBulkPreviewResult>(response.Value);
+        var playlistResult = Assert.Single(result.Results);
+        Assert.Equal(new[] { "mapping-selected" }, playlistResult.TargetUserIds);
+        Assert.True(playlistResult.IncludeDefaultTarget);
+        Assert.False(playlistResult.TargetAllEnabledMappings);
+        Assert.Equal(2, playlistResult.TargetResults.Count);
+        Assert.Contains(streamTester.Invocations, invocation =>
+            invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync) &&
+            string.Equals(invocation.Arguments[0] as string, "192.168.1.100", StringComparison.Ordinal));
+        Assert.Contains(streamTester.Invocations, invocation =>
+            invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync) &&
+            string.Equals(invocation.Arguments[0] as string, "192.168.1.101", StringComparison.Ordinal));
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("bulk-override-global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-override-global-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-override-mapping-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-override-mapping-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ScenePlaylistsBulkPreview_MissingOrInvalidSelectionDoesNotContactBridge()
     {
         InstallConfiguration(new PluginConfiguration
