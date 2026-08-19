@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.154] - 2026-08-19
+
+### Fixed
+- **Early FFmpeg flag validation**: global and per-user custom FFmpeg flags now use the same parser during configuration validation, rejecting malformed quoted values before playback starts
+- **Actionable configuration feedback**: unterminated quotes return a clear administrator-facing validation error while preserving safe tokenized process arguments
+- **Regression coverage**: verify invalid global and per-user execution profiles fail validation consistently
+
 ## [1.5.153] - 2026-08-19
 
 ### Fixed

@@ -83,7 +83,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Blackout Threshold** | Set all channels to black when the sampled frame's average brightness falls below 0-255 (default: 15). Set to 0 to disable blackout handling. |
 | **Color Change Threshold** | Suppress Hue packets until the RGB16 color delta reaches 0-255 (default: 10). Lower values follow subtle changes; higher values reduce network traffic. |
 | **When Playback Is Paused** | Keep the last synced colors (default) or restore the original light state captured at playback start. Sync resumes automatically. Restoring uses the **Restore Light State After Sync** setting. |
-| **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). |
+| **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). Values may use quoted groups and escaped quotes/backslashes; the configuration save validates the same tokenization used by FFmpeg playback and reports malformed quotes before a session starts. |
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
 | **Network Retry Attempts** | Number of retry attempts for Hue REST requests and DTLS stream recovery (0-10, default: 3). |
 | **Enable Real-time Sync** | Master toggle for the sync feature. |
@@ -400,7 +400,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.153 (Current)
+### Version 1.5.154 (Current)
+- **Early FFmpeg flag validation**: global and per-user custom FFmpeg flags now use the playback parser during configuration validation, so malformed quoted values are rejected when saved instead of failing at playback startup
+- **Actionable configuration feedback**: unterminated quotes return a clear administrator-facing validation error while preserving safe tokenized process arguments
+- **Regression coverage**: verify invalid global and per-user execution profiles fail validation consistently
+
+### Version 1.5.153
 - **Safe FFmpeg process arguments**: playback uses tokenized process arguments so media paths containing spaces or quotes remain reliable across platforms
 - **Custom FFmpeg flag parsing**: quoted values and escaped quotes/backslashes are preserved without shell interpretation; malformed quotes fail clearly before startup
 - **Cross-platform playback parity**: FFmpeg now follows the safe process-launch model already used by OpenSSL and environment diagnostics

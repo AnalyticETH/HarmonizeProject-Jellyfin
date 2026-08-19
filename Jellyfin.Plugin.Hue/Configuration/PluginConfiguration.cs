@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json.Serialization;
+using Jellyfin.Plugin.Hue.Video;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.Hue.Configuration
@@ -1031,6 +1032,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             var errors = new List<string>();
 
+            if (!string.IsNullOrWhiteSpace(mapping.CustomFfmpegFlagsOverride))
+            {
+                try
+                {
+                    _ = FfmpegStreamer.ParseCustomArguments(mapping.CustomFfmpegFlagsOverride);
+                }
+                catch (FormatException ex)
+                {
+                    errors.Add($"{label} custom FFmpeg flags are invalid: {ex.Message}");
+                }
+            }
+
             if (mapping.FfmpegStallTimeoutSecondsOverride.HasValue &&
                 (mapping.FfmpegStallTimeoutSecondsOverride.Value < MinFfmpegStallTimeoutSeconds ||
                  mapping.FfmpegStallTimeoutSecondsOverride.Value > MaxFfmpegStallTimeoutSeconds))
@@ -1944,6 +1957,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 if (FfmpegStallTimeoutSeconds < MinFfmpegStallTimeoutSeconds ||
                     FfmpegStallTimeoutSeconds > MaxFfmpegStallTimeoutSeconds)
                     errors.Add("FFmpeg stall timeout must be between 1 and 60 seconds");
+
+                if (!string.IsNullOrWhiteSpace(CustomFfmpegFlags))
+                {
+                    try
+                    {
+                        _ = FfmpegStreamer.ParseCustomArguments(CustomFfmpegFlags);
+                    }
+                    catch (FormatException ex)
+                    {
+                        errors.Add($"Custom FFmpeg flags are invalid: {ex.Message}");
+                    }
+                }
 
                 errors.AddRange(ValidateGlobalChannelIds(ChannelIds));
                 ValidateUserMappings(errors);

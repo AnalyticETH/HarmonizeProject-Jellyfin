@@ -1539,6 +1539,41 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void Validate_WhenCustomFfmpegFlagsHaveUnterminatedQuote_ReturnsActionableError()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            CustomFfmpegFlags = "-filter_threads \"1"
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains(
+            "Custom FFmpeg flags are invalid: FFmpeg custom flags contain an unterminated quote.",
+            errors);
+    }
+
+    [Fact]
+    public void ValidateExecutionOverrides_WhenCustomFfmpegFlagsHaveUnterminatedQuote_ReturnsActionableError()
+    {
+        var errors = PluginConfiguration.ValidateExecutionOverrides(
+            new UserBridgeMapping
+            {
+                CustomFfmpegFlagsOverride = "-vf \"scale=160:90"
+            },
+            "Bedroom mapping");
+
+        Assert.Contains(
+            "Bedroom mapping custom FFmpeg flags are invalid: FFmpeg custom flags contain an unterminated quote.",
+            errors);
+    }
+
+    [Fact]
     public void Validate_WithMultipleErrors_ReturnsAllErrors()
     {
         // Arrange
