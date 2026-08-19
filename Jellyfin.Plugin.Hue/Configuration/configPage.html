@@ -567,6 +567,10 @@
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleOccurrencesBtn"><span>Refresh Upcoming Cues</span></button>
                             <button is="emby-button" type="button" class="raised" id="exportSceneScheduleCalendarBtn"><span>Download Calendar (.ics)</span></button>
+                            <label class="inputLabel inputLabelUnfocused" for="sceneScheduleOccurrenceFilter" style="margin: 0;">Focus cue</label>
+                            <select id="sceneScheduleOccurrenceFilter" is="emby-select" style="min-width: 220px;">
+                                <option value="">All configured cues</option>
+                            </select>
                             <div id="sceneScheduleOccurrencesSummary" class="fieldDescription">Loading upcoming cue occurrences...</div>
                         </div>
                         <div id="sceneScheduleOccurrences" style="margin-top: 0.5em; overflow-x: auto;"></div>
@@ -581,6 +585,10 @@
                                 <option value="Failed">Failed</option>
                                 <option value="Skipped">Skipped</option>
                                 <option value="Recovered">Recovered</option>
+                            </select>
+                            <label class="inputLabel inputLabelUnfocused" for="sceneScheduleHistoryCueFilter" style="margin: 0;">Focus cue</label>
+                            <select id="sceneScheduleHistoryCueFilter" is="emby-select" style="min-width: 220px;">
+                                <option value="">All cues</option>
                             </select>
                             <div id="sceneScheduleHistoryStatus" class="fieldDescription">Loading cue history...</div>
                         </div>
@@ -2757,6 +2765,32 @@
                         });
                     });
                 },
+                populateSceneScheduleCueFilters: function (page, schedules) {
+                    if (!page) return;
+                    var filters = [
+                        { selector: '#sceneScheduleConflictFilter', emptyLabel: 'All enabled cues', enabledOnly: true },
+                        { selector: '#sceneScheduleOccurrenceFilter', emptyLabel: 'All configured cues', enabledOnly: false },
+                        { selector: '#sceneScheduleHistoryCueFilter', emptyLabel: 'All cues', enabledOnly: false }
+                    ];
+                    filters.forEach(function (definition) {
+                        var filter = page.querySelector(definition.selector);
+                        if (!filter) return;
+                        var previousValue = String(filter.value || '');
+                        filter.innerHTML = '<option value="">' + definition.emptyLabel + '</option>';
+                        schedules.forEach(function (schedule) {
+                            var id = schedule && (schedule.id !== undefined ? schedule.id : schedule.Id);
+                            var name = schedule && (schedule.name !== undefined ? schedule.name : schedule.Name);
+                            var enabled = schedule && (schedule.enabled !== undefined ? schedule.enabled : schedule.Enabled);
+                            if (!id || !name || (definition.enabledOnly && enabled === false)) return;
+                            var option = document.createElement('option');
+                            option.value = id;
+                            option.textContent = String(name) + (enabled === false ? ' (disabled)' : '');
+                            filter.appendChild(option);
+                        });
+                        filter.value = previousValue;
+                        if (filter.value !== previousValue) filter.value = '';
+                    });
+                },
                 loadSceneSchedules: function (page, selectedId) {
                     var scheduleSelect = page && page.querySelector('#sceneScheduleSelect');
                     if (!scheduleSelect) return Promise.resolve();
@@ -2900,25 +2934,7 @@
                             scheduleSelect.appendChild(option);
                         });
 
-                        var conflictFilter = page.querySelector('#sceneScheduleConflictFilter');
-                        var previousConflictFilter = conflictFilter ? conflictFilter.value : '';
-                        if (conflictFilter) {
-                            conflictFilter.innerHTML = '<option value="">All enabled cues</option>';
-                            schedules.forEach(function (schedule) {
-                                var id = schedule && (schedule.id !== undefined ? schedule.id : schedule.Id);
-                                var name = schedule && (schedule.name !== undefined ? schedule.name : schedule.Name);
-                                var enabled = schedule && (schedule.enabled !== undefined ? schedule.enabled : schedule.Enabled);
-                                if (!id || !name || enabled === false) return;
-                                var option = document.createElement('option');
-                                option.value = id;
-                                option.textContent = name;
-                                conflictFilter.appendChild(option);
-                            });
-                            conflictFilter.value = previousConflictFilter;
-                            if (conflictFilter.value !== previousConflictFilter) {
-                                conflictFilter.value = '';
-                            }
-                        }
+                        HueConfigurationPage.populateSceneScheduleCueFilters(page, schedules);
 
                         if (selectedId) scheduleSelect.value = selectedId;
                         if (scheduleSelect.value) {
@@ -3272,7 +3288,18 @@
                         summary.style.color = "";
                     }
 
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/Occurrences?limit=50&days=31")).then(function (response) {
+                    var occurrenceFilter = page.querySelector('#sceneScheduleOccurrenceFilter');
+                    var selectedScheduleId = occurrenceFilter ? String(occurrenceFilter.value || '').trim() : '';
+                    var occurrencesUrl = "HueSync/SceneSchedules/Occurrences?limit=50&days=31";
+                    if (selectedScheduleId) {
+                        occurrencesUrl += "&scheduleId=" + encodeURIComponent(selectedScheduleId);
+                    }
+                    var selectedScheduleLabel = occurrenceFilter && occurrenceFilter.selectedIndex > 0
+                        ? occurrenceFilter.options[occurrenceFilter.selectedIndex].textContent
+                        : '';
+                    var scopeText = selectedScheduleLabel ? " for " + selectedScheduleLabel : "";
+
+                    return ApiClient.getJSON(ApiClient.getUrl(occurrencesUrl)).then(function (response) {
                         var occurrences = HueConfigurationPage.readStatusField(response, "Occurrences", []);
                         occurrences = Array.isArray(occurrences) ? occurrences : [];
                         var horizonDays = HueConfigurationPage.readStatusField(response, "HorizonDays", 31);
@@ -3281,13 +3308,13 @@
                         if (summary) {
                             summary.textContent = occurrences.length
                                 ? occurrences.length + " upcoming occurrence" + (occurrences.length === 1 ? "" : "s") +
-                                    " in the next " + String(horizonDays) + " days · updated " + generatedText
-                                : "No valid cue occurrences in the preview horizon.";
+                                    scopeText + " in the next " + String(horizonDays) + " days · updated " + generatedText
+                                : "No valid cue occurrences" + scopeText + " in the preview horizon.";
                         }
                         if (!container) return;
                         container.textContent = "";
                         if (occurrences.length === 0) {
-                            container.textContent = "Adjust the cue's days, dates, exclusions, or time zone to preview upcoming runs.";
+                            container.textContent = "Adjust the cue's days, dates, exclusions, or time zone to preview upcoming runs" + (scopeText ? " for this cue" : "") + ".";
                             return;
                         }
 
@@ -3362,9 +3389,19 @@
                     var button = page.querySelector('#exportSceneScheduleCalendarBtn');
                     var summary = page.querySelector('#sceneScheduleOccurrencesSummary');
                     if (button) button.disabled = true;
+                    var occurrenceFilter = page.querySelector('#sceneScheduleOccurrenceFilter');
+                    var selectedScheduleId = occurrenceFilter ? String(occurrenceFilter.value || '').trim() : '';
+                    var calendarUrl = "HueSync/SceneSchedules/Calendar?limit=50&days=31";
+                    if (selectedScheduleId) {
+                        calendarUrl += "&scheduleId=" + encodeURIComponent(selectedScheduleId);
+                    }
+                    var selectedScheduleLabel = occurrenceFilter && occurrenceFilter.selectedIndex > 0
+                        ? occurrenceFilter.options[occurrenceFilter.selectedIndex].textContent
+                        : '';
+                    var scopeText = selectedScheduleLabel ? " for " + selectedScheduleLabel : "";
                     return ApiClient.ajax({
                         type: "GET",
-                        url: ApiClient.getUrl("HueSync/SceneSchedules/Calendar?limit=50&days=31"),
+                        url: ApiClient.getUrl(calendarUrl),
                         dataType: "text"
                     }).then(function (calendar) {
                         var blob = new Blob([String(calendar || "")], { type: "text/calendar;charset=utf-8" });
@@ -3377,7 +3414,7 @@
                         window.document.body.removeChild(link);
                         window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
                         if (summary) {
-                            summary.textContent = "Calendar exported for the next 31 days. Credentials and bridge details were omitted.";
+                            summary.textContent = "Calendar exported" + scopeText + " for the next 31 days. Credentials and bridge details were omitted.";
                             summary.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
@@ -3401,16 +3438,25 @@
                     var exportButton = page.querySelector('#exportSceneScheduleHistoryBtn');
                     var clearButton = page.querySelector('#clearSceneScheduleHistoryBtn');
                     var outcomeFilter = page.querySelector('#sceneScheduleHistoryOutcome');
+                    var cueFilter = page.querySelector('#sceneScheduleHistoryCueFilter');
                     var status = page.querySelector('#sceneScheduleHistoryStatus');
                     var container = page.querySelector('#sceneScheduleHistory');
                     if (refreshButton) refreshButton.disabled = true;
                     if (status) status.textContent = "Loading cue history...";
 
                     var selectedOutcome = outcomeFilter ? String(outcomeFilter.value || '').trim() : '';
+                    var selectedScheduleId = cueFilter ? String(cueFilter.value || '').trim() : '';
                     var historyUrl = "HueSync/SceneSchedules/History?limit=100";
+                    if (selectedScheduleId) {
+                        historyUrl += "&scheduleId=" + encodeURIComponent(selectedScheduleId);
+                    }
                     if (selectedOutcome) {
                         historyUrl += "&outcome=" + encodeURIComponent(selectedOutcome);
                     }
+                    var selectedScheduleLabel = cueFilter && cueFilter.selectedIndex > 0
+                        ? cueFilter.options[cueFilter.selectedIndex].textContent
+                        : '';
+                    var scopeText = selectedScheduleLabel ? " · " + selectedScheduleLabel : '';
                     return ApiClient.getJSON(ApiClient.getUrl(historyUrl)).then(function (response) {
                         var runs = HueConfigurationPage.readStatusField(response, "Runs", []);
                         runs = Array.isArray(runs) ? runs : [];
@@ -3421,6 +3467,7 @@
                                 ? "The scheduled-cue service is unavailable."
                                 : runs.length + " retained cue run" + (runs.length === 1 ? "" : "s") +
                                     (selectedOutcome ? " · " + selectedOutcome : "") +
+                                    scopeText +
                                     (persistenceEnabled ? " · retained across restarts" : " · in memory only");
                             status.style.color = serviceAvailable ? "" : "#f0ad4e";
                         }
@@ -3428,8 +3475,8 @@
                         container.textContent = "";
                         if (runs.length === 0) {
                             container.textContent = selectedOutcome
-                                ? "No scheduled-cue runs match the selected outcome."
-                                : "No completed scheduled-cue runs have been recorded yet.";
+                                ? "No scheduled-cue runs match the selected outcome" + (selectedScheduleLabel ? " for this cue" : "") + "."
+                                : "No completed scheduled-cue runs" + (selectedScheduleLabel ? " for this cue" : "") + " have been recorded yet.";
                             return;
                         }
 
@@ -3509,11 +3556,20 @@
                     var status = page.querySelector('#sceneScheduleHistoryStatus');
                     if (button) button.disabled = true;
                     var outcomeFilter = page.querySelector('#sceneScheduleHistoryOutcome');
+                    var cueFilter = page.querySelector('#sceneScheduleHistoryCueFilter');
                     var selectedOutcome = outcomeFilter ? String(outcomeFilter.value || '').trim() : '';
+                    var selectedScheduleId = cueFilter ? String(cueFilter.value || '').trim() : '';
                     var exportUrl = "HueSync/SceneSchedules/History/Export?limit=100";
+                    if (selectedScheduleId) {
+                        exportUrl += "&scheduleId=" + encodeURIComponent(selectedScheduleId);
+                    }
                     if (selectedOutcome) {
                         exportUrl += "&outcome=" + encodeURIComponent(selectedOutcome);
                     }
+                    var selectedScheduleLabel = cueFilter && cueFilter.selectedIndex > 0
+                        ? cueFilter.options[cueFilter.selectedIndex].textContent
+                        : '';
+                    var scopeText = selectedScheduleLabel ? " for " + selectedScheduleLabel : '';
                     return ApiClient.getJSON(ApiClient.getUrl(exportUrl)).then(function (historyDocument) {
                         var blob = new Blob([JSON.stringify(historyDocument, null, 2)], { type: "application/json" });
                         var url = URL.createObjectURL(blob);
@@ -3525,7 +3581,7 @@
                         window.document.body.removeChild(link);
                         window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
                         if (status) {
-                            status.textContent = "Cue history exported. Credential values were omitted.";
+                            status.textContent = "Cue history exported" + scopeText + ". Credential values were omitted.";
                             status.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
@@ -6535,6 +6591,10 @@
                 HueConfigurationPage.loadSceneScheduleOccurrences(this.closest('.page'));
             });
 
+            document.querySelector('#sceneScheduleOccurrenceFilter').addEventListener('change', function () {
+                HueConfigurationPage.loadSceneScheduleOccurrences(this.closest('.page'));
+            });
+
             document.querySelector('#exportSceneScheduleCalendarBtn').addEventListener('click', function () {
                 HueConfigurationPage.exportSceneScheduleCalendar(this.closest('.page'));
             });
@@ -6552,6 +6612,10 @@
             });
 
             document.querySelector('#sceneScheduleHistoryOutcome').addEventListener('change', function () {
+                HueConfigurationPage.loadSceneScheduleHistory(this.closest('.page'));
+            });
+
+            document.querySelector('#sceneScheduleHistoryCueFilter').addEventListener('change', function () {
                 HueConfigurationPage.loadSceneScheduleHistory(this.closest('.page'));
             });
 

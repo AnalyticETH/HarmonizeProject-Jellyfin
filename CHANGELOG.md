@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.124] - 2026-08-19
+
+### Added
+- **Cue-scoped upcoming views**: add an administrator cue selector that filters the 31-day occurrence preview and iCalendar download through the existing credential-free `scheduleId` API contract
+- **Cue-scoped history views**: combine stable cue selection with outcome filtering for retained history and JSON export, with disabled cues clearly labeled and no bridge data exposed
+- **Regression coverage**: extend configuration-page validation to require the new selectors and schedule-filter query wiring
+
 ## [1.5.123] - 2026-08-19
 
 ### Added

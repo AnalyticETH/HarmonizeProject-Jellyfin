@@ -17,7 +17,9 @@ const requiredMarkup = [
     'id="cancelPreviewBtn"',
     'id="cancelDiagnosticsBtn"',
     'id="previewEffect"',
-    'id="previewEffectSpeed"'
+    'id="previewEffectSpeed"',
+    'id="sceneScheduleOccurrenceFilter"',
+    'id="sceneScheduleHistoryCueFilter"'
 ];
 
 for (const marker of requiredMarkup) {
@@ -37,7 +39,12 @@ const requiredScript = [
     'effect: effect || "Solid"',
     'effectSpeedPercent: effectSpeedPercent || 100',
     'effectSpeedPercent: values.effectSpeedPercent',
-    "effect: values.effect"
+    "effect: values.effect",
+    "populateSceneScheduleCueFilters: function",
+    "occurrencesUrl += \"&scheduleId=\"",
+    "calendarUrl += \"&scheduleId=\"",
+    "historyUrl += \"&scheduleId=\"",
+    "exportUrl += \"&scheduleId=\""
 ];
 
 for (const marker of requiredScript) {

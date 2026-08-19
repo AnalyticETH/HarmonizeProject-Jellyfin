@@ -3056,6 +3056,17 @@ public sealed class HueApiControllerTests : IDisposable
         var recoveredRun = Assert.Single(recoveredDocument.Runs);
         Assert.Equal("recovered-cue", recoveredRun.ScheduleId);
         Assert.True(recoveredRun.WasCatchUp);
+
+        var focusedAction = controller.GetSceneScheduleHistory(
+            scheduleId: " failed-cue ",
+            outcome: " Failed ");
+        var focusedResponse = Assert.IsType<OkObjectResult>(focusedAction.Result);
+        var focusedDocument = Assert.IsType<HueSceneScheduleHistoryResult>(focusedResponse.Value);
+        Assert.Equal("failed-cue", focusedDocument.ScheduleIdFilter);
+        Assert.Equal("Failed", focusedDocument.OutcomeFilter);
+        var focusedRun = Assert.Single(focusedDocument.Runs);
+        Assert.Equal("failed-cue", focusedRun.ScheduleId);
+        Assert.False(focusedRun.Succeeded);
         var serialized = System.Text.Json.JsonSerializer.Serialize(recoveredDocument);
         Assert.DoesNotContain("AppKey", serialized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("ClientKey", serialized, StringComparison.OrdinalIgnoreCase);
