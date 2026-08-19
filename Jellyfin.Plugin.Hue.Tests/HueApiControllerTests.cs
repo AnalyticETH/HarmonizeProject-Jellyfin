@@ -1897,7 +1897,10 @@ public sealed class HueApiControllerTests : IDisposable
             new HueClient(_httpClient, _loggerMock.Object),
             Mock.Of<ILogger<HueSceneAutomationService>>());
         var preview = await CreateController(streamTester.Object, hostedServices: new[] { service })
-            .PreviewScenePlaylist("Selected sequence", new HueScenePlaylistPreviewRequest());
+            .PreviewScenePlaylist("Selected sequence", new HueScenePlaylistPreviewRequest
+            {
+                TargetUserIds = new List<string>()
+            });
 
         var previewResponse = Assert.IsType<OkObjectResult>(preview.Result);
         var result = Assert.IsType<HueScenePlaylistRunResult>(previewResponse.Value);
@@ -2315,7 +2318,11 @@ public sealed class HueApiControllerTests : IDisposable
 
         var action = await controller.PreviewScenePlaylist(
             "Broadcast",
-            new HueScenePlaylistPreviewRequest());
+            new HueScenePlaylistPreviewRequest
+            {
+                TargetAllEnabledMappings = true,
+                TargetUserIds = new List<string>()
+            });
 
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var result = Assert.IsType<HueScenePlaylistRunResult>(response.Value);
@@ -2471,6 +2478,81 @@ public sealed class HueApiControllerTests : IDisposable
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("bulk-playlist-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("bulk-playlist-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ScenePlaylistsBulkPreview_EmptyTargetIdsDoNotOverrideAllTargetMode()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-empty-target-global-app-secret",
+            HueClientKey = "bulk-empty-target-global-client-secret",
+            EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "mapping-empty-target",
+                    UserName = "Empty target room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "bulk-empty-target-mapping-app-secret",
+                    HueClientKey = "bulk-empty-target-mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area"
+                }
+            },
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", DurationSeconds = 1 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-empty-target",
+                    Name = "Empty target sequence",
+                    PresetNames = new List<string> { "Warm" }
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<JsonElement>(), It.IsAny<IReadOnlySet<int>?>(), It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>()))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Broadcast playlist step completed." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var action = await controller.PreviewScenePlaylistsBulk(new HueScenePlaylistBulkPreviewRequest
+        {
+            PlaylistIds = new List<string> { "playlist-empty-target" },
+            TargetAllEnabledMappings = true,
+            TargetUserIds = new List<string>()
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueScenePlaylistBulkPreviewResult>(response.Value);
+        var playlistResult = Assert.Single(result.Results);
+        Assert.True(playlistResult.Succeeded);
+        Assert.True(playlistResult.TargetAllEnabledMappings);
+        Assert.Empty(playlistResult.TargetUserIds);
+        Assert.False(playlistResult.IncludeDefaultTarget);
+        Assert.Equal(2, playlistResult.TargetResults.Count);
+        Assert.Equal(2, streamTester.Invocations.Count(invocation =>
+            invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync)));
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("bulk-empty-target-global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-empty-target-mapping-app-secret", serialized, StringComparison.Ordinal);
     }
 
     [Fact]

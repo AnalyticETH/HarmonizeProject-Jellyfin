@@ -400,7 +400,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.150 (Current)
+### Version 1.5.151 (Current)
+- **Empty target override normalization**: empty target ID arrays no longer turn explicit all-target playlist previews into an invalid selected-target request; saved targets remain unchanged when no target is selected
+- **Playlist preview parity**: individual and bulk playlist endpoints now normalize target-selection metadata consistently before server-side validation and execution
+- **Regression coverage**: verify empty target selections still fan out to every enabled target without exposing persisted bridge credentials
+
+### Version 1.5.150
 - **One-off playlist target overrides**: preview an individual saved playlist on its saved target, the default bridge, every enabled target, or a deliberate subset of enabled mappings without changing the saved playlist
 - **Credential-free individual playlist previews**: the browser sends only nullable target-selection metadata; server-side credentials, channel profiles, validation, and restorative execution remain authoritative
 - **Administrator preview target picker**: use the saved-target/default/all options or combine selected mappings beside Preview Playlist, while Preview Playlist on All Targets remains an explicit broadcast override

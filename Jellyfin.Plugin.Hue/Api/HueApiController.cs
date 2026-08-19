@@ -2407,14 +2407,15 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var includeDefaultTarget = request.IncludeDefaultTarget == true;
+            var hasSelectedTargetOverride = includeDefaultTarget || (targetUserIds?.Count > 0);
             if ((request.TargetAllEnabledMappings == true || !string.IsNullOrWhiteSpace(targetUserId)) &&
-                (includeDefaultTarget || targetUserIds?.Count > 0))
+                hasSelectedTargetOverride)
             {
                 return BadRequest("A scene playlist preview cannot combine legacy and selected target modes.");
             }
             if (request.TargetAllEnabledMappings == true && !string.IsNullOrWhiteSpace(targetUserId))
                 return BadRequest("A scene playlist preview cannot select all enabled targets and a specific user mapping together.");
-            if (request.TargetUserIds != null || includeDefaultTarget)
+            if (hasSelectedTargetOverride)
             {
                 playlist.TargetAllEnabledMappings = false;
                 playlist.TargetUserId = string.Empty;
@@ -2456,8 +2457,8 @@ namespace Jellyfin.Plugin.Hue.Api
             var result = await _sceneAutomationService.RunPlaylistPreviewAsync(
                 playlist,
                 cancellationToken,
-                request.TargetUserIds != null || includeDefaultTarget ? targetUserIds ?? new List<string>() : null,
-                includeDefaultTarget).ConfigureAwait(false);
+                hasSelectedTargetOverride ? targetUserIds ?? new List<string>() : null,
+                hasSelectedTargetOverride && includeDefaultTarget).ConfigureAwait(false);
             return Ok(result);
         }
 
@@ -2528,9 +2529,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var includeDefaultTarget = request.IncludeDefaultTarget == true;
-            var selectedTargetOverride = request.TargetUserIds != null || includeDefaultTarget;
+            var selectedTargetOverride = includeDefaultTarget || (targetUserIds?.Count > 0);
             if ((request.TargetAllEnabledMappings == true || !string.IsNullOrWhiteSpace(targetUserId)) &&
-                (includeDefaultTarget || targetUserIds?.Count > 0))
+                selectedTargetOverride)
             {
                 return BadRequest(
                     "A bulk scene playlist preview cannot combine legacy and selected target modes.");
