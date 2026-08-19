@@ -422,8 +422,10 @@
                                 <select id="sceneScheduleBulkSelect" is="emby-select" multiple size="5" style="width: 100%;">
                                     <option value="">Load scheduled cues first</option>
                                 </select>
-                                <div class="fieldDescription">Select up to 50 cues, then create disabled copies, enable or disable them, reset execution counters, mark/clear their next automatic occurrence, or delete them, in one atomic operation. Active cues, disabled/futureless new skips, capacity limits, or persistence failures leave the selected set unchanged.</div>
+                                <div class="fieldDescription">Select up to 50 cues, then run them sequentially with restorative cleanup, request cancellation, create disabled copies, enable or disable them, reset execution counters, mark/clear their next automatic occurrence, or delete them. Run Now preflights every reference and target before bridge activity, keeps per-cue failures, and stops remaining cues on cancellation.</div>
                             </div>
+                            <button is="emby-button" type="button" class="raised" id="runSelectedSceneSchedulesBtn" disabled><span>Run Selected</span></button>
+                            <button is="emby-button" type="button" class="raised" id="cancelSelectedSceneSchedulesBtn" disabled style="background: #8a3d3d;"><span>Cancel Selected Runs</span></button>
                             <button is="emby-button" type="button" class="raised" id="enableSelectedSceneSchedulesBtn" disabled><span>Enable Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="disableSelectedSceneSchedulesBtn" disabled><span>Disable Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="skipSelectedSceneSchedulesBtn" disabled><span>Skip Next Selected</span></button>
@@ -433,7 +435,7 @@
                             <button is="emby-button" type="button" class="raised" id="deleteSelectedSceneSchedulesBtn" disabled><span>Delete Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="selectAllSceneSchedulesBtn" disabled><span>Select All</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSelectedSceneSchedulesBtn" disabled><span>Clear Selection</span></button>
-                            <div id="sceneScheduleBulkStatus" class="fieldDescription" style="flex: 1 1 260px;">Select scheduled cues to duplicate disabled copies or apply a bulk enabled-state, skipped-occurrence, counter-reset, or deletion action.</div>
+                            <div id="sceneScheduleBulkStatus" class="fieldDescription" style="flex: 1 1 260px;">Select scheduled cues to run them sequentially, request cancellation, duplicate disabled copies, or apply a bulk enabled-state, skipped-occurrence, counter-reset, or deletion action.</div>
                         </div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 0.75em;">
                             <div style="flex: 1 1 220px;">
@@ -3410,8 +3412,13 @@
                     var resetCountersButton = page.querySelector('#resetSelectedSceneScheduleRunCountsBtn');
                     var duplicateButton = page.querySelector('#duplicateSelectedSceneSchedulesBtn');
                     var deleteButton = page.querySelector('#deleteSelectedSceneSchedulesBtn');
+                    var runButton = page.querySelector('#runSelectedSceneSchedulesBtn');
+                    var cancelButton = page.querySelector('#cancelSelectedSceneSchedulesBtn');
                     var selectAllButton = page.querySelector('#selectAllSceneSchedulesBtn');
                     var clearButton = page.querySelector('#clearSelectedSceneSchedulesBtn');
+                    var bulkRunActive = !!page._hueSceneScheduleBulkRequest;
+                    var individualRunActive = !!page._hueSceneScheduleRequest;
+                    var anyRunActive = bulkRunActive || individualRunActive;
                     if (enableButton) enableButton.disabled = !hasSelection;
                     if (disableButton) disableButton.disabled = !hasSelection;
                     if (skipButton) skipButton.disabled = !hasSelection;
@@ -3419,8 +3426,14 @@
                     if (resetCountersButton) resetCountersButton.disabled = !hasSelection;
                     if (duplicateButton) duplicateButton.disabled = !hasSelection;
                     if (deleteButton) deleteButton.disabled = !hasSelection;
-                    if (selectAllButton) selectAllButton.disabled = optionCount === 0 || selectedIds.length === optionCount;
-                    if (clearButton) clearButton.disabled = !hasSelection;
+                    if (runButton) runButton.disabled = !hasSelection || anyRunActive;
+                    if (cancelButton) cancelButton.disabled = !bulkRunActive || !!page._hueSceneScheduleBulkCancellationRequest;
+                    if (selectAllButton) selectAllButton.disabled = anyRunActive || optionCount === 0 || selectedIds.length === optionCount;
+                    if (clearButton) clearButton.disabled = anyRunActive || !hasSelection;
+                    [enableButton, disableButton, skipButton, clearSkipsButton, resetCountersButton, duplicateButton, deleteButton]
+                        .forEach(function (button) {
+                            if (button && anyRunActive) button.disabled = true;
+                        });
                 },
                 selectAllSceneSchedules: function (page) {
                     var select = page && page.querySelector('#sceneScheduleBulkSelect');
@@ -3437,6 +3450,106 @@
                         option.selected = false;
                     });
                     HueConfigurationPage.updateSceneScheduleBulkButtons(page);
+                },
+                runSceneSchedulesBulk: function (page) {
+                    if (!page || page._hueSceneScheduleBulkRequest || page._hueSceneScheduleRequest) return;
+                    var scheduleIds = HueConfigurationPage.getSelectedSceneScheduleBulkIds(page);
+                    var statusEl = page.querySelector('#sceneScheduleBulkStatus');
+                    if (!scheduleIds.length) {
+                        Dashboard.alert("Select at least one scheduled cue first.");
+                        return;
+                    }
+
+                    Dashboard.confirm(
+                        "Run " + scheduleIds.length + " selected scheduled cue" + (scheduleIds.length === 1 ? "" : "s") + " sequentially now? Every cue will restore bridge state before the next cue starts; a runtime failure is retained and later cues continue.",
+                        "Run Selected Cues",
+                        function (confirmed) {
+                            if (!confirmed) return;
+                            var selectedScheduleControl = page.querySelector('#sceneScheduleSelect');
+                            var selectedScheduleId = selectedScheduleControl ? selectedScheduleControl.value : '';
+                            page._hueSceneScheduleBulkActiveIds = scheduleIds.slice();
+                            if (statusEl) {
+                                statusEl.textContent = "Preflighting and running selected scheduled cues sequentially...";
+                                statusEl.style.color = "";
+                            }
+                            var request = ApiClient.ajax({
+                                type: "POST",
+                                url: ApiClient.getUrl("HueSync/SceneSchedules/BulkRun"),
+                                data: JSON.stringify({ scheduleIds: scheduleIds }),
+                                contentType: "application/json",
+                                dataType: "json"
+                            });
+                            page._hueSceneScheduleBulkRequest = request;
+                            HueConfigurationPage.updateSceneScheduleButtons(page);
+                            request.then(function (response) {
+                                var message = response && (response.message || response.Message) || "Selected scheduled cues completed.";
+                                var results = response && (response.results || response.Results);
+                                var details = Array.isArray(results) ? results.map(function (result) {
+                                    var name = result && (result.scheduleName !== undefined ? result.scheduleName : result.ScheduleName);
+                                    var succeeded = result && (result.succeeded !== undefined ? result.succeeded : result.Succeeded);
+                                    return String(name || "cue") + ": " + (succeeded ? "succeeded" : "failed");
+                                }).join(" · ") : "";
+                                if (statusEl) {
+                                    statusEl.textContent = details ? message + " " + details : message;
+                                    statusEl.style.color = response && (response.canceled || response.Canceled)
+                                        ? "#f0ad4e"
+                                        : Number(response && (response.failedCount !== undefined ? response.failedCount : response.FailedCount) || 0) > 0
+                                            ? "#f0ad4e"
+                                            : "#8bc34a";
+                                }
+                            }).catch(function (err) {
+                                console.error("Failed to run bulk scene schedules:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = "Unable to run the selected cues. Verify every saved-scene reference and target configuration.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                            }).finally(function () {
+                                if (page._hueSceneScheduleBulkRequest === request) {
+                                    page._hueSceneScheduleBulkRequest = null;
+                                    page._hueSceneScheduleBulkActiveIds = null;
+                                    page._hueSceneScheduleBulkCancellationRequest = null;
+                                    HueConfigurationPage.updateSceneScheduleButtons(page);
+                                    HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                                }
+                            });
+                        });
+                },
+                cancelSceneSchedulesBulk: function (page) {
+                    if (!page || !page._hueSceneScheduleBulkRequest || page._hueSceneScheduleBulkCancellationRequest) return;
+                    var scheduleIds = Array.isArray(page._hueSceneScheduleBulkActiveIds)
+                        ? page._hueSceneScheduleBulkActiveIds.slice()
+                        : HueConfigurationPage.getSelectedSceneScheduleBulkIds(page);
+                    var statusEl = page.querySelector('#sceneScheduleBulkStatus');
+                    if (!scheduleIds.length) return;
+                    if (statusEl) {
+                        statusEl.textContent = "Requesting cancellation for selected cues; restoring bridge state...";
+                        statusEl.style.color = "#f0ad4e";
+                    }
+                    page._hueSceneScheduleBulkCancellationRequest = ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/SceneSchedules/BulkCancel"),
+                        data: JSON.stringify({ scheduleIds: scheduleIds }),
+                        contentType: "application/json",
+                        dataType: "json"
+                    }).then(function (response) {
+                        var canceledCount = Number(response && (response.canceledCount !== undefined ? response.canceledCount : response.CanceledCount) || 0);
+                        if (statusEl) {
+                            statusEl.textContent = canceledCount > 0
+                                ? "Cancellation requested for " + canceledCount + " cue" + (canceledCount === 1 ? "" : "s") + "; cleanup will finish before the bulk run ends."
+                                : (response && (response.message || response.Message) || "No active selected cue run was found.");
+                            statusEl.style.color = "#f0ad4e";
+                        }
+                    }).catch(function (err) {
+                        console.error("Bulk scene schedule cancellation error:", err);
+                        if (statusEl) {
+                            statusEl.textContent = "Unable to request bulk cue cancellation. Verify the scheduler status and light restoration manually.";
+                            statusEl.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        page._hueSceneScheduleBulkCancellationRequest = null;
+                        HueConfigurationPage.updateSceneScheduleButtons(page);
+                    });
+                    HueConfigurationPage.updateSceneScheduleButtons(page);
                 },
                 setSceneSchedulesEnabledBulk: function (page, enabled) {
                     if (!page) return;
@@ -4873,20 +4986,22 @@
                     var runButton = page && page.querySelector('#runSceneScheduleBtn');
                     var cancelButton = page && page.querySelector('#cancelSceneScheduleRunBtn');
                     var runActive = !!(page && page._hueSceneScheduleRequest);
+                    var bulkRunActive = !!(page && page._hueSceneScheduleBulkRequest);
+                    var anyRunActive = runActive || bulkRunActive;
                     if (toggleButton) {
                         var toggleLabel = toggleButton.querySelector('span');
                         if (toggleLabel) toggleLabel.textContent = selectedEnabled ? "Disable Cue" : "Enable Cue";
-                        toggleButton.disabled = !hasSelection || runActive;
+                        toggleButton.disabled = !hasSelection || anyRunActive;
                     }
                     if (skipButton) {
                         var skipLabel = skipButton.querySelector('span');
                         if (skipLabel) skipLabel.textContent = selectedSkipNext ? "Undo Skip" : "Skip Next Cue";
-                        skipButton.disabled = !hasSelection || runActive || (!selectedSkipNext && !selectedEnabled);
+                        skipButton.disabled = !hasSelection || anyRunActive || (!selectedSkipNext && !selectedEnabled);
                     }
-                    if (duplicateButton) duplicateButton.disabled = !hasSelection || runActive;
-                    if (deleteButton) deleteButton.disabled = !hasSelection;
-                    if (resetRunCountButton) resetRunCountButton.disabled = !hasSelection || runActive;
-                    if (runButton) runButton.disabled = !hasSelection || runActive;
+                    if (duplicateButton) duplicateButton.disabled = !hasSelection || anyRunActive;
+                    if (deleteButton) deleteButton.disabled = !hasSelection || anyRunActive;
+                    if (resetRunCountButton) resetRunCountButton.disabled = !hasSelection || anyRunActive;
+                    if (runButton) runButton.disabled = !hasSelection || anyRunActive;
                     if (cancelButton) {
                         cancelButton.style.display = runActive ? "" : "none";
                         cancelButton.disabled = !!(page && page._hueSceneScheduleCancellationRequest);
@@ -8004,6 +8119,14 @@
 
             document.querySelector('#deleteSelectedSceneSchedulesBtn').addEventListener('click', function () {
                 HueConfigurationPage.deleteSceneSchedulesBulk(this.closest('.page'));
+            });
+
+            document.querySelector('#runSelectedSceneSchedulesBtn').addEventListener('click', function () {
+                HueConfigurationPage.runSceneSchedulesBulk(this.closest('.page'));
+            });
+
+            document.querySelector('#cancelSelectedSceneSchedulesBtn').addEventListener('click', function () {
+                HueConfigurationPage.cancelSceneSchedulesBulk(this.closest('.page'));
             });
 
             document.querySelector('#selectAllSceneSchedulesBtn').addEventListener('click', function () {

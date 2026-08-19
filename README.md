@@ -187,6 +187,8 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `DELETE /HueSync/SceneSchedules/{id}` | Delete one scene cue by its stable ID; persistence failures roll back the in-memory cue collection and return a sanitized error. |
 | `POST /HueSync/SceneSchedules/{id}/Run` | Run one cue immediately through the serialized, state-restoring preview lifecycle; active playback or another diagnostic safely blocks the run. |
 | `POST /HueSync/SceneSchedules/{id}/Cancel` | Request cancellation of an active manual Run Now cue. The response reports whether a run was found; cleanup still deactivates the area and restores captured light state. |
+| `POST /HueSync/SceneSchedules/BulkRun` | Run up to 50 selected cue IDs sequentially with `{ "scheduleIds": ["..."] }`. Every cue, saved-scene or playlist reference, and target is validated before the first bridge call; credential-free per-cue results continue after ordinary runtime failures and stop the remaining sequence on cancellation. |
+| `POST /HueSync/SceneSchedules/BulkCancel` | Request cleanup-aware cancellation for every active manually started cue among up to 50 selected IDs. The credential-free response reports the canceled IDs; each cue restores bridge state before ending. |
 | `POST /HueSync/SceneSchedules/{id}/ResetRunCount` | Reset a cue's persisted execution counter to zero and re-enable it. Active cues cannot be reset; retained history remains available as an audit trail, and direct persistence failures restore the prior counter/state. |
 | `POST /HueSync/SceneSchedules/BulkResetRunCount` | Atomically reset and re-enable up to 50 selected cue IDs with `{ "scheduleIds": ["..."] }`, clearing pending Skip Next markers while preserving retained history. Every ID is resolved first; active cues, unknown IDs, and save failures leave the complete selection unchanged, and the credential-free response includes reset counts and updated cue summaries. |
 | `POST /HueSync/SceneSchedules/{id}/Enabled` | Enable or disable one cue without changing its schedule definition. Active cues cannot be changed, and an exhausted finite cue must be reset before it can be enabled; the response remains credential-free. |
@@ -397,7 +399,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.142 (Current)
+### Version 1.5.143 (Current)
+- **Atomic bulk scheduled-cue Run Now**: run up to 50 selected cues sequentially with full reference/target preflight and restorative cleanup between cues
+- **Per-cue outcomes and cancellation**: retain credential-free success/failure telemetry, continue after runtime failures, and stop remaining cues safely after cancellation
+- **Administrator workflow**: add Run Selected and Cancel Selected Runs controls with aggregate progress and per-cue status summaries
+
+### Version 1.5.142
 - **Bulk saved-scene previews**: preview up to 50 selected scenes sequentially on the default target or every enabled target with restorative state cleanup between scenes
 - **Bulk playlist previews**: preview selected playlists sequentially while preserving saved target modes or applying an explicit all-target override
 - **Preflight and cancellation safety**: resolve all selected scenes/playlists, references, and targets before bridge calls; preserve per-item failures, continue safely, and stop remaining work on cancellation

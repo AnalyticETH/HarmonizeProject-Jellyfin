@@ -3951,6 +3951,261 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Runs several saved scene cues immediately through the same serialized,
+        /// restorative lifecycle used by an individual administrator Run Now action.
+        /// Every selected cue, saved-scene or playlist reference, and target is
+        /// preflighted before the first bridge call. Runtime failures are retained per
+        /// cue while later cues continue; cancellation stops the remaining sequence.
+        /// </summary>
+        [HttpPost("SceneSchedules/BulkRun")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<HueSceneScheduleBulkRunResult>> RunSceneSchedulesBulk(
+            [FromBody] HueSceneScheduleBulkRunRequest? request,
+            CancellationToken cancellationToken = default)
+        {
+            if (request == null)
+                return BadRequest("A scheduled-cue selection is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var scheduleIds = (request.ScheduleIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (scheduleIds.Length == 0)
+                return BadRequest("Select at least one scheduled cue.");
+            if (scheduleIds.Length > PluginConfiguration.MaxSceneSchedules)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxSceneSchedules} scheduled cues at once.");
+            }
+
+            config.SceneSchedules ??= new List<HueSceneSchedule>();
+            var selectedSchedules = scheduleIds
+                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
+                    schedule != null &&
+                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingIds = scheduleIds
+                .Where((_, index) => selectedSchedules[index] == null)
+                .ToArray();
+            if (missingIds.Length > 0)
+            {
+                return NotFound(new HueSceneScheduleBulkRunResult
+                {
+                    RequestedCount = scheduleIds.Length,
+                    MissingScheduleIds = missingIds,
+                    Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
+                });
+            }
+
+            var schedules = selectedSchedules.Cast<HueSceneSchedule>().ToArray();
+            var validationErrors = new List<string>();
+            foreach (var schedule in schedules)
+            {
+                var scheduleName = schedule.Name?.Trim() ?? schedule.Id?.Trim() ?? string.Empty;
+                validationErrors.AddRange(PluginConfiguration.ValidateSceneSchedule(
+                    schedule,
+                    config,
+                    $"Scheduled cue '{scheduleName}'"));
+
+                if (schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
+                {
+                    validationErrors.Add(
+                        $"Scheduled cue '{scheduleName}' has reached its maximum of {schedule.MaxRuns} executions.");
+                }
+
+                var targetSchedule = new HueSceneSchedule
+                {
+                    Id = schedule.Id?.Trim() ?? string.Empty,
+                    Name = schedule.Name?.Trim() ?? string.Empty,
+                    TargetUserId = schedule.TargetAllEnabledMappings ? string.Empty : schedule.TargetUserId?.Trim() ?? string.Empty,
+                    TargetAllEnabledMappings = schedule.TargetAllEnabledMappings
+                };
+                if (!HueSceneAutomationService.TryResolveTargets(config, targetSchedule, out _, out var targetError))
+                {
+                    validationErrors.Add($"Scheduled cue '{scheduleName}' target: {targetError}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(schedule.PlaylistName))
+                {
+                    var playlist = config.ScenePlaylists?.FirstOrDefault(candidate =>
+                        candidate != null &&
+                        string.Equals(candidate.Name?.Trim(), schedule.PlaylistName.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (playlist == null)
+                    {
+                        validationErrors.Add(
+                            $"Scheduled cue '{scheduleName}' references a saved playlist that does not exist.");
+                    }
+                    else
+                    {
+                        var scheduledPlaylist = CloneScenePlaylist(playlist);
+                        scheduledPlaylist.TargetUserId = schedule.TargetAllEnabledMappings
+                            ? string.Empty
+                            : schedule.TargetUserId?.Trim() ?? string.Empty;
+                        scheduledPlaylist.TargetAllEnabledMappings = schedule.TargetAllEnabledMappings;
+                        validationErrors.AddRange(PluginConfiguration.ValidateScenePlaylist(
+                            scheduledPlaylist,
+                            config,
+                            $"Scheduled cue '{scheduleName}' playlist"));
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(schedule.PresetName) &&
+                         !(config.ColorPresets ?? new List<HueColorPreset>()).Any(candidate =>
+                             candidate != null &&
+                             string.Equals(candidate.Name?.Trim(), schedule.PresetName.Trim(), StringComparison.OrdinalIgnoreCase)))
+                {
+                    validationErrors.Add(
+                        $"Scheduled cue '{scheduleName}' references a saved scene that does not exist.");
+                }
+            }
+
+            if (validationErrors.Count > 0)
+            {
+                return BadRequest(new HueSceneScheduleBulkRunResult
+                {
+                    RequestedCount = schedules.Length,
+                    ValidationErrors = validationErrors,
+                    Message = "One or more selected scheduled cues are invalid or exhausted; no cue was started."
+                });
+            }
+
+            if (_sceneAutomationService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+
+            var results = new List<HueSceneAutomationRunResult>(schedules.Length);
+            var canceled = false;
+            foreach (var schedule in schedules)
+            {
+                try
+                {
+                    var result = await _sceneAutomationService.RunScheduleAsync(
+                        schedule.Id?.Trim() ?? string.Empty,
+                        cancellationToken).ConfigureAwait(false);
+                    results.Add(result);
+                    if (!result.Succeeded && result.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
+                    {
+                        canceled = true;
+                        break;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    canceled = true;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Bulk scene schedule run failed for {0}", schedule.Name);
+                    results.Add(new HueSceneAutomationRunResult
+                    {
+                        ScheduleId = schedule.Id?.Trim() ?? string.Empty,
+                        ScheduleName = schedule.Name?.Trim() ?? string.Empty,
+                        PresetName = schedule.PresetName?.Trim() ?? string.Empty,
+                        PlaylistName = schedule.PlaylistName?.Trim() ?? string.Empty,
+                        Succeeded = false,
+                        Message = "The scheduled scene cue failed unexpectedly.",
+                        RunAtUtc = DateTime.UtcNow
+                    });
+                }
+            }
+
+            var succeededCount = results.Count(result => result.Succeeded);
+            var failedCount = results.Count - succeededCount;
+            return Ok(new HueSceneScheduleBulkRunResult
+            {
+                RequestedCount = schedules.Length,
+                CompletedCount = results.Count,
+                SucceededCount = succeededCount,
+                FailedCount = failedCount,
+                Canceled = canceled,
+                Message = canceled
+                    ? $"Bulk scheduled-cue run canceled after {results.Count} of {schedules.Length} cue(s)."
+                    : failedCount == 0
+                        ? $"Ran {results.Count} scheduled cue(s) successfully."
+                        : $"Ran {results.Count} scheduled cue(s); {failedCount} failed.",
+                Results = results
+            });
+        }
+
+        /// <summary>
+        /// Requests cancellation for every active manually started cue in a selected
+        /// batch. The bridge cleanup lifecycle remains owned by each running cue.
+        /// </summary>
+        [HttpPost("SceneSchedules/BulkCancel")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public ActionResult<HueSceneScheduleBulkCancelResult> CancelSceneSchedulesBulk(
+            [FromBody] HueSceneScheduleBulkCancelRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A scheduled-cue selection is required.");
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+            if (_sceneAutomationService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+
+            var scheduleIds = (request.ScheduleIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (scheduleIds.Length == 0)
+                return BadRequest("Select at least one scheduled cue.");
+            if (scheduleIds.Length > PluginConfiguration.MaxSceneSchedules)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxSceneSchedules} scheduled cues at once.");
+            }
+
+            config.SceneSchedules ??= new List<HueSceneSchedule>();
+            var selectedSchedules = scheduleIds
+                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
+                    schedule != null &&
+                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingIds = scheduleIds
+                .Where((_, index) => selectedSchedules[index] == null)
+                .ToArray();
+            if (missingIds.Length > 0)
+            {
+                return NotFound(new HueSceneScheduleBulkCancelResult
+                {
+                    RequestedCount = scheduleIds.Length,
+                    MissingScheduleIds = missingIds,
+                    Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
+                });
+            }
+
+            var canceledIds = selectedSchedules
+                .Cast<HueSceneSchedule>()
+                .Where(schedule => _sceneAutomationService.CancelSchedule(schedule.Id))
+                .Select(schedule => schedule.Id?.Trim() ?? string.Empty)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .ToArray();
+            return Ok(new HueSceneScheduleBulkCancelResult
+            {
+                RequestedCount = scheduleIds.Length,
+                CanceledCount = canceledIds.Length,
+                CanceledScheduleIds = canceledIds,
+                Message = canceledIds.Length == 0
+                    ? "No manually started scene run is active for the selected cues."
+                    : $"Cancellation requested for {canceledIds.Length} selected scene cue(s); bridge state will be restored before they end."
+            });
+        }
+
+        /// <summary>
         /// Runs a saved scene cue immediately through the same serialized, restorative
         /// preview lifecycle used by the administrator preview button.
         /// </summary>
@@ -8164,6 +8419,79 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonPropertyName("enabled")]
         public bool Enabled { get; set; }
+    }
+
+    /// <summary>
+    /// Request shape for running several saved scene cues sequentially through their
+    /// restorative administrator Run Now lifecycle.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkRunRequest
+    {
+        [JsonPropertyName("scheduleIds")]
+        public List<string> ScheduleIds { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Credential-free aggregate result for a sequential scheduled-cue run.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkRunResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("completedCount")]
+        public int CompletedCount { get; set; }
+
+        [JsonPropertyName("succeededCount")]
+        public int SucceededCount { get; set; }
+
+        [JsonPropertyName("failedCount")]
+        public int FailedCount { get; set; }
+
+        [JsonPropertyName("canceled")]
+        public bool Canceled { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("results")]
+        public IReadOnlyList<HueSceneAutomationRunResult> Results { get; set; } = Array.Empty<HueSceneAutomationRunResult>();
+
+        [JsonPropertyName("missingScheduleIds")]
+        public IReadOnlyList<string> MissingScheduleIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("validationErrors")]
+        public IReadOnlyList<string> ValidationErrors { get; set; } = Array.Empty<string>();
+    }
+
+    /// <summary>
+    /// Request shape for requesting cancellation of several manually started cues.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkCancelRequest
+    {
+        [JsonPropertyName("scheduleIds")]
+        public List<string> ScheduleIds { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Credential-free result from a bulk scheduled-cue cancellation request.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkCancelResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("canceledCount")]
+        public int CanceledCount { get; set; }
+
+        [JsonPropertyName("canceledScheduleIds")]
+        public IReadOnlyList<string> CanceledScheduleIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("missingScheduleIds")]
+        public IReadOnlyList<string> MissingScheduleIds { get; set; } = Array.Empty<string>();
     }
 
     /// <summary>

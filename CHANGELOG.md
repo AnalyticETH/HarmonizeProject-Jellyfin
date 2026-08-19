@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.143] - 2026-08-19
+
+### Added
+- **Atomic bulk scheduled-cue Run Now**: run up to 50 selected cues sequentially through the restorative lifecycle, preflighting every saved-scene or playlist reference and target before bridge activity
+- **Per-cue runtime telemetry**: retain credential-free success/failure results, continue after ordinary runtime failures, and stop the remaining sequence safely when cancellation is requested
+- **Bulk cancellation**: request cleanup-aware cancellation for every active manually started cue in a selected batch without interrupting bridge restoration
+- **Administrator workflow**: add Run Selected and Cancel Selected Runs controls with aggregate progress and per-cue outcome summaries
+
 ## [1.5.142] - 2026-08-19
 
 ### Added

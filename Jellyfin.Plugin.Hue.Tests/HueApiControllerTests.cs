@@ -4575,6 +4575,159 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task SceneSchedulesBulkRun_RunsSelectedCuesInOrderAndKeepsResultsCredentialFree()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-run-app-secret",
+            HueClientKey = "bulk-run-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, DurationSeconds = 1 },
+                new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-run-warm",
+                    Name = "Warm cue",
+                    PresetName = "Warm",
+                    TimeOfDay = "20:00",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                },
+                new()
+                {
+                    Id = "bulk-run-cool",
+                    Name = "Cool cue",
+                    PresetName = "Cool",
+                    TimeOfDay = "20:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<JsonElement>(), It.IsAny<IReadOnlySet<int>?>(), It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>()))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Bulk cue completed." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var action = await controller.RunSceneSchedulesBulk(new HueSceneScheduleBulkRunRequest
+        {
+            ScheduleIds = new List<string> { "bulk-run-cool", "bulk-run-warm", "bulk-run-cool" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleBulkRunResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.CompletedCount);
+        Assert.Equal(2, result.SucceededCount);
+        Assert.Equal(0, result.FailedCount);
+        Assert.False(result.Canceled);
+        Assert.Equal(new[] { "Cool cue", "Warm cue" }, result.Results.Select(run => run.ScheduleName));
+        Assert.Equal(new[] { 220, 25 }, streamTester.Invocations
+            .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
+            .Select(invocation => (int)invocation.Arguments[6]!)
+            .ToArray());
+        Assert.All(configuration.SceneSchedules, schedule => Assert.Equal(1, schedule.RunCount));
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("bulk-run-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-run-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SceneSchedulesBulkRun_PreflightsEveryCueBeforeBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-preflight-app-secret",
+            HueClientKey = "bulk-preflight-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Valid", DurationSeconds = 1 } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-preflight-invalid",
+                    Name = "Invalid cue",
+                    PresetName = "Missing",
+                    TimeOfDay = "20:00",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        });
+        var controller = CreateController(Mock.Of<IHueStreamTester>());
+
+        var missing = await controller.RunSceneSchedulesBulk(new HueSceneScheduleBulkRunRequest
+        {
+            ScheduleIds = new List<string> { "bulk-preflight-invalid", "not-present" }
+        });
+        var missingResponse = Assert.IsType<NotFoundObjectResult>(missing.Result);
+        var missingResult = Assert.IsType<HueSceneScheduleBulkRunResult>(missingResponse.Value);
+        Assert.Equal(new[] { "not-present" }, missingResult.MissingScheduleIds);
+
+        var invalid = await controller.RunSceneSchedulesBulk(new HueSceneScheduleBulkRunRequest
+        {
+            ScheduleIds = new List<string> { "bulk-preflight-invalid" }
+        });
+        var invalidResponse = Assert.IsType<BadRequestObjectResult>(invalid.Result);
+        var invalidResult = Assert.IsType<HueSceneScheduleBulkRunResult>(invalidResponse.Value);
+        Assert.NotEmpty(invalidResult.ValidationErrors);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void SceneSchedulesBulkCancel_ReturnsCredentialFreeNoActiveSummary()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "bulk-cancel-one", Name = "First cue", PresetName = "Scene" },
+                new() { Id = "bulk-cancel-two", Name = "Second cue", PresetName = "Scene" }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.CancelSceneSchedulesBulk(new HueSceneScheduleBulkCancelRequest
+        {
+            ScheduleIds = new List<string> { "bulk-cancel-one", "bulk-cancel-two", "bulk-cancel-one" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleBulkCancelResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(0, result.CanceledCount);
+        Assert.Empty(result.CanceledScheduleIds);
+        Assert.Contains("no manually", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, configuration.SceneSchedules.Count);
+    }
+
+    [Fact]
     public async Task TestConnection_WithClientKeyRunsDtlsProbe()
     {
         _httpHandlerMock
