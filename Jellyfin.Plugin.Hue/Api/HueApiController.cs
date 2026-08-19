@@ -901,6 +901,149 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Captures the current color and brightness of one persisted target without
+        /// exposing bridge credentials to the configuration page. The selected target's
+        /// saved channel profile is honored so a capture can be used as a reliable seed
+        /// for a scene that will later run on the same room.
+        /// </summary>
+        [HttpPost("Preview/CaptureCurrentColor")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        public async Task<ActionResult<HueCurrentLightColorResult>> CaptureCurrentColor(
+            [FromBody] HueCurrentLightColorRequest? request,
+            CancellationToken cancellationToken = default)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return BadRequest("Plugin configuration is unavailable.");
+
+            var targetUserId = request?.TargetUserId?.Trim() ?? string.Empty;
+            var target = string.IsNullOrWhiteSpace(targetUserId)
+                ? EnumerateConfiguredTargets(config).FirstOrDefault(candidate => candidate.Scope == "Default")
+                : EnumerateConfiguredTargets(config).FirstOrDefault(candidate =>
+                    candidate.Scope == "User" &&
+                    string.Equals(candidate.UserId, targetUserId, StringComparison.OrdinalIgnoreCase));
+            if (target == null)
+            {
+                return BadRequest(string.IsNullOrWhiteSpace(targetUserId)
+                    ? "The default bridge target is not configured."
+                    : "The selected user target is not configured or enabled.");
+            }
+
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(target.BridgeIp))
+                return BadRequest("The selected target has an invalid bridge address.");
+
+            if (string.IsNullOrWhiteSpace(target.AppKey))
+                return BadRequest("The selected target is missing an App Key.");
+
+            if (string.IsNullOrWhiteSpace(target.AreaId))
+                return BadRequest("The selected target has no entertainment area configured.");
+
+            if (!PluginConfiguration.TryParseChannelIds(target.ChannelIds, out var requestedChannelIds))
+                return BadRequest("The selected target has an invalid channel profile.");
+
+            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
+            var diagnosticsCancellationToken = diagnosticsOperation.Token;
+            using var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
+            if (lifecycleLease == null)
+                return Conflict("Another Hue playback or diagnostic operation is already running.");
+
+            var areas = await _hueClient.GetEntertainmentAreas(
+                target.BridgeIp,
+                target.AppKey,
+                diagnosticsCancellationToken).ConfigureAwait(false);
+            if (areas == null)
+            {
+                return StatusCode(
+                    StatusCodes.Status502BadGateway,
+                    "Could not contact the selected Hue bridge.");
+            }
+
+            var selectedArea = areas.FirstOrDefault(area =>
+                string.Equals(area.Id, target.AreaId, StringComparison.OrdinalIgnoreCase));
+            if (selectedArea == null)
+                return BadRequest("The selected target's entertainment area was not found.");
+
+            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
+                target.BridgeIp,
+                target.AppKey,
+                target.AreaId,
+                diagnosticsCancellationToken).ConfigureAwait(false);
+            if (areaConfiguration == null)
+            {
+                return StatusCode(
+                    StatusCodes.Status502BadGateway,
+                    "Could not load the selected entertainment area configuration.");
+            }
+
+            var availableChannelIds = GetValidChannelIds(areaConfiguration.Value);
+            if (availableChannelIds.Count == 0)
+                return BadRequest("The selected entertainment area has no controllable channels.");
+
+            var missingChannelIds = requestedChannelIds
+                .Where(channelId => !availableChannelIds.Contains(channelId))
+                .OrderBy(channelId => channelId)
+                .ToArray();
+            if (missingChannelIds.Length > 0)
+            {
+                return BadRequest(new
+                {
+                    message = "The selected target's channel profile references IDs not present in this entertainment area.",
+                    missingChannelIds = string.Join(", ", missingChannelIds)
+                });
+            }
+
+            var capture = await _hueClient.GetLightStatesWithResult(
+                target.BridgeIp,
+                target.AppKey,
+                areaConfiguration.Value,
+                requestedChannelIds.Count == 0 ? null : requestedChannelIds,
+                diagnosticsCancellationToken).ConfigureAwait(false);
+            if (!HueColorMath.TryAverageLightStates(capture.States, out var sample))
+            {
+                return Ok(new HueCurrentLightColorResult
+                {
+                    Succeeded = false,
+                    Message = "The selected entertainment area did not return any light states.",
+                    TargetLabel = BuildCaptureTargetLabel(target),
+                    TargetUserId = target.UserId,
+                    AttemptedLightCount = capture.AttemptedCount,
+                    CapturedLightCount = capture.CapturedCount,
+                    SampledLightCount = 0,
+                    ChannelProfileCount = requestedChannelIds.Count == 0 ? availableChannelIds.Count : requestedChannelIds.Count
+                });
+            }
+
+            var hasUsableColor = sample.SampledLightCount > 0 || sample.BrightnessPercent == 0;
+            var succeeded = capture.Succeeded && hasUsableColor;
+            var message = !capture.Succeeded
+                ? $"Captured {capture.CapturedCount} of {capture.AttemptedCount} light state(s); the sample is incomplete."
+                : !hasUsableColor
+                    ? "The selected lights are on, but the bridge returned no usable color data."
+                    : sample.SampledLightCount == 0
+                        ? "All selected lights are off; the preview was set to black at 0% brightness."
+                        : $"Captured the current color from {sample.SampledLightCount} light(s) in {selectedArea.Name}.";
+
+            return Ok(new HueCurrentLightColorResult
+            {
+                Succeeded = succeeded,
+                Message = message,
+                TargetLabel = BuildCaptureTargetLabel(target),
+                TargetUserId = target.UserId,
+                Red = sample.Red,
+                Green = sample.Green,
+                Blue = sample.Blue,
+                BrightnessPercent = sample.BrightnessPercent,
+                CapturedLightCount = capture.CapturedCount,
+                AttemptedLightCount = capture.AttemptedCount,
+                SampledLightCount = sample.SampledLightCount,
+                ChannelProfileCount = requestedChannelIds.Count == 0 ? availableChannelIds.Count : requestedChannelIds.Count
+            });
+        }
+
+        /// <summary>
         /// Displays a bounded scene-effect preview through the configured entertainment
         /// area. When targetAllEnabledMappings is enabled, the same preview runs
         /// sequentially on each distinct enabled configured target; selected target IDs
@@ -5717,6 +5860,19 @@ namespace Jellyfin.Plugin.Hue.Api
             }
         }
 
+        private static string BuildCaptureTargetLabel(HueTarget target)
+        {
+            if (target.Scope == "Default")
+                return "Default bridge";
+
+            if (!string.IsNullOrWhiteSpace(target.UserName))
+                return target.UserName;
+
+            return string.IsNullOrWhiteSpace(target.UserId)
+                ? "Selected user target"
+                : target.UserId;
+        }
+
         private sealed record HueTarget(
             string Scope,
             string? UserId,
@@ -7753,6 +7909,16 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? ChannelIds { get; set; }
     }
 
+    /// <summary>
+    /// Selects one persisted target for a credential-free current-light capture.
+    /// An empty user ID means the configured default bridge target.
+    /// </summary>
+    public sealed class HueCurrentLightColorRequest
+    {
+        [JsonPropertyName("targetUserId")]
+        public string? TargetUserId { get; set; }
+    }
+
     public class HuePreviewRequest
     {
         [JsonPropertyName("userId")]
@@ -7873,6 +8039,49 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Credential-safe current-light color capture. Counts make partial bridge reads
+    /// visible to the administrator without returning light IDs or bridge secrets.
+    /// </summary>
+    public sealed class HueCurrentLightColorResult
+    {
+        [JsonPropertyName("succeeded")]
+        public bool Succeeded { get; init; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; init; } = string.Empty;
+
+        [JsonPropertyName("targetLabel")]
+        public string TargetLabel { get; init; } = string.Empty;
+
+        [JsonPropertyName("targetUserId")]
+        public string? TargetUserId { get; init; }
+
+        [JsonPropertyName("red")]
+        public int Red { get; init; }
+
+        [JsonPropertyName("green")]
+        public int Green { get; init; }
+
+        [JsonPropertyName("blue")]
+        public int Blue { get; init; }
+
+        [JsonPropertyName("brightnessPercent")]
+        public int BrightnessPercent { get; init; }
+
+        [JsonPropertyName("capturedLightCount")]
+        public int CapturedLightCount { get; init; }
+
+        [JsonPropertyName("attemptedLightCount")]
+        public int AttemptedLightCount { get; init; }
+
+        [JsonPropertyName("sampledLightCount")]
+        public int SampledLightCount { get; init; }
+
+        [JsonPropertyName("channelProfileCount")]
+        public int ChannelProfileCount { get; init; }
     }
 
     public class HuePreviewResult

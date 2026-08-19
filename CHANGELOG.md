@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.155] - 2026-08-19
+
+### Added
+- **Current-light color capture**: the administrator scene editor can read one selected Hue target's current RGB color and brightness, honoring its saved channel profile, then seed a preview or reusable scene without sending credentials through the browser
+- **Color-space conversion**: convert Hue xy chromaticity and mirek color-temperature states into sanitized sRGB samples while retaining average room brightness and off-light behavior
+- **Safe capture lifecycle**: current-light capture is cancellation-aware, serialized with playback and other diagnostics, rejects stale channel profiles, and reports partial light-state reads without exposing light IDs or bridge secrets
+- **Regression coverage**: verify xy/mirek conversion, averaged/off-light samples, target resolution, lifecycle contention, and credential-safe capture responses
+
 ## [1.5.154] - 2026-08-19
 
 ### Fixed

@@ -236,7 +236,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scene Effect Preview</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, hue-cycling Rainbow, or warm flickering Candle effect on the default bridge target—or every distinct enabled target—for a few seconds. Set animation speed from 25% to 400% for non-solid effects. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect, speed, and transitions into scheduled cues. All-target preview uses each target's saved channel profile and runs sequentially, reporting independent outcomes. Saved Scene Playlists can chain these reusable scenes in a chosen order. Stop active playback before previewing.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, hue-cycling Rainbow, or warm flickering Candle effect on the default bridge target—or every distinct enabled target—for a few seconds. Set animation speed from 25% to 400% for non-solid effects. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect, speed, and transitions into scheduled cues. All-target preview uses each target's saved channel profile and runs sequentially, reporting independent outcomes. Capture Current Light Color reads the selected single target's live RGB/brightness and fills this editor, making it easy to save the room as a reusable scene. Saved Scene Playlists can chain these reusable scenes in a chosen order. Stop active playback before previewing or capturing.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="previewColor">Color</label>
@@ -277,6 +277,9 @@
                             <button is="emby-button" type="button" class="raised" id="previewAllTargetsBtn">
                                 <span>Preview All Enabled Targets</span>
                             </button>
+                            <button is="emby-button" type="button" class="raised" id="captureCurrentColorBtn">
+                                <span>Capture Current Light Color</span>
+                            </button>
                             <div style="flex: 1 1 260px; min-width: 240px;">
                                 <label class="inputLabel inputLabelUnfocused" for="previewColorTarget">Preview Targets</label>
                                 <select id="previewColorTarget" is="emby-select" multiple size="5" style="width: 100%;">
@@ -288,7 +291,7 @@
                                 <span>Cancel Active Preview</span>
                             </button>
                         </div>
-                        <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override.</div>
+                        <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override. Capture Current Light Color requires exactly one target and updates the color and brightness fields without changing bridge state.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 1em;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="previewPresetSelect">Saved Scene</label>
@@ -1816,6 +1819,15 @@
                         dataType: "json"
                     });
                 },
+                fetchCurrentLightColor: function (targetUserId) {
+                    return ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("HueSync/Preview/CaptureCurrentColor"),
+                        data: JSON.stringify({ targetUserId: targetUserId || "" }),
+                        contentType: "application/json",
+                        dataType: "json"
+                    });
+                },
                 fetchSavedColorPreview: function (name, targetSelection) {
                     targetSelection = targetSelection || {};
                     return ApiClient.ajax({
@@ -1925,6 +1937,7 @@
                     var cancelButton = page && page.querySelector('#cancelPreviewBtn');
                     var defaultButton = page && page.querySelector('#previewColorBtn');
                     var allTargetsButton = page && page.querySelector('#previewAllTargetsBtn');
+                    var captureButton = page && page.querySelector('#captureCurrentColorBtn');
                     var colorTargetSelect = page && page.querySelector('#previewColorTarget');
                     var savedButton = page && page.querySelector('#previewSavedPresetBtn');
                     var savedAllTargetsButton = page && page.querySelector('#previewSavedPresetAllBtn');
@@ -1940,6 +1953,7 @@
                     var mappingButton = page && page.querySelector('#mappingPreviewColorBtn');
                     if (defaultButton) defaultButton.disabled = busy;
                     if (allTargetsButton) allTargetsButton.disabled = busy;
+                    if (captureButton) captureButton.disabled = busy;
                     if (colorTargetSelect) colorTargetSelect.disabled = busy;
                     if (savedButton) savedButton.disabled = busy;
                     if (savedAllTargetsButton) savedAllTargetsButton.disabled = busy;
@@ -1982,21 +1996,31 @@
                 },
                 cancelPreview: function (page) {
                     if (!page || !page._huePreviewRequest || page._huePreviewCancellationRequest) return;
+                    var capturingCurrentColor = !!page._hueCaptureRequest;
                     var cancelButtons = page.querySelectorAll('#cancelPreviewBtn, #cancelConnectionTestBtn, #cancelMappingTestConnectionBtn');
                     var statusEl = page._huePreviewStatusElement || page.querySelector('#previewColorStatus');
                     Array.prototype.forEach.call(cancelButtons, function (button) {
                         button.disabled = true;
                     });
                     if (statusEl) {
-                        statusEl.textContent = "Requesting cancellation; restoring the active target lights...";
+                        statusEl.textContent = capturingCurrentColor
+                            ? "Requesting current-light capture cancellation..."
+                            : "Requesting cancellation; restoring the active target lights...";
                         statusEl.style.color = "#f0ad4e";
                         statusEl.style.background = "#8a6d3b";
                     }
-                    page._huePreviewCancellationRequest = ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/Preview/Cancel"),
-                        dataType: "json"
-                    }).then(function (response) {
+                    var cancellationRequest = capturingCurrentColor
+                        ? {
+                            type: "POST",
+                            url: ApiClient.getUrl("HueSync/Diagnostics/Cancel"),
+                            dataType: "json"
+                        }
+                        : {
+                            type: "POST",
+                            url: ApiClient.getUrl("HueSync/Preview/Cancel"),
+                            dataType: "json"
+                        };
+                    page._huePreviewCancellationRequest = ApiClient.ajax(cancellationRequest).then(function (response) {
                         var canceled = response && (response.canceled !== undefined ? response.canceled : response.Canceled);
                         var message = response && (response.message || response.Message);
                         if (!canceled && statusEl) {
@@ -2005,9 +2029,11 @@
                             statusEl.style.background = "#8a6d3b";
                         }
                     }).catch(function (err) {
-                        console.error("Preview cancellation error:", err);
+                        console.error(capturingCurrentColor ? "Current-light capture cancellation error:" : "Preview cancellation error:", err);
                         if (statusEl) {
-                            statusEl.textContent = "Unable to request cancellation. The operation may still be running; wait for it to finish and verify light restoration.";
+                            statusEl.textContent = capturingCurrentColor
+                                ? "Unable to request capture cancellation. Wait for the bridge read to finish before trying again."
+                                : "Unable to request cancellation. The operation may still be running; wait for it to finish and verify light restoration.";
                             statusEl.style.color = "#d9534f";
                             statusEl.style.background = "#8a3d3d";
                         }
@@ -2150,6 +2176,90 @@
                         .finally(function () {
                             if (page._huePreviewRequest === request) {
                                 page._huePreviewRequest = null;
+                                page._huePreviewStatusElement = null;
+                                HueConfigurationPage.setPreviewBusy(page, false);
+                            }
+                            Dashboard.hideLoadingMsg();
+                        });
+                },
+                captureCurrentColor: function (page) {
+                    if (!page) return;
+                    if (page._huePreviewRequest) {
+                        Dashboard.alert("A preview or current-light capture is already running. Cancel it or wait for it to finish first.");
+                        return;
+                    }
+
+                    var targetSelection = HueConfigurationPage.getColorPreviewTargetSelection(page);
+                    if (targetSelection.targetAllEnabledMappings) {
+                        Dashboard.alert("Capture Current Light Color requires one target. Select the default bridge or one user target, not all targets.");
+                        return;
+                    }
+                    if (targetSelection.includeDefaultTarget && targetSelection.targetUserIds.length > 0) {
+                        Dashboard.alert("Capture Current Light Color requires one target. Remove either the default bridge or the user target.");
+                        return;
+                    }
+                    if (targetSelection.targetUserIds.length > 1) {
+                        Dashboard.alert("Capture Current Light Color requires exactly one user target.");
+                        return;
+                    }
+
+                    var targetUserId = targetSelection.targetUserIds.length === 1
+                        ? targetSelection.targetUserIds[0]
+                        : "";
+                    var button = page.querySelector('#captureCurrentColorBtn');
+                    var statusEl = page.querySelector('#previewColorStatus');
+                    if (button) button.disabled = true;
+                    page._huePreviewStatusElement = statusEl;
+                    if (statusEl) {
+                        statusEl.textContent = targetUserId
+                            ? "Reading the current light color from the selected user target..."
+                            : "Reading the current light color from the default bridge target...";
+                        statusEl.style.color = "";
+                        statusEl.style.background = "";
+                    }
+                    Dashboard.showLoadingMsg();
+                    var request = HueConfigurationPage.fetchCurrentLightColor(targetUserId);
+                    page._huePreviewRequest = request;
+                    page._hueCaptureRequest = request;
+                    HueConfigurationPage.setPreviewBusy(page, true);
+                    request
+                        .then(function (response) {
+                            var succeeded = HueConfigurationPage.readStatusField(response, "Succeeded", false);
+                            var message = HueConfigurationPage.readStatusField(response, "Message", "");
+                            if (succeeded) {
+                                var red = Math.max(0, Math.min(255, Number(HueConfigurationPage.readStatusField(response, "Red", 0)) || 0));
+                                var green = Math.max(0, Math.min(255, Number(HueConfigurationPage.readStatusField(response, "Green", 0)) || 0));
+                                var blue = Math.max(0, Math.min(255, Number(HueConfigurationPage.readStatusField(response, "Blue", 0)) || 0));
+                                var brightness = Math.max(0, Math.min(100, Number(HueConfigurationPage.readStatusField(response, "BrightnessPercent", 0)) || 0));
+                                var toHex = function (value) {
+                                    var hex = Math.round(value).toString(16);
+                                    return hex.length === 1 ? "0" + hex : hex;
+                                };
+                                var colorInput = page.querySelector('#previewColor');
+                                var brightnessInput = page.querySelector('#previewBrightness');
+                                if (colorInput) colorInput.value = "#" + toHex(red) + toHex(green) + toHex(blue);
+                                if (brightnessInput) brightnessInput.value = String(Math.round(brightness));
+                                var sampled = Number(HueConfigurationPage.readStatusField(response, "SampledLightCount", 0)) || 0;
+                                if (statusEl) {
+                                    statusEl.textContent = (message || "Current light color captured.") + " Preview color and brightness updated from " + sampled + " light" + (sampled === 1 ? "" : "s") + ".";
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                            } else if (statusEl) {
+                                statusEl.textContent = message || "The current light color could not be captured.";
+                                statusEl.style.color = "#d9534f";
+                            }
+                        })
+                        .catch(function (err) {
+                            console.error("Current-light color capture error:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "Current-light color capture failed. Verify the selected target in System Diagnostics and stop active playback before retrying.";
+                                statusEl.style.color = "#d9534f";
+                            }
+                        })
+                        .finally(function () {
+                            if (page._huePreviewRequest === request) {
+                                page._huePreviewRequest = null;
+                                page._hueCaptureRequest = null;
                                 page._huePreviewStatusElement = null;
                                 HueConfigurationPage.setPreviewBusy(page, false);
                             }
@@ -8380,6 +8490,10 @@
 
             document.querySelector('#previewAllTargetsBtn').addEventListener('click', function () {
                 HueConfigurationPage.previewAllEnabledTargets(this.closest('.page'));
+            });
+
+            document.querySelector('#captureCurrentColorBtn').addEventListener('click', function () {
+                HueConfigurationPage.captureCurrentColor(this.closest('.page'));
             });
 
             document.querySelector('#cancelPreviewBtn').addEventListener('click', function () {

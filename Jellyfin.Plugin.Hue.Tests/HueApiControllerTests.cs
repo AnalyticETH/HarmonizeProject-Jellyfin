@@ -412,6 +412,104 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task CaptureCurrentColor_UsesConfiguredDefaultTargetAndReturnsSanitizedSample()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "capture-app-secret",
+            HueClientKey = "capture-client-secret",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "1"
+        });
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"on\":{\"on\":true},\"dimming\":{\"brightness\":62.5},\"color\":{\"xy\":{\"x\":0.64,\"y\":0.33}}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+
+        var action = await CreateController().CaptureCurrentColor(new HueCurrentLightColorRequest());
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueCurrentLightColorResult>(response.Value);
+        Assert.True(result.Succeeded);
+        Assert.Equal("Default bridge", result.TargetLabel);
+        Assert.Equal(1, result.AttemptedLightCount);
+        Assert.Equal(1, result.CapturedLightCount);
+        Assert.Equal(1, result.SampledLightCount);
+        Assert.Equal(62, result.BrightnessPercent);
+        Assert.True(result.Red > result.Green);
+        Assert.True(result.Red > result.Blue);
+
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("capture-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("capture-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CaptureCurrentColor_RejectsUnknownTargetBeforeBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "capture-app-secret",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var action = await CreateController().CaptureCurrentColor(new HueCurrentLightColorRequest
+        {
+            TargetUserId = "missing-user"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task CaptureCurrentColor_RejectsConcurrentDiagnosticLifecycle()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "capture-app-secret",
+            EntertainmentAreaId = "area-1"
+        });
+        var gate = new HueBridgeLifecycleGate();
+        using var activeDiagnostic = gate.TryEnterDiagnostic();
+        Assert.NotNull(activeDiagnostic);
+
+        var action = await CreateController(bridgeLifecycleGate: gate).CaptureCurrentColor(
+            new HueCurrentLightColorRequest());
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task TestConnection_BlankRedactedCredentialsUsesStoredGlobalKeys()
     {
         InstallConfiguration(new PluginConfiguration
