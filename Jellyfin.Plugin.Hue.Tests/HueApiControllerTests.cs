@@ -3181,6 +3181,98 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void CsvExports_PreserveFiltersEscapingAndCredentialFreeHeaders()
+    {
+        var cueTime = DateTime.Now.AddMinutes(10).ToString("HH:mm", CultureInfo.InvariantCulture);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = true,
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new()
+                {
+                    ScheduleId = "csv-cue",
+                    ScheduleName = "CSV, \"Cue\"",
+                    PresetName = "CSV scene",
+                    TargetLabel = "Living Room",
+                    Succeeded = true,
+                    Message = "Message, with \"quotes\"",
+                    CleanupWarning = "=FORMULA()",
+                    RunAtUtc = DateTime.UtcNow,
+                    RunCount = 2
+                }
+            },
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "CSV scene", DurationSeconds = 12 },
+                new() { Name = "Short CSV scene", DurationSeconds = 4 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "csv-cue",
+                    Name = "CSV, \"Cue\"",
+                    PresetName = "CSV scene",
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "csv-short-cue",
+                    Name = "CSV short cue",
+                    PresetName = "Short CSV scene",
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new IHostedService[] { service });
+
+        static string ReadCsv(FileContentResult result)
+            => Encoding.UTF8.GetString(result.FileContents).TrimStart('\uFEFF');
+
+        var occurrenceFile = Assert.IsType<FileContentResult>(controller.ExportSceneScheduleOccurrencesCsv(10, 7, "csv-cue"));
+        Assert.Equal("text/csv; charset=utf-8", occurrenceFile.ContentType);
+        Assert.Equal("jellyfin-hue-scene-schedule-occurrences.csv", occurrenceFile.FileDownloadName);
+        var occurrenceCsv = ReadCsv(occurrenceFile);
+        Assert.StartsWith("\"scheduleId\",\"scheduleName\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"csv-cue\",\"CSV, \"\"Cue\"\"\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.DoesNotContain("AppKey", occurrenceCsv, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ClientKey", occurrenceCsv, StringComparison.OrdinalIgnoreCase);
+
+        var conflictFile = Assert.IsType<FileContentResult>(controller.ExportSceneScheduleConflictsCsv(10, 7));
+        var conflictCsv = ReadCsv(conflictFile);
+        Assert.StartsWith("\"firstScheduleId\",\"firstScheduleName\"", conflictCsv, StringComparison.Ordinal);
+        Assert.Contains("\"overlapSeconds\"", conflictCsv, StringComparison.Ordinal);
+        Assert.Contains("csv-cue", conflictCsv, StringComparison.Ordinal);
+
+        var historyFile = Assert.IsType<FileContentResult>(controller.ExportSceneScheduleHistoryCsv(10, "csv-cue", "Succeeded"));
+        var historyCsv = ReadCsv(historyFile);
+        Assert.StartsWith("\"scheduleId\",\"scheduleName\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"Message, with \"\"quotes\"\"\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"csv-cue\",\"CSV, \"\"Cue\"\"\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"'=FORMULA()\"", historyCsv, StringComparison.Ordinal);
+
+        var sessionFile = Assert.IsType<FileContentResult>(controller.ExportSessionHistoryCsv(10));
+        var sessionCsv = ReadCsv(sessionFile);
+        Assert.StartsWith("\"outcome\",\"item\",\"userId\"", sessionCsv, StringComparison.Ordinal);
+        Assert.DoesNotContain("csv-cue", sessionCsv, StringComparison.Ordinal);
+        Assert.DoesNotContain("AppKey", sessionCsv, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, configuration.SceneSchedules.Count);
+    }
+
+    [Fact]
     public void DeleteColorPreset_ProtectsScheduledCueReferences()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

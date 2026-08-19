@@ -71,6 +71,9 @@
                         <button is="emby-button" type="button" class="raised" id="exportSessionHistoryBtn">
                             <span>Export JSON</span>
                         </button>
+                        <button is="emby-button" type="button" class="raised" id="exportSessionHistoryCsvBtn">
+                            <span>Export CSV</span>
+                        </button>
                         <button is="emby-button" type="button" class="raised" id="clearSessionHistoryBtn">
                             <span>Clear History</span>
                         </button>
@@ -576,6 +579,7 @@
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleConflictsBtn"><span>Check Schedule Conflicts</span></button>
                             <button is="emby-button" type="button" class="raised" id="exportSceneScheduleConflictsBtn"><span>Export Conflicts JSON</span></button>
+                            <button is="emby-button" type="button" class="raised" id="exportSceneScheduleConflictsCsvBtn"><span>Export Conflicts CSV</span></button>
                             <label class="inputLabel inputLabelUnfocused" for="sceneScheduleReportHorizon" style="margin: 0;">Report horizon</label>
                             <select id="sceneScheduleReportHorizon" is="emby-select" style="min-width: 150px;">
                                 <option value="7">Next 7 days</option>
@@ -593,6 +597,7 @@
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleOccurrencesBtn"><span>Refresh Upcoming Cues</span></button>
                             <button is="emby-button" type="button" class="raised" id="exportSceneScheduleOccurrencesBtn"><span>Export Occurrences JSON</span></button>
+                            <button is="emby-button" type="button" class="raised" id="exportSceneScheduleOccurrencesCsvBtn"><span>Export Occurrences CSV</span></button>
                             <button is="emby-button" type="button" class="raised" id="exportSceneScheduleCalendarBtn"><span>Download Calendar (.ics)</span></button>
                             <label class="inputLabel inputLabelUnfocused" for="sceneScheduleOccurrenceFilter" style="margin: 0;">Focus cue</label>
                             <select id="sceneScheduleOccurrenceFilter" is="emby-select" style="min-width: 220px;">
@@ -604,6 +609,7 @@
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleHistoryBtn"><span>Refresh Cue History</span></button>
                             <button is="emby-button" type="button" class="raised" id="exportSceneScheduleHistoryBtn"><span>Export JSON</span></button>
+                            <button is="emby-button" type="button" class="raised" id="exportSceneScheduleHistoryCsvBtn"><span>Export CSV</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSceneScheduleHistoryBtn"><span>Clear Cue History</span></button>
                             <label class="inputLabel inputLabelUnfocused" for="sceneScheduleHistoryOutcome" style="margin: 0;">Outcome</label>
                             <select id="sceneScheduleHistoryOutcome" is="emby-select" style="min-width: 170px;">
@@ -3382,6 +3388,26 @@
                     window.document.body.removeChild(link);
                     window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
                 },
+                downloadCsvDocument: function (value, fileName) {
+                    var blob = new Blob([value == null ? "" : String(value)], { type: "text/csv;charset=utf-8" });
+                    var url = URL.createObjectURL(blob);
+                    var link = window.document.createElement('a');
+                    link.href = url;
+                    link.download = fileName;
+                    window.document.body.appendChild(link);
+                    link.click();
+                    window.document.body.removeChild(link);
+                    window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+                },
+                downloadCsvFromApi: function (url, fileName) {
+                    return ApiClient.ajax({
+                        type: "GET",
+                        url: ApiClient.getUrl(url),
+                        dataType: "text"
+                    }).then(function (csv) {
+                        HueConfigurationPage.downloadCsvDocument(csv, fileName);
+                    });
+                },
                 loadSceneScheduleConflicts: function (page) {
                     if (!page || page._hueSceneScheduleConflictsLoading) {
                         return Promise.resolve();
@@ -3507,6 +3533,35 @@
                         }
                     }).finally(function () {
                         page._hueSceneScheduleConflictsExporting = false;
+                        if (button) button.disabled = false;
+                    });
+                },
+                exportSceneScheduleConflictsCsv: function (page) {
+                    if (!page || page._hueSceneScheduleConflictsCsvExporting) return;
+                    page._hueSceneScheduleConflictsCsvExporting = true;
+                    var button = page.querySelector('#exportSceneScheduleConflictsCsvBtn');
+                    var summary = page.querySelector('#sceneScheduleConflictsSummary');
+                    if (button) button.disabled = true;
+                    var scheduleQuery = HueConfigurationPage.getSceneScheduleConflictQuery(page);
+                    var csvUrl = scheduleQuery.url.replace(
+                        "SceneSchedules/Conflicts?",
+                        "SceneSchedules/Conflicts/ExportCsv?");
+                    var scopeText = scheduleQuery.label ? " for " + scheduleQuery.label : "";
+                    return HueConfigurationPage.downloadCsvFromApi(
+                        csvUrl,
+                        "jellyfin-hue-scene-schedule-conflicts.csv").then(function () {
+                        if (summary) {
+                            summary.textContent = "Conflict CSV exported" + scopeText + " for the next " + String(scheduleQuery.horizonDays) + " days. Credential values were omitted.";
+                            summary.style.color = "#4caf50";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to export scheduled cue conflicts as CSV:", err);
+                        if (summary) {
+                            summary.textContent = "Unable to export the conflict CSV. Check the server log.";
+                            summary.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        page._hueSceneScheduleConflictsCsvExporting = false;
                         if (button) button.disabled = false;
                     });
                 },
@@ -3636,6 +3691,35 @@
                         }
                     }).finally(function () {
                         page._hueSceneScheduleOccurrencesExporting = false;
+                        if (button) button.disabled = false;
+                    });
+                },
+                exportSceneScheduleOccurrencesCsv: function (page) {
+                    if (!page || page._hueSceneScheduleOccurrencesCsvExporting) return;
+                    page._hueSceneScheduleOccurrencesCsvExporting = true;
+                    var button = page.querySelector('#exportSceneScheduleOccurrencesCsvBtn');
+                    var summary = page.querySelector('#sceneScheduleOccurrencesSummary');
+                    if (button) button.disabled = true;
+                    var scheduleQuery = HueConfigurationPage.getSceneScheduleOccurrenceQuery(page);
+                    var csvUrl = scheduleQuery.url.replace(
+                        "SceneSchedules/Occurrences?",
+                        "SceneSchedules/Occurrences/ExportCsv?");
+                    var scopeText = scheduleQuery.label ? " for " + scheduleQuery.label : "";
+                    return HueConfigurationPage.downloadCsvFromApi(
+                        csvUrl,
+                        "jellyfin-hue-scene-schedule-occurrences.csv").then(function () {
+                        if (summary) {
+                            summary.textContent = "Occurrence CSV exported" + scopeText + " for the next " + String(scheduleQuery.horizonDays) + " days. Credential values were omitted.";
+                            summary.style.color = "#4caf50";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to export scheduled cue occurrences as CSV:", err);
+                        if (summary) {
+                            summary.textContent = "Unable to export the occurrence CSV. Check the server log.";
+                            summary.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        page._hueSceneScheduleOccurrencesCsvExporting = false;
                         if (button) button.disabled = false;
                     });
                 },
@@ -3845,6 +3929,45 @@
                         }
                     }).finally(function () {
                         page._hueSceneScheduleHistoryExporting = false;
+                        if (button) button.disabled = false;
+                    });
+                },
+                exportSceneScheduleHistoryCsv: function (page) {
+                    if (!page || page._hueSceneScheduleHistoryCsvExporting) return;
+                    page._hueSceneScheduleHistoryCsvExporting = true;
+                    var button = page.querySelector('#exportSceneScheduleHistoryCsvBtn');
+                    var status = page.querySelector('#sceneScheduleHistoryStatus');
+                    if (button) button.disabled = true;
+                    var outcomeFilter = page.querySelector('#sceneScheduleHistoryOutcome');
+                    var cueFilter = page.querySelector('#sceneScheduleHistoryCueFilter');
+                    var selectedOutcome = outcomeFilter ? String(outcomeFilter.value || '').trim() : '';
+                    var selectedScheduleId = cueFilter ? String(cueFilter.value || '').trim() : '';
+                    var exportUrl = "HueSync/SceneSchedules/History/ExportCsv?limit=100";
+                    if (selectedScheduleId) {
+                        exportUrl += "&scheduleId=" + encodeURIComponent(selectedScheduleId);
+                    }
+                    if (selectedOutcome) {
+                        exportUrl += "&outcome=" + encodeURIComponent(selectedOutcome);
+                    }
+                    var selectedScheduleLabel = cueFilter && cueFilter.selectedIndex > 0
+                        ? cueFilter.options[cueFilter.selectedIndex].textContent
+                        : '';
+                    var scopeText = selectedScheduleLabel ? " for " + selectedScheduleLabel : '';
+                    return HueConfigurationPage.downloadCsvFromApi(
+                        exportUrl,
+                        "jellyfin-hue-scene-schedule-history.csv").then(function () {
+                        if (status) {
+                            status.textContent = "Cue history CSV exported" + scopeText + (selectedOutcome ? " · " + selectedOutcome : "") + ". Credential values were omitted.";
+                            status.style.color = "#4caf50";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to export scheduled-cue history as CSV:", err);
+                        if (status) {
+                            status.textContent = "Unable to export cue history CSV. Check the server log.";
+                            status.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        page._hueSceneScheduleHistoryCsvExporting = false;
                         if (button) button.disabled = false;
                     });
                 },
@@ -5038,6 +5161,31 @@
                         }
                     }).finally(function () {
                         page._hueSessionHistoryExporting = false;
+                        if (button) button.disabled = false;
+                    });
+                },
+                exportSessionHistoryCsv: function (page) {
+                    if (!page || page._hueSessionHistoryCsvExporting) return;
+                    page._hueSessionHistoryCsvExporting = true;
+                    var button = page.querySelector('#exportSessionHistoryCsvBtn');
+                    var statusElement = page.querySelector('#sessionHistoryStatus');
+                    if (button) button.disabled = true;
+                    var csvUrl = HueConfigurationPage.getSessionHistoryUrl(page, "History/ExportCsv", 25);
+                    return HueConfigurationPage.downloadCsvFromApi(
+                        csvUrl,
+                        "jellyfin-hue-session-history.csv").then(function () {
+                        if (statusElement) {
+                            statusElement.textContent = "Session history CSV exported. Credential values were omitted.";
+                            statusElement.style.color = "#4caf50";
+                        }
+                    }).catch(function (err) {
+                        console.error("Failed to export Hue session history as CSV:", err);
+                        if (statusElement) {
+                            statusElement.textContent = "Unable to export session history CSV. Check the server log.";
+                            statusElement.style.color = "#d9534f";
+                        }
+                    }).finally(function () {
+                        page._hueSessionHistoryCsvExporting = false;
                         if (button) button.disabled = false;
                     });
                 },
@@ -6925,6 +7073,10 @@
                 HueConfigurationPage.exportSceneScheduleConflicts(this.closest('.page'));
             });
 
+            document.querySelector('#exportSceneScheduleConflictsCsvBtn').addEventListener('click', function () {
+                HueConfigurationPage.exportSceneScheduleConflictsCsv(this.closest('.page'));
+            });
+
             document.querySelector('#sceneScheduleConflictFilter').addEventListener('change', function () {
                 HueConfigurationPage.loadSceneScheduleConflicts(this.closest('.page'));
             });
@@ -6943,6 +7095,10 @@
                 HueConfigurationPage.exportSceneScheduleOccurrences(this.closest('.page'));
             });
 
+            document.querySelector('#exportSceneScheduleOccurrencesCsvBtn').addEventListener('click', function () {
+                HueConfigurationPage.exportSceneScheduleOccurrencesCsv(this.closest('.page'));
+            });
+
             document.querySelector('#sceneScheduleOccurrenceFilter').addEventListener('change', function () {
                 HueConfigurationPage.loadSceneScheduleOccurrences(this.closest('.page'));
             });
@@ -6957,6 +7113,10 @@
 
             document.querySelector('#exportSceneScheduleHistoryBtn').addEventListener('click', function () {
                 HueConfigurationPage.exportSceneScheduleHistory(this.closest('.page'));
+            });
+
+            document.querySelector('#exportSceneScheduleHistoryCsvBtn').addEventListener('click', function () {
+                HueConfigurationPage.exportSceneScheduleHistoryCsv(this.closest('.page'));
             });
 
             document.querySelector('#clearSceneScheduleHistoryBtn').addEventListener('click', function () {
@@ -6985,6 +7145,10 @@
 
             document.querySelector('#exportSessionHistoryBtn').addEventListener('click', function () {
                 HueConfigurationPage.exportSessionHistory(this.closest('.page'));
+            });
+
+            document.querySelector('#exportSessionHistoryCsvBtn').addEventListener('click', function () {
+                HueConfigurationPage.exportSessionHistoryCsv(this.closest('.page'));
             });
 
             document.querySelector('#clearSessionHistoryBtn').addEventListener('click', function () {

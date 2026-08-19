@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.131] - 2026-08-19
+
+### Added
+- **Spreadsheet-ready telemetry**: add credential-free CSV exports for upcoming cue occurrences, duration-aware conflicts, scheduled-cue history, and completed playback-session history
+- **Filter continuity**: CSV downloads preserve the active cue, outcome, and 7/31/90/366-day report-horizon filters used by the administrator JSON views
+- **CSV safety**: emit UTF-8 CSV with deterministic invariant formatting, explicit local/UTC columns, RFC-style quoting, and spreadsheet formula-marker protection for labels
+
 ## [1.5.130] - 2026-08-19
 
 ### Added

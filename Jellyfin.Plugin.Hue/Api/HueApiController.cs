@@ -2204,6 +2204,71 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Downloads the same bounded, credential-free conflict report as CSV. The
+        /// active horizon and cue filter are preserved so spreadsheet audits match the
+        /// administrator JSON view exactly.
+        /// </summary>
+        [HttpGet("SceneSchedules/Conflicts/ExportCsv")]
+        [Produces("text/csv")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public IActionResult ExportSceneScheduleConflictsCsv(
+            [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.DefaultConflictLimit,
+            [FromQuery(Name = "days")] int days = HueSceneAutomationService.DefaultConflictHorizonDays,
+            [FromQuery(Name = "scheduleId")] string? scheduleId = null)
+        {
+            if (Plugin.Instance?.Configuration == null)
+                return NotFound("Plugin configuration not available.");
+
+            var report = ReadActionValue(GetSceneScheduleConflicts(limit, days, scheduleId));
+            if (report == null)
+                return NotFound("Schedule conflict report is not available.");
+
+            var builder = new StringBuilder();
+            AppendCsvRow(
+                builder,
+                "firstScheduleId",
+                "firstScheduleName",
+                "firstTargetLabel",
+                "firstOccurrenceUtc",
+                "firstOccurrenceLocal",
+                "firstDurationSeconds",
+                "firstPriority",
+                "secondScheduleId",
+                "secondScheduleName",
+                "secondTargetLabel",
+                "secondOccurrenceUtc",
+                "secondOccurrenceLocal",
+                "secondDurationSeconds",
+                "secondPriority",
+                "overlapSeconds",
+                "resolutionHint");
+            foreach (var conflict in report.Conflicts)
+            {
+                AppendCsvRow(
+                    builder,
+                    conflict.FirstScheduleId,
+                    conflict.FirstScheduleName,
+                    conflict.FirstTargetLabel,
+                    conflict.FirstOccurrenceUtc,
+                    conflict.FirstOccurrenceLocal,
+                    conflict.FirstDurationSeconds,
+                    conflict.FirstPriority,
+                    conflict.SecondScheduleId,
+                    conflict.SecondScheduleName,
+                    conflict.SecondTargetLabel,
+                    conflict.SecondOccurrenceUtc,
+                    conflict.SecondOccurrenceLocal,
+                    conflict.SecondDurationSeconds,
+                    conflict.SecondPriority,
+                    conflict.OverlapSeconds,
+                    conflict.ResolutionHint);
+            }
+
+            return CsvFile(builder, "jellyfin-hue-scene-schedule-conflicts.csv");
+        }
+
+        /// <summary>
         /// Returns a bounded, credential-free preview of upcoming cue occurrences. The
         /// calculation uses each cue's timezone, date window, exclusions, daily, weekly,
         /// monthly-day, monthly-weekday, or yearly recurrence, and DST rules without contacting the bridge.
@@ -2242,6 +2307,81 @@ namespace Jellyfin.Plugin.Hue.Api
                 ScheduleIdFilter = normalizedScheduleId,
                 Occurrences = occurrences
             });
+        }
+
+        /// <summary>
+        /// Downloads the same bounded, credential-free upcoming-occurrence report as CSV.
+        /// Dates retain their explicit local/UTC columns and the active cue filter and
+        /// report horizon are applied server-side.
+        /// </summary>
+        [HttpGet("SceneSchedules/Occurrences/ExportCsv")]
+        [Produces("text/csv")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public IActionResult ExportSceneScheduleOccurrencesCsv(
+            [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule,
+            [FromQuery(Name = "days")] int days = HueSceneAutomationService.DefaultUpcomingHorizonDays,
+            [FromQuery(Name = "scheduleId")] string? scheduleId = null)
+        {
+            if (Plugin.Instance?.Configuration == null)
+                return NotFound("Plugin configuration not available.");
+
+            var report = ReadActionValue(GetSceneScheduleOccurrences(limit, days, scheduleId));
+            if (report == null)
+                return NotFound("Schedule occurrence report is not available.");
+
+            var builder = new StringBuilder();
+            AppendCsvRow(
+                builder,
+                "scheduleId",
+                "scheduleName",
+                "presetName",
+                "playlistName",
+                "playlistStepCount",
+                "playlistRepeatCount",
+                "playlistTotalDurationSeconds",
+                "priority",
+                "effect",
+                "effectSpeedPercent",
+                "recurrence",
+                "recurrenceInterval",
+                "durationSeconds",
+                "transitionSeconds",
+                "transitionOutSeconds",
+                "targetLabel",
+                "targetAllEnabledMappings",
+                "timeZoneId",
+                "timeZoneDisplayName",
+                "localTime",
+                "utcTime");
+            foreach (var occurrence in report.Occurrences)
+            {
+                AppendCsvRow(
+                    builder,
+                    occurrence.ScheduleId,
+                    occurrence.ScheduleName,
+                    occurrence.PresetName,
+                    occurrence.PlaylistName,
+                    occurrence.PlaylistStepCount,
+                    occurrence.PlaylistRepeatCount,
+                    occurrence.PlaylistTotalDurationSeconds,
+                    occurrence.Priority,
+                    occurrence.Effect,
+                    occurrence.EffectSpeedPercent,
+                    occurrence.Recurrence,
+                    occurrence.RecurrenceInterval,
+                    occurrence.DurationSeconds,
+                    occurrence.TransitionSeconds,
+                    occurrence.TransitionOutSeconds,
+                    occurrence.TargetLabel,
+                    occurrence.TargetAllEnabledMappings,
+                    occurrence.TimeZoneId,
+                    occurrence.TimeZoneDisplayName,
+                    occurrence.LocalTime,
+                    occurrence.UtcTime);
+            }
+
+            return CsvFile(builder, "jellyfin-hue-scene-schedule-occurrences.csv");
         }
 
         /// <summary>
@@ -2463,6 +2603,48 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Replace("\n", "\\n", StringComparison.Ordinal);
         }
 
+        private FileContentResult CsvFile(StringBuilder builder, string fileName)
+        {
+            var content = Encoding.UTF8.GetBytes("\uFEFF" + builder.ToString());
+            return File(content, "text/csv; charset=utf-8", fileName);
+        }
+
+        private static void AppendCsvRow(StringBuilder builder, params object?[] values)
+        {
+            for (var index = 0; index < values.Length; index++)
+            {
+                if (index > 0)
+                    builder.Append(',');
+
+                builder.Append(EscapeCsvValue(values[index]));
+            }
+
+            builder.Append("\r\n");
+        }
+
+        private static string EscapeCsvValue(object? value)
+        {
+            var text = value switch
+            {
+                null => string.Empty,
+                DateTime dateTime => dateTime.ToString("O", CultureInfo.InvariantCulture),
+                DateTimeOffset dateTimeOffset => dateTimeOffset.ToString("O", CultureInfo.InvariantCulture),
+                IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture) ?? string.Empty,
+                _ => value.ToString() ?? string.Empty
+            };
+
+            // Keep administrator labels safe when opened in spreadsheet applications:
+            // a leading formula marker is treated as text rather than executable data.
+            if (value is string &&
+                text.Length > 0 &&
+                (text[0] == '=' || text[0] == '+' || text[0] == '-' || text[0] == '@' || text[0] == '\t'))
+            {
+                text = "'" + text;
+            }
+
+            return "\"" + text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+        }
+
         /// <summary>
         /// Returns bounded sanitized run history for scheduled scene cues. Bridge
         /// credentials and connection details are never retained or serialized. The
@@ -2504,6 +2686,69 @@ namespace Jellyfin.Plugin.Hue.Api
             [FromQuery(Name = "outcome")] string? outcome = null)
         {
             return GetSceneScheduleHistory(limit, scheduleId, outcome);
+        }
+
+        /// <summary>
+        /// Downloads the same bounded, credential-free scheduled-cue history as CSV.
+        /// Nested target and playlist telemetry is represented by bounded counts so each
+        /// run remains one spreadsheet row without serializing credentials or tokens.
+        /// </summary>
+        [HttpGet("SceneSchedules/History/ExportCsv")]
+        [Produces("text/csv")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public IActionResult ExportSceneScheduleHistoryCsv(
+            [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxSceneScheduleHistoryCount,
+            [FromQuery(Name = "scheduleId")] string? scheduleId = null,
+            [FromQuery(Name = "outcome")] string? outcome = null)
+        {
+            if (Plugin.Instance?.Configuration == null)
+                return NotFound("Plugin configuration not available.");
+
+            var report = ReadActionValue(GetSceneScheduleHistory(limit, scheduleId, outcome));
+            var builder = new StringBuilder();
+            AppendCsvRow(
+                builder,
+                "scheduleId",
+                "scheduleName",
+                "presetName",
+                "playlistName",
+                "playlistRepeatCount",
+                "effect",
+                "effectSpeedPercent",
+                "targetLabel",
+                "succeeded",
+                "skipped",
+                "wasCatchUp",
+                "runAtUtc",
+                "runCount",
+                "targetResultCount",
+                "playlistStepCount",
+                "message",
+                "cleanupWarning");
+            foreach (var run in report?.Runs ?? Array.Empty<HueSceneAutomationRunResult>())
+            {
+                AppendCsvRow(
+                    builder,
+                    run.ScheduleId,
+                    run.ScheduleName,
+                    run.PresetName,
+                    run.PlaylistName,
+                    run.PlaylistRepeatCount,
+                    run.Effect,
+                    run.EffectSpeedPercent,
+                    run.TargetLabel,
+                    run.Succeeded,
+                    run.Skipped,
+                    run.WasCatchUp,
+                    run.RunAtUtc,
+                    run.RunCount,
+                    run.TargetResults?.Count ?? 0,
+                    run.PlaylistSteps?.Count ?? 0,
+                    run.Message,
+                    run.CleanupWarning);
+            }
+
+            return CsvFile(builder, "jellyfin-hue-scene-schedule-history.csv");
         }
 
         /// <summary>
@@ -3219,6 +3464,69 @@ namespace Jellyfin.Plugin.Hue.Api
             [FromQuery(Name = "outcome")] string? outcome = null)
         {
             return Ok(BuildSessionHistoryResult(limit, outcome));
+        }
+
+        /// <summary>
+        /// Downloads the bounded, credential-free completed playback-session history as
+        /// CSV. Private labels and target addresses follow the existing administrator
+        /// JSON export, while bridge credentials and playback tokens remain absent.
+        /// </summary>
+        [HttpGet("History/ExportCsv")]
+        [Produces("text/csv")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public IActionResult ExportSessionHistoryCsv(
+            [FromQuery(Name = "limit")] int limit = HueSyncService.MaxSessionHistoryCount,
+            [FromQuery(Name = "outcome")] string? outcome = null)
+        {
+            var report = BuildSessionHistoryResult(limit, outcome);
+            var builder = new StringBuilder();
+            AppendCsvRow(
+                builder,
+                "outcome",
+                "item",
+                "userId",
+                "userName",
+                "bridgeIp",
+                "entertainmentAreaId",
+                "startedAtUtc",
+                "endedAtUtc",
+                "durationSeconds",
+                "effectiveFps",
+                "framesProcessed",
+                "packetsSent",
+                "packetsSkippedByThreshold",
+                "packetSendFailures",
+                "reconnectAttempts",
+                "seekRestartCount",
+                "lastSeekPositionSeconds",
+                "error",
+                "cleanupWarning");
+            foreach (var session in report.Sessions)
+            {
+                AppendCsvRow(
+                    builder,
+                    session.Outcome,
+                    session.Item,
+                    session.UserId,
+                    session.UserName,
+                    session.BridgeIp,
+                    session.EntertainmentAreaId,
+                    session.StartedAtUtc,
+                    session.EndedAtUtc,
+                    session.DurationSeconds,
+                    session.EffectiveFps,
+                    session.FramesProcessed,
+                    session.PacketsSent,
+                    session.PacketsSkippedByThreshold,
+                    session.PacketSendFailures,
+                    session.ReconnectAttempts,
+                    session.SeekRestartCount,
+                    session.LastSeekPositionSeconds,
+                    session.Error,
+                    session.CleanupWarning);
+            }
+
+            return CsvFile(builder, "jellyfin-hue-session-history.csv");
         }
 
         /// <summary>

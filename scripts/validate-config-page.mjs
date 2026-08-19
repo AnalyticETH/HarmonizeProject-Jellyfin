@@ -33,7 +33,11 @@ const requiredMarkup = [
     'id="sceneScheduleHistoryCueFilter"',
     'id="sceneScheduleBulkSelect"',
     'id="enableSelectedSceneSchedulesBtn"',
-    'id="disableSelectedSceneSchedulesBtn"'
+    'id="disableSelectedSceneSchedulesBtn"',
+    'id="exportSessionHistoryCsvBtn"',
+    'id="exportSceneScheduleConflictsCsvBtn"',
+    'id="exportSceneScheduleOccurrencesCsvBtn"',
+    'id="exportSceneScheduleHistoryCsvBtn"'
 ];
 
 for (const marker of requiredMarkup) {
@@ -76,7 +80,17 @@ const requiredScript = [
     "setSceneSchedulesEnabledBulk: function",
     "HueSync/SceneSchedules/BulkEnabled",
     "getSelectedSceneScheduleBulkIds: function",
-    "updateSceneScheduleBulkButtons: function"
+    "updateSceneScheduleBulkButtons: function",
+    "downloadCsvDocument: function",
+    "downloadCsvFromApi: function",
+    "exportSceneScheduleConflictsCsv: function",
+    "exportSceneScheduleOccurrencesCsv: function",
+    "exportSceneScheduleHistoryCsv: function",
+    "exportSessionHistoryCsv: function",
+    "SceneSchedules/Conflicts/ExportCsv",
+    "SceneSchedules/Occurrences/ExportCsv",
+    "SceneSchedules/History/ExportCsv",
+    "History/ExportCsv"
 ];
 
 for (const marker of requiredScript) {
