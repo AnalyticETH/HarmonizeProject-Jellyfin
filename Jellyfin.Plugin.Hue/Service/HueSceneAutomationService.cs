@@ -430,6 +430,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                     : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                 PlaylistStepCount = playlist?.PresetNames?.Count ?? 0,
+                PlaylistRepeatCount = playlist == null
+                    ? PluginConfiguration.DefaultScenePlaylistRepeatCount
+                    : Math.Clamp(
+                        playlist.RepeatCount,
+                        PluginConfiguration.MinScenePlaylistRepeatCount,
+                        PluginConfiguration.MaxScenePlaylistRepeatCount),
                 PlaylistTotalDurationSeconds = isPlaylist
                     ? GetPlaylistTotalDurationSeconds(config, playlist)
                     : 0,
@@ -555,9 +561,9 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
-    /// Returns the total hold time represented by a saved-scene playlist. Each scene keeps
-    /// its own saved duration; the total is used only for schedule status, occurrence, and
-    /// calendar metadata.
+    /// Returns the total hold time represented by a saved-scene playlist, including each
+    /// configured repeat pass. Each scene keeps its own saved duration; the total is used
+    /// for schedule status, occurrence, and calendar metadata.
     /// </summary>
     internal static int GetPlaylistTotalDurationSeconds(
         PluginConfiguration? config,
@@ -576,7 +582,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                     preset.DurationSeconds,
                     PluginConfiguration.MinPreviewDurationSeconds,
                     PluginConfiguration.MaxPreviewDurationSeconds))
-            .Sum();
+            .Sum() * Math.Clamp(
+                playlist.RepeatCount,
+                PluginConfiguration.MinScenePlaylistRepeatCount,
+                PluginConfiguration.MaxScenePlaylistRepeatCount);
         return Math.Clamp(
             total,
             PluginConfiguration.MinPreviewDurationSeconds,
@@ -878,7 +887,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// <summary>
     /// Runs an ordered saved-scene playlist through the same restorative preview lifecycle
     /// as an individual scene. All playlist references and targets are preflighted before
-    /// the first bridge call; each step remains independently observable and cancellable.
+    /// the first bridge call; each repeated pass remains independently observable and
+    /// cancellable.
     /// </summary>
     public async Task<HueScenePlaylistRunResult> RunPlaylistPreviewAsync(
         HueScenePlaylist playlist,
@@ -914,36 +924,49 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (!TryResolveTargets(config, targetSchedule, out _, out var targetError))
             return PlaylistFailure(playlist, targetError);
 
+        var repeatCount = Math.Clamp(
+            playlist.RepeatCount,
+            PluginConfiguration.MinScenePlaylistRepeatCount,
+            PluginConfiguration.MaxScenePlaylistRepeatCount);
+        var totalStepCount = presets.Count * repeatCount;
         var steps = new List<HueScenePlaylistStepResult>();
-        for (var index = 0; index < presets.Count; index++)
+        var canceled = false;
+        for (var repeatIndex = 1; repeatIndex <= repeatCount && !canceled; repeatIndex++)
         {
-            var preset = presets[index]!;
-            var schedule = new HueSceneSchedule
+            for (var index = 0; index < presets.Count; index++)
             {
-                Id = $"scene-playlist-preview-{index + 1}",
-                Name = playlist.Name?.Trim() ?? string.Empty,
-                PresetName = preset.Name?.Trim() ?? string.Empty,
-                TargetUserId = targetSchedule.TargetUserId,
-                TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings
-            };
-            var run = await RunPreviewAsync(schedule, preset, cancellationToken).ConfigureAwait(false);
-            PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
-            steps.Add(new HueScenePlaylistStepResult
-            {
-                Index = index + 1,
-                PresetName = preset.Name?.Trim() ?? string.Empty,
-                Effect = effect,
-                EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
-                DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset),
-                TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset),
-                TransitionOutSeconds = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset),
-                Succeeded = run.Succeeded,
-                Message = run.Message,
-                CleanupWarning = run.CleanupWarning,
-                TargetResults = run.TargetResults
-            });
-            if (!run.Succeeded && run.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
-                break;
+                var preset = presets[index]!;
+                var schedule = new HueSceneSchedule
+                {
+                    Id = $"scene-playlist-preview-{repeatIndex}-{index + 1}",
+                    Name = playlist.Name?.Trim() ?? string.Empty,
+                    PresetName = preset.Name?.Trim() ?? string.Empty,
+                    TargetUserId = targetSchedule.TargetUserId,
+                    TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings
+                };
+                var run = await RunPreviewAsync(schedule, preset, cancellationToken).ConfigureAwait(false);
+                PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
+                steps.Add(new HueScenePlaylistStepResult
+                {
+                    Index = steps.Count + 1,
+                    RepeatIndex = repeatIndex,
+                    PresetName = preset.Name?.Trim() ?? string.Empty,
+                    Effect = effect,
+                    EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                    DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset),
+                    TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset),
+                    TransitionOutSeconds = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset),
+                    Succeeded = run.Succeeded,
+                    Message = run.Message,
+                    CleanupWarning = run.CleanupWarning,
+                    TargetResults = run.TargetResults
+                });
+                if (!run.Succeeded && run.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
+                {
+                    canceled = true;
+                    break;
+                }
+            }
         }
 
         var succeededCount = steps.Count(step => step.Succeeded);
@@ -962,11 +985,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                 return new HueScenePlaylistTargetResult
                 {
                     TargetLabel = group.Key,
-                    Succeeded = entries.Length == presets.Count && entries.All(entry => entry.Succeeded),
+                    Succeeded = entries.Length == totalStepCount && entries.All(entry => entry.Succeeded),
                     CompletedStepCount = entries.Length,
-                    TotalStepCount = presets.Count,
+                    TotalStepCount = totalStepCount,
                     Message = failed.Length == 0
-                        ? $"Completed {entries.Length} of {presets.Count} playlist step(s)."
+                        ? $"Completed {entries.Length} of {totalStepCount} playlist step(s)."
                         : string.Join(" ", failed.Select(entry => entry.Message).Where(message => !string.IsNullOrWhiteSpace(message))),
                     CleanupWarning = string.Join(" ", entries
                         .Where(entry => !string.IsNullOrWhiteSpace(entry.CleanupWarning))
@@ -976,18 +999,21 @@ public sealed class HueSceneAutomationService : BackgroundService
                 };
             })
             .ToArray();
-        var message = steps.Count == presets.Count && succeededCount == presets.Count
-            ? $"Played playlist '{playlist.Name?.Trim()}' with {presets.Count} saved scene(s)."
+        var message = steps.Count == totalStepCount && succeededCount == totalStepCount
+            ? repeatCount == 1
+                ? $"Played playlist '{playlist.Name?.Trim()}' with {presets.Count} saved scene(s)."
+                : $"Played playlist '{playlist.Name?.Trim()}' with {presets.Count} saved scene(s) for {repeatCount} passes."
             : steps.Count == 0
                 ? "The scene playlist did not contain any runnable steps."
-                : $"Played {succeededCount} of {presets.Count} playlist step(s).";
+                : $"Played {succeededCount} of {totalStepCount} playlist step(s).";
         return new HueScenePlaylistRunResult
         {
             PlaylistId = playlist.Id?.Trim() ?? string.Empty,
             PlaylistName = playlist.Name?.Trim() ?? string.Empty,
+            RepeatCount = repeatCount,
             TargetLabel = ResolveTargetLabel(config, targetSchedule),
             TargetAllEnabledMappings = playlist.TargetAllEnabledMappings,
-            Succeeded = steps.Count == presets.Count && succeededCount == presets.Count,
+            Succeeded = steps.Count == totalStepCount && succeededCount == totalStepCount,
             Message = message,
             CleanupWarning = string.IsNullOrWhiteSpace(cleanupWarning) ? null : cleanupWarning,
             Steps = steps,
@@ -1004,6 +1030,12 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             PlaylistId = playlist?.Id?.Trim() ?? string.Empty,
             PlaylistName = playlist?.Name?.Trim() ?? string.Empty,
+            RepeatCount = playlist == null
+                ? PluginConfiguration.DefaultScenePlaylistRepeatCount
+                : Math.Clamp(
+                    playlist.RepeatCount,
+                    PluginConfiguration.MinScenePlaylistRepeatCount,
+                    PluginConfiguration.MaxScenePlaylistRepeatCount),
             TargetAllEnabledMappings = playlist?.TargetAllEnabledMappings == true,
             Succeeded = false,
             Message = message,
@@ -1544,7 +1576,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 {
                     Id = playlist.Id,
                     Name = playlist.Name,
-                    PresetNames = playlist.PresetNames?.ToList() ?? new List<string>()
+                    PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
+                    RepeatCount = playlist.RepeatCount
                 },
                 config,
                 "Saved playlist");
@@ -2062,6 +2095,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 Id = playlist.Id,
                 Name = playlist.Name,
                 PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
+                RepeatCount = playlist.RepeatCount,
                 TargetUserId = schedule.TargetAllEnabledMappings
                     ? string.Empty
                     : schedule.TargetUserId?.Trim() ?? string.Empty,
@@ -2140,6 +2174,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = schedule.Name?.Trim() ?? string.Empty,
             PresetName = string.Empty,
             PlaylistName = schedule.PlaylistName?.Trim() ?? playlistRun.PlaylistName?.Trim() ?? string.Empty,
+            PlaylistRepeatCount = playlistRun.RepeatCount,
             Effect = PluginConfiguration.SceneScheduleEffectPlaylist,
             EffectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
             TargetLabel = string.IsNullOrWhiteSpace(playlistRun.TargetLabel)
@@ -2565,6 +2600,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = result.ScheduleName,
             PresetName = result.PresetName,
             PlaylistName = result.PlaylistName,
+            PlaylistRepeatCount = result.PlaylistRepeatCount,
             Effect = result.Effect,
             EffectSpeedPercent = result.EffectSpeedPercent,
             TargetLabel = result.TargetLabel,
@@ -2588,6 +2624,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = source.ScheduleName?.Trim() ?? string.Empty,
             PresetName = source.PresetName?.Trim() ?? string.Empty,
             PlaylistName = source.PlaylistName?.Trim() ?? string.Empty,
+            PlaylistRepeatCount = Math.Max(
+                PluginConfiguration.MinScenePlaylistRepeatCount,
+                source.PlaylistRepeatCount),
             Effect = PluginConfiguration.TryNormalizeColorPresetEffect(source.Effect, out var effect)
                 ? effect
                 : string.Equals(source.Effect?.Trim(), PluginConfiguration.SceneScheduleEffectPlaylist, StringComparison.OrdinalIgnoreCase)
@@ -2616,6 +2655,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = entry.ScheduleName?.Trim() ?? string.Empty,
             PresetName = entry.PresetName?.Trim() ?? string.Empty,
             PlaylistName = entry.PlaylistName?.Trim() ?? string.Empty,
+            PlaylistRepeatCount = Math.Max(
+                PluginConfiguration.MinScenePlaylistRepeatCount,
+                entry.PlaylistRepeatCount),
             Effect = string.Equals(entry.Effect?.Trim(), PluginConfiguration.SceneScheduleEffectPlaylist, StringComparison.OrdinalIgnoreCase)
                 ? PluginConfiguration.SceneScheduleEffectPlaylist
                 : PluginConfiguration.TryNormalizeColorPresetEffect(entry.Effect, out var effect)
@@ -2644,6 +2686,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = source.ScheduleName,
             PresetName = source.PresetName,
             PlaylistName = source.PlaylistName,
+            PlaylistRepeatCount = source.PlaylistRepeatCount,
             Effect = source.Effect,
             EffectSpeedPercent = source.EffectSpeedPercent,
             TargetLabel = source.TargetLabel,
@@ -2752,6 +2795,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         return new HueScenePlaylistStepResult
         {
             Index = source.Index,
+            RepeatIndex = source.RepeatIndex,
             PresetName = source.PresetName,
             Effect = source.Effect,
             EffectSpeedPercent = source.EffectSpeedPercent,
@@ -2867,6 +2911,9 @@ public sealed class HueSceneAutomationRunResult
     [JsonPropertyName("playlistName")]
     public string PlaylistName { get; init; } = string.Empty;
 
+    [JsonPropertyName("playlistRepeatCount")]
+    public int PlaylistRepeatCount { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+
     [JsonPropertyName("effect")]
     public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
 
@@ -2915,6 +2962,12 @@ public sealed class HueScenePlaylistRunResult
     [JsonPropertyName("playlistName")]
     public string PlaylistName { get; init; } = string.Empty;
 
+    [JsonPropertyName("playlistRepeatCount")]
+    public int PlaylistRepeatCount { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+
+    [JsonPropertyName("repeatCount")]
+    public int RepeatCount { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+
     [JsonPropertyName("targetLabel")]
     public string? TargetLabel { get; init; }
 
@@ -2947,6 +3000,9 @@ public sealed class HueScenePlaylistStepResult
 {
     [JsonPropertyName("index")]
     public int Index { get; init; }
+
+    [JsonPropertyName("repeatIndex")]
+    public int RepeatIndex { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
     [JsonPropertyName("presetName")]
     public string PresetName { get; init; } = string.Empty;
@@ -3025,6 +3081,9 @@ public sealed class HueSceneScheduleOccurrence
 
     [JsonPropertyName("playlistName")]
     public string PlaylistName { get; init; } = string.Empty;
+
+    [JsonPropertyName("playlistRepeatCount")]
+    public int PlaylistRepeatCount { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
     [JsonPropertyName("priority")]
     public int Priority { get; init; }
@@ -3109,6 +3168,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("playlistStepCount")]
     public int PlaylistStepCount { get; init; }
+
+    [JsonPropertyName("playlistRepeatCount")]
+    public int PlaylistRepeatCount { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
     [JsonPropertyName("playlistTotalDurationSeconds")]
     public int PlaylistTotalDurationSeconds { get; init; }

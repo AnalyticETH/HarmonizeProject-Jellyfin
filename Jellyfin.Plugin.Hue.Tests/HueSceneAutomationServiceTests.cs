@@ -783,6 +783,53 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunPlaylistPreview_RepeatsTheSequenceAndReportsPassTelemetry()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "repeat-app-secret",
+            HueClientKey = "repeat-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, BrightnessPercent = 80, DurationSeconds = 1 },
+                new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, BrightnessPercent = 70, DurationSeconds = 2 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-repeat",
+                    Name = "Repeated sequence",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    RepeatCount = 2
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, result.RepeatCount);
+        Assert.Equal(new[] { 25, 220, 25, 220 }, streamTester.Reds);
+        Assert.Equal(new[] { 1, 1, 2, 2 }, result.Steps.Select(step => step.RepeatIndex));
+        Assert.Equal(new[] { "Warm", "Cool", "Warm", "Cool" }, result.Steps.Select(step => step.PresetName));
+        var target = Assert.Single(result.TargetResults);
+        Assert.Equal(4, target.CompletedStepCount);
+        Assert.Equal(4, target.TotalStepCount);
+        Assert.Contains("2 passes", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunScheduleAsync_RunsScheduledPlaylistInOrderAndReturnsPlaylistTelemetry()
     {
         var configuration = new PluginConfiguration
@@ -798,7 +845,7 @@ public sealed class HueSceneAutomationServiceTests
             },
             ScenePlaylists = new List<HueScenePlaylist>
             {
-                new() { Id = "scheduled-playlist", Name = "Scheduled sequence", PresetNames = new List<string> { "First", "Second" } }
+                new() { Id = "scheduled-playlist", Name = "Scheduled sequence", PresetNames = new List<string> { "First", "Second" }, RepeatCount = 2 }
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
@@ -827,13 +874,15 @@ public sealed class HueSceneAutomationServiceTests
         Assert.True(result.Succeeded);
         Assert.Equal(PluginConfiguration.SceneScheduleEffectPlaylist, result.Effect);
         Assert.Equal("Scheduled sequence", result.PlaylistName);
-        Assert.Equal(new[] { "First", "Second" }, result.PlaylistSteps.Select(step => step.PresetName));
-        Assert.Equal(new[] { 11, 222 }, streamTester.Reds);
+        Assert.Equal(2, result.PlaylistRepeatCount);
+        Assert.Equal(new[] { "First", "Second", "First", "Second" }, result.PlaylistSteps.Select(step => step.PresetName));
+        Assert.Equal(new[] { 11, 222, 11, 222 }, streamTester.Reds);
         Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
         var runtime = Assert.Single(service.GetStatus().Schedules);
         Assert.Equal("Scheduled sequence", runtime.PlaylistName);
         Assert.Equal(2, runtime.PlaylistStepCount);
-        Assert.Equal(3, runtime.PlaylistTotalDurationSeconds);
+        Assert.Equal(2, runtime.PlaylistRepeatCount);
+        Assert.Equal(6, runtime.PlaylistTotalDurationSeconds);
     }
 
     [Fact]

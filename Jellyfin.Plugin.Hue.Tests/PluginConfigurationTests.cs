@@ -164,6 +164,39 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsBoundedRepeatsAndRejectsUnsafeTotals()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", DurationSeconds = 20 },
+                new() { Name = "Cool", DurationSeconds = 20 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-repeat",
+                    Name = "Repeated sequence",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    RepeatCount = 5
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+
+        config.ScenePlaylists[0].RepeatCount = PluginConfiguration.MaxScenePlaylistRepeatCount + 1;
+        Assert.Contains("Scene playlist 1 repeat count must be between 1 and 10", config.ValidateScenePlaylists());
+
+        config.ScenePlaylists[0].RepeatCount = 10;
+        config.ColorPresets.Add(new HueColorPreset { Name = "Finale", DurationSeconds = 30 });
+        config.ScenePlaylists[0].PresetNames.Add("Finale");
+        Assert.Contains("Scene playlist 1 repeated duration cannot exceed 600 seconds", config.ValidateScenePlaylists());
+    }
+
+    [Fact]
     public void ValidateScenePlaylists_RejectsMissingScenesInvalidTargetAndDuplicateIdentity()
     {
         var config = new PluginConfiguration

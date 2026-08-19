@@ -442,12 +442,24 @@ namespace Jellyfin.Plugin.Hue.Api
                     preset != null &&
                     string.Equals(preset.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
                 .Where(preset => preset != null)
-                .Sum(preset => Math.Max(0, preset!.DurationSeconds));
+                .Select(preset => Math.Clamp(
+                    preset!.DurationSeconds,
+                    PluginConfiguration.MinPreviewDurationSeconds,
+                    PluginConfiguration.MaxPreviewDurationSeconds))
+                .Sum() * Math.Clamp(
+                    playlist.RepeatCount,
+                    PluginConfiguration.MinScenePlaylistRepeatCount,
+                    PluginConfiguration.MaxScenePlaylistRepeatCount);
+            totalDuration = Math.Min(totalDuration, PluginConfiguration.MaxScenePlaylistTotalDurationSeconds);
             return new HueScenePlaylistResult
             {
                 Id = playlist.Id?.Trim() ?? string.Empty,
                 Name = playlist.Name?.Trim() ?? string.Empty,
                 PresetNames = presetNames,
+                RepeatCount = Math.Clamp(
+                    playlist.RepeatCount,
+                    PluginConfiguration.MinScenePlaylistRepeatCount,
+                    PluginConfiguration.MaxScenePlaylistRepeatCount),
                 TargetUserId = targetUserId,
                 TargetAllEnabledMappings = playlist.TargetAllEnabledMappings,
                 TargetLabel = targetLabel,
@@ -479,6 +491,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Id = playlist.Id,
                 Name = playlist.Name,
                 PresetNames = (playlist.PresetNames ?? new List<string>()).ToList(),
+                RepeatCount = playlist.RepeatCount,
                 TargetUserId = playlist.TargetUserId,
                 TargetAllEnabledMappings = playlist.TargetAllEnabledMappings
             };
@@ -602,6 +615,12 @@ namespace Jellyfin.Plugin.Hue.Api
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                     : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                 PlaylistStepCount = playlist?.PresetNames?.Count ?? 0,
+                PlaylistRepeatCount = playlist == null
+                    ? PluginConfiguration.DefaultScenePlaylistRepeatCount
+                    : Math.Clamp(
+                        playlist.RepeatCount,
+                        PluginConfiguration.MinScenePlaylistRepeatCount,
+                        PluginConfiguration.MaxScenePlaylistRepeatCount),
                 PlaylistTotalDurationSeconds = playlistTotalDuration,
                 TargetUserId = targetUserId,
                 TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
@@ -1483,8 +1502,9 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Saves or updates an ordered saved-scene playlist. Only scene references and
-        /// target mode are persisted; credentials remain in the server configuration.
+        /// Saves or updates an ordered saved-scene playlist. Only scene references, a
+        /// bounded repeat count, and target mode are persisted; credentials remain in the
+        /// server configuration.
         /// </summary>
         [HttpPost("ScenePlaylists")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1929,6 +1949,12 @@ namespace Jellyfin.Plugin.Hue.Api
                             PresetName = occurrence.PresetName,
                             PlaylistName = occurrence.PlaylistName,
                             PlaylistStepCount = playlist?.PresetNames?.Count ?? 0,
+                            PlaylistRepeatCount = playlist == null
+                                ? PluginConfiguration.DefaultScenePlaylistRepeatCount
+                                : Math.Clamp(
+                                    playlist.RepeatCount,
+                                    PluginConfiguration.MinScenePlaylistRepeatCount,
+                                    PluginConfiguration.MaxScenePlaylistRepeatCount),
                             PlaylistTotalDurationSeconds = isPlaylist ? effectiveDuration : 0,
                             Priority = occurrence.Priority,
                             Effect = effect,
@@ -2001,6 +2027,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "X-HUE-PRIORITY", occurrence.Priority.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-EFFECT", occurrence.Effect);
                 AppendIcsLine(builder, "X-HUE-PLAYLIST-STEPS", occurrence.PlaylistStepCount.ToString(CultureInfo.InvariantCulture));
+                AppendIcsLine(builder, "X-HUE-PLAYLIST-REPEATS", occurrence.PlaylistRepeatCount.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-EFFECT-SPEED-PERCENT", occurrence.EffectSpeedPercent.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-SECONDS", occurrence.TransitionSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-OUT-SECONDS", occurrence.TransitionOutSeconds.ToString(CultureInfo.InvariantCulture));
@@ -4391,7 +4418,8 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Credential-free saved-scene playlist metadata returned by administrator APIs.
+    /// Credential-free saved-scene playlist metadata returned by administrator APIs,
+    /// including its bounded repeat count.
     /// </summary>
     public sealed class HueScenePlaylistResult
     {
@@ -4403,6 +4431,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetNames")]
         public IReadOnlyList<string> PresetNames { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("repeatCount")]
+        public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
@@ -4418,7 +4449,8 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Request shape for saving an ordered credential-free scene playlist.
+    /// Request shape for saving an ordered credential-free scene playlist and its bounded
+    /// repeat count.
     /// </summary>
     public sealed class HueScenePlaylistRequest
     {
@@ -4430,6 +4462,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetNames")]
         public List<string> PresetNames { get; set; } = new();
+
+        [JsonPropertyName("repeatCount")]
+        public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
@@ -4446,6 +4481,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetNames = (PresetNames ?? new List<string>())
                     .Select(name => name?.Trim() ?? string.Empty)
                     .ToList(),
+                RepeatCount = RepeatCount,
                 TargetUserId = TargetAllEnabledMappings ? string.Empty : TargetUserId?.Trim() ?? string.Empty,
                 TargetAllEnabledMappings = TargetAllEnabledMappings
             };
@@ -4628,6 +4664,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("playlistStepCount")]
         public int PlaylistStepCount { get; set; }
 
+        [JsonPropertyName("playlistRepeatCount")]
+        public int PlaylistRepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+
         [JsonPropertyName("playlistTotalDurationSeconds")]
         public int PlaylistTotalDurationSeconds { get; set; }
 
@@ -4729,6 +4768,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("playlistStepCount")]
         public int PlaylistStepCount { get; set; }
+
+        [JsonPropertyName("playlistRepeatCount")]
+        public int PlaylistRepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
         [JsonPropertyName("playlistTotalDurationSeconds")]
         public int PlaylistTotalDurationSeconds { get; set; }

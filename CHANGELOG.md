@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.109] - 2026-08-19
+
+### Added
+- **Repeatable saved playlists**: repeat an ordered saved-scene sequence up to 10 passes without duplicating playlist steps; legacy playlists continue to run once
+- **Bounded repeat safety**: enforce the existing 10-minute aggregate playlist duration cap across every pass before a playlist can be saved, imported, scheduled, or previewed
+- **Repeat-aware telemetry and portability**: expose pass count and expanded step outcomes through playlist CRUD, previews, scheduled-cue status/occurrences/iCalendar metadata, retained history, and credential-safe backup/restore
+- **Administrator workflow**: configure and review playlist passes directly in the Saved Scene Playlists editor
+
+### Security
+- Repeat metadata contains only bounded scene references and a numeric pass count; bridge addresses, app keys, client keys, and playback tokens remain server-side and absent from playlist telemetry and backups
+
 ## [1.5.108] - 2026-08-19
 
 ### Added

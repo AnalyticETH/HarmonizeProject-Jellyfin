@@ -98,14 +98,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
     /// <summary>
     /// A credential-free ordered collection of saved scenes. Playlists retain only scene
-    /// names and an optional target mode; bridge credentials and channel profiles are
-    /// resolved from the current server configuration when the playlist is previewed.
+    /// names, a bounded repeat count, and an optional target mode; bridge credentials and
+    /// channel profiles are resolved from the current server configuration when the
+    /// playlist is previewed.
     /// </summary>
     public sealed class HueScenePlaylist
     {
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
         public string Name { get; set; } = string.Empty;
         public List<string> PresetNames { get; set; } = new List<string>();
+        /// <summary>
+        /// Number of times the ordered scene sequence is played. Missing values in
+        /// legacy configurations preserve the original single-pass behavior.
+        /// </summary>
+        public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
         public string TargetUserId { get; set; } = string.Empty;
         public bool TargetAllEnabledMappings { get; set; }
     }
@@ -279,6 +285,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string ScheduleName { get; set; } = string.Empty;
         public string PresetName { get; set; } = string.Empty;
         public string PlaylistName { get; set; } = string.Empty;
+        public int PlaylistRepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public string? TargetLabel { get; set; }
@@ -380,6 +387,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxScenePlaylists = 50;
         public const int MaxScenePlaylistItems = 20;
         public const int MaxScenePlaylistTotalDurationSeconds = MaxScenePlaylistItems * MaxPreviewDurationSeconds;
+        public const int MinScenePlaylistRepeatCount = 1;
+        public const int MaxScenePlaylistRepeatCount = 10;
+        public const int DefaultScenePlaylistRepeatCount = MinScenePlaylistRepeatCount;
         public const int MaxScenePlaylistNameLength = 64;
         public const int MaxSceneSchedules = 50;
         public const int MaxSceneScheduleNameLength = 64;
@@ -1078,6 +1088,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.Add($"{label} must contain between 1 and {MaxScenePlaylistItems} saved scenes");
             }
 
+            if (playlist.RepeatCount < MinScenePlaylistRepeatCount ||
+                playlist.RepeatCount > MaxScenePlaylistRepeatCount)
+            {
+                errors.Add($"{label} repeat count must be between {MinScenePlaylistRepeatCount} and {MaxScenePlaylistRepeatCount}");
+            }
+
             for (var index = 0; index < presetNames.Count; index++)
             {
                 var presetName = presetNames[index]?.Trim() ?? string.Empty;
@@ -1093,6 +1109,31 @@ namespace Jellyfin.Plugin.Hue.Configuration
                         string.Equals(preset.Name?.Trim(), presetName, StringComparison.OrdinalIgnoreCase)))
                 {
                     errors.Add($"{label} references a saved scene that does not exist: {presetName}");
+                }
+            }
+
+            if (configuration != null &&
+                playlist.RepeatCount >= MinScenePlaylistRepeatCount &&
+                playlist.RepeatCount <= MaxScenePlaylistRepeatCount)
+            {
+                var presets = presetNames
+                    .Select(presetName => (configuration.ColorPresets ?? new List<HueColorPreset>())
+                        .FirstOrDefault(preset =>
+                            preset != null &&
+                            string.Equals(preset.Name?.Trim(), presetName?.Trim(), StringComparison.OrdinalIgnoreCase)))
+                    .ToArray();
+                if (presets.All(preset => preset != null))
+                {
+                    var totalDuration = presets
+                        .Select(preset => Math.Clamp(
+                            preset!.DurationSeconds,
+                            MinPreviewDurationSeconds,
+                            MaxPreviewDurationSeconds))
+                        .Sum() * playlist.RepeatCount;
+                    if (totalDuration > MaxScenePlaylistTotalDurationSeconds)
+                    {
+                        errors.Add($"{label} repeated duration cannot exceed {MaxScenePlaylistTotalDurationSeconds} seconds");
+                    }
                 }
             }
 
