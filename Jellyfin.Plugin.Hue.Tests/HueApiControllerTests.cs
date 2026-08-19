@@ -1314,6 +1314,120 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_DuplicateCreatesDisabledFreshCueWithUniqueIdentity()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "original-cue",
+                    Name = "Evening Cue",
+                    PresetName = "Evening",
+                    TargetUserId = "",
+                    TimeOfDay = "21:30",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday,
+                    RecurrenceInterval = 2,
+                    WeekOfMonth = PluginConfiguration.SceneScheduleLastWeekOfMonth,
+                    DayOfWeek = (int)DayOfWeek.Friday,
+                    StartDate = "2026-01-01",
+                    ExcludedDates = new List<string> { "2026-12-25" },
+                    MaxRuns = 4,
+                    RunCount = 2,
+                    Enabled = true
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var action = controller.DuplicateSceneSchedule(" original-cue ");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var duplicate = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.NotEqual("original-cue", duplicate.Id);
+        Assert.Equal("Evening Cue (Copy)", duplicate.Name);
+        Assert.Equal("Evening", duplicate.PresetName);
+        Assert.Equal(TimeZoneInfo.Utc.Id, duplicate.TimeZoneId);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, duplicate.Recurrence);
+        Assert.Equal(2, duplicate.RecurrenceInterval);
+        Assert.Equal(PluginConfiguration.SceneScheduleLastWeekOfMonth, duplicate.WeekOfMonth);
+        Assert.Equal((int)DayOfWeek.Friday, duplicate.DayOfWeek);
+        Assert.Equal(new[] { "2026-12-25" }, duplicate.ExcludedDates);
+        Assert.Equal(4, duplicate.MaxRuns);
+        Assert.Equal(0, duplicate.RunCount);
+        Assert.False(duplicate.Enabled);
+
+        Assert.Equal(2, configuration.SceneSchedules.Count);
+        var savedDuplicate = configuration.SceneSchedules.Single(schedule => schedule.Id == duplicate.Id);
+        Assert.False(savedDuplicate.Enabled);
+        Assert.Equal(0, savedDuplicate.RunCount);
+
+        var secondAction = controller.DuplicateSceneSchedule("original-cue");
+        var secondResponse = Assert.IsType<OkObjectResult>(secondAction.Result);
+        var secondDuplicate = Assert.IsType<HueSceneScheduleResult>(secondResponse.Value);
+        Assert.Equal("Evening Cue (Copy 2)", secondDuplicate.Name);
+        Assert.NotEqual(duplicate.Id, secondDuplicate.Id);
+    }
+
+    [Fact]
+    public void SceneSchedules_DuplicateAtConfiguredLimitReturnsConflictWithoutMutation()
+    {
+        var schedules = Enumerable.Range(1, PluginConfiguration.MaxSceneSchedules)
+            .Select(index => new HueSceneSchedule
+            {
+                Id = $"cue-{index}",
+                Name = $"Cue {index}",
+                PresetName = "Evening",
+                TimeOfDay = "20:00",
+                DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask
+            })
+            .ToList();
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = schedules
+        });
+        var controller = CreateController();
+
+        var action = controller.DuplicateSceneSchedule("cue-1");
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Equal(PluginConfiguration.MaxSceneSchedules, configuration.SceneSchedules.Count);
+    }
+
+    [Fact]
+    public void SceneSchedules_DuplicateBoundsLongGeneratedName()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "long-name-cue",
+                    Name = new string('L', PluginConfiguration.MaxSceneScheduleNameLength),
+                    PresetName = "Evening",
+                    TimeOfDay = "20:00",
+                    DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask
+                }
+            }
+        });
+
+        var action = CreateController().DuplicateSceneSchedule("long-name-cue");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var duplicate = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.True(duplicate.Name.Length <= PluginConfiguration.MaxSceneScheduleNameLength);
+        Assert.EndsWith(" (Copy)", duplicate.Name, StringComparison.Ordinal);
+        Assert.False(duplicate.Enabled);
+    }
+
+    [Fact]
     public void SceneSchedules_SavesAndReturnsOneTimeCueWithoutWeekdayMask()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

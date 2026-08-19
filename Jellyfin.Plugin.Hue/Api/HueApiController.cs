@@ -511,6 +511,42 @@ namespace Jellyfin.Plugin.Hue.Api
             };
         }
 
+        private static string BuildDuplicateSceneScheduleName(
+            IEnumerable<HueSceneSchedule> schedules,
+            string? sourceName)
+        {
+            var existingNames = new HashSet<string>(
+                schedules
+                    .Where(schedule => schedule != null)
+                    .Select(schedule => schedule.Name?.Trim() ?? string.Empty)
+                    .Where(name => !string.IsNullOrWhiteSpace(name)),
+                StringComparer.OrdinalIgnoreCase);
+            var baseName = string.IsNullOrWhiteSpace(sourceName)
+                ? "Scheduled cue"
+                : sourceName.Trim();
+
+            for (var copyNumber = 1; copyNumber <= PluginConfiguration.MaxSceneSchedules + 1; copyNumber++)
+            {
+                var suffix = copyNumber == 1
+                    ? " (Copy)"
+                    : $" (Copy {copyNumber})";
+                var availableBaseLength = Math.Max(
+                    1,
+                    PluginConfiguration.MaxSceneScheduleNameLength - suffix.Length);
+                var truncatedBase = baseName.Length > availableBaseLength
+                    ? baseName[..availableBaseLength].TrimEnd()
+                    : baseName;
+                var candidate = truncatedBase + suffix;
+                if (!existingNames.Contains(candidate))
+                    return candidate;
+            }
+
+            // The schedule collection is bounded, so the loop above always returns. Keep
+            // a bounded unique fallback for malformed legacy configurations with an
+            // unexpectedly large collection.
+            return $"Cue copy {Guid.NewGuid():N}"[..PluginConfiguration.MaxSceneScheduleNameLength];
+        }
+
         /// <summary>
         /// Tests bridge reachability and, when supplied, verifies an entertainment area. A client key
         /// additionally opts into a short non-destructive DTLS stream probe. A channelIds profile can
@@ -1444,6 +1480,77 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             return Ok(ToSceneScheduleResult(schedule, config));
+        }
+
+        /// <summary>
+        /// Creates a safe, disabled copy of one scene cue. The copy preserves its
+        /// timing, target, recurrence, effect, and finite limit, but receives a new ID,
+        /// a unique name, and a fresh execution counter so it can be edited independently
+        /// without duplicating an already-consumed cue or firing unexpectedly.
+        /// </summary>
+        [HttpPost("SceneSchedules/{id}/Duplicate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueSceneScheduleResult> DuplicateSceneSchedule(string id)
+        {
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            config.SceneSchedules ??= new List<HueSceneSchedule>();
+            var source = config.SceneSchedules.FirstOrDefault(schedule =>
+                schedule != null &&
+                string.Equals(schedule.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (source == null)
+                return NotFound("Scene schedule not found.");
+
+            if (config.SceneSchedules.Count >= PluginConfiguration.MaxSceneSchedules)
+            {
+                return Conflict(
+                    $"No more than {PluginConfiguration.MaxSceneSchedules} scene schedules may be saved.");
+            }
+
+            var duplicate = CloneSceneSchedule(source);
+            duplicate.Id = Guid.NewGuid().ToString("N");
+            duplicate.Name = BuildDuplicateSceneScheduleName(config.SceneSchedules, source.Name);
+            duplicate.RunCount = 0;
+            duplicate.Enabled = false;
+
+            var previousSchedules = config.SceneSchedules;
+            var candidateSchedules = previousSchedules
+                .Where(schedule => schedule != null)
+                .Select(CloneSceneSchedule)
+                .ToList();
+            candidateSchedules.Add(duplicate);
+            config.SceneSchedules = candidateSchedules;
+            var validationErrors = config.ValidateSceneSchedules();
+            if (validationErrors.Count > 0)
+            {
+                config.SceneSchedules = previousSchedules;
+                return BadRequest(new
+                {
+                    message = "The scene cue copy is invalid.",
+                    errors = validationErrors
+                });
+            }
+
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.SceneSchedules = previousSchedules;
+                _logger?.LogError(ex, "Could not persist duplicate Hue scene schedule {0}", source.Name);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The scene cue copy could not be saved.");
+            }
+
+            return Ok(ToSceneScheduleResult(duplicate, config));
         }
 
         /// <summary>

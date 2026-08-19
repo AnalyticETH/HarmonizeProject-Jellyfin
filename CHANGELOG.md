@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.97] - 2026-08-19
+
+### Added
+- **Safe scheduled-cue duplication**: add a credential-free `Duplicate Cue` administrator action and `POST /HueSync/SceneSchedules/{id}/Duplicate` endpoint for creating variations without re-entering timing, target, recurrence, effect, or finite-limit metadata
+- **Fresh copy lifecycle**: duplicated cues receive a new stable ID, a unique bounded name, a reset execution counter, and disabled state so administrators can edit and enable them deliberately
+
+### Security
+- Cue duplication is administrator-authorized, validates the complete resulting configuration before persistence, and never copies or returns bridge credentials or playback tokens
+
 ## [1.5.96] - 2026-08-19
 
 ### Added
