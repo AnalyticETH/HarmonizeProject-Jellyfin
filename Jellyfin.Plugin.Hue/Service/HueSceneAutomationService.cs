@@ -460,6 +460,107 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Deletes several scene cues as one persistence transaction. Every selected cue is
+    /// resolved and checked before the collection changes, and an active cue blocks the
+    /// complete operation so a running restorative lifecycle cannot lose its definition.
+    /// Retained run history is intentionally preserved as an audit trail.
+    /// </summary>
+    public bool TryDeleteSchedules(
+        IEnumerable<string>? scheduleIds,
+        out string message)
+    {
+        message = string.Empty;
+        var config = Plugin.Instance?.Configuration;
+        if (config == null)
+        {
+            message = "Plugin configuration is not available.";
+            return false;
+        }
+
+        var keys = (scheduleIds ?? Array.Empty<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (keys.Length == 0)
+        {
+            message = "Select at least one scene schedule.";
+            return false;
+        }
+
+        if (keys.Length > PluginConfiguration.MaxSceneSchedules)
+        {
+            message = $"Select no more than {PluginConfiguration.MaxSceneSchedules} scene schedules at once.";
+            return false;
+        }
+
+        var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
+        var selectedSchedules = keys
+            .Select(key => previousSchedules.FirstOrDefault(schedule =>
+                schedule != null &&
+                string.Equals(schedule.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        var missingKeys = keys
+            .Where((_, index) => selectedSchedules[index] == null)
+            .ToArray();
+        if (missingKeys.Length > 0)
+        {
+            message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
+            return false;
+        }
+
+        var schedules = selectedSchedules
+            .Where(schedule => schedule != null)
+            .Cast<HueSceneSchedule>()
+            .ToArray();
+        lock (_runtimeStateLock)
+        {
+            var activeSchedules = schedules
+                .Where(schedule =>
+                {
+                    var key = schedule.Id?.Trim() ?? string.Empty;
+                    return _runtimeStates.TryGetValue(key, out var state) && state.ActiveRuns > 0;
+                })
+                .Select(schedule => schedule.Name)
+                .ToArray();
+            if (activeSchedules.Length > 0)
+            {
+                message = $"The selected scene schedule(s) are currently running and cannot be deleted: {string.Join(", ", activeSchedules)}.";
+                return false;
+            }
+
+            var selectedIds = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
+            config.SceneSchedules = previousSchedules
+                .Where(schedule => schedule == null || !selectedIds.Contains(schedule.Id?.Trim() ?? string.Empty))
+                .ToList();
+        }
+
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+            lock (_runtimeStateLock)
+            {
+                foreach (var schedule in schedules)
+                    _runtimeStates.Remove(schedule.Id?.Trim() ?? string.Empty);
+            }
+
+            message = $"Deleted {schedules.Length} scheduled cue(s); retained cue history was preserved.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lock (_runtimeStateLock)
+            {
+                config.SceneSchedules = previousSchedules;
+            }
+
+            _logger.LogWarning(ex, "Could not persist bulk deletion of Hue scene schedules");
+            message = "The selected scene schedules could not be deleted; no changes were retained.";
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Marks or clears one upcoming automatic occurrence without changing the cue's
     /// recurrence definition. The next occurrence is consumed by the scheduler only;
     /// manual Run Now remains available. Active, exhausted, or otherwise idle cues are

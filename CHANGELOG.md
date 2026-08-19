@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.133] - 2026-08-19
+
+### Added
+- **Atomic bulk cue deletion**: remove up to 50 selected scheduled cues in one administrator operation while preserving retained cue history
+- **Active-lifecycle protection**: a running cue, missing ID, or persistence failure blocks the complete deletion set and restores the previous collection
+- **Administrator cleanup workflow**: add a confirmed Delete Selected action beside the existing bulk enable, disable, and skip controls
+
 ## [1.5.132] - 2026-08-19
 
 ### Added

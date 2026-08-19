@@ -3443,6 +3443,106 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Deletes several scene cues in one administrator operation. All IDs are resolved
+        /// before mutation, and the automation service refuses the complete request when a
+        /// selected cue is active or persistence fails. Retained history remains available.
+        /// </summary>
+        [HttpPost("SceneSchedules/BulkDelete")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueSceneScheduleBulkDeleteResult> DeleteSceneSchedulesBulk(
+            [FromBody] HueSceneScheduleBulkDeleteRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A cue selection is required.");
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var scheduleIds = (request.ScheduleIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (scheduleIds.Length == 0)
+                return BadRequest("Select at least one scheduled cue.");
+            if (scheduleIds.Length > PluginConfiguration.MaxSceneSchedules)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxSceneSchedules} scheduled cues at once.");
+            }
+
+            config.SceneSchedules ??= new List<HueSceneSchedule>();
+            var selectedSchedules = scheduleIds
+                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
+                    schedule != null &&
+                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingIds = scheduleIds
+                .Where((_, index) => selectedSchedules[index] == null)
+                .ToArray();
+            if (missingIds.Length > 0)
+            {
+                return NotFound(new HueSceneScheduleBulkDeleteResult
+                {
+                    RequestedCount = scheduleIds.Length,
+                    Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
+                });
+            }
+
+            var schedules = selectedSchedules
+                .Where(schedule => schedule != null)
+                .Cast<HueSceneSchedule>()
+                .ToArray();
+            if (_sceneAutomationService != null)
+            {
+                if (!_sceneAutomationService.TryDeleteSchedules(scheduleIds, out var message))
+                {
+                    return Conflict(new HueSceneScheduleBulkDeleteResult
+                    {
+                        RequestedCount = schedules.Length,
+                        Message = message
+                    });
+                }
+            }
+            else
+            {
+                // Keep the controller usable in the lightweight test/degraded host path
+                // where the hosted automation service is not registered.
+                var previousSchedules = config.SceneSchedules;
+                var selectedIds = new HashSet<string>(scheduleIds, StringComparer.OrdinalIgnoreCase);
+                config.SceneSchedules = previousSchedules
+                    .Where(schedule => schedule == null || !selectedIds.Contains(schedule.Id?.Trim() ?? string.Empty))
+                    .ToList();
+                try
+                {
+                    Plugin.Instance?.SaveConfiguration();
+                }
+                catch (Exception ex)
+                {
+                    config.SceneSchedules = previousSchedules;
+                    _logger?.LogError(ex, "Could not persist bulk deletion of Hue scene schedules");
+                    return StatusCode(
+                        StatusCodes.Status500InternalServerError,
+                        "The selected scene schedules could not be deleted; no changes were retained.");
+                }
+            }
+
+            return Ok(new HueSceneScheduleBulkDeleteResult
+            {
+                RequestedCount = schedules.Length,
+                DeletedCount = schedules.Length,
+                RemainingCount = config.SceneSchedules?.Count ?? 0,
+                Message = $"Deleted {schedules.Length} scheduled cue(s); retained cue history was preserved.",
+                Schedules = schedules.Select(schedule => ToSceneScheduleResult(schedule, config)).ToArray()
+            });
+        }
+
+        /// <summary>
         /// Skips the next eligible automatic occurrence of one scene cue without changing
         /// its recurrence definition. Manual Run Now remains available; one-time cues are
         /// disabled after their skipped occurrence.
@@ -6198,6 +6298,36 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("updatedCount")]
         public int UpdatedCount { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("schedules")]
+        public IReadOnlyList<HueSceneScheduleResult> Schedules { get; set; } = Array.Empty<HueSceneScheduleResult>();
+    }
+
+    /// <summary>
+    /// Request shape for atomically deleting several scene cues by stable ID.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkDeleteRequest
+    {
+        [JsonPropertyName("scheduleIds")]
+        public List<string> ScheduleIds { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic bulk scene-cue deletion.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkDeleteResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("deletedCount")]
+        public int DeletedCount { get; set; }
+
+        [JsonPropertyName("remainingCount")]
+        public int RemainingCount { get; set; }
 
         [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;

@@ -1592,6 +1592,69 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void DeleteSchedules_RemovesSelectedCuesAtomicallyAndPreservesOtherDefinitions()
+    {
+        var configuration = new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = true,
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new() { ScheduleId = "bulk-delete-one", ScheduleName = "Bulk delete one" }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "bulk-delete-one", Name = "Bulk delete one", TimeOfDay = "06:45" },
+                new() { Id = "bulk-delete-two", Name = "Bulk delete two", TimeOfDay = "07:15" },
+                new() { Id = "bulk-delete-untouched", Name = "Bulk delete untouched", TimeOfDay = "08:15" }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.True(service.TryDeleteSchedules(
+            new[] { " bulk-delete-one ", "bulk-delete-two", "bulk-delete-one" },
+            out var message));
+        Assert.Contains("Deleted 2", message, StringComparison.Ordinal);
+        Assert.Single(configuration.SceneSchedules);
+        Assert.Equal("bulk-delete-untouched", configuration.SceneSchedules[0].Id);
+        Assert.Single(configuration.PersistedSceneScheduleHistory);
+        Assert.Equal("bulk-delete-one", configuration.PersistedSceneScheduleHistory[0].ScheduleId);
+    }
+
+    [Fact]
+    public void DeleteSchedules_RefusesEntireSelectionWhenOneCueIsMissing()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "bulk-delete-existing", Name = "Bulk delete existing", TimeOfDay = "06:45" },
+                new() { Id = "bulk-delete-safe", Name = "Bulk delete safe", TimeOfDay = "07:15" }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.False(service.TryDeleteSchedules(
+            new[] { "bulk-delete-existing", "missing-delete-cue" },
+            out var message));
+        Assert.Contains("missing-delete-cue", message, StringComparison.Ordinal);
+        Assert.Equal(2, configuration.SceneSchedules.Count);
+        Assert.Equal("bulk-delete-existing", configuration.SceneSchedules[0].Id);
+        Assert.Equal("bulk-delete-safe", configuration.SceneSchedules[1].Id);
+    }
+
+    [Fact]
     public void SetScheduleSkipNextOccurrence_ChangesOnlyPendingAutomaticOccurrence()
     {
         var configuration = new PluginConfiguration

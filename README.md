@@ -185,6 +185,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/SceneSchedules/{id}/Enabled` | Enable or disable one cue without changing its schedule definition. Active cues cannot be changed, and an exhausted finite cue must be reset before it can be enabled; the response remains credential-free. |
 | `POST /HueSync/SceneSchedules/BulkEnabled` | Atomically enable or disable up to 50 selected cue IDs with `{ "scheduleIds": ["..."], "enabled": true|false }`. Every ID is normalized and validated before persistence; active cues, exhausted finite cues, unknown IDs, and save failures leave the entire selection unchanged. The response includes updated credential-free cue summaries and counts. |
 | `POST /HueSync/SceneSchedules/BulkSkipNext` | Atomically mark or clear the next automatic occurrence for up to 50 selected cue IDs with `{ "scheduleIds": ["..."], "skipNextOccurrence": true|false }`. New skip markers require enabled, non-exhausted cues with a future occurrence; active cues, disabled/futureless cues, unknown IDs, and save failures leave the entire selection unchanged. Manual Run Now remains available and the response includes updated credential-free cue summaries. |
+| `POST /HueSync/SceneSchedules/BulkDelete` | Atomically delete up to 50 selected cue IDs with `{ "scheduleIds": ["..."] }`. Every ID is resolved before mutation; active cues, unknown IDs, and save failures leave the entire selection unchanged. Retained cue history remains available as an audit trail, and the response includes deleted credential-free cue summaries and the remaining count. |
 | `POST /HueSync/SceneSchedules/{id}/SkipNext` | Mark exactly one upcoming automatic occurrence to be skipped without changing recurrence, limits, or the saved scene. Active, disabled, exhausted, or futureless cues are rejected; manual Run Now remains available. |
 | `DELETE /HueSync/SceneSchedules/{id}/SkipNext` | Clear a pending skip so the next eligible automatic occurrence runs normally. |
 | `GET /HueSync/SceneSchedules/TimeZones` | List the Jellyfin host's available system time zones for schedule selection, including stable IDs, display names, and base UTC offsets. |
@@ -386,7 +387,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.132 (Current)
+### Version 1.5.133 (Current)
+- **Atomic bulk scheduled-cue deletion**: remove up to 50 selected scheduled cues while preserving retained cue history and leaving active lifecycles protected
+- **All-or-nothing safeguards**: active, missing, and persistence-blocked selections restore the complete previous cue collection
+- **Administrator cleanup workflow**: add a confirmed Delete Selected action beside bulk enable/disable and skipped-occurrence controls
+
+### Version 1.5.132
 - **Atomic bulk skipped-occurrence administration**: mark or clear the next automatic occurrence for up to 50 selected cues without changing recurrence definitions, targets, scenes, or finite-run counters
 - **All-or-nothing safeguards**: active, disabled, exhausted, futureless, missing, and persistence-blocked cues leave the complete selection unchanged
 - **Administrator multi-action workflow**: add Skip Next Selected and Clear Selected Skips alongside bulk enable/disable controls

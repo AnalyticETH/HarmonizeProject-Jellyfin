@@ -3101,6 +3101,107 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_BulkDeleteActionRemovesSelectedCuesAndPreservesHistory()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = true,
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new() { ScheduleId = "bulk-delete-api-one", ScheduleName = "Bulk delete API one" }
+            },
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk delete API scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-delete-api-one",
+                    Name = "Bulk delete API one",
+                    PresetName = "Bulk delete API scene",
+                    TimeOfDay = "06:30"
+                },
+                new()
+                {
+                    Id = "bulk-delete-api-two",
+                    Name = "Bulk delete API two",
+                    PresetName = "Bulk delete API scene",
+                    TimeOfDay = "07:30"
+                },
+                new()
+                {
+                    Id = "bulk-delete-api-untouched",
+                    Name = "Bulk delete API untouched",
+                    PresetName = "Bulk delete API scene",
+                    TimeOfDay = "08:30"
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.DeleteSceneSchedulesBulk(new HueSceneScheduleBulkDeleteRequest
+        {
+            ScheduleIds = new List<string> { " bulk-delete-api-one ", "bulk-delete-api-two", "bulk-delete-api-one" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleBulkDeleteResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.DeletedCount);
+        Assert.Equal(1, result.RemainingCount);
+        Assert.Equal(new[] { "bulk-delete-api-one", "bulk-delete-api-two" }, result.Schedules.Select(schedule => schedule.Id));
+        Assert.Single(configuration.SceneSchedules);
+        Assert.Equal("bulk-delete-api-untouched", configuration.SceneSchedules[0].Id);
+        Assert.Single(configuration.PersistedSceneScheduleHistory);
+    }
+
+    [Fact]
+    public void SceneSchedules_BulkDeleteActionRefusesPartialDeletionWhenCueIsMissing()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk guarded delete API scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-delete-api-existing",
+                    Name = "Bulk delete API existing",
+                    PresetName = "Bulk guarded delete API scene",
+                    TimeOfDay = "06:30"
+                },
+                new()
+                {
+                    Id = "bulk-delete-api-safe",
+                    Name = "Bulk delete API safe",
+                    PresetName = "Bulk guarded delete API scene",
+                    TimeOfDay = "07:30"
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.DeleteSceneSchedulesBulk(new HueSceneScheduleBulkDeleteRequest
+        {
+            ScheduleIds = new List<string> { "bulk-delete-api-existing", "missing-delete-api-cue" }
+        });
+
+        var response = Assert.IsType<NotFoundObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status404NotFound, response.StatusCode);
+        var result = Assert.IsType<HueSceneScheduleBulkDeleteResult>(response.Value);
+        Assert.Equal(0, result.DeletedCount);
+        Assert.Contains("missing-delete-api-cue", result.Message, StringComparison.Ordinal);
+        Assert.Equal(2, configuration.SceneSchedules.Count);
+    }
+
+    [Fact]
     public void SceneSchedules_SkipNextActionTogglesOnlyPendingOccurrenceThroughAdministratorApi()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
