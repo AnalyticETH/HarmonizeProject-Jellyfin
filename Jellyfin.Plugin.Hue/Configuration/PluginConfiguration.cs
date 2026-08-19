@@ -275,6 +275,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string ColorPresetEffectSolid = "Solid";
         public const string ColorPresetEffectPulse = "Pulse";
         public const string ColorPresetEffectRainbow = "Rainbow";
+        public const string ColorPresetEffectCandle = "Candle";
         public const int MinPreviewDurationSeconds = 1;
         public const int MaxPreviewDurationSeconds = 30;
         public const int MinColorPresetTransitionSeconds = 0;
@@ -306,7 +307,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             ColorPresetEffectSolid,
             ColorPresetEffectPulse,
-            ColorPresetEffectRainbow
+            ColorPresetEffectRainbow,
+            ColorPresetEffectCandle
         };
 
         /// <summary>

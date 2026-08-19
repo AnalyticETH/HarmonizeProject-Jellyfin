@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.93] - 2026-08-19
+
+### Added
+- **Candle scene effect**: add a deterministic warm flicker effect alongside Solid, Pulse, and Rainbow for manual previews and reusable scenes
+- **Portable Candle metadata**: preserve the new effect through scheduled cues, occurrence and iCalendar exports, history, and credential-safe backup/restore
+- **Effect-aware editor copy**: expose Candle in the administrator selector and validation while retaining Solid compatibility for legacy scenes
+
+### Security
+- Candle frames remain bounded and credential-free, use the existing serialized DTLS lifecycle and cancellation path, and restore captured light state on completion or cancellation
+
 ## [1.5.92] - 2026-08-18
 
 ### Added

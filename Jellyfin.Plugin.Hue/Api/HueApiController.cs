@@ -720,7 +720,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
             if (!PluginConfiguration.TryNormalizeColorPresetEffect(request.Effect, out var effect))
             {
-                return BadRequest($"Preview effect must be one of {PluginConfiguration.ColorPresetEffectSolid}, {PluginConfiguration.ColorPresetEffectPulse}, or {PluginConfiguration.ColorPresetEffectRainbow}.");
+                return BadRequest($"Preview effect must be one of {PluginConfiguration.ColorPresetEffectSolid}, {PluginConfiguration.ColorPresetEffectPulse}, {PluginConfiguration.ColorPresetEffectRainbow}, or {PluginConfiguration.ColorPresetEffectCandle}.");
             }
 
             if (request.DurationSeconds < HueStreamTester.MinPreviewDurationSeconds ||

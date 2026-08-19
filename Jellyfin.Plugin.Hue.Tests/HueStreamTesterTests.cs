@@ -184,6 +184,38 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public void BuildEffectColors_CandleIsWarmDeterministicAndAnimated()
+    {
+        var target = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 127, 127, 127, 127, 127, 127 },
+            [2] = new byte[] { 127, 127, 127, 127, 127, 127 }
+        };
+
+        var first = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectCandle,
+            elapsedSeconds: 0,
+            durationSeconds: 5);
+        var changed = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectCandle,
+            elapsedSeconds: 0.41,
+            durationSeconds: 5);
+        var repeat = HueStreamTester.BuildEffectColors(
+            target,
+            PluginConfiguration.ColorPresetEffectCandle,
+            elapsedSeconds: 0,
+            durationSeconds: 5);
+
+        Assert.Equal(first[1], repeat[1]);
+        Assert.NotEqual(first[1], changed[1]);
+        Assert.True(first[1][0] > first[1][2]);
+        Assert.True(first[1][2] > first[1][4]);
+        Assert.NotEqual(first[1], first[2]);
+    }
+
+    [Fact]
     public async Task PreviewAsync_RejectsTransitionLongerThanDurationWithoutTouchingBridge()
     {
         var handler = new Mock<HttpMessageHandler>();

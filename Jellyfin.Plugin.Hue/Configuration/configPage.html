@@ -225,7 +225,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scene Effect Preview</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, or hue-cycling Rainbow effect on the default bridge target for a few seconds. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect and transitions into scheduled cues. Stop active playback before previewing.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, hue-cycling Rainbow, or warm flickering Candle effect on the default bridge target for a few seconds. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect and transitions into scheduled cues. Stop active playback before previewing.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="previewColor">Color</label>
@@ -237,6 +237,7 @@
                                     <option value="Solid">Solid</option>
                                     <option value="Pulse">Pulse</option>
                                     <option value="Rainbow">Rainbow</option>
+                                    <option value="Candle">Candle</option>
                                 </select>
                             </div>
                             <div style="min-width: 130px;">
@@ -1451,8 +1452,8 @@
                     var transitionOut = parseInt(page.querySelector('#previewTransitionOutSeconds').value, 10);
                     var effectEl = page.querySelector('#previewEffect');
                     var effect = effectEl && effectEl.value ? effectEl.value : "Solid";
-                    if (["Solid", "Pulse", "Rainbow"].indexOf(effect) < 0) {
-                        throw new Error("Preview effect must be Solid, Pulse, or Rainbow.");
+                    if (["Solid", "Pulse", "Rainbow", "Candle"].indexOf(effect) < 0) {
+                        throw new Error("Preview effect must be Solid, Pulse, Rainbow, or Candle.");
                     }
                     brightness = isNaN(brightness) ? 100 : brightness;
                     duration = isNaN(duration) ? 5 : duration;

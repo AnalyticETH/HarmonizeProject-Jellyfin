@@ -32,6 +32,7 @@ const requiredScript = [
     'url: ApiClient.getUrl("HueSync/Preview/Cancel")',
     'url: ApiClient.getUrl("HueSync/Diagnostics/Cancel")',
     "HueConfigurationPage.cancelPreview(e.target)",
+    '["Solid", "Pulse", "Rainbow", "Candle"]',
     'effect: effect || "Solid"',
     "effect: values.effect"
 ];
