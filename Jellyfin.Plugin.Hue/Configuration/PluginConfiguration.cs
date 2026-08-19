@@ -102,8 +102,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// optional date bounds and exclusions. Recurring cues can optionally run every N
     /// calendar days, weeks, months, or years; intervals greater than one use StartDate
     /// as the cadence anchor. A cue can optionally override the saved
-    /// scene's hold duration for this event only. The target is resolved from the global
-    /// bridge or a persisted user mapping when the cue runs; credentials are never stored here.
+    /// scene's hold duration for this event only or stop after a bounded number of executions.
+    /// The target is resolved from the global bridge or a persisted user mapping when the cue
+    /// runs; credentials are never stored here.
     /// </summary>
     public sealed class HueSceneSchedule
     {
@@ -162,6 +163,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// scene's duration; a non-zero value overrides it for this cue only.
         /// </summary>
         public int DurationSeconds { get; set; }
+        /// <summary>
+        /// Maximum number of executions for this cue. Zero means unlimited. The persisted
+        /// <see cref="RunCount"/> is incremented for every completed execution, including
+        /// failed or canceled attempts, so a finite cue cannot retry forever after a broken
+        /// target. One-time cues still disable themselves after their first successful run.
+        /// </summary>
+        public int MaxRuns { get; set; }
+        /// <summary>
+        /// Persisted number of completed executions for finite cues. This is retained in the
+        /// schedule definition so a limit remains effective after a Jellyfin restart.
+        /// </summary>
+        public int RunCount { get; set; }
         /// <summary>
         /// Optional one-time calendar date in the cue's selected time zone, formatted as
         /// yyyy-MM-dd. When set, the cue runs once on this date and ignores its weekday
@@ -310,6 +323,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxSceneScheduleMonthOfYear = 12;
         public const int MinSceneScheduleRecurrenceInterval = 1;
         public const int MaxSceneScheduleRecurrenceInterval = 365;
+        public const int MaxSceneScheduleRuns = 365;
         public const int MaxSessionHistoryCount = 25;
         public const int MaxSceneScheduleHistoryCount = 100;
 
@@ -1031,6 +1045,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             {
                 errors.Add($"{label} duration override must be 0 (inherit scene duration) or between {MinPreviewDurationSeconds} and {MaxPreviewDurationSeconds} seconds");
             }
+
+            if (schedule.MaxRuns < 0 || schedule.MaxRuns > MaxSceneScheduleRuns)
+                errors.Add($"{label} maximum runs must be 0 (unlimited) or between 1 and {MaxSceneScheduleRuns}");
+
+            if (schedule.RunCount < 0 || schedule.RunCount > MaxSceneScheduleRuns)
+                errors.Add($"{label} run count must be between 0 and {MaxSceneScheduleRuns}");
 
             if (!TryNormalizeSceneScheduleDate(schedule.RunDate, out var normalizedRunDate))
                 errors.Add($"{label} run date must use yyyy-MM-dd format");

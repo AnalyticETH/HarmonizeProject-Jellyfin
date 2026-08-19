@@ -517,6 +517,60 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsFiniteExecutionLimitAndPersistedCount()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "finite-cue",
+                    Name = "Finite cue",
+                    PresetName = "Evening",
+                    MaxRuns = 3,
+                    RunCount = 2,
+                    DaysOfWeekMask = 127
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsInvalidFiniteExecutionLimit()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "negative-limit",
+                    Name = "Negative limit",
+                    PresetName = "Evening",
+                    MaxRuns = -1
+                },
+                new()
+                {
+                    Id = "oversized-count",
+                    Name = "Oversized count",
+                    PresetName = "Evening",
+                    RunCount = PluginConfiguration.MaxSceneScheduleRuns + 1
+                }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+
+        Assert.Contains(errors, error => error.Contains("maximum runs", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("run count", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsOneTimeDateWithRecurringDateRules()
     {
         var config = new PluginConfiguration

@@ -662,6 +662,93 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_DisablesFiniteCueAtPersistedExecutionLimit()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "finite-app-secret",
+            HueClientKey = "finite-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Finite scene", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "finite-runtime",
+                    Name = "Finite runtime cue",
+                    PresetName = "Finite scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    MaxRuns = 1,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                "192.168.1.100",
+                "finite-app-secret",
+                "finite-client-secret",
+                "area-1",
+                It.IsAny<JsonElement>(),
+                null,
+                10,
+                20,
+                30,
+                80,
+                1,
+                It.IsAny<CancellationToken>(),
+                0,
+                0,
+                PluginConfiguration.ColorPresetEffectSolid,
+                PluginConfiguration.DefaultColorPresetEffectSpeedPercent))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Displayed finite scene." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        streamTester.Verify(tester => tester.PreviewAsync(
+            "192.168.1.100",
+            "finite-app-secret",
+            "finite-client-secret",
+            "area-1",
+            It.IsAny<JsonElement>(),
+            null,
+            10,
+            20,
+            30,
+            80,
+            1,
+            It.IsAny<CancellationToken>(),
+            0,
+            0,
+            PluginConfiguration.ColorPresetEffectSolid,
+            PluginConfiguration.DefaultColorPresetEffectSpeedPercent), Times.Once);
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal(1, saved.RunCount);
+        Assert.False(saved.Enabled);
+        var runtime = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(1, runtime.MaxRuns);
+        Assert.Equal(1, runtime.RunCount);
+        Assert.Equal(0, runtime.RemainingRuns);
+    }
+
+    [Fact]
     public void EvaluateReadiness_RejectsInvalidDateWindowWithoutCredentials()
     {
         var config = new PluginConfiguration

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.95] - 2026-08-19
+
+### Added
+- **Finite scheduled-cue execution limits**: stop recurring scene cues after a bounded 1-365 execution count, or leave the default `0` for unlimited runs
+- **Restart-safe run counters**: persist finite-cue execution counts in the credential-free schedule definition and automatically disable a cue when its limit is reached
+- **Limit-aware observability and backup**: expose maximum, current, and remaining runs through CRUD/status responses and preserve them through configuration export/import
+- **Administrator controls**: configure the execution limit in the scheduled-cue editor and inspect `current / maximum` counters in the scheduler monitor
+
+### Security
+- Execution limits and counters are bounded and validated at every configuration/API boundary; backup and telemetry surfaces continue to omit bridge credentials and playback tokens
+
 ## [1.5.94] - 2026-08-19
 
 ### Added

@@ -89,13 +89,15 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
-    /// Clears retained scheduled-scene history without stopping an active cue. Runtime
-    /// counters and last-run pointers are reset while an in-flight run remains marked
-    /// as active until its normal completion.
+    /// Clears retained scheduled-scene history without stopping an active cue. Last-run
+    /// pointers are reset while an in-flight run remains marked as active until its normal
+    /// completion; persisted finite execution counters remain intact so clearing telemetry
+    /// cannot bypass a configured run limit.
     /// </summary>
     public int ClearHistory()
     {
         EnsureHistoryLoaded();
+        var config = Plugin.Instance?.Configuration;
         int clearedCount;
         lock (_historyLock)
         {
@@ -105,9 +107,15 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         lock (_runtimeStateLock)
         {
-            foreach (var state in _runtimeStates.Values)
+            foreach (var entry in _runtimeStates)
             {
+                var configuredSchedule = config?.SceneSchedules?.FirstOrDefault(schedule =>
+                    schedule != null &&
+                    string.Equals(schedule.Id?.Trim(), entry.Key, StringComparison.OrdinalIgnoreCase));
+                var state = entry.Value;
                 state.RunCount = 0;
+                if (configuredSchedule?.MaxRuns > 0)
+                    state.RunCount = Math.Max(0, configuredSchedule.RunCount);
                 state.LastRunAtUtc = null;
                 state.LastSucceeded = null;
                 state.LastMessage = null;
@@ -187,6 +195,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                 TransitionOutSeconds = GetEffectiveTransitionOutSeconds(schedule, preset),
                 Recurrence = recurrence,
                 RecurrenceInterval = schedule.RecurrenceInterval,
+                MaxRuns = schedule.MaxRuns,
+                RunCount = runtime.RunCount,
+                RemainingRuns = schedule.MaxRuns > 0
+                    ? Math.Max(0, schedule.MaxRuns - runtime.RunCount)
+                    : null,
                 DayOfMonth = schedule.DayOfMonth,
                 MonthOfYear = schedule.MonthOfYear,
                 WeekOfMonth = schedule.WeekOfMonth,
@@ -215,7 +228,6 @@ public sealed class HueSceneAutomationService : BackgroundService
                 LastSucceeded = runtime.LastSucceeded,
                 LastMessage = runtime.LastMessage,
                 LastCleanupWarning = runtime.LastCleanupWarning,
-                RunCount = runtime.RunCount,
                 IsRunning = runtime.ActiveRuns > 0
             };
         }).ToArray();
@@ -315,6 +327,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             MaxUpcomingHorizonDays);
 
         if (schedule == null || !schedule.Enabled ||
+            IsRunLimitReached(schedule) ||
             !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized) ||
             !PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var timeZone) ||
             (schedule.DurationSeconds != 0 &&
@@ -428,7 +441,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 UtcTime = DateTime.SpecifyKind(candidateUtc, DateTimeKind.Utc)
             });
 
-            if (occurrences.Count >= boundedOccurrences)
+            if (occurrences.Count >= boundedOccurrences ||
+                (schedule.MaxRuns > 0 && occurrences.Count >= Math.Max(0, schedule.MaxRuns - schedule.RunCount)))
                 break;
         }
 
@@ -455,6 +469,16 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         var key = schedule.Id?.Trim() ?? string.Empty;
+        if (IsRunLimitReached(schedule))
+        {
+            var exhausted = Failure(
+                schedule.Id,
+                $"The scene cue has reached its maximum of {schedule.MaxRuns} executions.",
+                schedule);
+            exhausted.RunCount = schedule.RunCount;
+            return exhausted;
+        }
+
         using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         lock (_manualRunCancellationLock)
         {
@@ -526,6 +550,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     internal static bool IsDue(HueSceneSchedule schedule, DateTime localNow)
     {
         if (schedule == null || !schedule.Enabled ||
+            IsRunLimitReached(schedule) ||
             !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized) ||
             !TryGetScheduleLocalNow(schedule, localNow, out var scheduleNow, out _) ||
             !TryGetScheduleRunDate(schedule, out var runDate))
@@ -555,6 +580,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                scheduleNow.Hour == expectedTime.Hours &&
                scheduleNow.Minute == expectedTime.Minutes;
     }
+
+    private static bool IsRunLimitReached(HueSceneSchedule? schedule)
+        => schedule != null && schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns;
 
     private static bool IsScheduleRecurrenceDate(
         HueSceneSchedule schedule,
@@ -868,6 +896,13 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         if (!schedule.Enabled)
             return new HueSceneScheduleReadiness(false, "Disabled.");
+
+        if (IsRunLimitReached(schedule))
+        {
+            return new HueSceneScheduleReadiness(
+                false,
+                $"Run limit reached ({schedule.RunCount} of {schedule.MaxRuns} executions).");
+        }
 
         if (config == null)
             return new HueSceneScheduleReadiness(false, "Plugin configuration is unavailable.");
@@ -1257,7 +1292,16 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneSchedule schedule,
         CancellationToken cancellationToken)
     {
-        BeginRun(schedule.Id);
+        if (!TryBeginRun(schedule, out var currentRunCount))
+        {
+            var exhausted = Failure(
+                schedule.Id,
+                $"The scene cue has reached its maximum of {schedule.MaxRuns} executions.",
+                schedule);
+            exhausted.RunCount = currentRunCount;
+            return exhausted;
+        }
+
         HueSceneAutomationRunResult? result = null;
         try
         {
@@ -1277,7 +1321,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
         finally
         {
-            CompleteRun(schedule.Id, result);
+            CompleteRun(config, schedule, result);
         }
     }
 
@@ -1286,36 +1330,60 @@ public sealed class HueSceneAutomationService : BackgroundService
         var key = scheduleId?.Trim() ?? string.Empty;
         lock (_runtimeStateLock)
         {
-            return _runtimeStates.TryGetValue(key, out var state)
-                ? state.Clone()
-                : new HueSceneScheduleRuntimeState();
+            if (_runtimeStates.TryGetValue(key, out var state))
+                return state.Clone();
+
+            var configuredRunCount = Plugin.Instance?.Configuration?.SceneSchedules?
+                .FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase))?
+                .RunCount ?? 0;
+            return new HueSceneScheduleRuntimeState
+            {
+                RunCount = Math.Max(0, configuredRunCount)
+            };
         }
     }
 
-    private void BeginRun(string? scheduleId)
+    private bool TryBeginRun(HueSceneSchedule schedule, out int currentRunCount)
     {
-        var key = scheduleId?.Trim() ?? string.Empty;
+        var key = schedule.Id?.Trim() ?? string.Empty;
         lock (_runtimeStateLock)
         {
             if (!_runtimeStates.TryGetValue(key, out var state))
             {
-                state = new HueSceneScheduleRuntimeState();
+                state = new HueSceneScheduleRuntimeState
+                {
+                    RunCount = Math.Max(0, schedule.RunCount)
+                };
                 _runtimeStates[key] = state;
             }
 
+            currentRunCount = state.RunCount;
+            if (schedule.MaxRuns > 0 && state.RunCount + state.ActiveRuns >= schedule.MaxRuns)
+                return false;
+
             state.ActiveRuns++;
+            return true;
         }
     }
 
-    private void CompleteRun(string? scheduleId, HueSceneAutomationRunResult? result)
+    private void CompleteRun(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        HueSceneAutomationRunResult? result)
     {
         EnsureHistoryLoaded();
-        var key = scheduleId?.Trim() ?? string.Empty;
+        var key = schedule.Id?.Trim() ?? string.Empty;
+        var shouldPersistRunState = false;
         lock (_runtimeStateLock)
         {
             if (!_runtimeStates.TryGetValue(key, out var state))
             {
-                state = new HueSceneScheduleRuntimeState();
+                state = new HueSceneScheduleRuntimeState
+                {
+                    RunCount = Math.Max(0, schedule.RunCount)
+                };
                 _runtimeStates[key] = state;
             }
 
@@ -1327,6 +1395,17 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.LastCleanupWarning = result?.CleanupWarning;
             if (result != null)
                 result.RunCount = state.RunCount;
+
+            var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
+            if (configuredSchedule != null)
+            {
+                configuredSchedule.RunCount = state.RunCount;
+                if (configuredSchedule.MaxRuns > 0 && state.RunCount >= configuredSchedule.MaxRuns)
+                    configuredSchedule.Enabled = false;
+                shouldPersistRunState = configuredSchedule.MaxRuns > 0;
+            }
         }
 
         if (result != null)
@@ -1339,7 +1418,25 @@ public sealed class HueSceneAutomationService : BackgroundService
             }
         }
 
+        if (shouldPersistRunState)
+            PersistFiniteScheduleRunState(schedule.Name);
+
         PersistSceneScheduleHistory();
+    }
+
+    private void PersistFiniteScheduleRunState(string? scheduleName)
+    {
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Hue scene schedule {0} completed but its finite run count could not be persisted",
+                scheduleName);
+        }
     }
 
     private void EnsureHistoryLoaded()
@@ -1409,7 +1506,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                         _runtimeStates[group.Key] = state;
                     }
 
-                    state.RunCount = Math.Max(latest.RunCount, group.Count());
+                    var configuredRunCount = Plugin.Instance?.Configuration?.SceneSchedules?
+                        .FirstOrDefault(candidate =>
+                            candidate != null &&
+                            string.Equals(candidate.Id?.Trim(), group.Key, StringComparison.OrdinalIgnoreCase))?
+                        .RunCount ?? 0;
+                    state.RunCount = Math.Max(configuredRunCount, Math.Max(latest.RunCount, group.Count()));
                     state.LastRunAtUtc = latest.RunAtUtc;
                     state.LastSucceeded = latest.Succeeded;
                     state.LastMessage = latest.Message;
@@ -1598,6 +1700,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             WeekOfMonth = source.WeekOfMonth,
             DayOfWeek = source.DayOfWeek,
             DurationSeconds = source.DurationSeconds,
+            MaxRuns = source.MaxRuns,
+            RunCount = source.RunCount,
             RunDate = source.RunDate,
             StartDate = source.StartDate,
             EndDate = source.EndDate,
@@ -1803,6 +1907,12 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("recurrenceInterval")]
     public int RecurrenceInterval { get; init; } = PluginConfiguration.MinSceneScheduleRecurrenceInterval;
+
+    [JsonPropertyName("maxRuns")]
+    public int MaxRuns { get; init; }
+
+    [JsonPropertyName("remainingRuns")]
+    public int? RemainingRuns { get; init; }
 
     [JsonPropertyName("dayOfMonth")]
     public int DayOfMonth { get; init; }

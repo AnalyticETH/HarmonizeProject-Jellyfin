@@ -1260,6 +1260,7 @@ public sealed class HueApiControllerTests : IDisposable
             ExcludedDates = new List<string> { "2026-12-31", " 2026-12-24 ", "2026-12-31" },
             DaysOfWeekMask = 1 | 32,
             DurationSeconds = 12,
+            MaxRuns = 3,
             Enabled = true
         });
 
@@ -1273,6 +1274,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("2026-12-31", savedResult.EndDate);
         Assert.Equal(new[] { "2026-12-24", "2026-12-31" }, savedResult.ExcludedDates);
         Assert.Equal(12, savedResult.DurationSeconds);
+        Assert.Equal(3, savedResult.MaxRuns);
+        Assert.Equal(0, savedResult.RunCount);
         Assert.Equal(4, savedResult.TransitionSeconds);
         Assert.Equal(2, savedResult.TransitionOutSeconds);
         Assert.Equal(150, savedResult.EffectSpeedPercent);
@@ -1292,6 +1295,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(updated.Result);
         Assert.Equal("Evening Cue Updated", Assert.Single(configuration.SceneSchedules).Name);
         Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(3, configuration.SceneSchedules[0].MaxRuns);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
 
         var list = controller.GetSceneSchedules();
         var listResponse = Assert.IsType<OkObjectResult>(list.Result);
@@ -1563,6 +1568,28 @@ public sealed class HueApiControllerTests : IDisposable
             TimeOfDay = "20:00",
             Recurrence = "Hourly",
             DayOfMonth = 1,
+            DaysOfWeekMask = 127
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Empty(configuration.SceneSchedules);
+    }
+
+    [Fact]
+    public void SceneSchedules_RejectNegativeMaximumExecutionsWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } }
+        });
+
+        var action = CreateController().SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Broken run limit cue",
+            PresetName = "Evening",
+            TimeOfDay = "20:00",
+            MaxRuns = -1,
             DaysOfWeekMask = 127
         });
 
@@ -2475,6 +2502,8 @@ public sealed class HueApiControllerTests : IDisposable
                     Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
                     DayOfMonth = 31,
                     DurationSeconds = 11,
+                    MaxRuns = 4,
+                    RunCount = 2,
                     DaysOfWeekMask = 127
                 }
             }
@@ -2503,6 +2532,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, document.SceneSchedules[0].Recurrence);
         Assert.Equal(31, document.SceneSchedules[0].DayOfMonth);
         Assert.Equal(11, document.SceneSchedules[0].DurationSeconds);
+        Assert.Equal(4, document.SceneSchedules[0].MaxRuns);
+        Assert.Equal(2, document.SceneSchedules[0].RunCount);
         Assert.Equal(3, document.ColorPresets[0].TransitionSeconds);
         Assert.Equal(2, document.ColorPresets[0].TransitionOutSeconds);
         Assert.Equal(PluginConfiguration.ColorPresetEffectPulse, document.ColorPresets[0].Effect);
@@ -2580,6 +2611,8 @@ public sealed class HueApiControllerTests : IDisposable
                     WeekOfMonth = exportedCue.WeekOfMonth,
                     DayOfWeek = exportedCue.DayOfWeek,
                     DurationSeconds = exportedCue.DurationSeconds,
+                    MaxRuns = exportedCue.MaxRuns,
+                    RunCount = exportedCue.RunCount,
                     DaysOfWeekMask = exportedCue.DaysOfWeekMask,
                     Enabled = exportedCue.Enabled
                 }
@@ -2593,6 +2626,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.SceneScheduleLastWeekOfMonth, importedCue.WeekOfMonth);
         Assert.Equal((int)DayOfWeek.Friday, importedCue.DayOfWeek);
         Assert.Equal(exportedCue.DurationSeconds, importedCue.DurationSeconds);
+        Assert.Equal(exportedCue.MaxRuns, importedCue.MaxRuns);
+        Assert.Equal(exportedCue.RunCount, importedCue.RunCount);
         Assert.Equal(0, importedCue.DaysOfWeekMask);
         Assert.Equal(2, Assert.Single(configuration.ColorPresets).TransitionSeconds);
         Assert.Equal(1, Assert.Single(configuration.ColorPresets).TransitionOutSeconds);

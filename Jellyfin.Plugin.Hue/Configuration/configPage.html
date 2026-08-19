@@ -294,7 +294,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. The saved scene's effect and 25-400% animation speed are inherited by every cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene automatically at a chosen wall-clock time and time zone. The saved scene's effect and 25-400% animation speed are inherited by every cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) to use the saved scene duration, or set a 1-30 second override for this cue. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -326,6 +326,11 @@
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleDuration">Hold duration (optional)</label>
                                 <input id="sceneScheduleDuration" type="number" min="0" max="30" is="emby-input" placeholder="Scene default" />
                                 <div class="fieldDescription">Blank or 0 uses the saved scene duration; 1-30 seconds overrides it for this cue.</div>
+                            </div>
+                            <div>
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleMaxRuns">Maximum executions</label>
+                                <input id="sceneScheduleMaxRuns" type="number" min="0" max="365" value="0" is="emby-input" placeholder="Unlimited" />
+                                <div class="fieldDescription">0 is unlimited; 1-365 stops after that many attempts.</div>
                             </div>
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleRecurrence">Recurrence</label>
@@ -2085,6 +2090,7 @@
                             var message = HueConfigurationPage.readStatusField(schedule, "LastMessage", "");
                             var cleanupWarning = HueConfigurationPage.readStatusField(schedule, "LastCleanupWarning", "");
                             var runCount = HueConfigurationPage.readStatusField(schedule, "RunCount", 0);
+                            var maxRuns = HueConfigurationPage.readStatusField(schedule, "MaxRuns", 0);
                             var running = HueConfigurationPage.readStatusField(schedule, "IsRunning", false);
                             var row = document.createElement('tr');
                             row.style.borderBottom = '1px solid rgba(255,255,255,.08)';
@@ -2129,7 +2135,7 @@
                             if (message) resultText += " — " + String(message);
                             if (cleanupWarning) resultText += " · Cleanup warning: " + String(cleanupWarning);
                             addCell(resultText, succeeded === false ? "#f0ad4e" : (succeeded === true ? "#8bc34a" : ""));
-                            addCell(String(runCount || 0));
+                            addCell(String(runCount || 0) + (Number(maxRuns) > 0 ? " / " + String(Number(maxRuns)) : " / unlimited"));
                             body.appendChild(row);
                         });
                         table.appendChild(body);
@@ -2550,6 +2556,7 @@
                     page.querySelector('#sceneSchedulePresetSelect').value = get('PresetName', 'presetName', '');
                     page.querySelector('#sceneScheduleTime').value = get('TimeOfDay', 'timeOfDay', '20:00');
                     page.querySelector('#sceneScheduleDuration').value = get('DurationSeconds', 'durationSeconds', 0) || '';
+                    page.querySelector('#sceneScheduleMaxRuns').value = get('MaxRuns', 'maxRuns', 0) || '';
                     page.querySelector('#sceneScheduleRecurrence').value = get('Recurrence', 'recurrence', 'Weekly') || 'Weekly';
                     page.querySelector('#sceneScheduleRecurrenceInterval').value = get('RecurrenceInterval', 'recurrenceInterval', 1) || '1';
                     page.querySelector('#sceneScheduleDayOfMonth').value = get('DayOfMonth', 'dayOfMonth', 0) || '';
@@ -2585,6 +2592,7 @@
                     page.querySelector('#sceneSchedulePresetSelect').value = '';
                     page.querySelector('#sceneScheduleTime').value = '20:00';
                     page.querySelector('#sceneScheduleDuration').value = '';
+                    page.querySelector('#sceneScheduleMaxRuns').value = '';
                     page.querySelector('#sceneScheduleRecurrence').value = 'Weekly';
                     page.querySelector('#sceneScheduleRecurrenceInterval').value = '1';
                     page.querySelector('#sceneScheduleDayOfMonth').value = '';
@@ -2608,6 +2616,8 @@
                     var timeOfDay = page.querySelector('#sceneScheduleTime').value;
                     var durationText = page.querySelector('#sceneScheduleDuration').value.trim();
                     var durationSeconds = durationText ? Number(durationText) : 0;
+                    var maxRunsText = page.querySelector('#sceneScheduleMaxRuns').value.trim();
+                    var maxRuns = maxRunsText ? Number(maxRunsText) : 0;
                     var recurrence = page.querySelector('#sceneScheduleRecurrence').value || 'Weekly';
                     var recurrenceIntervalText = page.querySelector('#sceneScheduleRecurrenceInterval').value.trim();
                     var recurrenceInterval = recurrenceIntervalText ? Number(recurrenceIntervalText) : 1;
@@ -2649,6 +2659,10 @@
                     }
                     if (!Number.isInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 30) {
                         Dashboard.alert("Hold duration must be blank, 0 (scene default), or a whole number from 1 to 30 seconds.");
+                        return;
+                    }
+                    if (!Number.isInteger(maxRuns) || maxRuns < 0 || maxRuns > 365) {
+                        Dashboard.alert("Maximum executions must be blank, 0 (unlimited), or a whole number from 1 to 365.");
                         return;
                     }
                     if (!Number.isInteger(recurrenceInterval) || recurrenceInterval < 1 || recurrenceInterval > 365) {
@@ -2697,6 +2711,7 @@
                             targetUserId: page.querySelector('#sceneScheduleTarget').value || '',
                             timeOfDay: timeOfDay,
                             durationSeconds: durationSeconds,
+                            maxRuns: maxRuns,
                             recurrence: recurrence,
                             recurrenceInterval: recurrenceInterval,
                             dayOfMonth: dayOfMonth,

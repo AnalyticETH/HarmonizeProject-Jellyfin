@@ -470,6 +470,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 WeekOfMonth = schedule.WeekOfMonth,
                 DayOfWeek = schedule.DayOfWeek,
                 DurationSeconds = schedule.DurationSeconds,
+                MaxRuns = schedule.MaxRuns,
+                RunCount = schedule.RunCount,
                 RunDate = schedule.RunDate?.Trim() ?? string.Empty,
                 StartDate = schedule.StartDate?.Trim() ?? string.Empty,
                 EndDate = schedule.EndDate?.Trim() ?? string.Empty,
@@ -498,6 +500,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 WeekOfMonth = schedule.WeekOfMonth,
                 DayOfWeek = schedule.DayOfWeek,
                 DurationSeconds = schedule.DurationSeconds,
+                MaxRuns = schedule.MaxRuns,
+                RunCount = schedule.RunCount,
                 RunDate = schedule.RunDate,
                 StartDate = schedule.StartDate,
                 EndDate = schedule.EndDate,
@@ -1392,6 +1396,8 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 schedule.ExcludedDates = normalizedExcludedDates;
             }
+            if (schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
+                schedule.Enabled = false;
 
             var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
             var candidateSchedules = previousSchedules
@@ -1401,9 +1407,18 @@ namespace Jellyfin.Plugin.Hue.Api
             var existingIndex = candidateSchedules.FindIndex(existing =>
                 string.Equals(existing.Id?.Trim(), schedule.Id.Trim(), StringComparison.OrdinalIgnoreCase));
             if (existingIndex >= 0)
+            {
+                if (!request.MaxRuns.HasValue)
+                    schedule.MaxRuns = candidateSchedules[existingIndex].MaxRuns;
+                if (!request.RunCount.HasValue)
+                    schedule.RunCount = candidateSchedules[existingIndex].RunCount;
                 candidateSchedules[existingIndex] = schedule;
+            }
             else
                 candidateSchedules.Add(schedule);
+
+            if (schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
+                schedule.Enabled = false;
 
             config.SceneSchedules = candidateSchedules;
             var validationErrors = config.ValidateSceneSchedules();
@@ -2168,13 +2183,24 @@ namespace Jellyfin.Plugin.Hue.Api
                 {
                     schedule.ExcludedDates = normalizedExcludedDates;
                 }
+                if (schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
+                    schedule.Enabled = false;
 
                 var existingIndex = candidateSchedules.FindIndex(existing =>
                     string.Equals(existing.Id?.Trim(), schedule.Id.Trim(), StringComparison.OrdinalIgnoreCase));
                 if (existingIndex >= 0)
+                {
+                    if (scheduleRequest != null && !scheduleRequest.MaxRuns.HasValue)
+                        schedule.MaxRuns = candidateSchedules[existingIndex].MaxRuns;
+                    if (scheduleRequest != null && !scheduleRequest.RunCount.HasValue)
+                        schedule.RunCount = candidateSchedules[existingIndex].RunCount;
                     candidateSchedules[existingIndex] = schedule;
+                }
                 else
                     candidateSchedules.Add(schedule);
+
+                if (schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
+                    schedule.Enabled = false;
             }
 
             var scheduleValidationConfiguration = new PluginConfiguration
@@ -3233,8 +3259,9 @@ namespace Jellyfin.Plugin.Hue.Api
     /// DurationSeconds is zero
     /// to inherit the saved scene's
     /// duration or a bounded per-cue override; the saved scene's optional fade-in and fade-out
-    /// are inherited and clamped to that effective duration. Bridge credentials are intentionally
-    /// not accepted.
+    /// are inherited and clamped to that effective duration. MaxRuns is zero for unlimited
+    /// execution or a bounded number of attempts; RunCount is optional so normal edits preserve
+    /// the persisted finite-cue counter. Bridge credentials are intentionally not accepted.
     /// </summary>
     public sealed class HueSceneScheduleRequest
     {
@@ -3277,6 +3304,12 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
 
+        [JsonPropertyName("maxRuns")]
+        public int? MaxRuns { get; set; }
+
+        [JsonPropertyName("runCount")]
+        public int? RunCount { get; set; }
+
         [JsonPropertyName("runDate")]
         public string RunDate { get; set; } = string.Empty;
 
@@ -3312,6 +3345,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 WeekOfMonth = WeekOfMonth,
                 DayOfWeek = DayOfWeek,
                 DurationSeconds = DurationSeconds,
+                MaxRuns = MaxRuns ?? 0,
+                RunCount = RunCount ?? 0,
                 RunDate = RunDate?.Trim() ?? string.Empty,
                 StartDate = StartDate?.Trim() ?? string.Empty,
                 EndDate = EndDate?.Trim() ?? string.Empty,
@@ -3327,7 +3362,8 @@ namespace Jellyfin.Plugin.Hue.Api
     /// <summary>
     /// Credential-free scene cue returned by the administrator API, including the effective
     /// saved-scene fade-in/fade-out, optional per-cue duration override, daily, weekly, monthly-day, monthly-weekday, or yearly recurrence,
-    /// bounded recurrence intervals, one-time date, inclusive bounds, and normalized excluded calendar dates.
+    /// bounded recurrence intervals, finite execution limits, one-time date, inclusive bounds,
+    /// and normalized excluded calendar dates.
     /// </summary>
     public sealed class HueSceneScheduleResult
     {
@@ -3378,6 +3414,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
+
+        [JsonPropertyName("maxRuns")]
+        public int MaxRuns { get; set; }
+
+        [JsonPropertyName("runCount")]
+        public int RunCount { get; set; }
 
         [JsonPropertyName("transitionSeconds")]
         public int TransitionSeconds { get; set; }
