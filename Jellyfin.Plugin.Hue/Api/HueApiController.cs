@@ -478,6 +478,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ExcludedDates = excludedDates,
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled,
+                SkipNextOccurrence = schedule.SkipNextOccurrence,
                 TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset),
                 TransitionOutSeconds = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset)
             };
@@ -507,7 +508,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 EndDate = schedule.EndDate,
                 ExcludedDates = schedule.ExcludedDates?.ToList() ?? new List<string>(),
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
-                Enabled = schedule.Enabled
+                Enabled = schedule.Enabled,
+                SkipNextOccurrence = schedule.SkipNextOccurrence
             };
         }
 
@@ -1433,7 +1435,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 schedule.ExcludedDates = normalizedExcludedDates;
             }
             if (schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
+            {
                 schedule.Enabled = false;
+                schedule.SkipNextOccurrence = false;
+            }
 
             var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
             var candidateSchedules = previousSchedules
@@ -1448,13 +1453,18 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.MaxRuns = candidateSchedules[existingIndex].MaxRuns;
                 if (!request.RunCount.HasValue)
                     schedule.RunCount = candidateSchedules[existingIndex].RunCount;
+                if (!request.SkipNextOccurrence.HasValue)
+                    schedule.SkipNextOccurrence = candidateSchedules[existingIndex].SkipNextOccurrence;
                 candidateSchedules[existingIndex] = schedule;
             }
             else
                 candidateSchedules.Add(schedule);
 
             if (schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
+            {
                 schedule.Enabled = false;
+                schedule.SkipNextOccurrence = false;
+            }
 
             config.SceneSchedules = candidateSchedules;
             var validationErrors = config.ValidateSceneSchedules();
@@ -1518,6 +1528,7 @@ namespace Jellyfin.Plugin.Hue.Api
             duplicate.Name = BuildDuplicateSceneScheduleName(config.SceneSchedules, source.Name);
             duplicate.RunCount = 0;
             duplicate.Enabled = false;
+            duplicate.SkipNextOccurrence = false;
 
             var previousSchedules = config.SceneSchedules;
             var candidateSchedules = previousSchedules
@@ -1670,6 +1681,7 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 schedule.RunCount = 0;
                 schedule.Enabled = true;
+                schedule.SkipNextOccurrence = false;
                 Plugin.Instance?.SaveConfiguration();
             }
 
@@ -1729,6 +1741,87 @@ namespace Jellyfin.Plugin.Hue.Api
                     return StatusCode(
                         StatusCodes.Status500InternalServerError,
                         "The scene schedule enabled state could not be saved.");
+                }
+            }
+
+            return Ok(ToSceneScheduleResult(schedule, config));
+        }
+
+        /// <summary>
+        /// Skips the next eligible automatic occurrence of one scene cue without changing
+        /// its recurrence definition. Manual Run Now remains available; one-time cues are
+        /// disabled after their skipped occurrence.
+        /// </summary>
+        [HttpPost("SceneSchedules/{id}/SkipNext")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueSceneScheduleResult> SkipNextSceneSchedule(string id)
+        {
+            return SetSceneScheduleSkipNextOccurrence(id, true);
+        }
+
+        /// <summary>
+        /// Clears a pending skip so the next eligible automatic occurrence runs normally.
+        /// </summary>
+        [HttpDelete("SceneSchedules/{id}/SkipNext")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueSceneScheduleResult> ClearSkippedSceneSchedule(string id)
+        {
+            return SetSceneScheduleSkipNextOccurrence(id, false);
+        }
+
+        private ActionResult<HueSceneScheduleResult> SetSceneScheduleSkipNextOccurrence(string id, bool skip)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var schedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (schedule == null)
+                return NotFound("Scene schedule not found.");
+
+            if (_sceneAutomationService != null)
+            {
+                if (!_sceneAutomationService.TrySetScheduleSkipNextOccurrence(id, skip, out var message))
+                    return Conflict(message);
+            }
+            else
+            {
+                if (skip && schedule.SkipNextOccurrence)
+                    return Ok(ToSceneScheduleResult(schedule, config));
+
+                if (skip && !schedule.Enabled)
+                    return Conflict("The scene schedule must be enabled before its next occurrence can be skipped.");
+
+                if (skip && schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
+                {
+                    return Conflict(
+                        "The scene schedule has reached its execution limit. Reset its run counter before marking an occurrence to skip.");
+                }
+
+                if (skip && HueSceneAutomationService.GetNextRunUtc(schedule, DateTime.Now) == null)
+                    return Conflict("The scene schedule has no upcoming automatic occurrence to skip.");
+
+                var previousSkip = schedule.SkipNextOccurrence;
+                schedule.SkipNextOccurrence = skip;
+                try
+                {
+                    Plugin.Instance?.SaveConfiguration();
+                }
+                catch (Exception ex)
+                {
+                    schedule.SkipNextOccurrence = previousSkip;
+                    _logger?.LogError(ex, "Could not persist skipped occurrence state for Hue scene schedule {0}", schedule.Name);
+                    return StatusCode(
+                        StatusCodes.Status500InternalServerError,
+                        "The skipped occurrence state could not be saved.");
                 }
             }
 
@@ -3529,6 +3622,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("enabled")]
         public bool Enabled { get; set; } = true;
 
+        [JsonPropertyName("skipNextOccurrence")]
+        public bool? SkipNextOccurrence { get; set; }
+
         public HueSceneSchedule ToConfigurationSchedule()
         {
             return new HueSceneSchedule
@@ -3555,7 +3651,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     .Select(value => value?.Trim() ?? string.Empty)
                     .ToList(),
                 DaysOfWeekMask = DaysOfWeekMask,
-                Enabled = Enabled
+                Enabled = Enabled,
+                SkipNextOccurrence = SkipNextOccurrence ?? false
             };
         }
     }
@@ -3655,6 +3752,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("enabled")]
         public bool Enabled { get; set; }
+
+        [JsonPropertyName("skipNextOccurrence")]
+        public bool SkipNextOccurrence { get; set; }
     }
 
     /// <summary>

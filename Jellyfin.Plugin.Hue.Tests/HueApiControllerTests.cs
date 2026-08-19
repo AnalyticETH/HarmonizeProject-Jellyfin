@@ -1834,6 +1834,87 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_SkipNextActionTogglesOnlyPendingOccurrenceThroughAdministratorApi()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Skip scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "skip-api-cue",
+                    Name = "Skip API cue",
+                    PresetName = "Skip scene",
+                    TimeOfDay = "06:30",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    DurationSeconds = 9,
+                    MaxRuns = 4,
+                    RunCount = 1,
+                    Enabled = true
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var skipped = controller.SkipNextSceneSchedule(" skip-api-cue ");
+        var skippedResponse = Assert.IsType<OkObjectResult>(skipped.Result);
+        var skippedResult = Assert.IsType<HueSceneScheduleResult>(skippedResponse.Value);
+        Assert.True(skippedResult.SkipNextOccurrence);
+        Assert.True(skippedResult.Enabled);
+        Assert.Equal("06:30", skippedResult.TimeOfDay);
+        Assert.Equal(1, skippedResult.RunCount);
+        Assert.Equal(4, skippedResult.MaxRuns);
+
+        var restored = controller.ClearSkippedSceneSchedule("skip-api-cue");
+        var restoredResponse = Assert.IsType<OkObjectResult>(restored.Result);
+        var restoredResult = Assert.IsType<HueSceneScheduleResult>(restoredResponse.Value);
+        Assert.False(restoredResult.SkipNextOccurrence);
+        Assert.True(restoredResult.Enabled);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+    }
+
+    [Fact]
+    public void SceneSchedules_SkipNextActionRejectsDisabledCueThroughAdministratorApi()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Skip scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "disabled-skip-api-cue",
+                    Name = "Disabled skip API cue",
+                    PresetName = "Skip scene",
+                    TimeOfDay = "06:30",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = false
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.SkipNextSceneSchedule("disabled-skip-api-cue");
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.False(configuration.SceneSchedules[0].SkipNextOccurrence);
+    }
+
+    [Fact]
     public void SceneScheduleHistory_ReturnsSanitizedRunsAndClearsHistory()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -2739,6 +2820,7 @@ public sealed class HueApiControllerTests : IDisposable
                     DurationSeconds = 11,
                     MaxRuns = 4,
                     RunCount = 2,
+                    SkipNextOccurrence = true,
                     DaysOfWeekMask = 127
                 }
             }
@@ -2769,6 +2851,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(11, document.SceneSchedules[0].DurationSeconds);
         Assert.Equal(4, document.SceneSchedules[0].MaxRuns);
         Assert.Equal(2, document.SceneSchedules[0].RunCount);
+        Assert.True(document.SceneSchedules[0].SkipNextOccurrence);
         Assert.Equal(3, document.ColorPresets[0].TransitionSeconds);
         Assert.Equal(2, document.ColorPresets[0].TransitionOutSeconds);
         Assert.Equal(PluginConfiguration.ColorPresetEffectPulse, document.ColorPresets[0].Effect);

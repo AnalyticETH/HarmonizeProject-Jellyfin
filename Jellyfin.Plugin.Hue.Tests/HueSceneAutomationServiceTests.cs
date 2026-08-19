@@ -865,6 +865,203 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void SetScheduleSkipNextOccurrence_ChangesOnlyPendingAutomaticOccurrence()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "skip-next-cue",
+                    Name = "Skip next cue",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.True(service.TrySetScheduleSkipNextOccurrence("skip-next-cue", true, out var skipMessage));
+        Assert.Contains("skip", skipMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+
+        var skippedPreview = HueSceneAutomationService.GetUpcomingOccurrences(
+            configuration.SceneSchedules[0],
+            new DateTime(2026, 8, 17, 6, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 2,
+            horizonDays: 3);
+        Assert.Equal(
+            new[]
+            {
+                new DateTime(2026, 8, 18, 7, 5, 0),
+                new DateTime(2026, 8, 19, 7, 5, 0)
+            },
+            skippedPreview.Select(occurrence => occurrence.LocalTime));
+
+        Assert.True(service.TrySetScheduleSkipNextOccurrence("skip-next-cue", false, out var clearMessage));
+        Assert.Contains("restored", clearMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.False(configuration.SceneSchedules[0].SkipNextOccurrence);
+        var restoredPreview = HueSceneAutomationService.GetUpcomingOccurrences(
+            configuration.SceneSchedules[0],
+            new DateTime(2026, 8, 17, 6, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 1,
+            horizonDays: 1);
+        Assert.Equal(new DateTime(2026, 8, 17, 7, 5, 0), Assert.Single(restoredPreview).LocalTime);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_SkipsAutomaticOccurrenceAndKeepsFutureRecurrence()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "skip-app-secret",
+            HueClientKey = "skip-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Skip scene", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "skip-runtime-cue",
+                    Name = "Skip runtime cue",
+                    PresetName = "Skip scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    SkipNextOccurrence = true,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                "192.168.1.100",
+                "skip-app-secret",
+                "skip-client-secret",
+                "area-1",
+                It.IsAny<JsonElement>(),
+                null,
+                10,
+                20,
+                30,
+                80,
+                1,
+                It.IsAny<CancellationToken>(),
+                0,
+                0,
+                PluginConfiguration.ColorPresetEffectSolid,
+                PluginConfiguration.DefaultColorPresetEffectSpeedPercent))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Displayed future scene." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var firstDueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+        await service.RunDueSchedulesAsync(firstDueUtc, CancellationToken.None);
+
+        streamTester.VerifyNoOtherCalls();
+        Assert.False(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        var skippedHistory = Assert.Single(service.GetHistory());
+        Assert.True(skippedHistory.Skipped);
+        Assert.False(skippedHistory.Succeeded);
+        Assert.Equal(0, skippedHistory.RunCount);
+        var skippedStatus = Assert.Single(service.GetStatus().Schedules);
+        Assert.True(skippedStatus.LastSkipped);
+        Assert.False(skippedStatus.LastSucceeded);
+
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 19, 7, 5, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        streamTester.Verify(tester => tester.PreviewAsync(
+            "192.168.1.100",
+            "skip-app-secret",
+            "skip-client-secret",
+            "area-1",
+            It.IsAny<JsonElement>(),
+            null,
+            10,
+            20,
+            30,
+            80,
+            1,
+            It.IsAny<CancellationToken>(),
+            0,
+            0,
+            PluginConfiguration.ColorPresetEffectSolid,
+            PluginConfiguration.DefaultColorPresetEffectSpeedPercent), Times.Once);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.False(Assert.Single(service.GetStatus().Schedules).LastSkipped);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_SkipsOneTimeCueAndDisablesIt()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            PersistSceneScheduleHistory = true,
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "skip-one-time-cue",
+                    Name = "Skip one-time cue",
+                    PresetName = "Missing scene is not needed for skip",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-08-18",
+                    DaysOfWeekMask = 0,
+                    SkipNextOccurrence = true,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.False(saved.Enabled);
+        Assert.False(saved.SkipNextOccurrence);
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.Skipped);
+        Assert.Contains("one-time", history.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ResetScheduleRunCount_RefusesActiveCue()
     {
         InstallConfiguration(new PluginConfiguration
@@ -893,6 +1090,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Contains("running", message, StringComparison.OrdinalIgnoreCase);
         Assert.False(service.TrySetScheduleEnabled("active-reset-cue", false, out var enabledMessage));
         Assert.Contains("running", enabledMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.False(service.TrySetScheduleSkipNextOccurrence("active-reset-cue", true, out var skipMessage));
+        Assert.Contains("running", skipMessage, StringComparison.OrdinalIgnoreCase);
         Assert.True(service.CancelSchedule("active-reset-cue"));
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }

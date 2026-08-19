@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.99] - 2026-08-19
+
+### Added
+- **Skip Next Cue**: mark exactly one upcoming automatic scheduled-scene occurrence to be skipped without changing the cue's recurrence, target, saved scene, or finite limit
+- **Reversible administrator control**: clear a pending skip before it is due; upcoming previews, runtime status, configuration backup/restore, and sanitized history expose the pending/consumed state
+
+### Security
+- Skip transitions remain administrator-authorized, reject active/disabled/exhausted/futureless cues, persist atomically with rollback, never affect manual Run Now, and expose no bridge credentials
+
 ## [1.5.98] - 2026-08-19
 
 ### Added

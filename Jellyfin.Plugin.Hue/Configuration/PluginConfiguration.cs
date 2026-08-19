@@ -198,6 +198,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public List<string> ExcludedDates { get; set; } = new List<string>();
         public int DaysOfWeekMask { get; set; } = 127;
         public bool Enabled { get; set; } = true;
+        /// <summary>
+        /// When true, the next eligible automatic occurrence is skipped and the flag is
+        /// cleared atomically. Manual Run Now actions are never suppressed. One-time cues
+        /// are disabled after their skipped occurrence because they have no later occurrence.
+        /// </summary>
+        public bool SkipNextOccurrence { get; set; }
     }
 
     /// <summary>
@@ -242,6 +248,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public string? TargetLabel { get; set; }
         public bool Succeeded { get; set; }
+        public bool Skipped { get; set; }
         public string Message { get; set; } = string.Empty;
         public string? CleanupWarning { get; set; }
         public DateTime RunAtUtc { get; set; }

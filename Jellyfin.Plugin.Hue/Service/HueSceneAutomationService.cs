@@ -89,6 +89,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneScheduleRuntimeState? previousState = null;
         var previousScheduleRunCount = schedule.RunCount;
         var previousScheduleEnabled = schedule.Enabled;
+        var previousScheduleSkipNextOccurrence = schedule.SkipNextOccurrence;
         lock (_runtimeStateLock)
         {
             if (_runtimeStates.TryGetValue(key, out var state))
@@ -103,12 +104,14 @@ public sealed class HueSceneAutomationService : BackgroundService
                 state.RunCount = 0;
                 state.LastRunAtUtc = null;
                 state.LastSucceeded = null;
+                state.LastSkipped = false;
                 state.LastMessage = null;
                 state.LastCleanupWarning = null;
             }
 
             schedule.RunCount = 0;
             schedule.Enabled = true;
+            schedule.SkipNextOccurrence = false;
         }
 
         try
@@ -123,12 +126,14 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 schedule.RunCount = previousScheduleRunCount;
                 schedule.Enabled = previousScheduleEnabled;
+                schedule.SkipNextOccurrence = previousScheduleSkipNextOccurrence;
                 if (previousState != null && _runtimeStates.TryGetValue(key, out var state))
                 {
                     state.ActiveRuns = previousState.ActiveRuns;
                     state.RunCount = previousState.RunCount;
                     state.LastRunAtUtc = previousState.LastRunAtUtc;
                     state.LastSucceeded = previousState.LastSucceeded;
+                    state.LastSkipped = previousState.LastSkipped;
                     state.LastMessage = previousState.LastMessage;
                     state.LastCleanupWarning = previousState.LastCleanupWarning;
                 }
@@ -202,6 +207,90 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Marks or clears one upcoming automatic occurrence without changing the cue's
+    /// recurrence definition. The next occurrence is consumed by the scheduler only;
+    /// manual Run Now remains available. Active, exhausted, or otherwise idle cues are
+    /// rejected when a new skip is requested so an administrator cannot create a silent
+    /// state with no upcoming event to consume.
+    /// </summary>
+    public bool TrySetScheduleSkipNextOccurrence(string scheduleId, bool skip, out string message)
+    {
+        message = string.Empty;
+        var config = Plugin.Instance?.Configuration;
+        var key = scheduleId?.Trim() ?? string.Empty;
+        var schedule = config?.SceneSchedules?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
+        if (schedule == null)
+        {
+            message = "The requested scene schedule was not found.";
+            return false;
+        }
+
+        var previousSkip = schedule.SkipNextOccurrence;
+        lock (_runtimeStateLock)
+        {
+            if (_runtimeStates.TryGetValue(key, out var state) && state.ActiveRuns > 0)
+            {
+                message = "The scene schedule cannot change its skipped occurrence while it is running.";
+                return false;
+            }
+
+            if (skip)
+            {
+                if (schedule.SkipNextOccurrence)
+                {
+                    message = "The next automatic scene occurrence is already marked to be skipped.";
+                    return true;
+                }
+
+                if (!schedule.Enabled)
+                {
+                    message = "The scene schedule must be enabled before its next occurrence can be skipped.";
+                    return false;
+                }
+
+                var currentRunCount = _runtimeStates.TryGetValue(key, out state)
+                    ? state.RunCount
+                    : Math.Max(0, schedule.RunCount);
+                if (schedule.MaxRuns > 0 && currentRunCount >= schedule.MaxRuns)
+                {
+                    message = "The scene schedule has reached its execution limit. Reset its run counter before marking an occurrence to skip.";
+                    return false;
+                }
+
+                if (GetNextRunUtc(schedule, DateTime.Now) == null)
+                {
+                    message = "The scene schedule has no upcoming automatic occurrence to skip.";
+                    return false;
+                }
+            }
+
+            schedule.SkipNextOccurrence = skip;
+        }
+
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+            message = skip
+                ? "The next automatic scene occurrence was marked to be skipped."
+                : "The pending skipped scene occurrence was restored.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lock (_runtimeStateLock)
+            {
+                schedule.SkipNextOccurrence = previousSkip;
+            }
+
+            _logger.LogWarning(ex, "Could not persist skipped occurrence state for Hue scene schedule {0}", schedule.Name);
+            message = "The skipped occurrence state could not be saved.";
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Returns the newest sanitized scheduled-scene run summaries. The optional
     /// schedule filter is matched against the stable cue ID and never against secrets.
     /// </summary>
@@ -253,6 +342,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     state.RunCount = Math.Max(0, configuredSchedule.RunCount);
                 state.LastRunAtUtc = null;
                 state.LastSucceeded = null;
+                state.LastSkipped = false;
                 state.LastMessage = null;
                 state.LastCleanupWarning = null;
             }
@@ -355,12 +445,14 @@ public sealed class HueSceneAutomationService : BackgroundService
                     : Array.Empty<string>(),
                 DaysOfWeekMask = schedule.DaysOfWeekMask,
                 Enabled = schedule.Enabled,
+                SkipNextOccurrence = schedule.SkipNextOccurrence,
                 Ready = readiness.Ready,
                 ReadinessMessage = readiness.Message,
                 NextRunLocal = GetNextRunLocal(schedule, localNow),
                 NextRunUtc = GetNextRunUtc(schedule, localNow),
                 LastRunAtUtc = runtime.LastRunAtUtc,
                 LastSucceeded = runtime.LastSucceeded,
+                LastSkipped = runtime.LastSkipped,
                 LastMessage = runtime.LastMessage,
                 LastCleanupWarning = runtime.LastCleanupWarning,
                 IsRunning = runtime.ActiveRuns > 0
@@ -515,6 +607,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             firstCandidateDate = startDate.Value;
         }
 
+        var skipNextOccurrence = schedule.SkipNextOccurrence;
         for (var dayOffset = 0; dayOffset < boundedHorizon; dayOffset++)
         {
             if (runDate.HasValue && dayOffset > 0)
@@ -547,6 +640,12 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             if (candidateUtc <= serverUtcNow)
                 continue;
+
+            if (skipNextOccurrence)
+            {
+                skipNextOccurrence = false;
+                continue;
+            }
 
             occurrences.Add(new HueSceneScheduleOccurrence
             {
@@ -1292,6 +1391,12 @@ public sealed class HueSceneAutomationService : BackgroundService
             if (!IsDue(schedule, localNow) || !TryClaimRunSlot(schedule.Id, slot))
                 continue;
 
+            if (TryConsumeSkippedOccurrence(config, schedule, out var skippedResult))
+            {
+                RecordSkippedOccurrence(config, schedule, skippedResult!);
+                continue;
+            }
+
             var result = await RunScheduleTrackedAsync(config, schedule, cancellationToken).ConfigureAwait(false);
             if (result.Succeeded)
             {
@@ -1310,6 +1415,112 @@ public sealed class HueSceneAutomationService : BackgroundService
                     result.Message);
             }
         }
+    }
+
+    private bool TryConsumeSkippedOccurrence(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        out HueSceneAutomationRunResult? result)
+    {
+        result = null;
+        var key = schedule.Id?.Trim() ?? string.Empty;
+        var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
+        if (configuredSchedule == null || !configuredSchedule.SkipNextOccurrence)
+            return false;
+
+        var previousEnabled = configuredSchedule.Enabled;
+        lock (_runtimeStateLock)
+        {
+            if (_runtimeStates.TryGetValue(key, out var state) && state.ActiveRuns > 0)
+                return false;
+
+            configuredSchedule.SkipNextOccurrence = false;
+            if (!string.IsNullOrWhiteSpace(configuredSchedule.RunDate))
+                configuredSchedule.Enabled = false;
+        }
+
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+            result = CreateSkippedOccurrenceResult(config, schedule);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lock (_runtimeStateLock)
+            {
+                configuredSchedule.SkipNextOccurrence = true;
+                configuredSchedule.Enabled = previousEnabled;
+            }
+
+            _logger.LogWarning(ex, "Could not persist skipped occurrence for Hue scene schedule {0}", schedule.Name);
+            return false;
+        }
+    }
+
+    private void RecordSkippedOccurrence(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        HueSceneAutomationRunResult result)
+    {
+        EnsureHistoryLoaded();
+        var key = schedule.Id?.Trim() ?? string.Empty;
+        lock (_runtimeStateLock)
+        {
+            if (!_runtimeStates.TryGetValue(key, out var state))
+            {
+                state = new HueSceneScheduleRuntimeState
+                {
+                    RunCount = Math.Max(0, schedule.RunCount)
+                };
+                _runtimeStates[key] = state;
+            }
+
+            state.LastRunAtUtc = result.RunAtUtc;
+            state.LastSucceeded = false;
+            state.LastSkipped = true;
+            state.LastMessage = result.Message;
+            state.LastCleanupWarning = null;
+            result.RunCount = state.RunCount;
+        }
+
+        lock (_historyLock)
+        {
+            _runHistory.Insert(0, CloneRunResult(result));
+            if (_runHistory.Count > MaxSceneScheduleHistoryCount)
+                _runHistory.RemoveRange(MaxSceneScheduleHistoryCount, _runHistory.Count - MaxSceneScheduleHistoryCount);
+        }
+
+        PersistSceneScheduleHistory();
+    }
+
+    private static HueSceneAutomationRunResult CreateSkippedOccurrenceResult(
+        PluginConfiguration config,
+        HueSceneSchedule schedule)
+    {
+        var preset = config.ColorPresets?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
+        PluginConfiguration.TryNormalizeColorPresetEffect(preset?.Effect, out var effect);
+        return new HueSceneAutomationRunResult
+        {
+            ScheduleId = schedule.Id,
+            ScheduleName = schedule.Name?.Trim() ?? string.Empty,
+            PresetName = schedule.PresetName?.Trim() ?? string.Empty,
+            Effect = effect,
+            EffectSpeedPercent = preset == null
+                ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
+                : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+            TargetLabel = ResolveTargetLabel(config, schedule),
+            Succeeded = false,
+            Skipped = true,
+            Message = string.IsNullOrWhiteSpace(schedule.RunDate)
+                ? "The next automatic scene occurrence was skipped by the administrator."
+                : "The one-time scene occurrence was skipped by the administrator and the cue was disabled.",
+            RunAtUtc = DateTime.UtcNow
+        };
     }
 
     private void DisableCompletedOneTimeSchedule(PluginConfiguration config, HueSceneSchedule schedule)
@@ -1526,6 +1737,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.RunCount++;
             state.LastRunAtUtc = result?.RunAtUtc ?? DateTime.UtcNow;
             state.LastSucceeded = result?.Succeeded ?? false;
+            state.LastSkipped = result?.Skipped ?? false;
             state.LastMessage = result?.Message ?? "The scheduled scene ended without a result.";
             state.LastCleanupWarning = result?.CleanupWarning;
             if (result != null)
@@ -1649,6 +1861,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     state.RunCount = Math.Max(configuredRunCount, Math.Max(latest.RunCount, group.Count()));
                     state.LastRunAtUtc = latest.RunAtUtc;
                     state.LastSucceeded = latest.Succeeded;
+                    state.LastSkipped = latest.Skipped;
                     state.LastMessage = latest.Message;
                     state.LastCleanupWarning = latest.CleanupWarning;
                 }
@@ -1715,6 +1928,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = result.EffectSpeedPercent,
             TargetLabel = result.TargetLabel,
             Succeeded = result.Succeeded,
+            Skipped = result.Skipped,
             Message = result.Message,
             CleanupWarning = result.CleanupWarning,
             RunAtUtc = result.RunAtUtc,
@@ -1735,6 +1949,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(source.EffectSpeedPercent),
             TargetLabel = source.TargetLabel?.Trim(),
             Succeeded = source.Succeeded,
+            Skipped = source.Skipped,
             Message = source.Message?.Trim() ?? string.Empty,
             CleanupWarning = source.CleanupWarning?.Trim(),
             RunAtUtc = source.RunAtUtc,
@@ -1755,6 +1970,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(entry.EffectSpeedPercent),
             TargetLabel = entry.TargetLabel?.Trim(),
             Succeeded = entry.Succeeded,
+            Skipped = entry.Skipped,
             Message = entry.Message?.Trim() ?? string.Empty,
             CleanupWarning = entry.CleanupWarning?.Trim(),
             RunAtUtc = entry.RunAtUtc,
@@ -1773,6 +1989,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = source.EffectSpeedPercent,
             TargetLabel = source.TargetLabel,
             Succeeded = source.Succeeded,
+            Skipped = source.Skipped,
             Message = source.Message,
             CleanupWarning = source.CleanupWarning,
             RunAtUtc = source.RunAtUtc,
@@ -1842,7 +2059,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             EndDate = source.EndDate,
             ExcludedDates = source.ExcludedDates?.ToList() ?? new List<string>(),
             DaysOfWeekMask = source.DaysOfWeekMask,
-            Enabled = source.Enabled
+            Enabled = source.Enabled,
+            SkipNextOccurrence = source.SkipNextOccurrence
         };
     }
 
@@ -1871,6 +2089,7 @@ internal sealed class HueSceneScheduleRuntimeState
     public int RunCount { get; set; }
     public DateTime? LastRunAtUtc { get; set; }
     public bool? LastSucceeded { get; set; }
+    public bool LastSkipped { get; set; }
     public string? LastMessage { get; set; }
     public string? LastCleanupWarning { get; set; }
 
@@ -1882,6 +2101,7 @@ internal sealed class HueSceneScheduleRuntimeState
             RunCount = RunCount,
             LastRunAtUtc = LastRunAtUtc,
             LastSucceeded = LastSucceeded,
+            LastSkipped = LastSkipped,
             LastMessage = LastMessage,
             LastCleanupWarning = LastCleanupWarning
         };
@@ -1940,6 +2160,9 @@ public sealed class HueSceneAutomationRunResult
 
     [JsonPropertyName("succeeded")]
     public bool Succeeded { get; init; }
+
+    [JsonPropertyName("skipped")]
+    public bool Skipped { get; init; }
 
     [JsonPropertyName("message")]
     public string Message { get; init; } = string.Empty;
@@ -2091,6 +2314,9 @@ public sealed class HueSceneScheduleRuntimeStatus
     [JsonPropertyName("enabled")]
     public bool Enabled { get; init; }
 
+    [JsonPropertyName("skipNextOccurrence")]
+    public bool SkipNextOccurrence { get; init; }
+
     [JsonPropertyName("ready")]
     public bool Ready { get; init; }
 
@@ -2108,6 +2334,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("lastSucceeded")]
     public bool? LastSucceeded { get; init; }
+
+    [JsonPropertyName("lastSkipped")]
+    public bool LastSkipped { get; init; }
 
     [JsonPropertyName("lastMessage")]
     public string? LastMessage { get; init; }
