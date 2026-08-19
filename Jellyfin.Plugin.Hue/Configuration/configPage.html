@@ -318,6 +318,18 @@
                                 <span>Delete Scene</span>
                             </button>
                         </div>
+                        <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-start; flex-wrap: wrap; margin-top: 0.75em;">
+                            <div style="flex: 1 1 280px;">
+                                <label class="inputLabel inputLabelUnfocused" for="previewPresetBulkSelect">Bulk scene selection</label>
+                                <select id="previewPresetBulkSelect" is="emby-select" multiple size="5" style="width: 100%;"></select>
+                            </div>
+                            <div style="display: flex; gap: 0.5em; flex-wrap: wrap; align-items: flex-start;">
+                                <button is="emby-button" type="button" class="raised" id="selectAllPreviewPresetsBtn" disabled><span>Select All</span></button>
+                                <button is="emby-button" type="button" class="raised" id="clearSelectedPreviewPresetsBtn" disabled><span>Clear Selection</span></button>
+                                <button is="emby-button" type="button" class="raised" id="deleteSelectedPreviewPresetsBtn" disabled><span>Delete Selected</span></button>
+                            </div>
+                            <div id="previewPresetBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select saved scenes to delete them together. Any playlist or scheduled-cue reference blocks the complete operation.</div>
+                        </div>
                         <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Preview Saved Scene runs the selected saved scene through the server-side target profile; Preview Saved Scene on All Targets runs it sequentially on every distinct enabled target. Use Duplicate Scene to create a safe editable variant, enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically, or use View References before changing/deleting a scene. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
                     </fieldset>
 
@@ -2089,8 +2101,10 @@
                 loadColorPresets: function (page, selectedName) {
                     var selectEl = page.querySelector('#previewPresetSelect');
                     if (!selectEl) return Promise.resolve();
+                    var bulkSelect = page.querySelector('#previewPresetBulkSelect');
 
                     selectEl.disabled = true;
+                    if (bulkSelect) bulkSelect.disabled = true;
                     return ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets"))
                         .then(function (response) {
                             var presets = Array.isArray(response)
@@ -2099,6 +2113,7 @@
                                     ? response.data
                                     : [];
                             selectEl.innerHTML = '<option value="">Choose a saved scene...</option>';
+                            if (bulkSelect) bulkSelect.innerHTML = '';
                             presets.forEach(function (preset) {
                                 if (!preset) return;
                                 var name = preset.name !== undefined ? preset.name : preset.Name;
@@ -2116,19 +2131,30 @@
                                 option.dataset.transitionSeconds = String(preset.transitionSeconds !== undefined ? preset.transitionSeconds : (preset.TransitionSeconds || 0));
                                 option.dataset.transitionOutSeconds = String(preset.transitionOutSeconds !== undefined ? preset.transitionOutSeconds : (preset.TransitionOutSeconds || 0));
                                 selectEl.appendChild(option);
+                                if (bulkSelect) {
+                                    var bulkOption = document.createElement('option');
+                                    bulkOption.value = name;
+                                    bulkOption.textContent = name;
+                                    bulkSelect.appendChild(bulkOption);
+                                }
                             });
                             if (selectedName) {
                                 selectEl.value = selectedName;
                             }
                             HueConfigurationPage.updatePresetButtons(page);
+                            HueConfigurationPage.updateColorPresetBulkButtons(page);
                         })
                         .catch(function (err) {
                             console.error("Failed to load color presets:", err);
                             selectEl.innerHTML = '<option value="">Unable to load saved scenes</option>';
+                            if (bulkSelect) bulkSelect.innerHTML = '';
                             HueConfigurationPage.updatePresetButtons(page);
+                            HueConfigurationPage.updateColorPresetBulkButtons(page);
                         })
                         .finally(function () {
                             selectEl.disabled = false;
+                            if (bulkSelect) bulkSelect.disabled = false;
+                            HueConfigurationPage.updateColorPresetBulkButtons(page);
                         });
                 },
                 updatePresetButtons: function (page) {
@@ -2149,6 +2175,82 @@
                     if (inspectBtn) {
                         inspectBtn.disabled = !selectEl || !selectEl.value;
                     }
+                },
+                getSelectedColorPresetBulkNames: function (page) {
+                    var bulkSelect = page.querySelector('#previewPresetBulkSelect');
+                    if (!bulkSelect) return [];
+                    return Array.prototype.slice.call(bulkSelect.options)
+                        .filter(function (option) { return option.selected && option.value; })
+                        .map(function (option) { return option.value; });
+                },
+                updateColorPresetBulkButtons: function (page) {
+                    var bulkSelect = page.querySelector('#previewPresetBulkSelect');
+                    var selectedCount = HueConfigurationPage.getSelectedColorPresetBulkNames(page).length;
+                    var hasOptions = !!bulkSelect && bulkSelect.options.length > 0;
+                    var selectAllBtn = page.querySelector('#selectAllPreviewPresetsBtn');
+                    var clearBtn = page.querySelector('#clearSelectedPreviewPresetsBtn');
+                    var deleteBtn = page.querySelector('#deleteSelectedPreviewPresetsBtn');
+                    if (selectAllBtn) selectAllBtn.disabled = !hasOptions || selectedCount === bulkSelect.options.length;
+                    if (clearBtn) clearBtn.disabled = selectedCount === 0;
+                    if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
+                },
+                selectAllColorPresets: function (page) {
+                    var bulkSelect = page.querySelector('#previewPresetBulkSelect');
+                    if (!bulkSelect) return;
+                    Array.prototype.forEach.call(bulkSelect.options, function (option) { option.selected = true; });
+                    HueConfigurationPage.updateColorPresetBulkButtons(page);
+                },
+                clearSelectedColorPresets: function (page) {
+                    var bulkSelect = page.querySelector('#previewPresetBulkSelect');
+                    if (!bulkSelect) return;
+                    Array.prototype.forEach.call(bulkSelect.options, function (option) { option.selected = false; });
+                    HueConfigurationPage.updateColorPresetBulkButtons(page);
+                },
+                deleteColorPresetsBulk: function (page) {
+                    var names = HueConfigurationPage.getSelectedColorPresetBulkNames(page);
+                    var statusEl = page.querySelector('#previewPresetBulkStatus');
+                    if (!names.length) {
+                        Dashboard.alert("Select at least one saved scene first.");
+                        return;
+                    }
+
+                    Dashboard.confirm("Delete " + names.length + " selected saved scene(s)? Any playlist or scheduled-cue dependency blocks the complete operation.", "Delete Selected Scenes", function (confirmed) {
+                        if (!confirmed) return;
+                        var button = page.querySelector('#deleteSelectedPreviewPresetsBtn');
+                        if (button) button.disabled = true;
+                        if (statusEl) {
+                            statusEl.textContent = "Checking dependencies and deleting the selected scenes atomically...";
+                            statusEl.style.color = "";
+                        }
+                        ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("HueSync/ColorPresets/BulkDelete"),
+                            data: JSON.stringify({ presetNames: names }),
+                            contentType: "application/json",
+                            dataType: "json"
+                        }).then(function (response) {
+                            var deletedCount = response && (response.deletedCount !== undefined ? response.deletedCount : response.DeletedCount) || names.length;
+                            if (statusEl) {
+                                statusEl.textContent = "Deleted " + deletedCount + " saved scene(s). Playlists and scheduled cues were refreshed.";
+                                statusEl.style.color = "#8bc34a";
+                            }
+                            HueConfigurationPage.clearSelectedColorPresets(page);
+                            var selectedSchedule = page.querySelector('#sceneScheduleSelect');
+                            var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
+                            return HueConfigurationPage.loadColorPresets(page).then(function () {
+                                return HueConfigurationPage.loadScenePlaylists(page).then(function () {
+                                    return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                                });
+                            });
+                        }).catch(function (err) {
+                            console.error("Failed to bulk delete color presets:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "No scenes were deleted. A playlist/cue dependency, missing scene, or persistence failure blocked the atomic operation.";
+                                statusEl.style.color = "#d9534f";
+                            }
+                            HueConfigurationPage.updateColorPresetBulkButtons(page);
+                        });
+                    });
                 },
                 applyColorPreset: function (page) {
                     var selectEl = page.querySelector('#previewPresetSelect');
@@ -7172,6 +7274,22 @@
 
             document.querySelector('#previewPresetSelect').addEventListener('change', function () {
                 HueConfigurationPage.updatePresetButtons(this.closest('.page'));
+            });
+
+            document.querySelector('#previewPresetBulkSelect').addEventListener('change', function () {
+                HueConfigurationPage.updateColorPresetBulkButtons(this.closest('.page'));
+            });
+
+            document.querySelector('#selectAllPreviewPresetsBtn').addEventListener('click', function () {
+                HueConfigurationPage.selectAllColorPresets(this.closest('.page'));
+            });
+
+            document.querySelector('#clearSelectedPreviewPresetsBtn').addEventListener('click', function () {
+                HueConfigurationPage.clearSelectedColorPresets(this.closest('.page'));
+            });
+
+            document.querySelector('#deleteSelectedPreviewPresetsBtn').addEventListener('click', function () {
+                HueConfigurationPage.deleteColorPresetsBulk(this.closest('.page'));
             });
 
             document.querySelector('#applyPreviewPresetBtn').addEventListener('click', function () {

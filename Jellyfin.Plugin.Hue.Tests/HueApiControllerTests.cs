@@ -2214,6 +2214,121 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ColorPresets_BulkDeleteRemovesSelectedScenesByName()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueAppKey = "bulk-scene-app-secret",
+            HueClientKey = "bulk-scene-client-secret",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Effect = PluginConfiguration.ColorPresetEffectPulse, EffectSpeedPercent = 140 },
+                new() { Name = "Cool", Effect = PluginConfiguration.ColorPresetEffectRainbow, EffectSpeedPercent = 180 },
+                new() { Name = "Keep", Red = 15, Green = 25, Blue = 35 }
+            }
+        });
+
+        var action = CreateController().DeleteColorPresetsBulk(new HueColorPresetBulkDeleteRequest
+        {
+            PresetNames = new List<string> { " warm ", "COOL" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueColorPresetBulkDeleteResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.DeletedCount);
+        Assert.Equal(1, result.RemainingCount);
+        Assert.Equal(new[] { "Warm", "Cool" }, result.Presets.Select(preset => preset.Name));
+        Assert.Equal("Keep", Assert.Single(configuration.ColorPresets).Name);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("bulk-scene-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-scene-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ColorPresets_BulkDeleteRefusesDependenciesAndMissingNamesAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Dependent" },
+                new() { Name = "Direct" },
+                new() { Name = "Free" }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "scene-bulk-playlist",
+                    Name = "Dependent playlist",
+                    PresetNames = new List<string> { " dependent " }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "scene-bulk-direct-cue", Name = "Direct cue", PresetName = " DIRECT " },
+                new() { Id = "scene-bulk-playlist-cue", Name = "Playlist cue", PlaylistName = "dependent playlist" }
+            }
+        });
+        var controller = CreateController();
+
+        var blocked = controller.DeleteColorPresetsBulk(new HueColorPresetBulkDeleteRequest
+        {
+            PresetNames = new List<string> { "Dependent", "Direct", "Free" }
+        });
+
+        var blockedResponse = Assert.IsType<ConflictObjectResult>(blocked.Result);
+        var blockedResult = Assert.IsType<HueColorPresetBulkDeleteResult>(blockedResponse.Value);
+        Assert.Equal(3, blockedResult.RequestedCount);
+        Assert.Equal(new[] { "Dependent", "Direct" }, blockedResult.BlockedPresets.Select(preset => preset.Name));
+        var dependent = blockedResult.BlockedPresets.Single(preset => preset.Name == "Dependent");
+        Assert.Equal(1, dependent.PlaylistCount);
+        Assert.Equal(1, dependent.ScheduledCueCount);
+        var direct = blockedResult.BlockedPresets.Single(preset => preset.Name == "Direct");
+        Assert.Equal(0, direct.PlaylistCount);
+        Assert.Equal(1, direct.ScheduledCueCount);
+        Assert.Equal(3, configuration.ColorPresets.Count);
+
+        var missing = controller.DeleteColorPresetsBulk(new HueColorPresetBulkDeleteRequest
+        {
+            PresetNames = new List<string> { "Free", "Missing" }
+        });
+
+        var missingResponse = Assert.IsType<NotFoundObjectResult>(missing.Result);
+        var missingResult = Assert.IsType<HueColorPresetBulkDeleteResult>(missingResponse.Value);
+        Assert.Equal(2, missingResult.RequestedCount);
+        Assert.Equal(new[] { "Missing" }, missingResult.MissingNames);
+        Assert.Equal(3, configuration.ColorPresets.Count);
+    }
+
+    [Fact]
+    public void ColorPresets_BulkDeletePersistenceFailureRestoresCollection()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("bulk scene persistence failed"));
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Remove" },
+                new() { Name = "Keep" }
+            }
+        }, serializer.Object);
+
+        var action = CreateController().DeleteColorPresetsBulk(new HueColorPresetBulkDeleteRequest
+        {
+            PresetNames = new List<string> { "remove" }
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Equal(new[] { "Remove", "Keep" }, configuration.ColorPresets.Select(preset => preset.Name));
+    }
+
+    [Fact]
     public void SceneSchedules_CrudUsesSavedScenesAndNeverReturnsCredentials()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

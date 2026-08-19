@@ -1347,6 +1347,14 @@ namespace Jellyfin.Plugin.Hue.Api
             if (source == null)
                 return NotFound("Color preset not found.");
 
+            return Ok(BuildColorPresetDependenciesResult(source, config));
+        }
+
+        private static HueColorPresetDependenciesResult BuildColorPresetDependenciesResult(
+            HueColorPreset source,
+            PluginConfiguration config)
+        {
+            var normalizedName = source.Name?.Trim() ?? string.Empty;
             var playlists = (config.ScenePlaylists ?? new List<HueScenePlaylist>())
                 .Where(playlist => playlist != null &&
                     playlist.PresetNames?.Any(presetName =>
@@ -1394,7 +1402,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 .ThenBy(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            return Ok(new HueColorPresetDependenciesResult
+            return new HueColorPresetDependenciesResult
             {
                 Name = source.Name?.Trim() ?? normalizedName,
                 CanDelete = playlists.Length == 0 && schedules.Length == 0,
@@ -1402,7 +1410,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ScheduledCueCount = schedules.Length,
                 Playlists = playlists,
                 ScheduledCues = schedules
-            });
+            };
         }
 
         /// <summary>
@@ -1737,6 +1745,112 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             return Ok(new { message = "Color preset deleted successfully." });
+        }
+
+        /// <summary>
+        /// Deletes several saved scenes by normalized name in one administrator operation.
+        /// Every selected scene is resolved and checked for playlist, direct-cue, and
+        /// playlist-backed cue references before mutation; any missing name, dependency,
+        /// or persistence failure leaves the complete scene collection unchanged.
+        /// </summary>
+        [HttpPost("ColorPresets/BulkDelete")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueColorPresetBulkDeleteResult> DeleteColorPresetsBulk(
+            [FromBody] HueColorPresetBulkDeleteRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A saved-scene selection is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var presetNames = (request.PresetNames ?? new List<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (presetNames.Length == 0)
+                return BadRequest("Select at least one saved scene.");
+            if (presetNames.Length > PluginConfiguration.MaxColorPresets)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxColorPresets} saved scenes at once.");
+            }
+
+            config.ColorPresets ??= new List<HueColorPreset>();
+            var selectedPresets = presetNames
+                .Select(name => config.ColorPresets.FirstOrDefault(preset =>
+                    preset != null &&
+                    string.Equals(preset.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingNames = presetNames
+                .Where((_, index) => selectedPresets[index] == null)
+                .ToArray();
+            if (missingNames.Length > 0)
+            {
+                return NotFound(new HueColorPresetBulkDeleteResult
+                {
+                    RequestedCount = presetNames.Length,
+                    MissingNames = missingNames,
+                    Message = $"The requested saved scene(s) were not found: {string.Join(", ", missingNames)}."
+                });
+            }
+
+            var presets = selectedPresets
+                .Where(preset => preset != null)
+                .Cast<HueColorPreset>()
+                .ToArray();
+            var blockedPresets = presets
+                .Select(preset => BuildColorPresetDependenciesResult(preset, config))
+                .Where(dependencies => !dependencies.CanDelete)
+                .ToArray();
+            if (blockedPresets.Length > 0)
+            {
+                return Conflict(new HueColorPresetBulkDeleteResult
+                {
+                    RequestedCount = presetNames.Length,
+                    Message = "One or more selected saved scenes are still referenced. Delete or update those references first; no scenes were deleted.",
+                    BlockedPresets = blockedPresets
+                });
+            }
+
+            var previousPresets = config.ColorPresets;
+            var selectedNames = new HashSet<string>(presetNames, StringComparer.OrdinalIgnoreCase);
+            var candidatePresets = previousPresets
+                .Where(preset => preset == null || !selectedNames.Contains(preset.Name?.Trim() ?? string.Empty))
+                .ToList();
+            var deletedCount = previousPresets.Count - candidatePresets.Count;
+            var deletedResults = presets
+                .Select(ToColorPresetResult)
+                .ToArray();
+            config.ColorPresets = candidatePresets;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ColorPresets = previousPresets;
+                _logger?.LogError(ex, "Could not persist bulk deletion of Hue color presets");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The selected saved scenes could not be deleted; no changes were retained.");
+            }
+
+            return Ok(new HueColorPresetBulkDeleteResult
+            {
+                RequestedCount = presetNames.Length,
+                DeletedCount = deletedCount,
+                RemainingCount = config.ColorPresets.Count,
+                Message = $"Deleted {deletedCount} saved scene(s); playlist and scheduled-cue references were checked atomically.",
+                Presets = deletedResults
+            });
         }
 
         /// <summary>
@@ -6238,6 +6352,43 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("transitionOutSeconds")]
         public int TransitionOutSeconds { get; set; }
+    }
+
+    /// <summary>
+    /// Request shape for atomically deleting several saved scenes by normalized name.
+    /// </summary>
+    public sealed class HueColorPresetBulkDeleteRequest
+    {
+        [JsonPropertyName("presetNames")]
+        public List<string> PresetNames { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic saved-scene deletion operation.
+    /// </summary>
+    public sealed class HueColorPresetBulkDeleteResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("deletedCount")]
+        public int DeletedCount { get; set; }
+
+        [JsonPropertyName("remainingCount")]
+        public int RemainingCount { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("presets")]
+        public IReadOnlyList<HueColorPresetResult> Presets { get; set; } = Array.Empty<HueColorPresetResult>();
+
+        [JsonPropertyName("missingNames")]
+        public IReadOnlyList<string> MissingNames { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("blockedPresets")]
+        public IReadOnlyList<HueColorPresetDependenciesResult> BlockedPresets { get; set; } =
+            Array.Empty<HueColorPresetDependenciesResult>();
     }
 
     /// <summary>
