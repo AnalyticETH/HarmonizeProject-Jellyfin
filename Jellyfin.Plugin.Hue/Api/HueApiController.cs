@@ -1240,6 +1240,177 @@ namespace Jellyfin.Plugin.Hue.Api
                 request.TargetAllEnabledMappings));
         }
 
+        /// <summary>
+        /// Previews several saved scenes sequentially through the restorative preview
+        /// lifecycle. Every selected scene, target, and validation rule is preflighted
+        /// before the first bridge call; a runtime failure is reported per scene while
+        /// later scenes continue, and cancellation stops the remaining sequence safely.
+        /// </summary>
+        [HttpPost("ColorPresets/BulkPreview")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<HueColorPresetBulkPreviewResult>> PreviewColorPresetsBulk(
+            [FromBody] HueColorPresetBulkPreviewRequest? request,
+            CancellationToken cancellationToken = default)
+        {
+            if (request == null)
+                return BadRequest("A saved-scene selection is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var presetNames = (request.PresetNames ?? new List<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (presetNames.Length == 0)
+                return BadRequest("Select at least one saved scene.");
+            if (presetNames.Length > PluginConfiguration.MaxColorPresets)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxColorPresets} saved scenes at once.");
+            }
+
+            config.ColorPresets ??= new List<HueColorPreset>();
+            var selectedPresets = presetNames
+                .Select(name => config.ColorPresets.FirstOrDefault(preset =>
+                    preset != null &&
+                    string.Equals(preset.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingNames = presetNames
+                .Where((_, index) => selectedPresets[index] == null)
+                .ToArray();
+            if (missingNames.Length > 0)
+            {
+                return NotFound(new HueColorPresetBulkPreviewResult
+                {
+                    RequestedCount = presetNames.Length,
+                    MissingNames = missingNames,
+                    Message = $"The requested saved scene(s) were not found: {string.Join(", ", missingNames)}."
+                });
+            }
+
+            var validationErrors = selectedPresets
+                .Cast<HueColorPreset>()
+                .SelectMany(preset => PluginConfiguration.ValidateColorPreset(
+                    preset,
+                    $"Saved scene '{preset.Name?.Trim() ?? string.Empty}'"))
+                .ToArray();
+            if (validationErrors.Length > 0)
+            {
+                return BadRequest(new HueColorPresetBulkPreviewResult
+                {
+                    RequestedCount = presetNames.Length,
+                    ValidationErrors = validationErrors,
+                    Message = "One or more selected saved scenes are invalid; no preview was started."
+                });
+            }
+
+            var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
+            if (request.TargetAllEnabledMappings && !string.IsNullOrWhiteSpace(targetUserId))
+            {
+                return BadRequest(
+                    "A bulk saved-scene preview cannot select all enabled targets and a specific user mapping together.");
+            }
+
+            if (_streamTester == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
+            if (_sceneAutomationService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+            if (_syncService?.IsSyncing == true)
+                return Conflict("Stop active playback before running a bulk Hue scene preview.");
+
+            var targetSchedule = new HueSceneSchedule
+            {
+                Id = "bulk-saved-scene-preview",
+                Name = "Bulk saved-scene preview",
+                TargetUserId = request.TargetAllEnabledMappings ? string.Empty : targetUserId,
+                TargetAllEnabledMappings = request.TargetAllEnabledMappings
+            };
+            if (!HueSceneAutomationService.TryResolveTargets(config, targetSchedule, out _, out var targetError))
+                return BadRequest(targetError);
+
+            var previews = new List<HueColorPresetBulkPreviewItem>(selectedPresets.Length);
+            var canceled = false;
+            foreach (var source in selectedPresets.Cast<HueColorPreset>())
+            {
+                var previewSchedule = new HueSceneSchedule
+                {
+                    Id = "bulk-saved-scene-preview",
+                    Name = source.Name?.Trim() ?? string.Empty,
+                    PresetName = source.Name?.Trim() ?? string.Empty,
+                    TargetUserId = targetSchedule.TargetUserId,
+                    TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
+                    DurationSeconds = 0
+                };
+                var previewPreset = CloneColorPreset(source);
+                PluginConfiguration.TryNormalizeColorPresetEffect(previewPreset.Effect, out var normalizedEffect);
+                previewPreset.Effect = normalizedEffect;
+                try
+                {
+                    var run = await _sceneAutomationService.RunPreviewAsync(
+                        previewSchedule,
+                        previewPreset,
+                        cancellationToken).ConfigureAwait(false);
+                    previews.Add(new HueColorPresetBulkPreviewItem
+                    {
+                        Name = previewPreset.Name?.Trim() ?? string.Empty,
+                        Preview = BuildPreviewResult(
+                            run,
+                            previewSchedule,
+                            previewPreset,
+                            request.TargetAllEnabledMappings)
+                    });
+                    if (!run.Succeeded && run.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
+                    {
+                        canceled = true;
+                        break;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    canceled = true;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Bulk saved-scene preview failed for {0}", source.Name);
+                    previews.Add(new HueColorPresetBulkPreviewItem
+                    {
+                        Name = source.Name?.Trim() ?? string.Empty,
+                        Preview = new HuePreviewResult
+                        {
+                            Succeeded = false,
+                            Message = "The saved-scene preview failed unexpectedly."
+                        }
+                    });
+                }
+            }
+
+            var succeededCount = previews.Count(item => item.Preview.Succeeded);
+            var failedCount = previews.Count - succeededCount;
+            return Ok(new HueColorPresetBulkPreviewResult
+            {
+                RequestedCount = presetNames.Length,
+                CompletedCount = previews.Count,
+                SucceededCount = succeededCount,
+                FailedCount = failedCount,
+                Canceled = canceled,
+                Message = canceled
+                    ? $"Bulk saved-scene preview canceled after {previews.Count} of {presetNames.Length} scene(s)."
+                    : failedCount == 0
+                        ? $"Previewed {previews.Count} saved scene(s) successfully."
+                        : $"Previewed {previews.Count} saved scene(s); {failedCount} failed.",
+                Previews = previews
+            });
+        }
+
         private static HuePreviewResult BuildPreviewResult(
             HueSceneAutomationRunResult run,
             HueSceneSchedule schedule,
@@ -2215,6 +2386,186 @@ namespace Jellyfin.Plugin.Hue.Api
                 playlist,
                 cancellationToken).ConfigureAwait(false);
             return Ok(result);
+        }
+
+        /// <summary>
+        /// Previews several saved-scene playlists sequentially. Every selected playlist,
+        /// referenced scene, target override, and validation rule is preflighted before the
+        /// first bridge call; a runtime failure is retained per playlist while later
+        /// playlists continue, and cancellation stops the remaining sequence safely.
+        /// </summary>
+        [HttpPost("ScenePlaylists/BulkPreview")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<HueScenePlaylistBulkPreviewResult>> PreviewScenePlaylistsBulk(
+            [FromBody] HueScenePlaylistBulkPreviewRequest? request,
+            CancellationToken cancellationToken = default)
+        {
+            if (request == null)
+                return BadRequest("A playlist selection is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var playlistIds = (request.PlaylistIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (playlistIds.Length == 0)
+                return BadRequest("Select at least one saved playlist.");
+            if (playlistIds.Length > PluginConfiguration.MaxScenePlaylists)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxScenePlaylists} saved playlists at once.");
+            }
+
+            config.ScenePlaylists ??= new List<HueScenePlaylist>();
+            var selectedPlaylists = playlistIds
+                .Select(id => config.ScenePlaylists.FirstOrDefault(playlist =>
+                    playlist != null &&
+                    string.Equals(playlist.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingIds = playlistIds
+                .Where((_, index) => selectedPlaylists[index] == null)
+                .ToArray();
+            if (missingIds.Length > 0)
+            {
+                return NotFound(new HueScenePlaylistBulkPreviewResult
+                {
+                    RequestedCount = playlistIds.Length,
+                    MissingIds = missingIds,
+                    Message = $"The requested scene playlist(s) were not found: {string.Join(", ", missingIds)}."
+                });
+            }
+
+            var playlists = selectedPlaylists
+                .Cast<HueScenePlaylist>()
+                .Select(CloneScenePlaylist)
+                .ToArray();
+            var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
+            if (request.TargetAllEnabledMappings == true && !string.IsNullOrWhiteSpace(targetUserId))
+            {
+                return BadRequest(
+                    "A bulk scene playlist preview cannot select all enabled targets and a specific user mapping together.");
+            }
+
+            foreach (var playlist in playlists)
+            {
+                if (!request.TargetAllEnabledMappings.HasValue && string.IsNullOrWhiteSpace(targetUserId))
+                    continue;
+
+                if (request.TargetAllEnabledMappings.HasValue)
+                {
+                    playlist.TargetAllEnabledMappings = request.TargetAllEnabledMappings.Value;
+                    playlist.TargetUserId = request.TargetAllEnabledMappings.Value ? string.Empty : targetUserId;
+                }
+                else
+                {
+                    playlist.TargetAllEnabledMappings = false;
+                    playlist.TargetUserId = targetUserId;
+                }
+            }
+
+            var validationErrors = playlists
+                .SelectMany(playlist => PluginConfiguration.ValidateScenePlaylist(
+                    playlist,
+                    config,
+                    $"Scene playlist '{playlist.Name?.Trim() ?? string.Empty}'"))
+                .ToList();
+            foreach (var playlist in playlists)
+            {
+                var targetSchedule = new HueSceneSchedule
+                {
+                    Id = "bulk-scene-playlist-preview",
+                    Name = playlist.Name?.Trim() ?? string.Empty,
+                    TargetUserId = playlist.TargetAllEnabledMappings ? string.Empty : playlist.TargetUserId?.Trim() ?? string.Empty,
+                    TargetAllEnabledMappings = playlist.TargetAllEnabledMappings
+                };
+                if (!HueSceneAutomationService.TryResolveTargets(config, targetSchedule, out _, out var targetError))
+                {
+                    validationErrors.Add($"Scene playlist '{playlist.Name?.Trim() ?? string.Empty}' target: {targetError}");
+                }
+            }
+
+            if (validationErrors.Count > 0)
+            {
+                return BadRequest(new HueScenePlaylistBulkPreviewResult
+                {
+                    RequestedCount = playlistIds.Length,
+                    ValidationErrors = validationErrors,
+                    Message = "One or more selected scene playlists are invalid; no preview was started."
+                });
+            }
+
+            if (_streamTester == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
+            if (_sceneAutomationService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+            if (_syncService?.IsSyncing == true)
+                return Conflict("Stop active playback before running a bulk Hue scene playlist preview.");
+
+            var results = new List<HueScenePlaylistRunResult>(playlists.Length);
+            var canceled = false;
+            foreach (var playlist in playlists)
+            {
+                try
+                {
+                    var result = await _sceneAutomationService.RunPlaylistPreviewAsync(
+                        playlist,
+                        cancellationToken).ConfigureAwait(false);
+                    results.Add(result);
+                    if (!result.Succeeded && result.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
+                    {
+                        canceled = true;
+                        break;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    canceled = true;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Bulk scene playlist preview failed for {0}", playlist.Name);
+                    results.Add(new HueScenePlaylistRunResult
+                    {
+                        PlaylistId = playlist.Id?.Trim() ?? string.Empty,
+                        PlaylistName = playlist.Name?.Trim() ?? string.Empty,
+                        RepeatCount = Math.Clamp(
+                            playlist.RepeatCount,
+                            PluginConfiguration.MinScenePlaylistRepeatCount,
+                            PluginConfiguration.MaxScenePlaylistRepeatCount),
+                        TargetAllEnabledMappings = playlist.TargetAllEnabledMappings,
+                        Succeeded = false,
+                        Message = "The scene playlist preview failed unexpectedly.",
+                        RunAtUtc = DateTime.UtcNow
+                    });
+                }
+            }
+
+            var succeededCount = results.Count(result => result.Succeeded);
+            var failedCount = results.Count - succeededCount;
+            return Ok(new HueScenePlaylistBulkPreviewResult
+            {
+                RequestedCount = playlistIds.Length,
+                CompletedCount = results.Count,
+                SucceededCount = succeededCount,
+                FailedCount = failedCount,
+                Canceled = canceled,
+                Message = canceled
+                    ? $"Bulk scene playlist preview canceled after {results.Count} of {playlistIds.Length} playlist(s)."
+                    : failedCount == 0
+                        ? $"Previewed {results.Count} scene playlist(s) successfully."
+                        : $"Previewed {results.Count} scene playlist(s); {failedCount} failed.",
+                Results = results
+            });
         }
 
         /// <summary>
@@ -7108,6 +7459,67 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
+    /// Request shape for previewing several saved scenes sequentially without exposing
+    /// bridge credentials or changing persisted configuration.
+    /// </summary>
+    public sealed class HueColorPresetBulkPreviewRequest
+    {
+        [JsonPropertyName("presetNames")]
+        public List<string> PresetNames { get; set; } = new();
+
+        [JsonPropertyName("targetUserId")]
+        public string? TargetUserId { get; set; }
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool TargetAllEnabledMappings { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free aggregate result for a sequential saved-scene preview operation.
+    /// </summary>
+    public sealed class HueColorPresetBulkPreviewResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("completedCount")]
+        public int CompletedCount { get; set; }
+
+        [JsonPropertyName("succeededCount")]
+        public int SucceededCount { get; set; }
+
+        [JsonPropertyName("failedCount")]
+        public int FailedCount { get; set; }
+
+        [JsonPropertyName("canceled")]
+        public bool Canceled { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("previews")]
+        public IReadOnlyList<HueColorPresetBulkPreviewItem> Previews { get; set; } = Array.Empty<HueColorPresetBulkPreviewItem>();
+
+        [JsonPropertyName("missingNames")]
+        public IReadOnlyList<string> MissingNames { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("validationErrors")]
+        public IReadOnlyList<string> ValidationErrors { get; set; } = Array.Empty<string>();
+    }
+
+    /// <summary>
+    /// One saved-scene preview outcome in a bulk operation.
+    /// </summary>
+    public sealed class HueColorPresetBulkPreviewItem
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("preview")]
+        public HuePreviewResult Preview { get; set; } = new();
+    }
+
+    /// <summary>
     /// Credential-free outcome for one immediate preview target.
     /// </summary>
     public sealed class HuePreviewTargetResult
@@ -7564,6 +7976,56 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetAllEnabledMappings")]
         public bool? TargetAllEnabledMappings { get; set; }
+    }
+
+    /// <summary>
+    /// Request shape for previewing several saved-scene playlists sequentially. Nullable
+    /// target mode preserves each saved playlist's target when omitted, matching the
+    /// individual preview route.
+    /// </summary>
+    public sealed class HueScenePlaylistBulkPreviewRequest
+    {
+        [JsonPropertyName("playlistIds")]
+        public List<string> PlaylistIds { get; set; } = new();
+
+        [JsonPropertyName("targetUserId")]
+        public string? TargetUserId { get; set; }
+
+        [JsonPropertyName("targetAllEnabledMappings")]
+        public bool? TargetAllEnabledMappings { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free aggregate result for a sequential saved-scene playlist preview.
+    /// </summary>
+    public sealed class HueScenePlaylistBulkPreviewResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("completedCount")]
+        public int CompletedCount { get; set; }
+
+        [JsonPropertyName("succeededCount")]
+        public int SucceededCount { get; set; }
+
+        [JsonPropertyName("failedCount")]
+        public int FailedCount { get; set; }
+
+        [JsonPropertyName("canceled")]
+        public bool Canceled { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("results")]
+        public IReadOnlyList<HueScenePlaylistRunResult> Results { get; set; } = Array.Empty<HueScenePlaylistRunResult>();
+
+        [JsonPropertyName("missingIds")]
+        public IReadOnlyList<string> MissingIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("validationErrors")]
+        public IReadOnlyList<string> ValidationErrors { get; set; } = Array.Empty<string>();
     }
 
     /// <summary>

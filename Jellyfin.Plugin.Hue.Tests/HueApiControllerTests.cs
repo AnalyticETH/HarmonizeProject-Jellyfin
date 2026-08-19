@@ -1371,6 +1371,109 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PreviewColorPresetsBulk_PreflightsAndRunsSelectionsSequentiallyWithoutCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-scene-app-secret",
+            HueClientKey = "bulk-scene-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Red = 20, Green = 40, Blue = 60, DurationSeconds = 1 },
+                new() { Name = "Cool", Red = 200, Green = 180, Blue = 160, DurationSeconds = 1 }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<string>(),
+                It.IsAny<int>()))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Bulk scene completed." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var action = await controller.PreviewColorPresetsBulk(new HueColorPresetBulkPreviewRequest
+        {
+            PresetNames = new List<string> { " cool ", "Warm", "COOL" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueColorPresetBulkPreviewResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.CompletedCount);
+        Assert.Equal(2, result.SucceededCount);
+        Assert.Equal(0, result.FailedCount);
+        Assert.False(result.Canceled);
+        Assert.Equal(new[] { "Cool", "Warm" }, result.Previews.Select(preview => preview.Name));
+        Assert.All(result.Previews, preview => Assert.True(preview.Preview.Succeeded));
+        Assert.Equal(new[] { 200, 20 }, streamTester.Invocations
+            .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
+            .Select(invocation => (int)invocation.Arguments[6]!)
+            .ToArray());
+        Assert.Equal(2, streamTester.Invocations.Count(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync)));
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("bulk-scene-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-scene-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PreviewColorPresetsBulk_MissingOrInvalidSelectionDoesNotContactBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-scene-app-secret",
+            HueClientKey = "bulk-scene-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Valid", DurationSeconds = 1 },
+                new() { Name = "Invalid", Effect = "Unknown", DurationSeconds = 1 }
+            }
+        });
+        var controller = CreateController(Mock.Of<IHueStreamTester>());
+
+        var missing = await controller.PreviewColorPresetsBulk(new HueColorPresetBulkPreviewRequest
+        {
+            PresetNames = new List<string> { "Valid", "Missing" }
+        });
+        var missingResponse = Assert.IsType<NotFoundObjectResult>(missing.Result);
+        var missingResult = Assert.IsType<HueColorPresetBulkPreviewResult>(missingResponse.Value);
+        Assert.Equal(new[] { "Missing" }, missingResult.MissingNames);
+
+        var invalid = await controller.PreviewColorPresetsBulk(new HueColorPresetBulkPreviewRequest
+        {
+            PresetNames = new List<string> { "Invalid" }
+        });
+        var invalidResponse = Assert.IsType<BadRequestObjectResult>(invalid.Result);
+        var invalidResult = Assert.IsType<HueColorPresetBulkPreviewResult>(invalidResponse.Value);
+        Assert.NotEmpty(invalidResult.ValidationErrors);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task ScenePlaylists_CrudAndPreviewRunsOrderedScenesWithoutReturningCredentials()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -1924,6 +2027,118 @@ public sealed class HueApiControllerTests : IDisposable
 
         var response = Assert.IsType<BadRequestObjectResult>(action.Result);
         Assert.Contains("scene playlist", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task ScenePlaylistsBulkPreview_RunsSelectedPlaylistsSequentiallyWithoutCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-playlist-app-secret",
+            HueClientKey = "bulk-playlist-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, DurationSeconds = 1 },
+                new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, DurationSeconds = 1 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-warm", Name = "Warm sequence", PresetNames = new List<string> { "Warm" } },
+                new() { Id = "playlist-cool", Name = "Cool sequence", PresetNames = new List<string> { "Cool" } }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<string>(),
+                It.IsAny<int>()))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Bulk playlist step completed." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var action = await controller.PreviewScenePlaylistsBulk(new HueScenePlaylistBulkPreviewRequest
+        {
+            PlaylistIds = new List<string> { "playlist-cool", "playlist-warm", "playlist-cool" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueScenePlaylistBulkPreviewResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.CompletedCount);
+        Assert.Equal(2, result.SucceededCount);
+        Assert.Equal(0, result.FailedCount);
+        Assert.False(result.Canceled);
+        Assert.Equal(new[] { "Cool sequence", "Warm sequence" }, result.Results.Select(playlist => playlist.PlaylistName));
+        Assert.All(result.Results, playlist =>
+        {
+            Assert.True(playlist.Succeeded);
+            Assert.Single(playlist.Steps);
+        });
+        Assert.Equal(new[] { 220, 25 }, streamTester.Invocations
+            .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
+            .Select(invocation => (int)invocation.Arguments[6]!)
+            .ToArray());
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("bulk-playlist-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-playlist-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ScenePlaylistsBulkPreview_MissingOrInvalidSelectionDoesNotContactBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-playlist-app-secret",
+            HueClientKey = "bulk-playlist-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Warm", DurationSeconds = 1 } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-valid", Name = "Valid", PresetNames = new List<string> { "Warm" } },
+                new() { Id = "playlist-invalid", Name = "Invalid", PresetNames = new List<string> { "Missing" } }
+            }
+        });
+        var controller = CreateController(Mock.Of<IHueStreamTester>());
+
+        var missing = await controller.PreviewScenePlaylistsBulk(new HueScenePlaylistBulkPreviewRequest
+        {
+            PlaylistIds = new List<string> { "playlist-valid", "missing-playlist" }
+        });
+        var missingResponse = Assert.IsType<NotFoundObjectResult>(missing.Result);
+        var missingResult = Assert.IsType<HueScenePlaylistBulkPreviewResult>(missingResponse.Value);
+        Assert.Equal(new[] { "missing-playlist" }, missingResult.MissingIds);
+
+        var invalid = await controller.PreviewScenePlaylistsBulk(new HueScenePlaylistBulkPreviewRequest
+        {
+            PlaylistIds = new List<string> { "playlist-invalid" }
+        });
+        var invalidResponse = Assert.IsType<BadRequestObjectResult>(invalid.Result);
+        var invalidResult = Assert.IsType<HueScenePlaylistBulkPreviewResult>(invalidResponse.Value);
+        Assert.NotEmpty(invalidResult.ValidationErrors);
         _httpHandlerMock.VerifyNoOtherCalls();
     }
 

@@ -326,10 +326,12 @@
                             <div style="display: flex; gap: 0.5em; flex-wrap: wrap; align-items: flex-start;">
                                 <button is="emby-button" type="button" class="raised" id="selectAllPreviewPresetsBtn" disabled><span>Select All</span></button>
                                 <button is="emby-button" type="button" class="raised" id="clearSelectedPreviewPresetsBtn" disabled><span>Clear Selection</span></button>
+                                <button is="emby-button" type="button" class="raised" id="previewSelectedPreviewPresetsBtn" disabled><span>Preview Selected</span></button>
+                                <button is="emby-button" type="button" class="raised" id="previewSelectedPreviewPresetsAllBtn" disabled><span>Preview Selected on All Targets</span></button>
                                 <button is="emby-button" type="button" class="raised" id="duplicateSelectedPreviewPresetsBtn" disabled><span>Duplicate Selected</span></button>
                                 <button is="emby-button" type="button" class="raised" id="deleteSelectedPreviewPresetsBtn" disabled><span>Delete Selected</span></button>
                             </div>
-                            <div id="previewPresetBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select saved scenes to duplicate independent copies or delete them together. Any playlist or scheduled-cue reference blocks deletion.</div>
+                            <div id="previewPresetBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select saved scenes to preview sequentially with restorative state cleanup, duplicate independent copies, or delete them together. Any playlist or scheduled-cue reference blocks deletion.</div>
                         </div>
                         <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Preview Saved Scene runs the selected saved scene through the server-side target profile; Preview Saved Scene on All Targets runs it sequentially on every distinct enabled target. Use Duplicate Scene to create a safe editable variant, enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically, or use View References before changing/deleting a scene. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
                     </fieldset>
@@ -359,10 +361,12 @@
                             <div style="display: flex; gap: 0.5em; flex-wrap: wrap; align-items: flex-start;">
                                 <button is="emby-button" type="button" class="raised" id="selectAllScenePlaylistsBtn" disabled><span>Select All</span></button>
                                 <button is="emby-button" type="button" class="raised" id="clearSelectedScenePlaylistsBtn" disabled><span>Clear Selection</span></button>
+                                <button is="emby-button" type="button" class="raised" id="previewSelectedScenePlaylistsBtn" disabled><span>Preview Selected</span></button>
+                                <button is="emby-button" type="button" class="raised" id="previewSelectedScenePlaylistsAllBtn" disabled><span>Preview Selected on All Targets</span></button>
                                 <button is="emby-button" type="button" class="raised" id="duplicateSelectedScenePlaylistsBtn" disabled><span>Duplicate Selected</span></button>
                                 <button is="emby-button" type="button" class="raised" id="deleteSelectedScenePlaylistsBtn" disabled><span>Delete Selected</span></button>
                             </div>
-                            <div id="scenePlaylistBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select playlists to duplicate independent copies or delete them together. Any playlist referenced by a scheduled cue blocks deletion.</div>
+                            <div id="scenePlaylistBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select playlists to preview sequentially with restorative state cleanup, duplicate independent copies, or delete them together. Any playlist referenced by a scheduled cue blocks deletion.</div>
                         </div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-start; flex-wrap: wrap; margin-top: 0.75em;">
                             <div style="flex: 1 1 220px;">
@@ -1876,6 +1880,10 @@
                     var savedAllTargetsButton = page && page.querySelector('#previewSavedPresetAllBtn');
                     var playlistButton = page && page.querySelector('#previewScenePlaylistBtn');
                     var playlistAllTargetsButton = page && page.querySelector('#previewScenePlaylistAllBtn');
+                    var bulkPresetButton = page && page.querySelector('#previewSelectedPreviewPresetsBtn');
+                    var bulkPresetAllTargetsButton = page && page.querySelector('#previewSelectedPreviewPresetsAllBtn');
+                    var bulkPlaylistButton = page && page.querySelector('#previewSelectedScenePlaylistsBtn');
+                    var bulkPlaylistAllTargetsButton = page && page.querySelector('#previewSelectedScenePlaylistsAllBtn');
                     var mappingButton = page && page.querySelector('#mappingPreviewColorBtn');
                     if (defaultButton) defaultButton.disabled = busy;
                     if (allTargetsButton) allTargetsButton.disabled = busy;
@@ -1883,6 +1891,10 @@
                     if (savedAllTargetsButton) savedAllTargetsButton.disabled = busy;
                     if (playlistButton) playlistButton.disabled = busy;
                     if (playlistAllTargetsButton) playlistAllTargetsButton.disabled = busy;
+                    if (bulkPresetButton) bulkPresetButton.disabled = busy;
+                    if (bulkPresetAllTargetsButton) bulkPresetAllTargetsButton.disabled = busy;
+                    if (bulkPlaylistButton) bulkPlaylistButton.disabled = busy;
+                    if (bulkPlaylistAllTargetsButton) bulkPlaylistAllTargetsButton.disabled = busy;
                     if (mappingButton) mappingButton.disabled = busy;
                     if (cancelButton) {
                         cancelButton.style.display = busy ? "" : "none";
@@ -1890,6 +1902,12 @@
                     }
                     if (!busy && page && page.querySelector('#scenePlaylistSelect') && HueConfigurationPage.updateScenePlaylistButtons) {
                         HueConfigurationPage.updateScenePlaylistButtons(page);
+                    }
+                    if (!busy && page && HueConfigurationPage.updateColorPresetBulkButtons) {
+                        HueConfigurationPage.updateColorPresetBulkButtons(page);
+                    }
+                    if (!busy && page && HueConfigurationPage.updateScenePlaylistBulkButtons) {
+                        HueConfigurationPage.updateScenePlaylistBulkButtons(page);
                     }
                 },
                 setDiagnosticBusy: function (page, busy) {
@@ -2208,10 +2226,14 @@
                     var hasOptions = !!bulkSelect && bulkSelect.options.length > 0;
                     var selectAllBtn = page.querySelector('#selectAllPreviewPresetsBtn');
                     var clearBtn = page.querySelector('#clearSelectedPreviewPresetsBtn');
+                    var previewBtn = page.querySelector('#previewSelectedPreviewPresetsBtn');
+                    var previewAllBtn = page.querySelector('#previewSelectedPreviewPresetsAllBtn');
                     var duplicateBtn = page.querySelector('#duplicateSelectedPreviewPresetsBtn');
                     var deleteBtn = page.querySelector('#deleteSelectedPreviewPresetsBtn');
                     if (selectAllBtn) selectAllBtn.disabled = !hasOptions || selectedCount === bulkSelect.options.length;
                     if (clearBtn) clearBtn.disabled = selectedCount === 0;
+                    if (previewBtn) previewBtn.disabled = selectedCount === 0;
+                    if (previewAllBtn) previewAllBtn.disabled = selectedCount === 0;
                     if (duplicateBtn) duplicateBtn.disabled = selectedCount === 0;
                     if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
                 },
@@ -2226,6 +2248,78 @@
                     if (!bulkSelect) return;
                     Array.prototype.forEach.call(bulkSelect.options, function (option) { option.selected = false; });
                     HueConfigurationPage.updateColorPresetBulkButtons(page);
+                },
+                previewColorPresetsBulk: function (page, allTargets) {
+                    if (page._huePreviewRequest) {
+                        Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
+                        return;
+                    }
+                    var names = HueConfigurationPage.getSelectedColorPresetBulkNames(page);
+                    var statusEl = page.querySelector('#previewPresetBulkStatus');
+                    if (!names.length) {
+                        Dashboard.alert("Select at least one saved scene first.");
+                        return;
+                    }
+
+                    Dashboard.confirm(
+                        (allTargets ? "Preview " : "Preview ") + names.length + " selected saved scene" + (names.length === 1 ? "" : "s") + (allTargets ? " on every enabled target" : " on the default target") + "? Each scene runs sequentially and restores light state before the next.",
+                        allTargets ? "Preview Selected Scenes on All Targets" : "Preview Selected Scenes",
+                        function (confirmed) {
+                            if (!confirmed) return;
+                            var button = page.querySelector(allTargets ? '#previewSelectedPreviewPresetsAllBtn' : '#previewSelectedPreviewPresetsBtn');
+                            if (button) button.disabled = true;
+                            if (statusEl) {
+                                statusEl.textContent = allTargets
+                                    ? "Saving each target's light state and previewing the selected scenes sequentially..."
+                                    : "Saving the default target's light state and previewing the selected scenes sequentially...";
+                                statusEl.style.color = '';
+                            }
+                            page._huePreviewStatusElement = statusEl;
+                            Dashboard.showLoadingMsg();
+                            var request = ApiClient.ajax({
+                                type: "POST",
+                                url: ApiClient.getUrl("HueSync/ColorPresets/BulkPreview"),
+                                data: JSON.stringify({ presetNames: names, targetAllEnabledMappings: !!allTargets }),
+                                contentType: "application/json",
+                                dataType: "json"
+                            });
+                            page._huePreviewRequest = request;
+                            HueConfigurationPage.setPreviewBusy(page, true);
+                            request.then(function (response) {
+                                var message = response && (response.message || response.Message) || "Bulk saved-scene preview completed.";
+                                var previews = response && (response.previews || response.Previews) || [];
+                                var details = previews.map(function (item) {
+                                    if (!item) return null;
+                                    var name = item.name || item.Name || "Scene";
+                                    var preview = item.preview || item.Preview || {};
+                                    var succeeded = preview.succeeded !== undefined ? preview.succeeded : preview.Succeeded;
+                                    return name + ": " + (preview.message || preview.Message || (succeeded ? "completed" : "failed"));
+                                }).filter(Boolean);
+                                if (statusEl) {
+                                    statusEl.textContent = message + (details.length ? " " + details.join(" | ") : "");
+                                    statusEl.style.color = response && (response.canceled || response.Canceled)
+                                        ? "#f0ad4e"
+                                        : response && Number(response.failedCount !== undefined ? response.failedCount : response.FailedCount) > 0
+                                            ? "#d9534f"
+                                            : "#8bc34a";
+                                }
+                            }).catch(function (err) {
+                                console.error("Bulk saved-scene preview error:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = allTargets
+                                        ? "Bulk saved-scene preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying."
+                                        : "Bulk saved-scene preview failed. Verify the default target in System Diagnostics and stop active playback before retrying.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                            }).finally(function () {
+                                if (page._huePreviewRequest === request) {
+                                    page._huePreviewRequest = null;
+                                    page._huePreviewStatusElement = null;
+                                    HueConfigurationPage.setPreviewBusy(page, false);
+                                }
+                                Dashboard.hideLoadingMsg();
+                            });
+                        });
                 },
                 duplicateColorPresetsBulk: function (page) {
                     var names = HueConfigurationPage.getSelectedColorPresetBulkNames(page);
@@ -2798,10 +2892,14 @@
                     var hasPlaylists = !!(select && select.options && select.options.length);
                     var selectAll = page && page.querySelector('#selectAllScenePlaylistsBtn');
                     var clear = page && page.querySelector('#clearSelectedScenePlaylistsBtn');
+                    var previewButton = page && page.querySelector('#previewSelectedScenePlaylistsBtn');
+                    var previewAllButton = page && page.querySelector('#previewSelectedScenePlaylistsAllBtn');
                     var duplicateButton = page && page.querySelector('#duplicateSelectedScenePlaylistsBtn');
                     var deleteButton = page && page.querySelector('#deleteSelectedScenePlaylistsBtn');
                     if (selectAll) selectAll.disabled = !hasPlaylists;
                     if (clear) clear.disabled = !hasSelection;
+                    if (previewButton) previewButton.disabled = !hasSelection;
+                    if (previewAllButton) previewAllButton.disabled = !hasSelection;
                     if (duplicateButton) duplicateButton.disabled = !hasSelection;
                     if (deleteButton) deleteButton.disabled = !hasSelection;
                 },
@@ -3026,6 +3124,76 @@
                         }
                         Dashboard.hideLoadingMsg();
                     });
+                },
+                previewScenePlaylistsBulk: function (page, allTargets) {
+                    if (page._huePreviewRequest) {
+                        Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
+                        return;
+                    }
+                    var ids = HueConfigurationPage.getSelectedScenePlaylistBulkIds(page);
+                    var status = page && page.querySelector('#scenePlaylistBulkStatus');
+                    if (!ids.length) {
+                        Dashboard.alert("Select at least one saved playlist first.");
+                        return;
+                    }
+
+                    Dashboard.confirm(
+                        "Preview " + ids.length + " selected saved playlist" + (ids.length === 1 ? "" : "s") + (allTargets ? " on every enabled target" : " using each playlist's saved target") + "? Each playlist runs sequentially and restores light state before the next.",
+                        allTargets ? "Preview Selected Playlists on All Targets" : "Preview Selected Playlists",
+                        function (confirmed) {
+                            if (!confirmed) return;
+                            var button = page.querySelector(allTargets ? '#previewSelectedScenePlaylistsAllBtn' : '#previewSelectedScenePlaylistsBtn');
+                            if (button) button.disabled = true;
+                            if (status) {
+                                status.textContent = allTargets
+                                    ? "Saving each target's light state and previewing the selected playlists sequentially..."
+                                    : "Saving each playlist target's light state and previewing the selected playlists sequentially...";
+                                status.style.color = '';
+                            }
+                            page._huePreviewStatusElement = status;
+                            Dashboard.showLoadingMsg();
+                            var request = ApiClient.ajax({
+                                type: "POST",
+                                url: ApiClient.getUrl("HueSync/ScenePlaylists/BulkPreview"),
+                                data: JSON.stringify({ playlistIds: ids, targetAllEnabledMappings: allTargets ? true : null }),
+                                contentType: "application/json",
+                                dataType: "json"
+                            });
+                            page._huePreviewRequest = request;
+                            HueConfigurationPage.setPreviewBusy(page, true);
+                            request.then(function (response) {
+                                var message = response && (response.message || response.Message) || "Bulk scene playlist preview completed.";
+                                var results = response && (response.results || response.Results) || [];
+                                var details = results.map(function (result) {
+                                    if (!result) return null;
+                                    var name = result.playlistName || result.PlaylistName || "Playlist";
+                                    return name + ": " + (result.message || result.Message || ((result.succeeded !== undefined ? result.succeeded : result.Succeeded) ? "completed" : "failed"));
+                                }).filter(Boolean);
+                                if (status) {
+                                    status.textContent = message + (details.length ? " " + details.join(" | ") : "");
+                                    status.style.color = response && (response.canceled || response.Canceled)
+                                        ? "#f0ad4e"
+                                        : response && Number(response.failedCount !== undefined ? response.failedCount : response.FailedCount) > 0
+                                            ? "#d9534f"
+                                            : "#8bc34a";
+                                }
+                            }).catch(function (err) {
+                                console.error("Bulk scene playlist preview error:", err);
+                                if (status) {
+                                    status.textContent = allTargets
+                                        ? "Bulk playlist preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying."
+                                        : "Bulk playlist preview failed. Verify each saved playlist target in System Diagnostics and stop active playback before retrying.";
+                                    status.style.color = "#d9534f";
+                                }
+                            }).finally(function () {
+                                if (page._huePreviewRequest === request) {
+                                    page._huePreviewRequest = null;
+                                    page._huePreviewStatusElement = null;
+                                    HueConfigurationPage.setPreviewBusy(page, false);
+                                }
+                                Dashboard.hideLoadingMsg();
+                            });
+                        });
                 },
                 saveScenePlaylist: function (page) {
                     var name = page.querySelector('#scenePlaylistName').value.trim();
@@ -7642,6 +7810,14 @@
                 HueConfigurationPage.clearSelectedColorPresets(this.closest('.page'));
             });
 
+            document.querySelector('#previewSelectedPreviewPresetsBtn').addEventListener('click', function () {
+                HueConfigurationPage.previewColorPresetsBulk(this.closest('.page'), false);
+            });
+
+            document.querySelector('#previewSelectedPreviewPresetsAllBtn').addEventListener('click', function () {
+                HueConfigurationPage.previewColorPresetsBulk(this.closest('.page'), true);
+            });
+
             document.querySelector('#duplicateSelectedPreviewPresetsBtn').addEventListener('click', function () {
                 HueConfigurationPage.duplicateColorPresetsBulk(this.closest('.page'));
             });
@@ -7700,6 +7876,14 @@
 
             document.querySelector('#previewScenePlaylistAllBtn').addEventListener('click', function () {
                 HueConfigurationPage.previewScenePlaylist(this.closest('.page'), true);
+            });
+
+            document.querySelector('#previewSelectedScenePlaylistsBtn').addEventListener('click', function () {
+                HueConfigurationPage.previewScenePlaylistsBulk(this.closest('.page'), false);
+            });
+
+            document.querySelector('#previewSelectedScenePlaylistsAllBtn').addEventListener('click', function () {
+                HueConfigurationPage.previewScenePlaylistsBulk(this.closest('.page'), true);
             });
 
             document.querySelector('#addScenePlaylistStepBtn').addEventListener('click', function () {
