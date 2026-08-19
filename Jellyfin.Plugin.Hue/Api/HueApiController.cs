@@ -1683,6 +1683,123 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Creates independent copies of several reusable preview scenes in one atomic
+        /// administrator operation. Every source is resolved before capacity, validation,
+        /// or persistence is attempted, and the original scenes remain unchanged.
+        /// </summary>
+        [HttpPost("ColorPresets/BulkDuplicate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueColorPresetBulkDuplicateResult> DuplicateColorPresetsBulk(
+            [FromBody] HueColorPresetBulkDuplicateRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A saved-scene selection is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var presetNames = (request.PresetNames ?? new List<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (presetNames.Length == 0)
+                return BadRequest("Select at least one saved scene.");
+            if (presetNames.Length > PluginConfiguration.MaxColorPresets)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxColorPresets} saved scenes at once.");
+            }
+
+            config.ColorPresets ??= new List<HueColorPreset>();
+            var selectedPresets = presetNames
+                .Select(name => config.ColorPresets.FirstOrDefault(preset =>
+                    preset != null &&
+                    string.Equals(preset.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingNames = presetNames
+                .Where((_, index) => selectedPresets[index] == null)
+                .ToArray();
+            if (missingNames.Length > 0)
+            {
+                return NotFound(new HueColorPresetBulkDuplicateResult
+                {
+                    RequestedCount = presetNames.Length,
+                    MissingNames = missingNames,
+                    Message = $"The requested saved scene(s) were not found: {string.Join(", ", missingNames)}."
+                });
+            }
+
+            var availableCapacity = Math.Max(0, PluginConfiguration.MaxColorPresets - config.ColorPresets.Count);
+            if (presetNames.Length > availableCapacity)
+            {
+                return Conflict(new HueColorPresetBulkDuplicateResult
+                {
+                    RequestedCount = presetNames.Length,
+                    AvailableCapacity = availableCapacity,
+                    Message = $"Only {availableCapacity} saved-scene slot(s) remain; no copies were created."
+                });
+            }
+
+            var presets = selectedPresets.Cast<HueColorPreset>().ToArray();
+            var previousPresets = config.ColorPresets;
+            var candidatePresets = previousPresets
+                .Where(preset => preset != null)
+                .Select(CloneColorPreset)
+                .ToList();
+            var duplicates = new List<HueColorPreset>(presets.Length);
+            foreach (var source in presets)
+            {
+                var duplicate = CloneColorPreset(source);
+                duplicate.Name = BuildDuplicateColorPresetName(candidatePresets, source.Name);
+                candidatePresets.Add(duplicate);
+                duplicates.Add(duplicate);
+            }
+
+            config.ColorPresets = candidatePresets;
+            var validationErrors = config.ValidateColorPresets();
+            if (validationErrors.Count > 0)
+            {
+                config.ColorPresets = previousPresets;
+                return BadRequest(new HueColorPresetBulkDuplicateResult
+                {
+                    RequestedCount = presetNames.Length,
+                    ValidationErrors = validationErrors,
+                    Message = "The selected saved-scene copies are invalid; no scenes were created."
+                });
+            }
+
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ColorPresets = previousPresets;
+                _logger?.LogError(ex, "Could not persist bulk duplication of Hue color presets");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The selected saved-scene copies could not be saved; no changes were retained.");
+            }
+
+            return Ok(new HueColorPresetBulkDuplicateResult
+            {
+                RequestedCount = presetNames.Length,
+                DuplicatedCount = duplicates.Count,
+                RemainingCount = config.ColorPresets.Count,
+                AvailableCapacity = Math.Max(0, PluginConfiguration.MaxColorPresets - config.ColorPresets.Count),
+                Message = $"Created {duplicates.Count} independent saved-scene copy(ies) atomically.",
+                Presets = duplicates.Select(ToColorPresetResult).ToArray()
+            });
+        }
+
+        /// <summary>
         /// Deletes one reusable preview scene by name. A scene that is referenced by a
         /// saved playlist or scheduled cue is retained until those references are removed
         /// or changed, preventing an otherwise valid configuration from being broken.
@@ -2158,6 +2275,130 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             return Ok(ToScenePlaylistResult(duplicate, config));
+        }
+
+        /// <summary>
+        /// Creates independent copies of several saved-scene playlists in one atomic
+        /// administrator operation. Every source ID is resolved before capacity,
+        /// validation, or persistence is attempted, and scheduled-cue references to the
+        /// originals remain unchanged.
+        /// </summary>
+        [HttpPost("ScenePlaylists/BulkDuplicate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueScenePlaylistBulkDuplicateResult> DuplicateScenePlaylistsBulk(
+            [FromBody] HueScenePlaylistBulkDuplicateRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A playlist selection is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var playlistIds = (request.PlaylistIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (playlistIds.Length == 0)
+                return BadRequest("Select at least one saved playlist.");
+            if (playlistIds.Length > PluginConfiguration.MaxScenePlaylists)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxScenePlaylists} saved playlists at once.");
+            }
+
+            config.ScenePlaylists ??= new List<HueScenePlaylist>();
+            var selectedPlaylists = playlistIds
+                .Select(id => config.ScenePlaylists.FirstOrDefault(playlist =>
+                    playlist != null &&
+                    string.Equals(playlist.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingIds = playlistIds
+                .Where((_, index) => selectedPlaylists[index] == null)
+                .ToArray();
+            if (missingIds.Length > 0)
+            {
+                return NotFound(new HueScenePlaylistBulkDuplicateResult
+                {
+                    RequestedCount = playlistIds.Length,
+                    MissingIds = missingIds,
+                    Message = $"The requested scene playlist(s) were not found: {string.Join(", ", missingIds)}."
+                });
+            }
+
+            var availableCapacity = Math.Max(0, PluginConfiguration.MaxScenePlaylists - config.ScenePlaylists.Count);
+            if (playlistIds.Length > availableCapacity)
+            {
+                return Conflict(new HueScenePlaylistBulkDuplicateResult
+                {
+                    RequestedCount = playlistIds.Length,
+                    AvailableCapacity = availableCapacity,
+                    Message = $"Only {availableCapacity} playlist slot(s) remain; no copies were created."
+                });
+            }
+
+            var playlists = selectedPlaylists.Cast<HueScenePlaylist>().ToArray();
+            var previousPlaylists = config.ScenePlaylists;
+            var candidatePlaylists = previousPlaylists
+                .Where(playlist => playlist != null)
+                .Select(CloneScenePlaylist)
+                .ToList();
+            var duplicates = new List<HueScenePlaylist>(playlists.Length);
+            foreach (var source in playlists)
+            {
+                var duplicate = CloneScenePlaylist(source);
+                duplicate.Id = Guid.NewGuid().ToString("N");
+                duplicate.Name = BuildDuplicateScenePlaylistName(candidatePlaylists, source.Name);
+                candidatePlaylists.Add(duplicate);
+                duplicates.Add(duplicate);
+            }
+
+            var validationConfiguration = new PluginConfiguration
+            {
+                ColorPresets = config.ColorPresets ?? new List<HueColorPreset>(),
+                UserMappings = config.UserMappings ?? new List<UserBridgeMapping>(),
+                ScenePlaylists = candidatePlaylists
+            };
+            var validationErrors = validationConfiguration.ValidateScenePlaylists();
+            if (validationErrors.Count > 0)
+            {
+                return BadRequest(new HueScenePlaylistBulkDuplicateResult
+                {
+                    RequestedCount = playlistIds.Length,
+                    ValidationErrors = validationErrors,
+                    Message = "The selected playlist copies are invalid; no playlists were created."
+                });
+            }
+
+            config.ScenePlaylists = candidatePlaylists;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ScenePlaylists = previousPlaylists;
+                _logger?.LogError(ex, "Could not persist bulk duplication of Hue scene playlists");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The selected playlist copies could not be saved; no changes were retained.");
+            }
+
+            return Ok(new HueScenePlaylistBulkDuplicateResult
+            {
+                RequestedCount = playlistIds.Length,
+                DuplicatedCount = duplicates.Count,
+                RemainingCount = config.ScenePlaylists.Count,
+                AvailableCapacity = Math.Max(0, PluginConfiguration.MaxScenePlaylists - config.ScenePlaylists.Count),
+                Message = $"Created {duplicates.Count} independent playlist copy(ies) atomically.",
+                Playlists = duplicates.Select(playlist => ToScenePlaylistResult(playlist, config)).ToArray()
+            });
         }
 
         /// <summary>
@@ -6995,6 +7236,45 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
+    /// Request shape for atomically duplicating several saved scenes by normalized name.
+    /// </summary>
+    public sealed class HueColorPresetBulkDuplicateRequest
+    {
+        [JsonPropertyName("presetNames")]
+        public List<string> PresetNames { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic saved-scene duplication operation.
+    /// </summary>
+    public sealed class HueColorPresetBulkDuplicateResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("duplicatedCount")]
+        public int DuplicatedCount { get; set; }
+
+        [JsonPropertyName("remainingCount")]
+        public int RemainingCount { get; set; }
+
+        [JsonPropertyName("availableCapacity")]
+        public int AvailableCapacity { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("presets")]
+        public IReadOnlyList<HueColorPresetResult> Presets { get; set; } = Array.Empty<HueColorPresetResult>();
+
+        [JsonPropertyName("missingNames")]
+        public IReadOnlyList<string> MissingNames { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("validationErrors")]
+        public IReadOnlyList<string> ValidationErrors { get; set; } = Array.Empty<string>();
+    }
+
+    /// <summary>
     /// Request shape for atomically deleting several saved scenes by normalized name.
     /// </summary>
     public sealed class HueColorPresetBulkDeleteRequest
@@ -7144,6 +7424,45 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("scheduledCues")]
         public IReadOnlyList<HueScenePlaylistScheduleDependencyResult> ScheduledCues { get; init; } =
             Array.Empty<HueScenePlaylistScheduleDependencyResult>();
+    }
+
+    /// <summary>
+    /// Request shape for atomically duplicating several saved-scene playlists by stable ID.
+    /// </summary>
+    public sealed class HueScenePlaylistBulkDuplicateRequest
+    {
+        [JsonPropertyName("playlistIds")]
+        public List<string> PlaylistIds { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic saved-scene playlist duplication operation.
+    /// </summary>
+    public sealed class HueScenePlaylistBulkDuplicateResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("duplicatedCount")]
+        public int DuplicatedCount { get; set; }
+
+        [JsonPropertyName("remainingCount")]
+        public int RemainingCount { get; set; }
+
+        [JsonPropertyName("availableCapacity")]
+        public int AvailableCapacity { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("playlists")]
+        public IReadOnlyList<HueScenePlaylistResult> Playlists { get; set; } = Array.Empty<HueScenePlaylistResult>();
+
+        [JsonPropertyName("missingIds")]
+        public IReadOnlyList<string> MissingIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("validationErrors")]
+        public IReadOnlyList<string> ValidationErrors { get; set; } = Array.Empty<string>();
     }
 
     /// <summary>

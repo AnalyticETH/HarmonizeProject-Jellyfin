@@ -1683,6 +1683,132 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ScenePlaylists_BulkDuplicateCreatesFreshIndependentCopiesAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueAppKey = "bulk-duplicate-playlist-app-secret",
+            HueClientKey = "bulk-duplicate-playlist-client-secret",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", DurationSeconds = 2 },
+                new() { Name = "Cool", DurationSeconds = 3 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-one", Name = "Evening", PresetNames = new List<string> { "Warm", "Cool" }, RepeatCount = 2 },
+                new() { Id = "playlist-two", Name = "Morning", PresetNames = new List<string> { "Cool" }, TargetAllEnabledMappings = true },
+                new() { Id = "playlist-keep", Name = "Keep", PresetNames = new List<string> { "Warm" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "playlist-copy-cue", Name = "Original playlist cue", PlaylistName = "Evening" }
+            }
+        });
+
+        var action = CreateController().DuplicateScenePlaylistsBulk(new HueScenePlaylistBulkDuplicateRequest
+        {
+            PlaylistIds = new List<string> { " playlist-one ", "PLAYLIST-TWO", "playlist-one" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueScenePlaylistBulkDuplicateResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.DuplicatedCount);
+        Assert.Equal(5, result.RemainingCount);
+        Assert.Equal(new[] { "Evening (Copy)", "Morning (Copy)" }, result.Playlists.Select(playlist => playlist.Name));
+        Assert.All(result.Playlists, playlist => Assert.NotEqual("", playlist.Id));
+        Assert.Equal(2, result.Playlists[0].RepeatCount);
+        Assert.True(result.Playlists[1].TargetAllEnabledMappings);
+        Assert.Equal(new[] { "Evening", "Morning", "Keep", "Evening (Copy)", "Morning (Copy)" },
+            configuration.ScenePlaylists.Select(playlist => playlist.Name));
+        Assert.Equal(2, configuration.ScenePlaylists[3].PresetNames.Count);
+        Assert.Single(configuration.ScenePlaylists[4].PresetNames);
+        Assert.Equal("Evening", Assert.Single(configuration.SceneSchedules).PlaylistName);
+        Assert.Equal(5, configuration.ScenePlaylists.Select(playlist => playlist.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("bulk-duplicate-playlist-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-duplicate-playlist-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ScenePlaylists_BulkDuplicateRefusesMissingIdsAndCapacityAtomically()
+    {
+        var missingConfiguration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Warm" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-existing", Name = "Existing", PresetNames = new List<string> { "Warm" } }
+            }
+        });
+        var controller = CreateController();
+
+        var missing = controller.DuplicateScenePlaylistsBulk(new HueScenePlaylistBulkDuplicateRequest
+        {
+            PlaylistIds = new List<string> { "playlist-existing", "missing-playlist" }
+        });
+
+        var missingResponse = Assert.IsType<NotFoundObjectResult>(missing.Result);
+        var missingResult = Assert.IsType<HueScenePlaylistBulkDuplicateResult>(missingResponse.Value);
+        Assert.Equal(2, missingResult.RequestedCount);
+        Assert.Equal(new[] { "missing-playlist" }, missingResult.MissingIds);
+        Assert.Single(missingConfiguration.ScenePlaylists);
+
+        var capacityConfiguration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Warm" } },
+            ScenePlaylists = Enumerable.Range(0, PluginConfiguration.MaxScenePlaylists - 1)
+                .Select(index => new HueScenePlaylist
+                {
+                    Id = $"playlist-{index}",
+                    Name = $"Playlist {index}",
+                    PresetNames = new List<string> { "Warm" }
+                })
+                .ToList()
+        });
+        var capacity = CreateController().DuplicateScenePlaylistsBulk(new HueScenePlaylistBulkDuplicateRequest
+        {
+            PlaylistIds = new List<string> { "playlist-0", "playlist-1" }
+        });
+
+        var capacityResponse = Assert.IsType<ConflictObjectResult>(capacity.Result);
+        var capacityResult = Assert.IsType<HueScenePlaylistBulkDuplicateResult>(capacityResponse.Value);
+        Assert.Equal(2, capacityResult.RequestedCount);
+        Assert.Equal(1, capacityResult.AvailableCapacity);
+        Assert.Equal(PluginConfiguration.MaxScenePlaylists - 1, capacityConfiguration.ScenePlaylists.Count);
+    }
+
+    [Fact]
+    public void ScenePlaylists_BulkDuplicatePersistenceFailureRestoresCollection()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("bulk playlist duplication failed"));
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Warm" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-source", Name = "Source", PresetNames = new List<string> { "Warm" } },
+                new() { Id = "playlist-keep", Name = "Keep", PresetNames = new List<string> { "Warm" } }
+            }
+        }, serializer.Object);
+        var previousPlaylists = configuration.ScenePlaylists;
+
+        var action = CreateController().DuplicateScenePlaylistsBulk(new HueScenePlaylistBulkDuplicateRequest
+        {
+            PlaylistIds = new List<string> { "playlist-source" }
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Same(previousPlaylists, configuration.ScenePlaylists);
+        Assert.Equal(new[] { "Source", "Keep" }, configuration.ScenePlaylists.Select(playlist => playlist.Name));
+    }
+
+    [Fact]
     public async Task ScenePlaylists_AllTargetsAggregatesEachStepAndNeverLeaksMappingCredentials()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -2194,6 +2320,118 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<ConflictObjectResult>(full.Result);
         Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
         Assert.Equal(PluginConfiguration.MaxColorPresets, fullConfiguration.ColorPresets.Count);
+    }
+
+    [Fact]
+    public void ColorPresets_BulkDuplicateCreatesIndependentCopiesAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueAppKey = "bulk-duplicate-scene-app-secret",
+            HueClientKey = "bulk-duplicate-scene-client-secret",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Effect = PluginConfiguration.ColorPresetEffectPulse, EffectSpeedPercent = 175, DurationSeconds = 8 },
+                new() { Name = "Cool", Effect = PluginConfiguration.ColorPresetEffectRainbow, Red = 10, Green = 20, Blue = 30 },
+                new() { Name = "Keep" }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "scene-copy-playlist", Name = "Original playlist", PresetNames = new List<string> { "Warm" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "scene-copy-cue", Name = "Original cue", PresetName = "Cool" }
+            }
+        });
+
+        var action = CreateController().DuplicateColorPresetsBulk(new HueColorPresetBulkDuplicateRequest
+        {
+            PresetNames = new List<string> { " warm ", "COOL", "Warm" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueColorPresetBulkDuplicateResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.DuplicatedCount);
+        Assert.Equal(5, result.RemainingCount);
+        Assert.Equal(2, result.Presets.Count);
+        Assert.Equal(new[] { "Warm (Copy)", "Cool (Copy)" }, result.Presets.Select(preset => preset.Name));
+        Assert.Equal(PluginConfiguration.ColorPresetEffectPulse, result.Presets[0].Effect);
+        Assert.Equal(175, result.Presets[0].EffectSpeedPercent);
+        Assert.Equal(new[] { "Warm", "Cool", "Keep", "Warm (Copy)", "Cool (Copy)" },
+            configuration.ColorPresets.Select(preset => preset.Name));
+        Assert.Equal("Warm", Assert.Single(configuration.ScenePlaylists).PresetNames.Single());
+        Assert.Equal("Cool", Assert.Single(configuration.SceneSchedules).PresetName);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("bulk-duplicate-scene-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("bulk-duplicate-scene-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ColorPresets_BulkDuplicateRefusesMissingNamesAndCapacityAtomically()
+    {
+        var missingConfiguration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Existing" } }
+        });
+        var controller = CreateController();
+
+        var missing = controller.DuplicateColorPresetsBulk(new HueColorPresetBulkDuplicateRequest
+        {
+            PresetNames = new List<string> { "Existing", "Missing" }
+        });
+
+        var missingResponse = Assert.IsType<NotFoundObjectResult>(missing.Result);
+        var missingResult = Assert.IsType<HueColorPresetBulkDuplicateResult>(missingResponse.Value);
+        Assert.Equal(2, missingResult.RequestedCount);
+        Assert.Equal(new[] { "Missing" }, missingResult.MissingNames);
+        Assert.Single(missingConfiguration.ColorPresets);
+
+        var capacityConfiguration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = Enumerable.Range(0, PluginConfiguration.MaxColorPresets - 1)
+                .Select(index => new HueColorPreset { Name = $"Scene {index}" })
+                .ToList()
+        });
+        var capacity = CreateController().DuplicateColorPresetsBulk(new HueColorPresetBulkDuplicateRequest
+        {
+            PresetNames = new List<string> { "Scene 0", "Scene 1" }
+        });
+
+        var capacityResponse = Assert.IsType<ConflictObjectResult>(capacity.Result);
+        var capacityResult = Assert.IsType<HueColorPresetBulkDuplicateResult>(capacityResponse.Value);
+        Assert.Equal(2, capacityResult.RequestedCount);
+        Assert.Equal(1, capacityResult.AvailableCapacity);
+        Assert.Equal(PluginConfiguration.MaxColorPresets - 1, capacityConfiguration.ColorPresets.Count);
+    }
+
+    [Fact]
+    public void ColorPresets_BulkDuplicatePersistenceFailureRestoresCollection()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("bulk scene duplication failed"));
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Copy source" },
+                new() { Name = "Keep" }
+            }
+        }, serializer.Object);
+        var previousPresets = configuration.ColorPresets;
+
+        var action = CreateController().DuplicateColorPresetsBulk(new HueColorPresetBulkDuplicateRequest
+        {
+            PresetNames = new List<string> { "copy source" }
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Same(previousPresets, configuration.ColorPresets);
+        Assert.Equal(new[] { "Copy source", "Keep" }, configuration.ColorPresets.Select(preset => preset.Name));
     }
 
     [Fact]
