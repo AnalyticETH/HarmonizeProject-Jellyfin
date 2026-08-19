@@ -400,7 +400,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.151 (Current)
+### Version 1.5.152 (Current)
+- **Service-level target override normalization**: empty or whitespace-only target lists preserve each playlist's saved target mode across direct service execution and API calls
+- **Credential-safe playlist parity**: direct playlist previews normalize, trim, and deduplicate target IDs just like the administrator endpoints
+- **Regression coverage**: verify empty service overrides preserve target telemetry and never expose persisted bridge credentials
+
+### Version 1.5.151
 - **Empty target override normalization**: empty target ID arrays no longer turn explicit all-target playlist previews into an invalid selected-target request; saved targets remain unchanged when no target is selected
 - **Playlist preview parity**: individual and bulk playlist endpoints now normalize target-selection metadata consistently before server-side validation and execution
 - **Regression coverage**: verify empty target selections still fan out to every enabled target without exposing persisted bridge credentials

@@ -1533,9 +1533,14 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (presets.Any(preset => preset == null))
             return PlaylistFailure(playlist, "The scene playlist references a saved scene that no longer exists.");
 
-        var hasTargetOverride = targetUserIdsOverride != null || includeDefaultTargetOverride;
+        var normalizedTargetUserIdsOverride = targetUserIdsOverride?
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var hasTargetOverride = includeDefaultTargetOverride || (normalizedTargetUserIdsOverride?.Count > 0);
         var effectiveTargetUserIds = hasTargetOverride
-            ? targetUserIdsOverride?.Select(value => value?.Trim() ?? string.Empty).ToList() ?? new List<string>()
+            ? normalizedTargetUserIdsOverride ?? new List<string>()
             : (playlist.TargetUserIds ?? new List<string>())
                 .Select(value => value?.Trim() ?? string.Empty)
                 .ToList();

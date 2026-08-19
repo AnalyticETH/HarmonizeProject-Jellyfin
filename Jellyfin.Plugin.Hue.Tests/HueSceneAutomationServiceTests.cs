@@ -866,7 +866,10 @@ public sealed class HueSceneAutomationServiceTests
             new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
             Mock.Of<ILogger<HueSceneAutomationService>>());
 
-        var result = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+        var result = await service.RunPlaylistPreviewAsync(
+            configuration.ScenePlaylists[0],
+            CancellationToken.None,
+            Array.Empty<string>());
 
         Assert.True(result.Succeeded);
         Assert.Equal("playlist-1", result.PlaylistId);

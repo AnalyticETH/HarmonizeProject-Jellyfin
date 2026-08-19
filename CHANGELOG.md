@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.152] - 2026-08-19
+
+### Fixed
+- **Service-level target override normalization**: saved-playlist execution now treats empty or whitespace-only target override lists as omitted, preserving the playlist's persisted target mode for every caller
+- **Credential-safe playlist parity**: normalize, trim, and deduplicate direct service overrides consistently with the individual and bulk API endpoints
+- **Regression coverage**: verify an empty service override preserves saved playlist target telemetry and execution
+
 ## [1.5.151] - 2026-08-19
 
 ### Fixed
