@@ -102,8 +102,8 @@ public class PluginConfigurationTests
             EffectSpeedPercent = PluginConfiguration.MaxColorPresetEffectSpeedPercent + 1
         });
 
-        Assert.Contains("effect speed must be between 25 and 400 percent", tooSlow);
-        Assert.Contains("effect speed must be between 25 and 400 percent", tooFast);
+        Assert.Contains("Color preset effect speed must be between 25 and 400 percent", tooSlow);
+        Assert.Contains("Color preset effect speed must be between 25 and 400 percent", tooFast);
     }
 
     [Fact]
