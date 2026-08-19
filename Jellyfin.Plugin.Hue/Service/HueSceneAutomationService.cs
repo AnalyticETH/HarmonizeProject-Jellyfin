@@ -767,7 +767,9 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// scheduler serializes restorative bridge lifecycles, so any overlap can delay the
     /// later cue even when the cues target different mappings. The calculation reuses the
     /// same time-zone, DST, recurrence, exclusion, skip, and finite-run rules as the
-    /// occurrence preview and never contacts a bridge.
+    /// occurrence preview and never contacts a bridge. When a schedule ID is supplied,
+    /// the result contains only conflicts involving that cue while retaining the other
+    /// cue in each pair for actionable context.
     /// </summary>
     internal static IReadOnlyList<HueSceneScheduleConflict> GetUpcomingConflicts(
         PluginConfiguration? config,
@@ -785,9 +787,16 @@ public sealed class HueSceneAutomationService : BackgroundService
         var windows = new List<HueSceneScheduleConflictWindow>();
         var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
             .Where(schedule => schedule != null && schedule.Enabled)
-            .Where(schedule => string.IsNullOrWhiteSpace(normalizedScheduleId) ||
-                               string.Equals(schedule.Id?.Trim(), normalizedScheduleId, StringComparison.OrdinalIgnoreCase))
             .ToArray();
+
+        if (!string.IsNullOrWhiteSpace(normalizedScheduleId) &&
+            !schedules.Any(schedule => string.Equals(
+                schedule.Id?.Trim(),
+                normalizedScheduleId,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return Array.Empty<HueSceneScheduleConflict>();
+        }
 
         foreach (var schedule in schedules)
         {
@@ -844,6 +853,19 @@ public sealed class HueSceneAutomationService : BackgroundService
                         right.Occurrence.ScheduleId,
                         StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrWhiteSpace(left.Occurrence.ScheduleId))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(normalizedScheduleId) &&
+                    !string.Equals(
+                        left.Occurrence.ScheduleId,
+                        normalizedScheduleId,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(
+                        right.Occurrence.ScheduleId,
+                        normalizedScheduleId,
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }

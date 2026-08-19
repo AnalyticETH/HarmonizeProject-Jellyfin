@@ -3417,6 +3417,18 @@ public sealed class HueApiControllerTests : IDisposable
         var serialized = System.Text.Json.JsonSerializer.Serialize(result);
         Assert.DoesNotContain("conflict-api-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("conflict-api-client-secret", serialized, StringComparison.Ordinal);
+
+        var filteredAction = CreateController().GetSceneScheduleConflicts(
+            limit: 7,
+            days: 9,
+            scheduleId: "api-short-cue");
+        var filteredResponse = Assert.IsType<OkObjectResult>(filteredAction.Result);
+        var filteredResult = Assert.IsType<HueSceneScheduleConflictsResult>(filteredResponse.Value);
+        Assert.Equal("api-short-cue", filteredResult.ScheduleIdFilter);
+        var filteredConflict = Assert.Single(filteredResult.Conflicts);
+        Assert.Contains(
+            new[] { filteredConflict.FirstScheduleId, filteredConflict.SecondScheduleId },
+            scheduleId => string.Equals(scheduleId, "api-short-cue", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

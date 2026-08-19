@@ -554,6 +554,10 @@
                         <div id="sceneScheduleRuntimeStatus" style="margin-top: 0.5em; overflow-x: auto;"></div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleConflictsBtn"><span>Check Schedule Conflicts</span></button>
+                            <label class="inputLabel inputLabelUnfocused" for="sceneScheduleConflictFilter" style="margin: 0;">Focus cue</label>
+                            <select id="sceneScheduleConflictFilter" is="emby-select" style="min-width: 220px;">
+                                <option value="">All enabled cues</option>
+                            </select>
                             <div id="sceneScheduleConflictsSummary" class="fieldDescription">Loading schedule conflict diagnostics...</div>
                         </div>
                         <div id="sceneScheduleConflicts" style="margin-top: 0.5em; overflow-x: auto;"></div>
@@ -2835,6 +2839,26 @@
                             scheduleSelect.appendChild(option);
                         });
 
+                        var conflictFilter = page.querySelector('#sceneScheduleConflictFilter');
+                        var previousConflictFilter = conflictFilter ? conflictFilter.value : '';
+                        if (conflictFilter) {
+                            conflictFilter.innerHTML = '<option value="">All enabled cues</option>';
+                            schedules.forEach(function (schedule) {
+                                var id = schedule && (schedule.id !== undefined ? schedule.id : schedule.Id);
+                                var name = schedule && (schedule.name !== undefined ? schedule.name : schedule.Name);
+                                var enabled = schedule && (schedule.enabled !== undefined ? schedule.enabled : schedule.Enabled);
+                                if (!id || !name || enabled === false) return;
+                                var option = document.createElement('option');
+                                option.value = id;
+                                option.textContent = name;
+                                conflictFilter.appendChild(option);
+                            });
+                            conflictFilter.value = previousConflictFilter;
+                            if (conflictFilter.value !== previousConflictFilter) {
+                                conflictFilter.value = '';
+                            }
+                        }
+
                         if (selectedId) scheduleSelect.value = selectedId;
                         if (scheduleSelect.value) {
                             HueConfigurationPage.applySceneSchedule(page, scheduleSelect.value);
@@ -3078,17 +3102,28 @@
                         summary.style.color = "";
                     }
 
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/Conflicts?limit=50&days=31")).then(function (response) {
+                    var conflictFilter = page.querySelector('#sceneScheduleConflictFilter');
+                    var selectedScheduleId = conflictFilter ? String(conflictFilter.value || '').trim() : '';
+                    var conflictsUrl = "HueSync/SceneSchedules/Conflicts?limit=50&days=31";
+                    if (selectedScheduleId) {
+                        conflictsUrl += "&scheduleId=" + encodeURIComponent(selectedScheduleId);
+                    }
+                    var selectedScheduleLabel = conflictFilter && conflictFilter.selectedIndex > 0
+                        ? conflictFilter.options[conflictFilter.selectedIndex].textContent
+                        : '';
+
+                    return ApiClient.getJSON(ApiClient.getUrl(conflictsUrl)).then(function (response) {
                         var conflicts = HueConfigurationPage.readStatusField(response, "Conflicts", []);
                         conflicts = Array.isArray(conflicts) ? conflicts : [];
                         var horizonDays = Number(HueConfigurationPage.readStatusField(response, "HorizonDays", 31) || 31);
                         var generatedAt = HueConfigurationPage.readStatusField(response, "GeneratedAtUtc", null);
                         var generatedText = generatedAt ? new Date(generatedAt).toLocaleTimeString() : "";
+                        var scopeText = selectedScheduleLabel ? " involving " + selectedScheduleLabel : "";
                         if (summary) {
                             summary.textContent = conflicts.length
                                 ? conflicts.length + " potential overlap" + (conflicts.length === 1 ? "" : "s") +
-                                    " in the next " + String(horizonDays) + " days · updated " + generatedText
-                                : "No enabled cue execution windows overlap in the next " + String(horizonDays) + " days · updated " + generatedText;
+                                    scopeText + " in the next " + String(horizonDays) + " days · updated " + generatedText
+                                : "No enabled cue execution windows overlap" + scopeText + " in the next " + String(horizonDays) + " days · updated " + generatedText;
                             summary.style.color = conflicts.length ? "#f0ad4e" : "#8bc34a";
                         }
                         if (!container) return;
@@ -6410,6 +6445,14 @@
 
             document.querySelector('#refreshSceneScheduleStatusBtn').addEventListener('click', function () {
                 HueConfigurationPage.loadSceneScheduleRuntimeStatus(this.closest('.page'));
+            });
+
+            document.querySelector('#refreshSceneScheduleConflictsBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadSceneScheduleConflicts(this.closest('.page'));
+            });
+
+            document.querySelector('#sceneScheduleConflictFilter').addEventListener('change', function () {
+                HueConfigurationPage.loadSceneScheduleConflicts(this.closest('.page'));
             });
 
             document.querySelector('#refreshSceneScheduleOccurrencesBtn').addEventListener('click', function () {

@@ -274,6 +274,25 @@ public sealed class HueSceneAutomationServiceTests
         var serialized = JsonSerializer.Serialize(conflicts);
         Assert.DoesNotContain("conflict-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("conflict-client-secret", serialized, StringComparison.Ordinal);
+
+        var filteredConflicts = HueSceneAutomationService.GetUpcomingConflicts(
+            configuration,
+            new DateTime(2026, 8, 18, 6, 0, 0, DateTimeKind.Utc),
+            maxConflicts: 10,
+            horizonDays: 1,
+            scheduleId: "short-cue");
+
+        var filteredConflict = Assert.Single(filteredConflicts);
+        Assert.Contains(
+            new[] { filteredConflict.FirstScheduleId, filteredConflict.SecondScheduleId },
+            scheduleId => string.Equals(scheduleId, "short-cue", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("Long cue", filteredConflict.FirstScheduleName + filteredConflict.SecondScheduleName, StringComparison.Ordinal);
+        Assert.Empty(HueSceneAutomationService.GetUpcomingConflicts(
+            configuration,
+            new DateTime(2026, 8, 18, 6, 0, 0, DateTimeKind.Utc),
+            maxConflicts: 10,
+            horizonDays: 1,
+            scheduleId: "missing-cue"));
     }
 
     [Fact]
