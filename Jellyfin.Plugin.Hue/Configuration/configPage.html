@@ -399,7 +399,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene or an ordered saved-scene playlist automatically at a chosen wall-clock time and time zone. Playlist cues run each saved scene in order for the playlist's repeat passes and keep every scene's own duration and effect; their pass count and total duration are shown in status, calendar, and history. The saved scene's effect and 25-400% animation speed are inherited by every single-scene cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) for the saved scene or playlist; a 1-30 second override is available only for single-scene cues. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, with per-target outcomes in run history. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene or an ordered saved-scene playlist automatically at a chosen wall-clock time and time zone. Playlist cues run each saved scene in order for the playlist's repeat passes and keep every scene's own duration and effect; their pass count and total duration are shown in status, calendar, and history. The saved scene's effect and 25-400% animation speed are inherited by every single-scene cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) for the saved scene or playlist; a 1-30 second override is available only for single-scene cues. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, or multi-select a deliberate subset of enabled mappings and optionally the default bridge; each selected target is validated and reported without exposing credentials. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -564,11 +564,12 @@
                                 <input id="sceneScheduleExcludedDates" type="text" maxlength="1200" is="emby-input" placeholder="2026-12-24, 2026-12-31" />
                             </div>
                             <div style="flex: 1 1 220px;">
-                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTarget">Target</label>
-                                <select id="sceneScheduleTarget" is="emby-select" style="width: 100%;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTarget">Targets</label>
+                                <select id="sceneScheduleTarget" is="emby-select" multiple size="5" style="width: 100%;">
                                     <option value="">Default bridge target</option>
                                     <option value="__all_enabled_targets__">All enabled targets</option>
                                 </select>
+                                <div class="fieldDescription">Choose one or more mappings for a selected-target cue. You may include the default bridge; All enabled targets is exclusive.</div>
                             </div>
                             <label style="display: flex; align-items: center; gap: 0.5em; padding-bottom: 0.45em;">
                                 <input is="emby-checkbox" type="checkbox" id="sceneScheduleEnabled" checked />
@@ -5052,9 +5053,34 @@
                         scheduleTimeZoneSelect.value = scheduleTimeZoneId;
                     }
                     var targetAllEnabledMappings = get('TargetAllEnabledMappings', 'targetAllEnabledMappings', false) === true;
-                    page.querySelector('#sceneScheduleTarget').value = targetAllEnabledMappings
-                        ? '__all_enabled_targets__'
-                        : get('TargetUserId', 'targetUserId', '');
+                    var targetSelect = page.querySelector('#sceneScheduleTarget');
+                    var selectedTargetUserIds = get('TargetUserIds', 'targetUserIds', []);
+                    selectedTargetUserIds = Array.isArray(selectedTargetUserIds) ? selectedTargetUserIds : [];
+                    var includeDefaultTarget = get('IncludeDefaultTarget', 'includeDefaultTarget', false) === true;
+                    if (targetSelect) {
+                        Array.prototype.forEach.call(targetSelect.options, function (option) { option.selected = false; });
+                        if (targetAllEnabledMappings) {
+                            var allOption = targetSelect.querySelector('option[value="__all_enabled_targets__"]');
+                            if (allOption) allOption.selected = true;
+                        } else if (selectedTargetUserIds.length || includeDefaultTarget) {
+                            if (includeDefaultTarget) {
+                                var defaultOption = targetSelect.querySelector('option[value=""]');
+                                if (defaultOption) defaultOption.selected = true;
+                            }
+                            selectedTargetUserIds.forEach(function (userId) {
+                                var option = Array.prototype.find.call(targetSelect.options, function (candidate) {
+                                    return candidate.value === String(userId || '');
+                                });
+                                if (option) option.selected = true;
+                            });
+                        } else {
+                            var legacyTargetId = get('TargetUserId', 'targetUserId', '');
+                            var legacyOption = Array.prototype.find.call(targetSelect.options, function (candidate) {
+                                return candidate.value === String(legacyTargetId || '');
+                            });
+                            if (legacyOption) legacyOption.selected = true;
+                        }
+                    }
                     page.querySelector('#sceneScheduleEnabled').checked = get('Enabled', 'enabled', true) !== false;
                     HueConfigurationPage.setSceneScheduleDaysMask(page, get('DaysOfWeekMask', 'daysOfWeekMask', 127));
                     HueConfigurationPage.updateSceneScheduleRecurrenceMode(page, false);
@@ -5084,7 +5110,10 @@
                     page.querySelector('#sceneScheduleStartDate').value = '';
                     page.querySelector('#sceneScheduleEndDate').value = '';
                     page.querySelector('#sceneScheduleExcludedDates').value = '';
-                    page.querySelector('#sceneScheduleTarget').value = '';
+                    var targetSelect = page.querySelector('#sceneScheduleTarget');
+                    if (targetSelect) {
+                        Array.prototype.forEach.call(targetSelect.options, function (option) { option.selected = option.value === ''; });
+                    }
                     page.querySelector('#sceneScheduleEnabled').checked = true;
                     HueConfigurationPage.setSceneScheduleDaysMask(page, 127);
                     HueConfigurationPage.updateSceneScheduleRecurrenceMode(page, false);
@@ -5192,8 +5221,23 @@
                         statusEl.textContent = "Saving scheduled cue...";
                         statusEl.style.color = "";
                     }
-                    var targetValue = page.querySelector('#sceneScheduleTarget').value || '';
-                    var targetAllEnabledMappings = targetValue === '__all_enabled_targets__';
+                    var targetSelect = page.querySelector('#sceneScheduleTarget');
+                    var selectedTargetValues = targetSelect
+                        ? Array.prototype.map.call(targetSelect.selectedOptions || [], function (option) { return option.value || ''; })
+                        : [];
+                    var targetAllEnabledMappings = selectedTargetValues.indexOf('__all_enabled_targets__') >= 0;
+                    if (targetAllEnabledMappings && selectedTargetValues.length > 1) {
+                        Dashboard.alert("All enabled targets cannot be combined with another target selection.");
+                        button.disabled = false;
+                        return;
+                    }
+                    var includeDefaultTarget = !targetAllEnabledMappings && selectedTargetValues.indexOf('') >= 0;
+                    var targetUserIds = selectedTargetValues.filter(function (value) {
+                        return value && value !== '__all_enabled_targets__';
+                    });
+                    var legacyTargetUserId = !targetAllEnabledMappings && !includeDefaultTarget && targetUserIds.length === 1
+                        ? targetUserIds[0]
+                        : '';
                     ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/SceneSchedules"),
@@ -5202,8 +5246,10 @@
                             name: name,
                             presetName: presetName,
                             playlistName: playlistName,
-                            targetUserId: targetAllEnabledMappings ? '' : targetValue,
+                            targetUserId: legacyTargetUserId,
                             targetAllEnabledMappings: targetAllEnabledMappings,
+                            targetUserIds: legacyTargetUserId ? [] : targetUserIds,
+                            includeDefaultTarget: includeDefaultTarget,
                             timeOfDay: timeOfDay,
                             durationSeconds: durationSeconds,
                             maxRuns: maxRuns,

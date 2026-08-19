@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.145] - 2026-08-19
+
+### Added
+- **Selected scheduled-cue targets**: choose a credential-free subset of enabled user mappings, optionally including the default bridge, for single-scene and playlist-backed cues
+- **Target-safe scheduling telemetry**: expose selected mapping IDs, default-target inclusion, labels, upcoming occurrences, runtime status, history, import/export, and per-target outcomes without returning credentials
+- **Atomic target validation and dependencies**: reject duplicate, missing, disabled, over-capacity, and mixed target modes before persistence; mapping disable/delete dependency checks now include selected-target references
+- **Administrator target editor**: multi-select default, enabled mappings, or a deliberate subset while keeping All enabled targets exclusive
+
 ## [1.5.144] - 2026-08-19
 
 ### Fixed

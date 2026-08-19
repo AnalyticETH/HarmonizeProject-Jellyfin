@@ -126,8 +126,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// as the cadence anchor. A cue can optionally override the saved scene's hold duration
     /// for this event only (single-scene cues; playlists retain each scene's saved duration)
     /// or stop after a bounded number of executions.
-    /// The target is resolved from the global bridge or a persisted user mapping when the cue
-    /// runs; credentials are never stored here.
+    /// The target is resolved from the global bridge, a persisted user mapping, or a bounded
+    /// selected mapping subset when the cue runs; credentials are never stored here.
     /// When multiple cues are due together, higher-priority cues run first. Equal priorities
     /// retain their saved configuration order.
     /// </summary>
@@ -147,6 +147,17 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int Priority { get; set; }
         public string TargetUserId { get; set; } = string.Empty;
+        /// <summary>
+        /// Optional explicit user-mapping targets for a selected-target cue. When populated,
+        /// the cue runs only on these enabled mappings, optionally including the global target
+        /// when <see cref="IncludeDefaultTarget"/> is true. This remains empty for legacy
+        /// default, single-mapping, and all-enabled target modes.
+        /// </summary>
+        public List<string> TargetUserIds { get; set; } = new List<string>();
+        /// <summary>
+        /// Includes the configured global bridge in an explicit selected-target cue.
+        /// </summary>
+        public bool IncludeDefaultTarget { get; set; }
         /// <summary>
         /// When true, the cue fans out sequentially to the global target and every enabled
         /// user mapping with a distinct bridge/area target. TargetUserId must remain blank.
@@ -290,6 +301,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public string? TargetLabel { get; set; }
+        public List<string> TargetUserIds { get; set; } = new List<string>();
+        public bool IncludeDefaultTarget { get; set; }
         public bool Succeeded { get; set; }
         public bool Skipped { get; set; }
         public bool WasCatchUp { get; set; }
@@ -399,6 +412,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int DefaultScenePlaylistRepeatCount = MinScenePlaylistRepeatCount;
         public const int MaxScenePlaylistNameLength = 64;
         public const int MaxSceneSchedules = 50;
+        public const int MaxSceneScheduleTargetMappings = 50;
         public const int MaxSceneScheduleNameLength = 64;
         public const int MinSceneSchedulePriority = 0;
         public const int MaxSceneSchedulePriority = 100;
@@ -1498,14 +1512,56 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 }
             }
 
-            if (!string.IsNullOrWhiteSpace(schedule.TargetUserId))
+            var targetUserId = schedule.TargetUserId?.Trim() ?? string.Empty;
+            var targetUserIds = schedule.TargetUserIds ?? new List<string>();
+            if (targetUserIds.Count > MaxSceneScheduleTargetMappings)
             {
-                if (schedule.TargetAllEnabledMappings)
-                    errors.Add($"{label} cannot select all enabled targets and a specific user mapping together");
+                errors.Add($"{label} may select no more than {MaxSceneScheduleTargetMappings} user mappings");
+            }
+
+            var seenTargetUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < targetUserIds.Count; index++)
+            {
+                var selectedUserId = targetUserIds[index]?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(selectedUserId))
+                {
+                    errors.Add($"{label} selected user mapping {index + 1} is required");
+                    continue;
+                }
+
+                if (!seenTargetUserIds.Add(selectedUserId))
+                {
+                    errors.Add($"{label} selects user mapping {selectedUserId} more than once");
+                    continue;
+                }
 
                 var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
                     candidate != null &&
-                    string.Equals(candidate.UserId?.Trim(), schedule.TargetUserId.Trim(), StringComparison.OrdinalIgnoreCase));
+                    string.Equals(candidate.UserId?.Trim(), selectedUserId, StringComparison.OrdinalIgnoreCase));
+                if (mapping == null)
+                    errors.Add($"{label} references a selected user mapping that does not exist: {selectedUserId}");
+                else if (!mapping.SyncEnabled)
+                    errors.Add($"{label} references a disabled selected user mapping: {selectedUserId}");
+            }
+
+            var hasSelectedTargets = schedule.IncludeDefaultTarget || targetUserIds.Count > 0;
+            if (schedule.TargetAllEnabledMappings && !string.IsNullOrWhiteSpace(targetUserId) && !hasSelectedTargets)
+            {
+                errors.Add($"{label} cannot select all enabled targets and a specific user mapping together");
+            }
+            else if (schedule.TargetAllEnabledMappings && hasSelectedTargets)
+            {
+                errors.Add($"{label} cannot combine all enabled targets with a specific or selected target");
+            }
+
+            if (!string.IsNullOrWhiteSpace(targetUserId) && hasSelectedTargets)
+                errors.Add($"{label} cannot combine a specific user mapping with selected targets");
+
+            if (!string.IsNullOrWhiteSpace(targetUserId))
+            {
+                var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
                 if (mapping == null)
                     errors.Add($"{label} references a user mapping that does not exist");
                 else if (!mapping.SyncEnabled)

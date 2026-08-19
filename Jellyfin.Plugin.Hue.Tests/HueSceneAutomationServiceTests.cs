@@ -2351,6 +2351,59 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TryResolveTargets_SelectedTargetsIncludeOnlyRequestedMappingsAndOptionalDefault()
+    {
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area"
+                },
+                new()
+                {
+                    UserId = "user-2",
+                    UserName = "Office",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "office-app-secret",
+                    HueClientKey = "office-client-secret",
+                    EntertainmentAreaId = "office-area"
+                }
+            }
+        };
+
+        var selected = new HueSceneSchedule
+        {
+            TargetUserIds = new List<string> { "user-1" }
+        };
+        Assert.True(HueSceneAutomationService.TryResolveTargets(config, selected, out var selectedTargets, out var selectedError));
+        Assert.Empty(selectedError);
+        Assert.Equal(new[] { "Kitchen" }, selectedTargets.Select(target => target.TargetLabel));
+
+        selected.IncludeDefaultTarget = true;
+        Assert.True(HueSceneAutomationService.TryResolveTargets(config, selected, out var mixedTargets, out var mixedError));
+        Assert.Empty(mixedError);
+        Assert.Equal(new[] { "Default bridge target", "Kitchen" }, mixedTargets.Select(target => target.TargetLabel));
+        Assert.DoesNotContain(mixedTargets, target => target.TargetLabel == "Office");
+
+        var serialized = JsonSerializer.Serialize(selected);
+        Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("office-app-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunSchedule_ResolvesPresetAndReturnsSanitizedResult()
     {
         InstallConfiguration(new PluginConfiguration

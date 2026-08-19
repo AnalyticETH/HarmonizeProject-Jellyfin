@@ -456,6 +456,50 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsSelectedTargetsAndRejectsInvalidCombinations()
+    {
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-key",
+            HueClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-1", UserName = "Kitchen", SyncEnabled = true },
+                new() { UserId = "user-2", UserName = "Disabled", SyncEnabled = false }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "selected",
+                    Name = "Selected cue",
+                    PresetName = "Evening",
+                    TargetUserIds = new List<string> { "user-1" },
+                    IncludeDefaultTarget = true
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+
+        config.SceneSchedules[0].TargetUserIds = new List<string> { "user-1", "user-1" };
+        var duplicateErrors = config.ValidateSceneSchedules();
+        Assert.Contains(duplicateErrors, error => error.Contains("selects user mapping user-1 more than once", StringComparison.Ordinal));
+
+        config.SceneSchedules[0].TargetUserIds = new List<string> { "user-2" };
+        var disabledErrors = config.ValidateSceneSchedules();
+        Assert.Contains(disabledErrors, error => error.Contains("references a disabled selected user mapping: user-2", StringComparison.Ordinal));
+
+        config.SceneSchedules[0].TargetUserIds = new List<string> { "user-1" };
+        config.SceneSchedules[0].TargetAllEnabledMappings = true;
+        var mixedErrors = config.ValidateSceneSchedules();
+        Assert.Contains(mixedErrors, error => error.Contains("cannot combine all enabled targets with a specific or selected target", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsPriorityOutsideBounds()
     {
         var config = new PluginConfiguration

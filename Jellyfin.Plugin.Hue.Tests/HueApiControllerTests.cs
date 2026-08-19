@@ -2954,6 +2954,64 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_SelectedTargetsRoundTripAndPreserveOnPartialUpdate()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "selected-app-secret",
+            HueClientKey = "selected-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area"
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var saved = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Selected welcome",
+            PresetName = "Welcome",
+            TargetUserIds = new List<string> { "user-1" },
+            IncludeDefaultTarget = true,
+            TimeOfDay = "08:00",
+            DaysOfWeekMask = 127
+        });
+
+        var savedResult = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(saved.Result).Value);
+        Assert.Equal(new[] { "user-1" }, savedResult.TargetUserIds);
+        Assert.True(savedResult.IncludeDefaultTarget);
+        Assert.Equal("Default bridge + 1 selected target(s)", savedResult.TargetLabel);
+        Assert.Equal(new[] { "user-1" }, configuration.SceneSchedules[0].TargetUserIds);
+
+        var updated = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = savedResult.Id,
+            Name = "Selected welcome updated",
+            PresetName = "Welcome",
+            TimeOfDay = "09:00",
+            DaysOfWeekMask = 127,
+            Enabled = false
+        });
+
+        var updatedResult = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(updated.Result).Value);
+        Assert.Equal(new[] { "user-1" }, updatedResult.TargetUserIds);
+        Assert.True(updatedResult.IncludeDefaultTarget);
+        Assert.Equal("Default bridge + 1 selected target(s)", updatedResult.TargetLabel);
+    }
+
+    [Fact]
     public void SceneSchedules_DuplicateCreatesDisabledFreshCueWithUniqueIdentity()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -5620,6 +5678,13 @@ public sealed class HueApiControllerTests : IDisposable
                 },
                 new()
                 {
+                    Id = "mapping-cue-selected",
+                    Name = "Selected mapping cue",
+                    TargetUserIds = new List<string> { " USER-1 " },
+                    Enabled = true
+                },
+                new()
+                {
                     Id = "other-mapping-cue",
                     Name = "Other mapping cue",
                     TargetUserId = "user-2",
@@ -5638,11 +5703,12 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(result.SyncEnabled);
         Assert.False(result.CanDisable);
         Assert.False(result.CanDelete);
-        Assert.Equal(2, result.ScheduledCueCount);
-        Assert.Equal(new[] { "Disabled mapping cue", "Enabled mapping cue" }, result.ScheduledCues.Select(cue => cue.Name));
+        Assert.Equal(3, result.ScheduledCueCount);
+        Assert.Equal(new[] { "Disabled mapping cue", "Enabled mapping cue", "Selected mapping cue" }, result.ScheduledCues.Select(cue => cue.Name));
         Assert.False(result.ScheduledCues[0].Enabled);
         Assert.True(result.ScheduledCues[1].Enabled);
-        Assert.Equal(new[] { "mapping-cue-disabled", "mapping-cue-enabled" }, result.ScheduledCues.Select(cue => cue.Id));
+        Assert.True(result.ScheduledCues[2].Enabled);
+        Assert.Equal(new[] { "mapping-cue-disabled", "mapping-cue-enabled", "mapping-cue-selected" }, result.ScheduledCues.Select(cue => cue.Id));
 
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("mapping-dependency-app-secret", serialized, StringComparison.Ordinal);
