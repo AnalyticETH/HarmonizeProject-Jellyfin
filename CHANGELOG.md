@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.126] - 2026-08-19
+
+### Added
+- **Configurable schedule report horizon**: let administrators inspect and export the next 7, 31, 90, or 366 days of occurrence and conflict telemetry instead of being limited to the default 31-day window
+- **Consistent report scope**: apply the selected horizon to the on-screen tables, occurrence/conflict JSON downloads, and iCalendar export while retaining server-side bounds
+
 ## [1.5.125] - 2026-08-19
 
 ### Added

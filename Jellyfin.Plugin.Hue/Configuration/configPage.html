@@ -558,6 +558,13 @@
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleConflictsBtn"><span>Check Schedule Conflicts</span></button>
                             <button is="emby-button" type="button" class="raised" id="exportSceneScheduleConflictsBtn"><span>Export Conflicts JSON</span></button>
+                            <label class="inputLabel inputLabelUnfocused" for="sceneScheduleReportHorizon" style="margin: 0;">Report horizon</label>
+                            <select id="sceneScheduleReportHorizon" is="emby-select" style="min-width: 150px;">
+                                <option value="7">Next 7 days</option>
+                                <option value="31" selected>Next 31 days</option>
+                                <option value="90">Next 90 days</option>
+                                <option value="366">Next 366 days</option>
+                            </select>
                             <label class="inputLabel inputLabelUnfocused" for="sceneScheduleConflictFilter" style="margin: 0;">Focus cue</label>
                             <select id="sceneScheduleConflictFilter" is="emby-select" style="min-width: 220px;">
                                 <option value="">All enabled cues</option>
@@ -3166,29 +3173,38 @@
                         HueConfigurationPage.loadSceneScheduleHistory(page);
                     });
                 },
+                getSceneScheduleReportHorizon: function (page) {
+                    var select = page && page.querySelector('#sceneScheduleReportHorizon');
+                    var value = select ? Number(select.value) : 31;
+                    return [7, 31, 90, 366].indexOf(value) >= 0 ? value : 31;
+                },
                 getSceneScheduleConflictQuery: function (page) {
                     var filter = page && page.querySelector('#sceneScheduleConflictFilter');
                     var selectedScheduleId = filter ? String(filter.value || '').trim() : '';
-                    var url = "HueSync/SceneSchedules/Conflicts?limit=50&days=31";
+                    var horizonDays = HueConfigurationPage.getSceneScheduleReportHorizon(page);
+                    var url = "HueSync/SceneSchedules/Conflicts?limit=50&days=" + String(horizonDays);
                     if (selectedScheduleId) {
                         url += "&scheduleId=" + encodeURIComponent(selectedScheduleId);
                     }
                     return {
                         url: url,
                         scheduleId: selectedScheduleId,
+                        horizonDays: horizonDays,
                         label: filter && filter.selectedIndex > 0 ? filter.options[filter.selectedIndex].textContent : ''
                     };
                 },
                 getSceneScheduleOccurrenceQuery: function (page) {
                     var filter = page && page.querySelector('#sceneScheduleOccurrenceFilter');
                     var selectedScheduleId = filter ? String(filter.value || '').trim() : '';
-                    var url = "HueSync/SceneSchedules/Occurrences?limit=50&days=31";
+                    var horizonDays = HueConfigurationPage.getSceneScheduleReportHorizon(page);
+                    var url = "HueSync/SceneSchedules/Occurrences?limit=50&days=" + String(horizonDays);
                     if (selectedScheduleId) {
                         url += "&scheduleId=" + encodeURIComponent(selectedScheduleId);
                     }
                     return {
                         url: url,
                         scheduleId: selectedScheduleId,
+                        horizonDays: horizonDays,
                         label: filter && filter.selectedIndex > 0 ? filter.options[filter.selectedIndex].textContent : ''
                     };
                 },
@@ -3317,7 +3333,7 @@
                     return ApiClient.getJSON(ApiClient.getUrl(scheduleQuery.url)).then(function (report) {
                         HueConfigurationPage.downloadJsonDocument(report, "jellyfin-hue-scene-schedule-conflicts.json");
                         if (summary) {
-                            summary.textContent = "Conflict report exported" + scopeText + ". Credential values were omitted.";
+                            summary.textContent = "Conflict report exported" + scopeText + " for the next " + String(scheduleQuery.horizonDays) + " days. Credential values were omitted.";
                             summary.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
@@ -3446,7 +3462,7 @@
                     return ApiClient.getJSON(ApiClient.getUrl(scheduleQuery.url)).then(function (report) {
                         HueConfigurationPage.downloadJsonDocument(report, "jellyfin-hue-scene-schedule-occurrences.json");
                         if (summary) {
-                            summary.textContent = "Occurrence report exported" + scopeText + ". Credential values were omitted.";
+                            summary.textContent = "Occurrence report exported" + scopeText + " for the next " + String(scheduleQuery.horizonDays) + " days. Credential values were omitted.";
                             summary.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
@@ -3467,7 +3483,7 @@
                     var summary = page.querySelector('#sceneScheduleOccurrencesSummary');
                     if (button) button.disabled = true;
                     var occurrenceQuery = HueConfigurationPage.getSceneScheduleOccurrenceQuery(page);
-                    var calendarUrl = "HueSync/SceneSchedules/Calendar?limit=50&days=31";
+                    var calendarUrl = "HueSync/SceneSchedules/Calendar?limit=50&days=" + String(occurrenceQuery.horizonDays);
                     if (occurrenceQuery.scheduleId) {
                         calendarUrl += "&scheduleId=" + encodeURIComponent(occurrenceQuery.scheduleId);
                     }
@@ -3488,7 +3504,7 @@
                         window.document.body.removeChild(link);
                         window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
                         if (summary) {
-                            summary.textContent = "Calendar exported" + scopeText + " for the next 31 days. Credentials and bridge details were omitted.";
+                            summary.textContent = "Calendar exported" + scopeText + " for the next " + String(occurrenceQuery.horizonDays) + " days. Credentials and bridge details were omitted.";
                             summary.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
@@ -6663,6 +6679,12 @@
 
             document.querySelector('#sceneScheduleConflictFilter').addEventListener('change', function () {
                 HueConfigurationPage.loadSceneScheduleConflicts(this.closest('.page'));
+            });
+
+            document.querySelector('#sceneScheduleReportHorizon').addEventListener('change', function () {
+                var page = this.closest('.page');
+                HueConfigurationPage.loadSceneScheduleConflicts(page);
+                HueConfigurationPage.loadSceneScheduleOccurrences(page);
             });
 
             document.querySelector('#refreshSceneScheduleOccurrencesBtn').addEventListener('click', function () {

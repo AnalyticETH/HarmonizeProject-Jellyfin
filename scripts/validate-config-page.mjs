@@ -20,6 +20,11 @@ const requiredMarkup = [
     'id="previewEffectSpeed"',
     'id="exportSceneScheduleConflictsBtn"',
     'id="exportSceneScheduleOccurrencesBtn"',
+    'id="sceneScheduleReportHorizon"',
+    'value="7">Next 7 days',
+    'value="31" selected>Next 31 days',
+    'value="90">Next 90 days',
+    'value="366">Next 366 days',
     'id="sceneScheduleOccurrenceFilter"',
     'id="sceneScheduleHistoryCueFilter"'
 ];
@@ -43,10 +48,13 @@ const requiredScript = [
     'effectSpeedPercent: values.effectSpeedPercent',
     "effect: values.effect",
     "populateSceneScheduleCueFilters: function",
+    "getSceneScheduleReportHorizon: function",
     "downloadJsonDocument: function",
     "exportSceneScheduleConflicts: function",
     "exportSceneScheduleOccurrences: function",
     "url += \"&scheduleId=\"",
+    "days=\" + String(horizonDays)",
+    "occurrenceQuery.horizonDays",
     "calendarUrl += \"&scheduleId=\"",
     "historyUrl += \"&scheduleId=\"",
     "exportUrl += \"&scheduleId=\""
