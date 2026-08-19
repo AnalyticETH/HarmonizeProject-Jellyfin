@@ -214,6 +214,120 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Enables or disables several cues as one persistence transaction. Every selected
+    /// cue is validated before any state changes are made, so an active cue or an
+    /// exhausted finite cue cannot leave a partially updated bulk operation behind.
+    /// </summary>
+    public bool TrySetSchedulesEnabled(
+        IEnumerable<string>? scheduleIds,
+        bool enabled,
+        out string message)
+    {
+        message = string.Empty;
+        var config = Plugin.Instance?.Configuration;
+        if (config == null)
+        {
+            message = "Plugin configuration is not available.";
+            return false;
+        }
+
+        var keys = (scheduleIds ?? Array.Empty<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (keys.Length == 0)
+        {
+            message = "Select at least one scene schedule.";
+            return false;
+        }
+
+        var configuredSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
+        var selectedSchedules = keys
+            .Select(key => configuredSchedules.FirstOrDefault(schedule =>
+                schedule != null &&
+                string.Equals(schedule.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        var missingKeys = keys
+            .Where((_, index) => selectedSchedules[index] == null)
+            .ToArray();
+        if (missingKeys.Length > 0)
+        {
+            message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
+            return false;
+        }
+
+        var schedules = selectedSchedules
+            .Where(schedule => schedule != null)
+            .Cast<HueSceneSchedule>()
+            .ToArray();
+        var previousEnabled = schedules.ToDictionary(
+            schedule => schedule.Id?.Trim() ?? string.Empty,
+            schedule => schedule.Enabled,
+            StringComparer.OrdinalIgnoreCase);
+
+        lock (_runtimeStateLock)
+        {
+            var blocked = new List<string>();
+            foreach (var schedule in schedules)
+            {
+                var key = schedule.Id?.Trim() ?? string.Empty;
+                if (_runtimeStates.TryGetValue(key, out var state) && state.ActiveRuns > 0)
+                {
+                    blocked.Add($"{schedule.Name}: it is currently running");
+                    continue;
+                }
+
+                var currentRunCount = _runtimeStates.TryGetValue(key, out state)
+                    ? state.RunCount
+                    : Math.Max(0, schedule.RunCount);
+                if (enabled && schedule.MaxRuns > 0 && currentRunCount >= schedule.MaxRuns)
+                {
+                    blocked.Add($"{schedule.Name}: it reached its execution limit; reset its run counter first");
+                }
+            }
+
+            if (blocked.Count > 0)
+            {
+                message = string.Join("; ", blocked) + ".";
+                return false;
+            }
+
+            foreach (var schedule in schedules)
+            {
+                schedule.Enabled = enabled;
+            }
+        }
+
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+            message = enabled
+                ? $"Enabled {schedules.Length} scheduled cue(s) without changing their schedules."
+                : $"Disabled {schedules.Length} scheduled cue(s) without changing their schedules.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lock (_runtimeStateLock)
+            {
+                foreach (var schedule in schedules)
+                {
+                    var key = schedule.Id?.Trim() ?? string.Empty;
+                    if (previousEnabled.TryGetValue(key, out var wasEnabled))
+                    {
+                        schedule.Enabled = wasEnabled;
+                    }
+                }
+            }
+
+            _logger.LogWarning(ex, "Could not persist bulk enabled state for Hue scene schedules");
+            message = "The selected scene schedules could not be saved; no changes were retained.";
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Marks or clears one upcoming automatic occurrence without changing the cue's
     /// recurrence definition. The next occurrence is consumed by the scheduler only;
     /// manual Run Now remains available. Active, exhausted, or otherwise idle cues are

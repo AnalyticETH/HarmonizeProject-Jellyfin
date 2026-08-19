@@ -1375,6 +1375,111 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void SetSchedulesEnabled_UpdatesSelectedCuesAtomically()
+    {
+        var configuration = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-one",
+                    Name = "Bulk one",
+                    PresetName = "Bulk scene",
+                    TimeOfDay = "06:45",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DurationSeconds = 9,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-two",
+                    Name = "Bulk two",
+                    PresetName = "Bulk scene",
+                    TimeOfDay = "07:15",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceWeekly,
+                    DurationSeconds = 12,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-three",
+                    Name = "Bulk three",
+                    PresetName = "Bulk scene",
+                    TimeOfDay = "08:15",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceYearly,
+                    DurationSeconds = 15,
+                    Enabled = false
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.True(service.TrySetSchedulesEnabled(
+            new[] { " bulk-one ", "bulk-two", "bulk-one" },
+            false,
+            out var message));
+        Assert.Contains("2", message, StringComparison.Ordinal);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.False(configuration.SceneSchedules[1].Enabled);
+        Assert.False(configuration.SceneSchedules[2].Enabled);
+        Assert.Equal("06:45", configuration.SceneSchedules[0].TimeOfDay);
+        Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceWeekly, configuration.SceneSchedules[1].Recurrence);
+        Assert.Equal(15, configuration.SceneSchedules[2].DurationSeconds);
+    }
+
+    [Fact]
+    public void SetSchedulesEnabled_RefusesEntireSelectionWhenOneCueIsExhausted()
+    {
+        var configuration = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk guarded scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-ready",
+                    Name = "Bulk ready",
+                    PresetName = "Bulk guarded scene",
+                    Enabled = false
+                },
+                new()
+                {
+                    Id = "bulk-exhausted",
+                    Name = "Bulk exhausted",
+                    PresetName = "Bulk guarded scene",
+                    MaxRuns = 2,
+                    RunCount = 2,
+                    Enabled = false
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.False(service.TrySetSchedulesEnabled(
+            new[] { "bulk-ready", "bulk-exhausted" },
+            true,
+            out var message));
+        Assert.Contains("Bulk exhausted", message, StringComparison.Ordinal);
+        Assert.Contains("reset", message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.False(configuration.SceneSchedules[1].Enabled);
+    }
+
+    [Fact]
     public void SetScheduleSkipNextOccurrence_ChangesOnlyPendingAutomaticOccurrence()
     {
         var configuration = new PluginConfiguration

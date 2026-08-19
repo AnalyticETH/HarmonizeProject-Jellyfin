@@ -2916,6 +2916,136 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Enables or disables several scene cues in one administrator operation. The
+        /// selected IDs are normalized and deduplicated, and the automation service
+        /// validates every cue before persisting any change so active or exhausted cues
+        /// cannot produce a partial bulk update.
+        /// </summary>
+        [HttpPost("SceneSchedules/BulkEnabled")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueSceneScheduleBulkEnabledResult> SetSceneSchedulesEnabledBulk(
+            [FromBody] HueSceneScheduleBulkEnabledRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A cue selection and enabled value are required.");
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var scheduleIds = (request.ScheduleIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (scheduleIds.Length == 0)
+                return BadRequest("Select at least one scheduled cue.");
+            if (scheduleIds.Length > PluginConfiguration.MaxSceneSchedules)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxSceneSchedules} scheduled cues at once.");
+            }
+
+            config.SceneSchedules ??= new List<HueSceneSchedule>();
+            var selectedSchedules = scheduleIds
+                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
+                    schedule != null &&
+                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            var missingIds = scheduleIds
+                .Where((_, index) => selectedSchedules[index] == null)
+                .ToArray();
+            if (missingIds.Length > 0)
+            {
+                return NotFound(new HueSceneScheduleBulkEnabledResult
+                {
+                    Enabled = request.Enabled,
+                    RequestedCount = scheduleIds.Length,
+                    Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
+                });
+            }
+
+            var schedules = selectedSchedules
+                .Where(schedule => schedule != null)
+                .Cast<HueSceneSchedule>()
+                .ToArray();
+            if (_sceneAutomationService != null)
+            {
+                if (!_sceneAutomationService.TrySetSchedulesEnabled(scheduleIds, request.Enabled, out var message))
+                {
+                    return Conflict(new HueSceneScheduleBulkEnabledResult
+                    {
+                        Enabled = request.Enabled,
+                        RequestedCount = schedules.Length,
+                        Message = message
+                    });
+                }
+            }
+            else
+            {
+                if (request.Enabled)
+                {
+                    var exhausted = schedules
+                        .Where(schedule => schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
+                        .Select(schedule => schedule.Name)
+                        .ToArray();
+                    if (exhausted.Length > 0)
+                    {
+                        return Conflict(new HueSceneScheduleBulkEnabledResult
+                        {
+                            Enabled = true,
+                            RequestedCount = schedules.Length,
+                            Message = $"The selected cue(s) reached their execution limit; reset their run counters first: {string.Join(", ", exhausted)}."
+                        });
+                    }
+                }
+
+                var previousEnabled = schedules.ToDictionary(
+                    schedule => schedule.Id?.Trim() ?? string.Empty,
+                    schedule => schedule.Enabled,
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var schedule in schedules)
+                {
+                    schedule.Enabled = request.Enabled;
+                }
+
+                try
+                {
+                    Plugin.Instance?.SaveConfiguration();
+                }
+                catch (Exception ex)
+                {
+                    foreach (var schedule in schedules)
+                    {
+                        var key = schedule.Id?.Trim() ?? string.Empty;
+                        if (previousEnabled.TryGetValue(key, out var wasEnabled))
+                            schedule.Enabled = wasEnabled;
+                    }
+
+                    _logger?.LogError(ex, "Could not persist bulk enabled state for Hue scene schedules");
+                    return StatusCode(
+                        StatusCodes.Status500InternalServerError,
+                        "The selected scene schedules could not be saved; no changes were retained.");
+                }
+            }
+
+            return Ok(new HueSceneScheduleBulkEnabledResult
+            {
+                Enabled = request.Enabled,
+                RequestedCount = schedules.Length,
+                UpdatedCount = schedules.Length,
+                Message = request.Enabled
+                    ? $"Enabled {schedules.Length} scheduled cue(s) without changing their schedules."
+                    : $"Disabled {schedules.Length} scheduled cue(s) without changing their schedules.",
+                Schedules = schedules.Select(schedule => ToSceneScheduleResult(schedule, config)).ToArray()
+            });
+        }
+
+        /// <summary>
         /// Skips the next eligible automatic occurrence of one scene cue without changing
         /// its recurrence definition. Manual Run Now remains available; one-time cues are
         /// disabled after their skipped occurrence.
@@ -5545,6 +5675,40 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonPropertyName("enabled")]
         public bool Enabled { get; set; }
+    }
+
+    /// <summary>
+    /// Request shape for changing only the enabled state of several scene cues. Schedule
+    /// definitions, counters, and bridge credentials are never accepted or changed.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkEnabledRequest
+    {
+        [JsonPropertyName("scheduleIds")]
+        public List<string> ScheduleIds { get; set; } = new();
+
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic bulk cue enabled-state operation.
+    /// </summary>
+    public sealed class HueSceneScheduleBulkEnabledResult
+    {
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; }
+
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("updatedCount")]
+        public int UpdatedCount { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("schedules")]
+        public IReadOnlyList<HueSceneScheduleResult> Schedules { get; set; } = Array.Empty<HueSceneScheduleResult>();
     }
 
     /// <summary>

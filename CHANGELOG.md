@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.130] - 2026-08-19
+
+### Added
+- **Atomic bulk cue administration**: select and enable or disable up to 50 scheduled cues in one operation without changing timing, targets, scenes, or finite-run counters
+- **All-or-nothing safety**: active cues, exhausted finite cues, missing IDs, and persistence failures leave the entire selected set unchanged
+- **Administrator multi-selection**: add select-all and clear-selection controls with credential-free status refresh after each bulk action
+
 ## [1.5.129] - 2026-08-19
 
 ### Added

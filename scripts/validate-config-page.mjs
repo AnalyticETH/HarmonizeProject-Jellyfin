@@ -30,7 +30,10 @@ const requiredMarkup = [
     'value="90">Next 90 days',
     'value="366">Next 366 days',
     'id="sceneScheduleOccurrenceFilter"',
-    'id="sceneScheduleHistoryCueFilter"'
+    'id="sceneScheduleHistoryCueFilter"',
+    'id="sceneScheduleBulkSelect"',
+    'id="enableSelectedSceneSchedulesBtn"',
+    'id="disableSelectedSceneSchedulesBtn"'
 ];
 
 for (const marker of requiredMarkup) {
@@ -69,7 +72,11 @@ const requiredScript = [
     "occurrenceQuery.horizonDays",
     "calendarUrl += \"&scheduleId=\"",
     "historyUrl += \"&scheduleId=\"",
-    "exportUrl += \"&scheduleId=\""
+    "exportUrl += \"&scheduleId=\"",
+    "setSceneSchedulesEnabledBulk: function",
+    "HueSync/SceneSchedules/BulkEnabled",
+    "getSelectedSceneScheduleBulkIds: function",
+    "updateSceneScheduleBulkButtons: function"
 ];
 
 for (const marker of requiredScript) {

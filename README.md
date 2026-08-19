@@ -183,6 +183,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `POST /HueSync/SceneSchedules/{id}/Cancel` | Request cancellation of an active manual Run Now cue. The response reports whether a run was found; cleanup still deactivates the area and restores captured light state. |
 | `POST /HueSync/SceneSchedules/{id}/ResetRunCount` | Reset a cue's persisted execution counter to zero and re-enable it. Active cues cannot be reset; retained history remains available as an audit trail, and direct persistence failures restore the prior counter/state. |
 | `POST /HueSync/SceneSchedules/{id}/Enabled` | Enable or disable one cue without changing its schedule definition. Active cues cannot be changed, and an exhausted finite cue must be reset before it can be enabled; the response remains credential-free. |
+| `POST /HueSync/SceneSchedules/BulkEnabled` | Atomically enable or disable up to 50 selected cue IDs with `{ "scheduleIds": ["..."], "enabled": true|false }`. Every ID is normalized and validated before persistence; active cues, exhausted finite cues, unknown IDs, and save failures leave the entire selection unchanged. The response includes updated credential-free cue summaries and counts. |
 | `POST /HueSync/SceneSchedules/{id}/SkipNext` | Mark exactly one upcoming automatic occurrence to be skipped without changing recurrence, limits, or the saved scene. Active, disabled, exhausted, or futureless cues are rejected; manual Run Now remains available. |
 | `DELETE /HueSync/SceneSchedules/{id}/SkipNext` | Clear a pending skip so the next eligible automatic occurrence runs normally. |
 | `GET /HueSync/SceneSchedules/TimeZones` | List the Jellyfin host's available system time zones for schedule selection, including stable IDs, display names, and base UTC offsets. |
@@ -380,7 +381,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.129 (Current)
+### Version 1.5.130 (Current)
+- **Atomic bulk scheduled-cue administration**: select up to 50 cues and enable or disable them together without changing their timing, target, scene, or execution counters
+- **All-or-nothing safeguards**: active cues, exhausted finite cues, missing IDs, and persistence failures leave the complete selected set unchanged
+- **Administrator selection workflow**: add select-all, clear-selection, and post-action credential-free status refresh controls
+
+### Version 1.5.129
 - **Per-user playback media scope**: inherit the global scope or override it per user mapping for all video, movies, TV episodes, or other video while retaining safe cleanup for active sessions
 - **Effective status and portability**: expose the active effective scope and carry credential-free overrides through mapping summaries and backup/restore
 

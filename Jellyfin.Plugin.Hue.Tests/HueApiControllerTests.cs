@@ -2861,6 +2861,114 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_BulkEnabledActionUpdatesSelectedCuesAtomically()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk API scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-api-one",
+                    Name = "Bulk API one",
+                    PresetName = "Bulk API scene",
+                    TimeOfDay = "06:30",
+                    DurationSeconds = 7,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-api-two",
+                    Name = "Bulk API two",
+                    PresetName = "Bulk API scene",
+                    TimeOfDay = "07:30",
+                    DurationSeconds = 11,
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "bulk-api-untouched",
+                    Name = "Bulk API untouched",
+                    PresetName = "Bulk API scene",
+                    TimeOfDay = "08:30",
+                    Enabled = true
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.SetSceneSchedulesEnabledBulk(new HueSceneScheduleBulkEnabledRequest
+        {
+            ScheduleIds = new List<string> { " bulk-api-one ", "bulk-api-two", "bulk-api-one" },
+            Enabled = false
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleBulkEnabledResult>(response.Value);
+        Assert.False(result.Enabled);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.UpdatedCount);
+        Assert.Equal(new[] { "bulk-api-one", "bulk-api-two" }, result.Schedules.Select(schedule => schedule.Id));
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.False(configuration.SceneSchedules[1].Enabled);
+        Assert.True(configuration.SceneSchedules[2].Enabled);
+        Assert.Equal(7, configuration.SceneSchedules[0].DurationSeconds);
+        Assert.Equal(11, configuration.SceneSchedules[1].DurationSeconds);
+    }
+
+    [Fact]
+    public void SceneSchedules_BulkEnabledActionRefusesPartialEnableWhenCueIsExhausted()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk guarded API scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-api-ready",
+                    Name = "Bulk API ready",
+                    PresetName = "Bulk guarded API scene",
+                    Enabled = false
+                },
+                new()
+                {
+                    Id = "bulk-api-exhausted",
+                    Name = "Bulk API exhausted",
+                    PresetName = "Bulk guarded API scene",
+                    MaxRuns = 2,
+                    RunCount = 2,
+                    Enabled = false
+                }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+
+        var action = controller.SetSceneSchedulesEnabledBulk(new HueSceneScheduleBulkEnabledRequest
+        {
+            ScheduleIds = new List<string> { "bulk-api-ready", "bulk-api-exhausted" },
+            Enabled = true
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        var result = Assert.IsType<HueSceneScheduleBulkEnabledResult>(response.Value);
+        Assert.Equal(0, result.UpdatedCount);
+        Assert.Contains("Bulk API exhausted", result.Message, StringComparison.Ordinal);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.False(configuration.SceneSchedules[1].Enabled);
+    }
+
+    [Fact]
     public void SceneSchedules_SkipNextActionTogglesOnlyPendingOccurrenceThroughAdministratorApi()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
