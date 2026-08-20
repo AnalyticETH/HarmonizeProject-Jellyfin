@@ -7642,7 +7642,9 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool HasClientKey { get; set; }
         public bool ClearStoredCredentials { get; set; }
         public bool? PersistSessionHistory { get; set; }
+        public int? SessionHistoryRetentionCount { get; set; } = PluginConfiguration.DefaultSessionHistoryRetentionCount;
         public bool? PersistSceneScheduleHistory { get; set; }
+        public int? SceneScheduleHistoryRetentionCount { get; set; } = PluginConfiguration.DefaultSceneScheduleHistoryRetentionCount;
         public bool? SceneAutomationEnabled { get; set; }
         public int SceneAutomationCatchUpMinutes { get; set; }
         public string EntertainmentAreaId { get; set; } = string.Empty;
@@ -7693,7 +7695,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 HasAppKey = !string.IsNullOrWhiteSpace(config.HueAppKey),
                 HasClientKey = !string.IsNullOrWhiteSpace(config.HueClientKey),
                 PersistSessionHistory = config.PersistSessionHistory,
+                SessionHistoryRetentionCount = config.SessionHistoryRetentionCount,
                 PersistSceneScheduleHistory = config.PersistSceneScheduleHistory,
+                SceneScheduleHistoryRetentionCount = config.SceneScheduleHistoryRetentionCount,
                 SceneAutomationEnabled = config.SceneAutomationEnabled,
                 SceneAutomationCatchUpMinutes = config.SceneAutomationCatchUpMinutes,
                 EntertainmentAreaId = config.EntertainmentAreaId,
@@ -7757,12 +7761,16 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (!config.PersistSessionHistory)
                     config.PersistedSessionHistory?.Clear();
             }
+            if (SessionHistoryRetentionCount.HasValue)
+                config.SessionHistoryRetentionCount = SessionHistoryRetentionCount.Value;
             if (PersistSceneScheduleHistory.HasValue)
             {
                 config.PersistSceneScheduleHistory = PersistSceneScheduleHistory.Value;
                 if (!config.PersistSceneScheduleHistory)
                     config.PersistedSceneScheduleHistory?.Clear();
             }
+            if (SceneScheduleHistoryRetentionCount.HasValue)
+                config.SceneScheduleHistoryRetentionCount = SceneScheduleHistoryRetentionCount.Value;
             if (SceneAutomationEnabled.HasValue)
                 config.SceneAutomationEnabled = SceneAutomationEnabled.Value;
             config.SceneAutomationCatchUpMinutes = SceneAutomationCatchUpMinutes;

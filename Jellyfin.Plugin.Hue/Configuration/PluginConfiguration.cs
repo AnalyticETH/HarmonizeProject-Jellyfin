@@ -485,6 +485,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxSceneScheduleRuns = 365;
         public const int MaxSessionHistoryCount = 25;
         public const int MaxSceneScheduleHistoryCount = 100;
+        public const int MinSessionHistoryRetentionCount = 1;
+        public const int MaxSessionHistoryRetentionCount = MaxSessionHistoryCount;
+        public const int DefaultSessionHistoryRetentionCount = MaxSessionHistoryCount;
+        public const int MinSceneScheduleHistoryRetentionCount = 1;
+        public const int MaxSceneScheduleHistoryRetentionCount = MaxSceneScheduleHistoryCount;
+        public const int DefaultSceneScheduleHistoryRetentionCount = MaxSceneScheduleHistoryCount;
         public const int MinSceneAutomationCatchUpMinutes = 0;
         public const int MaxSceneAutomationCatchUpMinutes = 120;
 
@@ -785,6 +791,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool PersistSceneScheduleHistory { get; set; } = false;
 
         /// <summary>
+        /// Maximum number of sanitized scheduled-scene entries retained in memory and,
+        /// when persistence is enabled, across Jellyfin restarts. Older configurations
+        /// default to the historical 100-entry window.
+        /// </summary>
+        public int SceneScheduleHistoryRetentionCount { get; set; } = DefaultSceneScheduleHistoryRetentionCount;
+
+        /// <summary>
         /// Newest-first sanitized scheduled-scene entries used only when
         /// <see cref="PersistSceneScheduleHistory"/> is enabled. These entries are
         /// intentionally excluded from configuration exports.
@@ -796,6 +809,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// Disabled by default because item and user labels may be private metadata.
         /// </summary>
         public bool PersistSessionHistory { get; set; } = false;
+
+        /// <summary>
+        /// Maximum number of sanitized completed-session entries retained in memory and,
+        /// when persistence is enabled, across Jellyfin restarts. Older configurations
+        /// default to the historical 25-entry window.
+        /// </summary>
+        public int SessionHistoryRetentionCount { get; set; } = DefaultSessionHistoryRetentionCount;
 
         /// <summary>
         /// Newest-first sanitized session entries used only when <see cref="PersistSessionHistory"/>
@@ -2245,6 +2265,38 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Returns the runtime-safe completed-session retention window. Invalid
+        /// hand-edited values fall back to the historical maximum while configuration
+        /// validation reports the problem to the administrator.
+        /// </summary>
+        public int GetSessionHistoryRetentionCount()
+        {
+            if (SessionHistoryRetentionCount < MinSessionHistoryRetentionCount ||
+                SessionHistoryRetentionCount > MaxSessionHistoryRetentionCount)
+            {
+                return DefaultSessionHistoryRetentionCount;
+            }
+
+            return SessionHistoryRetentionCount;
+        }
+
+        /// <summary>
+        /// Returns the runtime-safe scheduled-scene retention window. Invalid
+        /// hand-edited values fall back to the historical maximum while configuration
+        /// validation reports the problem to the administrator.
+        /// </summary>
+        public int GetSceneScheduleHistoryRetentionCount()
+        {
+            if (SceneScheduleHistoryRetentionCount < MinSceneScheduleHistoryRetentionCount ||
+                SceneScheduleHistoryRetentionCount > MaxSceneScheduleHistoryRetentionCount)
+            {
+                return DefaultSceneScheduleHistoryRetentionCount;
+            }
+
+            return SceneScheduleHistoryRetentionCount;
+        }
+
+        /// <summary>
         /// Gets the RGB frame dimensions used by FFmpeg and the sampling loop.
         /// Unknown values fall back to the standard resolution so older or manually
         /// edited configurations remain safe to load.
@@ -2278,6 +2330,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 SceneAutomationCatchUpMinutes > MaxSceneAutomationCatchUpMinutes)
             {
                 errors.Add($"Scene automation catch-up window must be between {MinSceneAutomationCatchUpMinutes} and {MaxSceneAutomationCatchUpMinutes} minutes");
+            }
+
+            if (SessionHistoryRetentionCount < MinSessionHistoryRetentionCount ||
+                SessionHistoryRetentionCount > MaxSessionHistoryRetentionCount)
+            {
+                errors.Add($"Session history retention must be between {MinSessionHistoryRetentionCount} and {MaxSessionHistoryRetentionCount} entries");
+            }
+
+            if (SceneScheduleHistoryRetentionCount < MinSceneScheduleHistoryRetentionCount ||
+                SceneScheduleHistoryRetentionCount > MaxSceneScheduleHistoryRetentionCount)
+            {
+                errors.Add($"Scheduled-scene history retention must be between {MinSceneScheduleHistoryRetentionCount} and {MaxSceneScheduleHistoryRetentionCount} entries");
             }
 
             if (SyncEnabled)

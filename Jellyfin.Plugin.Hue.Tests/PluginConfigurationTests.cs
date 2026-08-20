@@ -593,6 +593,48 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void HistoryRetention_DefaultsToLegacyWindowsAndRejectsOutOfRangeValues()
+    {
+        var defaults = new PluginConfiguration();
+
+        Assert.Equal(PluginConfiguration.DefaultSessionHistoryRetentionCount, defaults.SessionHistoryRetentionCount);
+        Assert.Equal(PluginConfiguration.DefaultSceneScheduleHistoryRetentionCount, defaults.SceneScheduleHistoryRetentionCount);
+        Assert.Equal(defaults.SessionHistoryRetentionCount, defaults.GetSessionHistoryRetentionCount());
+        Assert.Equal(defaults.SceneScheduleHistoryRetentionCount, defaults.GetSceneScheduleHistoryRetentionCount());
+
+        var invalid = new PluginConfiguration
+        {
+            SessionHistoryRetentionCount = PluginConfiguration.MinSessionHistoryRetentionCount - 1,
+            SceneScheduleHistoryRetentionCount = PluginConfiguration.MaxSceneScheduleHistoryRetentionCount + 1
+        };
+
+        var errors = invalid.Validate();
+        Assert.Contains("Session history retention must be between 1 and 25 entries", errors);
+        Assert.Contains("Scheduled-scene history retention must be between 1 and 100 entries", errors);
+        Assert.Equal(PluginConfiguration.DefaultSessionHistoryRetentionCount, invalid.GetSessionHistoryRetentionCount());
+        Assert.Equal(PluginConfiguration.DefaultSceneScheduleHistoryRetentionCount, invalid.GetSceneScheduleHistoryRetentionCount());
+    }
+
+    [Fact]
+    public void HistoryRetention_UsesConfiguredWindowAndTrimsInvalidRuntimeValuesSafely()
+    {
+        var config = new PluginConfiguration
+        {
+            SessionHistoryRetentionCount = 7,
+            SceneScheduleHistoryRetentionCount = 42
+        };
+
+        Assert.Equal(7, config.GetSessionHistoryRetentionCount());
+        Assert.Equal(42, config.GetSceneScheduleHistoryRetentionCount());
+
+        config.SessionHistoryRetentionCount = PluginConfiguration.MaxSessionHistoryRetentionCount + 1;
+        config.SceneScheduleHistoryRetentionCount = PluginConfiguration.MinSceneScheduleHistoryRetentionCount - 1;
+
+        Assert.Equal(PluginConfiguration.DefaultSessionHistoryRetentionCount, config.GetSessionHistoryRetentionCount());
+        Assert.Equal(PluginConfiguration.DefaultSceneScheduleHistoryRetentionCount, config.GetSceneScheduleHistoryRetentionCount());
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_AllowsAndNormalizesInclusiveDateWindow()
     {
         var config = new PluginConfiguration
