@@ -1271,8 +1271,12 @@ public sealed class HueSceneAutomationServiceTests
             Assert.True(pendingStatus.PlaybackActive);
             var pending = Assert.Single(pendingStatus.Schedules);
             Assert.True(pending.DeferredPending);
+            Assert.False(pending.DeferredRestored);
             Assert.Equal(0, pending.RunCount);
             Assert.Contains("Waiting for active playback", pending.LastMessage, StringComparison.Ordinal);
+            var persistedDeferred = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+            Assert.Equal("deferred-cue", persistedDeferred.ScheduleId);
+            Assert.Equal(dueUtc.AddSeconds(-30), persistedDeferred.OccurrenceSlot);
         }
 
         await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
@@ -1285,9 +1289,80 @@ public sealed class HueSceneAutomationServiceTests
         Assert.True(status.LastSucceeded);
         var history = Assert.Single(service.GetHistory());
         Assert.True(history.WasDeferred);
+        Assert.False(history.WasDeferredRestored);
         Assert.True(history.Succeeded);
         Assert.Single(service.GetHistory(outcome: "Deferred"));
         Assert.Empty(service.GetHistory(outcome: "Failed"));
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_RestoresPersistedDeferredCueAfterRestart()
+    {
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 0, DateTimeKind.Utc);
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "restored-app-secret",
+            HueClientKey = "restored-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Restored scene", Red = 40, Green = 50, Blue = 60, BrightnessPercent = 70, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "restored-deferred-cue",
+                    Name = "Restored deferred cue",
+                    PresetName = "Restored scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            },
+            PersistedSceneAutomationDeferredRuns = new List<HueSceneDeferredRunEntry>
+            {
+                new()
+                {
+                    ScheduleId = "restored-deferred-cue",
+                    OccurrenceSlot = dueUtc,
+                    DeferredAtLocal = dueUtc.AddSeconds(30)
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var restoredStatus = Assert.Single(service.GetStatus().Schedules);
+        Assert.True(restoredStatus.DeferredPending);
+        Assert.True(restoredStatus.DeferredRestored);
+        Assert.Contains("Restored after scheduler restart", restoredStatus.LastMessage, StringComparison.Ordinal);
+
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Equal(new[] { 40 }, streamTester.Reds);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        var status = Assert.Single(service.GetStatus().Schedules);
+        Assert.False(status.DeferredPending);
+        Assert.True(status.LastWasDeferred);
+        Assert.True(status.LastWasDeferredRestored);
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.WasDeferred);
+        Assert.True(history.WasDeferredRestored);
     }
 
     [Fact]

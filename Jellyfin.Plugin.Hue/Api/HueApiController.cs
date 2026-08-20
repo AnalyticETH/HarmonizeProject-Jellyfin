@@ -3708,7 +3708,8 @@ namespace Jellyfin.Plugin.Hue.Api
         /// Returns bounded sanitized run history for scheduled scene cues. Bridge
         /// credentials and connection details are never retained or serialized. The
         /// optional outcome filter accepts Succeeded, Failed, Skipped, Recovered, or
-        /// Deferred; recovered/deferred runs also match their underlying outcome.
+        /// Deferred; restored-deferred runs also expose their restart recovery state and
+        /// recovered/deferred runs also match their underlying outcome.
         /// </summary>
         [HttpGet("SceneSchedules/History")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -3779,6 +3780,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 "skipped",
                 "wasCatchUp",
                 "wasDeferred",
+                "wasDeferredRestored",
                 "runAtUtc",
                 "runCount",
                 "targetResultCount",
@@ -3801,6 +3803,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     run.Skipped,
                     run.WasCatchUp,
                     run.WasDeferred,
+                    run.WasDeferredRestored,
                     run.RunAtUtc,
                     run.RunCount,
                     run.TargetResults?.Count ?? 0,

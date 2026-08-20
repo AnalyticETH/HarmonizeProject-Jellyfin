@@ -4885,6 +4885,10 @@
 
                         var generatedAt = HueConfigurationPage.readStatusField(response, "GeneratedAtUtc", null);
                         var generatedText = generatedAt ? new Date(generatedAt).toLocaleTimeString() : "";
+                        var restoredDeferredCount = schedules.filter(function (schedule) {
+                            return HueConfigurationPage.readStatusField(schedule, "DeferredPending", false) &&
+                                HueConfigurationPage.readStatusField(schedule, "DeferredRestored", false);
+                        }).length;
                         var notReadyCount = schedules.filter(function (schedule) {
                             return HueConfigurationPage.readStatusField(schedule, "Enabled", false) &&
                                 !HueConfigurationPage.readStatusField(schedule, "Ready", false);
@@ -4900,6 +4904,7 @@
                                 (catchUpMinutes > 0 ? " · recovery window " + catchUpMinutes + "m" : "") +
                                 " · playback policy " + String(playbackPolicy) +
                                 (String(playbackPolicy).toLowerCase() === "defer" ? " (" + String(deferMinutes) + "m)" : "") +
+                                (restoredDeferredCount ? " · " + restoredDeferredCount + " deferred cue" + (restoredDeferredCount === 1 ? "" : "s") + " restored after restart" : "") +
                                 (playbackActive ? " · playback active" : "") +
                                 " · updated " + generatedText;
                             summary.style.color = automationEnabled ? "" : "#f0ad4e";
@@ -4995,7 +5000,9 @@
                             var lastSkipped = HueConfigurationPage.readStatusField(schedule, "LastSkipped", false);
                             var lastWasCatchUp = HueConfigurationPage.readStatusField(schedule, "LastWasCatchUp", false);
                             var lastWasDeferred = HueConfigurationPage.readStatusField(schedule, "LastWasDeferred", false);
+                            var lastWasDeferredRestored = HueConfigurationPage.readStatusField(schedule, "LastWasDeferredRestored", false);
                             var deferredPending = HueConfigurationPage.readStatusField(schedule, "DeferredPending", false);
+                            var deferredRestored = HueConfigurationPage.readStatusField(schedule, "DeferredRestored", false);
                             var deferredUntilLocal = HueConfigurationPage.readStatusField(schedule, "DeferredUntilLocal", null);
                             var message = HueConfigurationPage.readStatusField(schedule, "LastMessage", "");
                             var cleanupWarning = HueConfigurationPage.readStatusField(schedule, "LastCleanupWarning", "");
@@ -5037,7 +5044,7 @@
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
                             addCell(deferredPending
-                                ? "Deferred until " + formatScheduleLocal(deferredUntilLocal)
+                                ? (deferredRestored ? "Restored deferred until " : "Deferred until ") + formatScheduleLocal(deferredUntilLocal)
                                 : (enabled ? ((skipNext ? "Skip next · " : "") + formatScheduleLocal(nextRun) + " · " + String(timeZone)) : "Disabled"),
                                 deferredPending ? "#f0ad4e" : "");
                             addCell(formatLocal(lastRun));
@@ -5048,6 +5055,7 @@
                                 : (succeeded ? "Succeeded" : "Failed"));
                             if (lastWasCatchUp) resultText = "Recovered · " + resultText;
                             if (lastWasDeferred) resultText = "Deferred · " + resultText;
+                            if (lastWasDeferredRestored) resultText = "Restored after restart · " + resultText;
                             if (deferredPending) resultText = "Waiting for playback · " + resultText;
                             if (running) resultText += " · Running";
                             if (message) resultText += " — " + String(message);
@@ -5580,6 +5588,7 @@
                             var skipped = HueConfigurationPage.readStatusField(run, "Skipped", false);
                             var wasCatchUp = HueConfigurationPage.readStatusField(run, "WasCatchUp", false);
                             var wasDeferred = HueConfigurationPage.readStatusField(run, "WasDeferred", false);
+                            var wasDeferredRestored = HueConfigurationPage.readStatusField(run, "WasDeferredRestored", false);
                             var message = HueConfigurationPage.readStatusField(run, "Message", "");
                             var warning = HueConfigurationPage.readStatusField(run, "CleanupWarning", "");
                             var runCount = HueConfigurationPage.readStatusField(run, "RunCount", 0);
@@ -5599,6 +5608,7 @@
                             var historyResult = skipped ? "Skipped" : (succeeded ? "Succeeded" : "Failed");
                             if (wasCatchUp) historyResult = "Recovered · " + historyResult;
                             if (wasDeferred) historyResult = "Deferred · " + historyResult;
+                            if (wasDeferredRestored) historyResult = "Restored after restart · " + historyResult;
                             addCell(historyResult + " · run " + String(runCount || 0), skipped ? "#f0ad4e" : (succeeded ? "#8bc34a" : "#d9534f"));
                             addCell((message || "") + (warning ? " · Cleanup warning: " + warning : ""));
                             body.appendChild(row);

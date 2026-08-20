@@ -336,11 +336,25 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool Skipped { get; set; }
         public bool WasCatchUp { get; set; }
         public bool WasDeferred { get; set; }
+        public bool WasDeferredRestored { get; set; }
         public string Message { get; set; } = string.Empty;
         public string? CleanupWarning { get; set; }
         public List<HueSceneScheduleTargetResult> TargetResults { get; set; } = new List<HueSceneScheduleTargetResult>();
         public DateTime RunAtUtc { get; set; }
         public int RunCount { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free state for one automatic scene occurrence that is waiting for
+    /// active playback to finish. Deferred occurrences are runtime state rather than
+    /// backup content, but are persisted in the plugin configuration so a Jellyfin
+    /// restart does not silently discard a cue that is still inside its wait window.
+    /// </summary>
+    public sealed class HueSceneDeferredRunEntry
+    {
+        public string ScheduleId { get; set; } = string.Empty;
+        public DateTime OccurrenceSlot { get; set; }
+        public DateTime DeferredAtLocal { get; set; }
     }
 
     /// <summary>
@@ -874,6 +888,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// intentionally excluded from configuration exports.
         /// </summary>
         public List<HueSceneScheduleHistoryEntry> PersistedSceneScheduleHistory { get; set; } = new List<HueSceneScheduleHistoryEntry>();
+
+        /// <summary>
+        /// Deferred automatic scene occurrences waiting for playback to finish. Entries
+        /// contain only schedule identity and server-local timestamps; credentials and
+        /// target secrets are never stored here. The scheduler removes entries after
+        /// completion, expiration, disablement, or deletion.
+        /// </summary>
+        public List<HueSceneDeferredRunEntry> PersistedSceneAutomationDeferredRuns { get; set; } = new List<HueSceneDeferredRunEntry>();
 
         /// <summary>
         /// Retains the bounded, sanitized completed-session history in plugin configuration.
