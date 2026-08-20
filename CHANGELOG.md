@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.173] - 2026-08-20
+
+### Added
+- **Configurable audio response smoothing**: blend each decoded low/mid/high analysis window with the previous window from 0-90% to reduce spectral flicker while preserving immediate 0% behavior
+- **Per-user response profiles**: inherit or override smoothing with bounded runtime clamping, active status telemetry, administrator controls, and credential-safe backup/import support
+- **Regression coverage**: verify smoothing across mixed and source-channel energy, defaults, bounds, inheritance, and API round trips
+
 ## [1.5.172] - 2026-08-20
 
 ### Added

@@ -781,6 +781,34 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void ResolveAudioResponseSmoothingPercent_UsesPerUserOverrideAndClampsInvalidValues()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioResponseSmoothingPercent = 25,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString(), AudioResponseSmoothingPercentOverride = 70 }
+            }
+        };
+
+        Assert.Equal(70, HueSyncService.ResolveAudioResponseSmoothingPercent(configuration, userId));
+        Assert.Equal(25, HueSyncService.ResolveAudioResponseSmoothingPercent(configuration, System.Guid.NewGuid()));
+
+        configuration.UserMappings[0].AudioResponseSmoothingPercentOverride = 999;
+        Assert.Equal(
+            PluginConfiguration.MaxAudioResponseSmoothingPercent,
+            HueSyncService.ResolveAudioResponseSmoothingPercent(configuration, userId));
+
+        configuration.UserMappings.Clear();
+        configuration.AudioResponseSmoothingPercent = -1;
+        Assert.Equal(
+            PluginConfiguration.MinAudioResponseSmoothingPercent,
+            HueSyncService.ResolveAudioResponseSmoothingPercent(configuration, userId));
+    }
+
+    [Fact]
     public void ResolveAudioFrequencies_UsesPerUserOverrideAndGlobalFallback()
     {
         var userId = System.Guid.NewGuid();
@@ -1292,6 +1320,98 @@ public sealed class HueSyncServiceTests
             90);
 
         Assert.Equal(new byte[] { 10, 20, 30 }, smoothed[1]);
+    }
+
+    [Fact]
+    public void ApplyAudioResponseSmoothing_BlendsAllMixedAndSourceBands()
+    {
+        var current = new HueSyncService.AudioChannelAnalysis(
+            0.8,
+            0.6,
+            0.4,
+            0.2,
+            0.7,
+            0.5,
+            0.3,
+            0.1,
+            0.9,
+            0.7,
+            0.5,
+            0.3);
+        var previous = new HueSyncService.AudioChannelAnalysis(
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.1,
+            0.1,
+            0.1,
+            0.1,
+            0.3,
+            0.3,
+            0.3,
+            0.3);
+
+        var smoothed = HueSyncService.ApplyAudioResponseSmoothing(current, previous, 50);
+
+        Assert.Equal(0.5, smoothed.Rms, 10);
+        Assert.Equal(0.4, smoothed.Low, 10);
+        Assert.Equal(0.3, smoothed.Mid, 10);
+        Assert.Equal(0.2, smoothed.High, 10);
+        Assert.Equal(0.4, smoothed.LeftRms, 10);
+        Assert.Equal(0.3, smoothed.LeftLow, 10);
+        Assert.Equal(0.2, smoothed.LeftMid, 10);
+        Assert.Equal(0.1, smoothed.LeftHigh, 10);
+        Assert.Equal(0.6, smoothed.RightRms, 10);
+        Assert.Equal(0.5, smoothed.RightLow, 10);
+        Assert.Equal(0.4, smoothed.RightMid, 10);
+        Assert.Equal(0.3, smoothed.RightHigh, 10);
+    }
+
+    [Fact]
+    public void ApplyAudioResponseSmoothing_DefaultAndMissingHistoryPreserveCurrentAnalysis()
+    {
+        var current = new HueSyncService.AudioChannelAnalysis(
+            0.8,
+            0.6,
+            0.4,
+            0.2,
+            0.7,
+            0.5,
+            0.3,
+            0.1,
+            0.9,
+            0.7,
+            0.5,
+            0.3);
+
+        Assert.Equal(current, HueSyncService.ApplyAudioResponseSmoothing(current, null));
+        Assert.Equal(current, HueSyncService.ApplyAudioResponseSmoothing(current, current, 0));
+    }
+
+    [Fact]
+    public void ApplyAudioResponseSmoothing_ClampsStrengthToSafeMaximum()
+    {
+        var current = new HueSyncService.AudioChannelAnalysis(
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1);
+        var previous = new HueSyncService.AudioChannelAnalysis();
+
+        var smoothed = HueSyncService.ApplyAudioResponseSmoothing(current, previous, 100);
+
+        Assert.Equal(0.1, smoothed.Rms, 10);
+        Assert.Equal(0.1, smoothed.Low, 10);
+        Assert.Equal(0.1, smoothed.RightHigh, 10);
     }
 
     [Fact]
