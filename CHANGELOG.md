@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.176] - 2026-08-20
+
+### Added
+- **Restart-safe deferred scene cues**: persist one credential-free deferred occurrence per scheduled cue so a Jellyfin restart cannot silently discard a cue still inside its bounded playback wait window
+- **Restored-cue telemetry**: expose restored pending state and mark restored deferred successes and expirations in scheduler status, history, JSON, CSV, and administrator controls
+
+### Reliability
+- **Deferred-state cleanup**: remove malformed, duplicate, disabled, and deleted-cue entries before replay, and clear persisted state after completion, expiry, or policy cleanup without interrupting scheduler execution
+
 ## [1.5.175] - 2026-08-20
 
 ### Added
