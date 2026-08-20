@@ -15,8 +15,9 @@ public sealed class HueBridgeLifecycleGate
 {
     private readonly object _sync = new();
     private readonly HashSet<string> _playbackResources = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _diagnosticResources = new(StringComparer.OrdinalIgnoreCase);
     private bool _unscopedPlaybackActive;
-    private bool _diagnosticActive;
+    private bool _unscopedDiagnosticActive;
 
     /// <summary>
     /// Gets whether a playback lifecycle currently owns at least one bridge resource.
@@ -33,6 +34,21 @@ public sealed class HueBridgeLifecycleGate
     }
 
     /// <summary>
+    /// Gets whether playback currently owns the supplied bridge/area resource. An
+    /// unscoped playback lease conflicts with every resource; a null key returns the
+    /// process-wide state exposed by <see cref="IsPlaybackActive"/>.
+    /// </summary>
+    public bool IsPlaybackActiveForResource(string? resourceKey)
+    {
+        lock (_sync)
+        {
+            return resourceKey == null
+                ? IsPlaybackActiveLocked()
+                : _unscopedPlaybackActive || _playbackResources.Contains(resourceKey);
+        }
+    }
+
+    /// <summary>
     /// Gets whether a diagnostic lifecycle currently owns the bridge.
     /// </summary>
     public bool IsDiagnosticActive
@@ -41,7 +57,7 @@ public sealed class HueBridgeLifecycleGate
         {
             lock (_sync)
             {
-                return _diagnosticActive;
+                return IsDiagnosticActiveLocked();
             }
         }
     }
@@ -62,10 +78,13 @@ public sealed class HueBridgeLifecycleGate
     {
         lock (_sync)
         {
-            if (_diagnosticActive ||
-                (resourceKey == null
-                    ? IsPlaybackActiveLocked()
-                    : _unscopedPlaybackActive || _playbackResources.Contains(resourceKey)))
+            var blockedByDiagnostic = resourceKey == null
+                ? IsDiagnosticActiveLocked()
+                : _unscopedDiagnosticActive || _diagnosticResources.Contains(resourceKey);
+            var blockedByPlayback = resourceKey == null
+                ? IsPlaybackActiveLocked()
+                : _unscopedPlaybackActive || _playbackResources.Contains(resourceKey);
+            if (blockedByDiagnostic || blockedByPlayback)
                 return null;
 
             if (resourceKey == null)
@@ -82,19 +101,41 @@ public sealed class HueBridgeLifecycleGate
     /// returned lease is disposed.
     /// </summary>
     public IDisposable? TryEnterDiagnostic()
+        => TryEnterDiagnostic(resourceKey: null);
+
+    /// <summary>
+    /// Attempts to reserve one bridge/entertainment-area target for a diagnostic or
+    /// restorative preview until the returned lease is disposed. Scoped diagnostics
+    /// may run beside playback on a different target, while the legacy unscoped
+    /// overload continues to reserve the entire bridge process.
+    /// </summary>
+    public IDisposable? TryEnterDiagnostic(string? resourceKey)
     {
         lock (_sync)
         {
-            if (IsPlaybackActiveLocked() || _diagnosticActive)
+            var blockedByPlayback = resourceKey == null
+                ? IsPlaybackActiveLocked()
+                : _unscopedPlaybackActive || _playbackResources.Contains(resourceKey);
+            var blockedByDiagnostic = resourceKey == null
+                ? IsDiagnosticActiveLocked()
+                : _unscopedDiagnosticActive || _diagnosticResources.Contains(resourceKey);
+            if (blockedByPlayback || blockedByDiagnostic)
                 return null;
 
-            _diagnosticActive = true;
-            return new LifecycleLease(this, isPlayback: false, resourceKey: null);
+            if (resourceKey == null)
+                _unscopedDiagnosticActive = true;
+            else
+                _diagnosticResources.Add(resourceKey);
+
+            return new LifecycleLease(this, isPlayback: false, resourceKey);
         }
     }
 
     private bool IsPlaybackActiveLocked() =>
         _unscopedPlaybackActive || _playbackResources.Count > 0;
+
+    private bool IsDiagnosticActiveLocked() =>
+        _unscopedDiagnosticActive || _diagnosticResources.Count > 0;
 
     private void Exit(bool isPlayback, string? resourceKey)
     {
@@ -108,7 +149,12 @@ public sealed class HueBridgeLifecycleGate
                     _playbackResources.Remove(resourceKey);
             }
             else
-                _diagnosticActive = false;
+            {
+                if (resourceKey == null)
+                    _unscopedDiagnosticActive = false;
+                else
+                    _diagnosticResources.Remove(resourceKey);
+            }
         }
     }
 

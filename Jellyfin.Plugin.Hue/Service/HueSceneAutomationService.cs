@@ -849,6 +849,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             out var normalizedPlaybackPolicy)
             ? normalizedPlaybackPolicy
             : PluginConfiguration.SceneAutomationPlaybackPolicySkip;
+        var playbackScope = GetPlaybackConflictScope(config);
         var deferMinutes = Math.Clamp(
             config?.SceneAutomationDeferMinutes ?? PluginConfiguration.DefaultSceneAutomationDeferMinutes,
             PluginConfiguration.MinSceneAutomationDeferMinutes,
@@ -988,6 +989,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 PluginConfiguration.MinSceneAutomationCatchUpMinutes,
                 PluginConfiguration.MaxSceneAutomationCatchUpMinutes),
             PlaybackPolicy = playbackPolicy,
+            PlaybackConflictScope = playbackScope,
             DeferMinutes = deferMinutes,
             PlaybackActive = _bridgeLifecycleGate.IsPlaybackActive,
             GeneratedAtUtc = DateTime.UtcNow,
@@ -1070,6 +1072,39 @@ public sealed class HueSceneAutomationService : BackgroundService
             out var normalized)
             ? normalized
             : PluginConfiguration.SceneAutomationPlaybackPolicyInherit;
+    }
+
+    internal static string GetPlaybackConflictScope(PluginConfiguration? config)
+    {
+        return PluginConfiguration.TryNormalizeSceneAutomationPlaybackScope(
+            config?.SceneAutomationPlaybackScope,
+            out var normalized)
+            ? normalized
+            : PluginConfiguration.SceneAutomationPlaybackScopeAnyTarget;
+    }
+
+    private bool IsPlaybackActiveForSchedule(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        string playbackScope)
+    {
+        if (!string.Equals(
+                playbackScope,
+                PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return _bridgeLifecycleGate.IsPlaybackActive;
+        }
+
+        // Target resolution is credential-safe and deduplicates physical bridge/area
+        // resources. If a cue is not resolvable, conservatively retain the historical
+        // process-wide block; the subsequent readiness/run path will report the actual
+        // configuration error without risking a bridge race.
+        if (!TryResolveTargets(config, schedule, out var targets, out _))
+            return _bridgeLifecycleGate.IsPlaybackActive;
+
+        return targets.Any(target => _bridgeLifecycleGate.IsPlaybackActiveForResource(
+            HueSyncService.GetPlaybackResourceKey(target.BridgeIp, target.EntertainmentAreaId)));
     }
 
     internal static int GetEffectiveTransitionSeconds(HueSceneSchedule schedule, HueColorPreset? preset)
@@ -1532,7 +1567,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     public async Task<HueSceneAutomationRunResult> RunPreviewAsync(
         HueSceneSchedule schedule,
         HueColorPreset preset,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool targetScopedPlayback = false)
     {
         var config = Plugin.Instance?.Configuration;
         if (config == null)
@@ -1552,7 +1588,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 schedule,
                 preset,
                 target,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                targetScopedPlayback).ConfigureAwait(false);
             targetResults.Add(targetResult);
             if (!targetResult.Succeeded &&
                 targetResult.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
@@ -1597,7 +1634,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueScenePlaylist playlist,
         CancellationToken cancellationToken = default,
         IReadOnlyList<string>? targetUserIdsOverride = null,
-        bool includeDefaultTargetOverride = false)
+        bool includeDefaultTargetOverride = false,
+        bool targetScopedPlayback = false)
     {
         var config = Plugin.Instance?.Configuration;
         if (config == null)
@@ -1671,7 +1709,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                     IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
                     TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings
                 };
-                var run = await RunPreviewAsync(schedule, preset, cancellationToken).ConfigureAwait(false);
+                var run = await RunPreviewAsync(
+                    schedule,
+                    preset,
+                    cancellationToken,
+                    targetScopedPlayback).ConfigureAwait(false);
                 PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
                 steps.Add(new HueScenePlaylistStepResult
                 {
@@ -2745,6 +2787,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             config.SceneAutomationDeferMinutes,
             PluginConfiguration.MinSceneAutomationDeferMinutes,
             PluginConfiguration.MaxSceneAutomationDeferMinutes);
+        var playbackScope = GetPlaybackConflictScope(config);
 
         PruneDeferredRuns(schedules, config);
 
@@ -2798,7 +2841,8 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             // A pending administrator skip always wins over a deferred occurrence. It is
             // safe to consume it while playback is active because no bridge mutation occurs.
-            if (deferDuringPlayback && _bridgeLifecycleGate.IsPlaybackActive)
+            var playbackActiveForSchedule = IsPlaybackActiveForSchedule(config, schedule, playbackScope);
+            if (deferDuringPlayback && playbackActiveForSchedule)
             {
                 if (TryConsumeSkippedOccurrence(config, schedule, out var blockedSkippedResult, out var blockedSkipPersistenceFailed))
                 {
@@ -2856,7 +2900,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                 cancellationToken,
                 wasCatchUp: wasCatchUp,
                 wasDeferred: hasDeferredRun,
-                wasDeferredRestored: wasDeferredRestored).ConfigureAwait(false);
+                wasDeferredRestored: wasDeferredRestored,
+                targetScopedPlayback: string.Equals(
+                    playbackScope,
+                    PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
+                    StringComparison.OrdinalIgnoreCase)).ConfigureAwait(false);
             if (result.Succeeded)
             {
                 DisableCompletedOneTimeSchedule(config, schedule);
@@ -3076,7 +3124,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     private async Task<HueSceneAutomationRunResult> RunScheduleCoreAsync(
         PluginConfiguration config,
         HueSceneSchedule schedule,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool targetScopedPlayback = false)
     {
         if (!string.IsNullOrWhiteSpace(schedule.PlaylistName))
         {
@@ -3108,7 +3157,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 scheduledPlaylist,
                 cancellationToken,
                 selectedTargetIds,
-                schedule.IncludeDefaultTarget).ConfigureAwait(false);
+                schedule.IncludeDefaultTarget,
+                targetScopedPlayback).ConfigureAwait(false);
             return BuildPlaylistScheduleRunResult(config, schedule, playlistRun);
         }
 
@@ -3131,7 +3181,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 schedule,
                 preset,
                 target,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                targetScopedPlayback).ConfigureAwait(false);
             targetResults.Add(targetResult);
         }
 
@@ -3206,7 +3257,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneSchedule schedule,
         HueColorPreset preset,
         HueSceneAutomationTargetDescription target,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool targetScopedPlayback = false)
     {
         try
         {
@@ -3247,23 +3299,44 @@ public sealed class HueSceneAutomationService : BackgroundService
                 }
             }
 
-            var preview = await _streamTester.PreviewAsync(
-                target.BridgeIp,
-                target.AppKey,
-                target.ClientKey,
-                target.EntertainmentAreaId,
-                areaConfiguration.Value,
-                target.ChannelIds,
-                preset.Red,
-                preset.Green,
-                preset.Blue,
-                preset.BrightnessPercent,
-                GetEffectiveDurationSeconds(schedule, preset),
-                cancellationToken,
-                GetEffectiveTransitionSeconds(schedule, preset),
-                GetEffectiveTransitionOutSeconds(schedule, preset),
-                preset.Effect,
-                PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent)).ConfigureAwait(false);
+            var scopedTester = targetScopedPlayback
+                ? _streamTester as IHueTargetScopedStreamTester
+                : null;
+            var preview = scopedTester != null
+                ? await scopedTester.PreviewAsyncForTarget(
+                    target.BridgeIp,
+                    target.AppKey,
+                    target.ClientKey,
+                    target.EntertainmentAreaId,
+                    areaConfiguration.Value,
+                    target.ChannelIds,
+                    preset.Red,
+                    preset.Green,
+                    preset.Blue,
+                    preset.BrightnessPercent,
+                    GetEffectiveDurationSeconds(schedule, preset),
+                    cancellationToken,
+                    GetEffectiveTransitionSeconds(schedule, preset),
+                    GetEffectiveTransitionOutSeconds(schedule, preset),
+                    preset.Effect,
+                    PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent)).ConfigureAwait(false)
+                : await _streamTester.PreviewAsync(
+                    target.BridgeIp,
+                    target.AppKey,
+                    target.ClientKey,
+                    target.EntertainmentAreaId,
+                    areaConfiguration.Value,
+                    target.ChannelIds,
+                    preset.Red,
+                    preset.Green,
+                    preset.Blue,
+                    preset.BrightnessPercent,
+                    GetEffectiveDurationSeconds(schedule, preset),
+                    cancellationToken,
+                    GetEffectiveTransitionSeconds(schedule, preset),
+                    GetEffectiveTransitionOutSeconds(schedule, preset),
+                    preset.Effect,
+                    PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent)).ConfigureAwait(false);
             return new HueSceneScheduleTargetResult
             {
                 TargetLabel = target.TargetLabel,
@@ -3317,7 +3390,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         CancellationToken cancellationToken,
         bool wasCatchUp = false,
         bool wasDeferred = false,
-        bool wasDeferredRestored = false)
+        bool wasDeferredRestored = false,
+        bool targetScopedPlayback = false)
     {
         if (!TryBeginRun(schedule, out var currentRunCount, out var alreadyRunning))
         {
@@ -3334,7 +3408,11 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneAutomationRunResult? result = null;
         try
         {
-            result = await RunScheduleCoreAsync(config, schedule, cancellationToken).ConfigureAwait(false);
+            result = await RunScheduleCoreAsync(
+                config,
+                schedule,
+                cancellationToken,
+                targetScopedPlayback).ConfigureAwait(false);
             result.WasCatchUp = wasCatchUp;
             result.WasDeferred = wasDeferred;
             result.WasDeferredRestored = wasDeferredRestored;
@@ -4806,6 +4884,9 @@ public sealed class HueSceneAutomationStatus
 
     [JsonPropertyName("playbackPolicy")]
     public string PlaybackPolicy { get; init; } = PluginConfiguration.SceneAutomationPlaybackPolicySkip;
+
+    [JsonPropertyName("playbackConflictScope")]
+    public string PlaybackConflictScope { get; init; } = PluginConfiguration.SceneAutomationPlaybackScopeAnyTarget;
 
     [JsonPropertyName("deferMinutes")]
     public int DeferMinutes { get; init; } = PluginConfiguration.DefaultSceneAutomationDeferMinutes;

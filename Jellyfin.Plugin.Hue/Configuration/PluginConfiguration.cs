@@ -488,6 +488,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string SceneAutomationPlaybackPolicySkip = "Skip";
         public const string SceneAutomationPlaybackPolicyDefer = "Defer";
         public const string SceneAutomationPlaybackPolicyInherit = "Inherit";
+        public const string SceneAutomationPlaybackScopeAnyTarget = "AnyTarget";
+        public const string SceneAutomationPlaybackScopeMatchingTarget = "MatchingTarget";
         public const int MinPreviewDurationSeconds = 1;
         public const int MaxPreviewDurationSeconds = 30;
         public const int MinColorPresetTransitionSeconds = 0;
@@ -566,6 +568,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             SceneAutomationPlaybackPolicySkip,
             SceneAutomationPlaybackPolicyDefer
+        };
+
+        private static readonly string[] SceneAutomationPlaybackScopes =
+        {
+            SceneAutomationPlaybackScopeAnyTarget,
+            SceneAutomationPlaybackScopeMatchingTarget
         };
 
         private static readonly string[] SceneAutomationSchedulePlaybackPolicies =
@@ -664,6 +672,32 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (match == null)
             {
                 normalized = SceneAutomationPlaybackPolicySkip;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the scope used to decide whether active playback conflicts with an
+        /// automatic scene cue. AnyTarget preserves the historical process-wide check;
+        /// MatchingTarget only blocks playback that owns one of the cue's resolved
+        /// bridge/entertainment-area targets.
+        /// </summary>
+        public static bool TryNormalizeSceneAutomationPlaybackScope(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = SceneAutomationPlaybackScopeAnyTarget;
+                return true;
+            }
+
+            var match = SceneAutomationPlaybackScopes.FirstOrDefault(scope =>
+                string.Equals(scope, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = SceneAutomationPlaybackScopeAnyTarget;
                 return false;
             }
 
@@ -898,6 +932,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// after playback ends for the bounded defer window.
         /// </summary>
         public string SceneAutomationPlaybackPolicy { get; set; } = SceneAutomationPlaybackPolicySkip;
+
+        /// <summary>
+        /// Controls which active playback sessions conflict with automatic scene cues.
+        /// AnyTarget preserves the historical process-wide behavior. MatchingTarget
+        /// allows independent rooms to continue scheduling while another room is playing.
+        /// </summary>
+        public string SceneAutomationPlaybackScope { get; set; } = SceneAutomationPlaybackScopeAnyTarget;
 
         /// <summary>
         /// Maximum wall-clock wait for a deferred automatic cue before it is recorded as
@@ -2605,6 +2646,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!TryNormalizeSceneAutomationPlaybackPolicy(SceneAutomationPlaybackPolicy, out _))
                 errors.Add("Scene automation playback policy must be Skip or Defer");
+
+            if (!TryNormalizeSceneAutomationPlaybackScope(SceneAutomationPlaybackScope, out _))
+                errors.Add("Scene automation playback scope must be AnyTarget or MatchingTarget");
 
             if (SceneAutomationDeferMinutes < MinSceneAutomationDeferMinutes ||
                 SceneAutomationDeferMinutes > MaxSceneAutomationDeferMinutes)

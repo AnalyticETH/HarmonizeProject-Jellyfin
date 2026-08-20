@@ -50,6 +50,33 @@ public interface IHueStreamTester
 }
 
 /// <summary>
+/// Optional target-scoped preview capability used by scheduled cues when the
+/// administrator enables matching-target playback conflict arbitration. Keeping this
+/// separate from <see cref="IHueStreamTester"/> preserves compatibility with existing
+/// test and extension implementations that only provide the original preview contract.
+/// </summary>
+internal interface IHueTargetScopedStreamTester
+{
+    Task<HueStreamProbeResult> PreviewAsyncForTarget(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        int red,
+        int green,
+        int blue,
+        int brightnessPercent,
+        int durationSeconds,
+        CancellationToken cancellationToken = default,
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+        string effect = PluginConfiguration.ColorPresetEffectSolid,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent);
+}
+
+/// <summary>
 /// Result of a DTLS stream probe. No bridge credentials are included.
 /// </summary>
 public sealed class HueStreamProbeResult
@@ -63,7 +90,7 @@ public sealed class HueStreamProbeResult
 /// Opens the same activate/DTLS/send/deactivate lifecycle used by playback, using a
 /// very low-intensity probe color and the selected area's real channel IDs.
 /// </summary>
-public sealed class HueStreamTester : IHueStreamTester
+public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTester
 {
     private const int EntertainmentAreaActivationDelayMs = 200;
     private const int PreviewTransitionRefreshIntervalMs = 100;
@@ -286,6 +313,84 @@ public sealed class HueStreamTester : IHueStreamTester
         int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
         string effect = PluginConfiguration.ColorPresetEffectSolid,
         int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        => RunPreviewAsync(
+            bridgeIp,
+            appKey,
+            clientKey,
+            areaId,
+            areaConfiguration,
+            channelIds,
+            red,
+            green,
+            blue,
+            brightnessPercent,
+            durationSeconds,
+            transitionSeconds,
+            transitionOutSeconds,
+            effect,
+            effectSpeedPercent,
+            cancellationToken,
+            resourceKey: null);
+
+    /// <summary>
+    /// Runs a restorative preview while reserving only the selected bridge/area
+    /// resource. This allows an automatic cue for an independent room to proceed while
+    /// another room has active playback.
+    /// </summary>
+    public Task<HueStreamProbeResult> PreviewAsyncForTarget(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        int red,
+        int green,
+        int blue,
+        int brightnessPercent,
+        int durationSeconds,
+        CancellationToken cancellationToken = default,
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+        string effect = PluginConfiguration.ColorPresetEffectSolid,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        => RunPreviewAsync(
+            bridgeIp,
+            appKey,
+            clientKey,
+            areaId,
+            areaConfiguration,
+            channelIds,
+            red,
+            green,
+            blue,
+            brightnessPercent,
+            durationSeconds,
+            transitionSeconds,
+            transitionOutSeconds,
+            effect,
+            effectSpeedPercent,
+            cancellationToken,
+            HueSyncService.GetPlaybackResourceKey(bridgeIp, areaId));
+
+    private Task<HueStreamProbeResult> RunPreviewAsync(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        int red,
+        int green,
+        int blue,
+        int brightnessPercent,
+        int durationSeconds,
+        int transitionSeconds,
+        int transitionOutSeconds,
+        string effect,
+        int effectSpeedPercent,
+        CancellationToken cancellationToken,
+        string? resourceKey)
         => RunSerializedAsync(operationCancellation => PreviewCoreAsync(
             bridgeIp,
             appKey,
@@ -302,7 +407,7 @@ public sealed class HueStreamTester : IHueStreamTester
             transitionOutSeconds,
             effect,
             effectSpeedPercent,
-            operationCancellation), cancellationToken);
+            operationCancellation), cancellationToken, resourceKey);
 
     private async Task<HueStreamProbeResult> PreviewCoreAsync(
         string bridgeIp,
@@ -699,9 +804,10 @@ public sealed class HueStreamTester : IHueStreamTester
 
     private async Task<HueStreamProbeResult> RunSerializedAsync(
         Func<CancellationToken, Task<HueStreamProbeResult>> operation,
-        CancellationToken requestCancellation)
+        CancellationToken requestCancellation,
+        string? resourceKey = null)
     {
-        var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
+        var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic(resourceKey);
         if (lifecycleLease == null)
             return Failure(DiagnosticBusyMessage);
 
