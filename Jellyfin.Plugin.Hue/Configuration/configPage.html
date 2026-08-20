@@ -762,6 +762,18 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioColorPalette">Audio Visualizer Palette</label>
+                            <select id="audioColorPalette" name="audioColorPalette" is="emby-select">
+                                <option value="Spectrum">Spectrum (drifting hues, default)</option>
+                                <option value="Band">Band mix (low/mid/high RGB)</option>
+                                <option value="Warm">Warm (red/orange/gold)</option>
+                                <option value="Cool">Cool (blue/cyan/violet)</option>
+                                <option value="Monochrome">Monochrome (white intensity)</option>
+                            </select>
+                            <div class="fieldDescription">Chooses how audio energy is rendered during Audio or All media playback. Spectrum preserves the original behavior; Band exposes low/mid/high energy as RGB, while Warm, Cool, and Monochrome provide room-friendly alternatives.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="frameResolution">Frame Sampling Resolution</label>
                             <select id="frameResolution" name="frameResolution" is="emby-select">
                                 <option value="80x45">Low (80×45, lowest CPU)</option>
@@ -1117,6 +1129,19 @@
                                     <input id="mappingColorSmoothingPercentOverride" type="number" min="0" max="90" is="emby-input" />
                                     <div class="fieldDescription">Optional temporal smoothing (0-90%).</div>
                                 </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioColorPaletteOverride">Audio Visualizer Palette Override</label>
+                                    <select id="mappingAudioColorPaletteOverride" is="emby-select">
+                                        <option value="">Inherit global setting</option>
+                                        <option value="Spectrum">Spectrum (drifting hues)</option>
+                                        <option value="Band">Band mix (low/mid/high RGB)</option>
+                                        <option value="Warm">Warm (red/orange/gold)</option>
+                                        <option value="Cool">Cool (blue/cyan/violet)</option>
+                                        <option value="Monochrome">Monochrome (white intensity)</option>
+                                    </select>
+                                    <div class="fieldDescription">Optional per-user palette for audio-reactive playback.</div>
+                                </div>
                             </fieldset>
 
                             <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
@@ -1426,6 +1451,7 @@
                         page.querySelector('#audioHighFrequencyHz').value = getConfigValue('AudioHighFrequencyHz', 1600);
                         page.querySelector('#audioBandSpreadPercent').value = getConfigValue('AudioBandSpreadPercent', 0);
                         page.querySelector('#audioBeatPulsePercent').value = getConfigValue('AudioBeatPulsePercent', 0);
+                        page.querySelector('#audioColorPalette').value = getConfigValue('AudioColorPalette', 'Spectrum');
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#frameResolution').value = getConfigValue('FrameResolution', '160x90');
                         page.querySelector('#videoScalingMode').value = getConfigValue('VideoScalingMode', 'Stretch');
@@ -1486,6 +1512,7 @@
                         AudioHighFrequencyHz: parseNumberOrDefault('#audioHighFrequencyHz', 1600),
                         AudioBandSpreadPercent: parseNumberOrDefault('#audioBandSpreadPercent', 0),
                         AudioBeatPulsePercent: parseNumberOrDefault('#audioBeatPulsePercent', 0),
+                        AudioColorPalette: page.querySelector('#audioColorPalette').value || 'Spectrum',
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         FrameResolution: page.querySelector('#frameResolution').value,
                         VideoScalingMode: page.querySelector('#videoScalingMode').value,
@@ -6456,6 +6483,7 @@
                         var audioHighFrequency = HueConfigurationPage.readStatusField(status, "ActiveAudioHighFrequencyHz", null);
                         var audioBandSpread = HueConfigurationPage.readStatusField(status, "ActiveAudioBandSpreadPercent", null);
                         var audioBeatPulse = HueConfigurationPage.readStatusField(status, "ActiveAudioBeatPulsePercent", null);
+                        var audioColorPalette = HueConfigurationPage.readStatusField(status, "ActiveAudioColorPalette", null);
                         var samplingBreadth = HueConfigurationPage.readStatusField(status, "ActiveSamplingBreadthPercent", null);
                         var samplingMode = HueConfigurationPage.readStatusField(status, "ActiveSamplingMode", null);
                         var colorSmoothing = HueConfigurationPage.readStatusField(status, "ActiveColorSmoothingPercent", null);
@@ -6510,7 +6538,7 @@
                             : String(targetFps) + " FPS · " + (frameResolution || "—");
                         page.querySelector('#runtimeAudioProfile').textContent = audioSensitivity == null
                             ? "—"
-                            : String(audioSensitivity) + "% sensitivity · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz · spread " + String(audioBandSpread == null ? "—" : audioBandSpread) + "% · beat " + String(audioBeatPulse == null ? "—" : audioBeatPulse) + "%";
+                            : String(audioSensitivity) + "% sensitivity · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz · spread " + String(audioBandSpread == null ? "—" : audioBandSpread) + "% · beat " + String(audioBeatPulse == null ? "—" : audioBeatPulse) + "% · palette " + String(audioColorPalette || "—");
                         page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
                             ? "—"
                             : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
@@ -7438,7 +7466,8 @@
                                 getMappingValue('AudioMidFrequencyHzOverride', 'audioMidFrequencyHzOverride'),
                                 getMappingValue('AudioHighFrequencyHzOverride', 'audioHighFrequencyHzOverride'),
                                 getMappingValue('AudioBandSpreadPercentOverride', 'audioBandSpreadPercentOverride'),
-                                getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride')
+                                getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride'),
+                                getMappingValue('AudioColorPaletteOverride', 'audioColorPaletteOverride')
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
@@ -8266,6 +8295,7 @@
                         AudioHighFrequencyHzOverride: readOptionalNumber('mappingAudioHighFrequencyHzOverride'),
                         AudioBandSpreadPercentOverride: readOptionalNumber('mappingAudioBandSpreadPercentOverride'),
                         AudioBeatPulsePercentOverride: readOptionalNumber('mappingAudioBeatPulsePercentOverride'),
+                        AudioColorPaletteOverride: readOptionalString('mappingAudioColorPaletteOverride'),
                         BrightnessDimLevelOverride: readOptionalNumber('mappingBrightnessDimLevelOverride'),
                         PauseBehaviorOverride: readOptionalString('mappingPauseBehaviorOverride'),
                         RestoreLightStateOverride: readOptionalBoolean('mappingRestoreLightStateOverride'),
@@ -8349,6 +8379,7 @@
                         '#mappingAudioHighFrequencyHzOverride',
                         '#mappingAudioBandSpreadPercentOverride',
                         '#mappingAudioBeatPulsePercentOverride',
+                        '#mappingAudioColorPaletteOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -8434,6 +8465,7 @@
                         var audioHighFrequencyHzOverride = getMappingValue('AudioHighFrequencyHzOverride', 'audioHighFrequencyHzOverride');
                         var audioBandSpreadPercentOverride = getMappingValue('AudioBandSpreadPercentOverride', 'audioBandSpreadPercentOverride');
                         var audioBeatPulsePercentOverride = getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride');
+                        var audioColorPaletteOverride = getMappingValue('AudioColorPaletteOverride', 'audioColorPaletteOverride');
                         var brightnessDimLevelOverride = getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride');
                         var pauseBehaviorOverride = getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride');
                         var restoreLightStateOverride = getMappingValue('RestoreLightStateOverride', 'restoreLightStateOverride');
@@ -8495,6 +8527,7 @@
                         page.querySelector('#mappingAudioHighFrequencyHzOverride').value = audioHighFrequencyHzOverride == null ? "" : audioHighFrequencyHzOverride;
                         page.querySelector('#mappingAudioBandSpreadPercentOverride').value = audioBandSpreadPercentOverride == null ? "" : audioBandSpreadPercentOverride;
                         page.querySelector('#mappingAudioBeatPulsePercentOverride').value = audioBeatPulsePercentOverride == null ? "" : audioBeatPulsePercentOverride;
+                        page.querySelector('#mappingAudioColorPaletteOverride').value = audioColorPaletteOverride == null ? "" : audioColorPaletteOverride;
                         page.querySelector('#mappingBrightnessDimLevelOverride').value = brightnessDimLevelOverride == null ? "" : brightnessDimLevelOverride;
                         page.querySelector('#mappingPauseBehaviorOverride').value = pauseBehaviorOverride == null ? "" : pauseBehaviorOverride;
                         page.querySelector('#mappingRestoreLightStateOverride').value = restoreLightStateOverride == null ? "" : String(restoreLightStateOverride).toLowerCase();

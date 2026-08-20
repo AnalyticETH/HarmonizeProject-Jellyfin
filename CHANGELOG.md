@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.165] - 2026-08-19
+
+### Added
+- **Audio visualizer palettes**: choose Spectrum, low/mid/high Band RGB, Warm, Cool, or Monochrome rendering for Audio and All-media playback while Spectrum preserves the existing default output
+- **Per-user palette profiles**: inherit or override the global palette with canonical validation, safe runtime fallback, live active-palette telemetry, and credential-free mapping summaries
+- **Portable and testable audio presentation**: carry palettes through configuration save/load, backup/export/import, administrator controls, and regression coverage
+
 ## [1.5.164] - 2026-08-19
 
 ### Added

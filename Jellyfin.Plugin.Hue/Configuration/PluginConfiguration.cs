@@ -49,6 +49,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? AudioHighFrequencyHzOverride { get; set; }
         public int? AudioBandSpreadPercentOverride { get; set; }
         public int? AudioBeatPulsePercentOverride { get; set; }
+        public string? AudioColorPaletteOverride { get; set; }
         public int? TargetFpsOverride { get; set; }
         public string? FrameResolutionOverride { get; set; }
         public string? VideoScalingModeOverride { get; set; }
@@ -382,6 +383,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string PlaybackMediaFilterOtherVideo = "OtherVideo";
         public const string PlaybackMediaFilterAudio = "Audio";
         public const string PlaybackMediaFilterAllMedia = "AllMedia";
+        public const string AudioColorPaletteSpectrum = "Spectrum";
+        public const string AudioColorPaletteBand = "Band";
+        public const string AudioColorPaletteWarm = "Warm";
+        public const string AudioColorPaletteCool = "Cool";
+        public const string AudioColorPaletteMonochrome = "Monochrome";
 
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
@@ -493,6 +499,15 @@ namespace Jellyfin.Plugin.Hue.Configuration
             PlaybackMediaFilterAllMedia
         };
 
+        private static readonly string[] AudioColorPalettes =
+        {
+            AudioColorPaletteSpectrum,
+            AudioColorPaletteBand,
+            AudioColorPaletteWarm,
+            AudioColorPaletteCool,
+            AudioColorPaletteMonochrome
+        };
+
         /// <summary>
         /// Returns the canonical spelling for a supported saved-scene effect. Blank
         /// values are treated as the legacy solid-color behavior.
@@ -552,6 +567,45 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 return null;
 
             return TryNormalizePlaybackMediaFilter(value, out var normalized)
+                ? normalized
+                : value.Trim();
+        }
+
+        /// <summary>
+        /// Returns the canonical spelling for a supported audio visualizer palette.
+        /// Blank values preserve the default Spectrum behavior.
+        /// </summary>
+        public static bool TryNormalizeAudioColorPalette(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = AudioColorPaletteSpectrum;
+                return true;
+            }
+
+            var match = AudioColorPalettes.FirstOrDefault(palette =>
+                string.Equals(palette, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = AudioColorPaletteSpectrum;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
+        /// Normalizes an optional per-user audio palette while preserving invalid text
+        /// for configuration validation feedback. Blank values become null so inheritance
+        /// remains explicit in persisted mapping profiles.
+        /// </summary>
+        public static string? NormalizeOptionalAudioColorPalette(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            return TryNormalizeAudioColorPalette(value, out var normalized)
                 ? normalized
                 : value.Trim();
         }
@@ -673,6 +727,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// preserves the steady loudness envelope used by existing installations.
         /// </summary>
         public int AudioBeatPulsePercent { get; set; } = DefaultAudioBeatPulsePercent;
+        /// <summary>
+        /// Selects the palette used by audio-reactive playback. Spectrum preserves the
+        /// original drifting hue behavior; the other palettes provide explicit band,
+        /// warm, cool, or monochrome presentation choices.
+        /// </summary>
+        public string AudioColorPalette { get; set; } = AudioColorPaletteSpectrum;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = FrameResolutionStandard;
         public string VideoScalingMode { get; set; } = VideoScalingModeStretch;
@@ -776,6 +836,25 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 mapping?.AudioBeatPulsePercentOverride ?? AudioBeatPulsePercent,
                 MinAudioBeatPulsePercent,
                 MaxAudioBeatPulsePercent);
+        }
+
+        /// <summary>
+        /// Gets the effective audio visualizer palette for a user. A missing or blank
+        /// override inherits the global palette; invalid hand-edited values also fall
+        /// back to the global palette for runtime continuity while validation reports
+        /// the bad value.
+        /// </summary>
+        public string GetAudioColorPaletteForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var overridePalette = NormalizeOptionalAudioColorPalette(mapping?.AudioColorPaletteOverride);
+            if (overridePalette != null && TryNormalizeAudioColorPalette(overridePalette, out var normalizedOverride))
+                return normalizedOverride;
+
+            return TryNormalizeAudioColorPalette(AudioColorPalette, out var normalizedGlobal)
+                ? normalizedGlobal
+                : AudioColorPaletteSpectrum;
         }
 
         /// <summary>
@@ -1119,6 +1198,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.AudioBeatPulsePercentOverride.Value > MaxAudioBeatPulsePercent))
             {
                 errors.Add($"{label} audio beat pulse override must be between {MinAudioBeatPulsePercent} and {MaxAudioBeatPulsePercent} percent");
+            }
+            var audioColorPaletteOverride = mapping.AudioColorPaletteOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(audioColorPaletteOverride) &&
+                !TryNormalizeAudioColorPalette(audioColorPaletteOverride, out _))
+            {
+                errors.Add($"{label} audio color palette override must be Spectrum, Band, Warm, Cool, or Monochrome");
             }
             if (mapping.AudioLowFrequencyHzOverride.HasValue &&
                 mapping.AudioMidFrequencyHzOverride.HasValue &&
@@ -2077,6 +2162,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (AudioBeatPulsePercent < MinAudioBeatPulsePercent || AudioBeatPulsePercent > MaxAudioBeatPulsePercent)
                     errors.Add($"Audio beat pulse must be between {MinAudioBeatPulsePercent} and {MaxAudioBeatPulsePercent} percent");
+
+                if (!TryNormalizeAudioColorPalette(AudioColorPalette, out _))
+                    errors.Add("Audio color palette must be Spectrum, Band, Warm, Cool, or Monochrome");
 
                 if (!string.Equals(FrameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(FrameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&

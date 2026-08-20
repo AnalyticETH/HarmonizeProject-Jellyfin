@@ -240,6 +240,33 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void BuildAudioChannelColors_SupportsDistinctAudioPalettes()
+    {
+        var lights = new Dictionary<int, (double x, double z)> { [1] = (-0.7, 0) };
+        var energy = (Rms: 0.2, Low: 0.35, Mid: 0.2, High: 0.1);
+
+        var spectrum = HueSyncService.BuildAudioChannelColors(
+            lights, energy, frameIndex: 7, audioColorPalette: PluginConfiguration.AudioColorPaletteSpectrum)[1];
+        var band = HueSyncService.BuildAudioChannelColors(
+            lights, energy, frameIndex: 7, audioColorPalette: PluginConfiguration.AudioColorPaletteBand)[1];
+        var warm = HueSyncService.BuildAudioChannelColors(
+            lights, energy, frameIndex: 7, audioColorPalette: PluginConfiguration.AudioColorPaletteWarm)[1];
+        var cool = HueSyncService.BuildAudioChannelColors(
+            lights, energy, frameIndex: 7, audioColorPalette: PluginConfiguration.AudioColorPaletteCool)[1];
+        var monochrome = HueSyncService.BuildAudioChannelColors(
+            lights, energy, frameIndex: 7, audioColorPalette: PluginConfiguration.AudioColorPaletteMonochrome)[1];
+
+        Assert.NotEqual(spectrum, band);
+        Assert.NotEqual(warm, cool);
+        Assert.Equal(monochrome[0], monochrome[1]);
+        Assert.Equal(monochrome[1], monochrome[2]);
+        Assert.NotEqual(band[0], band[1]);
+        Assert.Equal(
+            spectrum,
+            HueSyncService.BuildAudioChannelColors(lights, energy, frameIndex: 7, audioColorPalette: "invalid")[1]);
+    }
+
+    [Fact]
     public void IsPlaybackSeek_RecognizesBackwardAndLargeForwardJumps()
     {
         var start = DateTime.UtcNow;
@@ -523,6 +550,38 @@ public sealed class HueSyncServiceTests
         Assert.Equal(
             PluginConfiguration.MinAudioBeatPulsePercent,
             HueSyncService.ResolveAudioBeatPulsePercent(configuration, userId));
+    }
+
+    [Fact]
+    public void ResolveAudioColorPalette_UsesPerUserOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioColorPalette = PluginConfiguration.AudioColorPaletteWarm,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString(), AudioColorPaletteOverride = PluginConfiguration.AudioColorPaletteBand }
+            }
+        };
+
+        Assert.Equal(
+            PluginConfiguration.AudioColorPaletteBand,
+            HueSyncService.ResolveAudioColorPalette(configuration, userId));
+        Assert.Equal(
+            PluginConfiguration.AudioColorPaletteWarm,
+            HueSyncService.ResolveAudioColorPalette(configuration, System.Guid.NewGuid()));
+
+        configuration.UserMappings[0].AudioColorPaletteOverride = "invalid";
+        Assert.Equal(
+            PluginConfiguration.AudioColorPaletteWarm,
+            HueSyncService.ResolveAudioColorPalette(configuration, userId));
+
+        configuration.UserMappings.Clear();
+        configuration.AudioColorPalette = "invalid";
+        Assert.Equal(
+            PluginConfiguration.AudioColorPaletteSpectrum,
+            HueSyncService.ResolveAudioColorPalette(configuration, userId));
     }
 
     [Fact]

@@ -107,6 +107,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz)? _currentAudioFrequencies;
         private int? _currentAudioBandSpreadPercent;
         private int? _currentAudioBeatPulsePercent;
+        private string? _currentAudioColorPalette;
         private int? _currentSamplingBreadthPercent;
         private string? _currentSamplingMode;
         private int? _currentColorSmoothingPercent;
@@ -410,6 +411,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioFrequencies = null;
                     _currentAudioBandSpreadPercent = null;
                     _currentAudioBeatPulsePercent = null;
+                    _currentAudioColorPalette = null;
                     _currentSamplingBreadthPercent = null;
                     _currentSamplingMode = null;
                     _currentColorSmoothingPercent = null;
@@ -504,6 +506,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentAudioFrequencies = null;
                 _currentAudioBandSpreadPercent = null;
                 _currentAudioBeatPulsePercent = null;
+                _currentAudioColorPalette = null;
                 _currentSamplingBreadthPercent = null;
                 _currentSamplingMode = null;
                 _currentColorSmoothingPercent = null;
@@ -541,6 +544,7 @@ namespace Jellyfin.Plugin.Hue.Service
             (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz)? currentAudioFrequencies;
             int? currentAudioBandSpreadPercent;
             int? currentAudioBeatPulsePercent;
+            string? currentAudioColorPalette;
             int? currentSamplingBreadthPercent;
             string? currentSamplingMode;
             int? currentColorSmoothingPercent;
@@ -587,6 +591,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentAudioFrequencies = _currentAudioFrequencies;
                 currentAudioBandSpreadPercent = _currentAudioBandSpreadPercent;
                 currentAudioBeatPulsePercent = _currentAudioBeatPulsePercent;
+                currentAudioColorPalette = _currentAudioColorPalette;
                 currentSamplingBreadthPercent = _currentSamplingBreadthPercent;
                 currentSamplingMode = _currentSamplingMode;
                 currentColorSmoothingPercent = _currentColorSmoothingPercent;
@@ -641,6 +646,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveAudioHighFrequencyHz = isSyncing ? currentAudioFrequencies?.HighFrequencyHz : null,
                 ActiveAudioBandSpreadPercent = isSyncing ? currentAudioBandSpreadPercent : null,
                 ActiveAudioBeatPulsePercent = isSyncing ? currentAudioBeatPulsePercent : null,
+                ActiveAudioColorPalette = isSyncing ? currentAudioColorPalette : null,
                 ActiveSamplingBreadthPercent = isSyncing ? currentSamplingBreadthPercent : null,
                 ActiveSamplingMode = isSyncing ? currentSamplingMode : null,
                 ActiveColorSmoothingPercent = isSyncing ? currentColorSmoothingPercent : null,
@@ -1655,6 +1661,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentAudioFrequencies = null;
             _currentAudioBandSpreadPercent = null;
             _currentAudioBeatPulsePercent = null;
+            _currentAudioColorPalette = null;
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
             _currentColorSmoothingPercent = null;
@@ -1903,6 +1910,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioFrequencies = null;
                     _currentAudioBandSpreadPercent = null;
                     _currentAudioBeatPulsePercent = null;
+                    _currentAudioColorPalette = null;
                     _currentSamplingBreadthPercent = null;
                     _currentSamplingMode = null;
                     _currentColorSmoothingPercent = null;
@@ -2214,6 +2222,16 @@ namespace Jellyfin.Plugin.Hue.Service
                 config.GetAudioBeatPulsePercentForUser(userId),
                 PluginConfiguration.MinAudioBeatPulsePercent,
                 PluginConfiguration.MaxAudioBeatPulsePercent);
+        }
+
+        internal static string ResolveAudioColorPalette(PluginConfiguration config, Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            return PluginConfiguration.TryNormalizeAudioColorPalette(
+                    config.GetAudioColorPaletteForUser(userId),
+                    out var normalized)
+                ? normalized
+                : PluginConfiguration.AudioColorPaletteSpectrum;
         }
 
         internal static (
@@ -3017,9 +3035,15 @@ namespace Jellyfin.Plugin.Hue.Service
             (double Rms, double Low, double Mid, double High) energy,
             long frameIndex,
             int audioSensitivityPercent = PluginConfiguration.DefaultAudioSensitivityPercent,
-            double audioBeatPulse = 0)
+            double audioBeatPulse = 0,
+            string? audioColorPalette = null)
         {
             var colors = new Dictionary<int, byte[]>(lights.Count);
+            var normalizedPalette = PluginConfiguration.TryNormalizeAudioColorPalette(
+                    audioColorPalette,
+                    out var palette)
+                ? palette
+                : PluginConfiguration.AudioColorPaletteSpectrum;
             var loudness = Math.Clamp(
                 energy.Rms * 2.8 * Math.Clamp(
                     audioSensitivityPercent,
@@ -3039,11 +3063,46 @@ namespace Jellyfin.Plugin.Hue.Service
                 var z = Math.Clamp((light.Value.z + 1) / 2.0, 0, 1);
                 var spatialPulse = 0.58 + 0.42 * (0.5 + 0.5 * Math.Sin(frameIndex * 0.37 + x * Math.PI * 2 + z));
                 var value = Math.Clamp(0.025 + loudness * spatialPulse, 0, 1);
-                var hue = (dominantHue + (x - 0.5) * 0.14 + (z - 0.5) * 0.04 + frameIndex * 0.0025) % 1.0;
-                if (hue < 0)
-                    hue += 1;
+                if (normalizedPalette == PluginConfiguration.AudioColorPaletteBand)
+                {
+                    var low = Math.Clamp(energy.Low * 2.8, 0, 1) * (0.65 + 0.35 * (1 - x));
+                    var mid = Math.Clamp(energy.Mid * 2.8, 0, 1) *
+                        (0.55 + 0.45 * (1 - Math.Abs(x * 2 - 1)));
+                    var high = Math.Clamp(energy.High * 2.8, 0, 1) * (0.65 + 0.35 * x);
+                    var bandPeak = Math.Max(low, Math.Max(mid, high));
+                    if (bandPeak <= 0.0001)
+                    {
+                        colors[light.Key] = HsvToRgb(dominantHue, 0.25, value);
+                    }
+                    else
+                    {
+                        var bandScale = value / bandPeak;
+                        colors[light.Key] = new[]
+                        {
+                            (byte)Math.Round(Math.Clamp(low * bandScale, 0, 1) * 255, MidpointRounding.AwayFromZero),
+                            (byte)Math.Round(Math.Clamp(mid * bandScale, 0, 1) * 255, MidpointRounding.AwayFromZero),
+                            (byte)Math.Round(Math.Clamp(high * bandScale, 0, 1) * 255, MidpointRounding.AwayFromZero)
+                        };
+                    }
+                    continue;
+                }
 
-                var saturation = Math.Clamp(0.68 + loudness * 0.28, 0, 1);
+                if (normalizedPalette == PluginConfiguration.AudioColorPaletteMonochrome)
+                {
+                    colors[light.Key] = HsvToRgb(0, 0, value);
+                    continue;
+                }
+
+                var hue = normalizedPalette == PluginConfiguration.AudioColorPaletteWarm
+                    ? 0.015 + dominantHue * 0.10 + (x - 0.5) * 0.02 + frameIndex * 0.0004
+                    : normalizedPalette == PluginConfiguration.AudioColorPaletteCool
+                        ? 0.52 + dominantHue * 0.14 + (x - 0.5) * 0.03 + frameIndex * 0.0005
+                        : dominantHue + (x - 0.5) * 0.14 + (z - 0.5) * 0.04 + frameIndex * 0.0025;
+                var saturation = normalizedPalette == PluginConfiguration.AudioColorPaletteWarm
+                    ? Math.Clamp(0.78 + loudness * 0.20, 0, 1)
+                    : normalizedPalette == PluginConfiguration.AudioColorPaletteCool
+                        ? Math.Clamp(0.72 + loudness * 0.24, 0, 1)
+                        : Math.Clamp(0.68 + loudness * 0.28, 0, 1);
                 colors[light.Key] = HsvToRgb(hue, saturation, value);
             }
 
@@ -3091,6 +3150,7 @@ namespace Jellyfin.Plugin.Hue.Service
             (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz) audioFrequencies,
             int audioBandSpreadPercent,
             int audioBeatPulsePercent,
+            string audioColorPalette,
             int colorSmoothingPercent,
             (
                 int BrightnessBoost,
@@ -3163,7 +3223,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         energy,
                         frameIndex++,
                         audioSensitivityPercent,
-                        beatPulse);
+                        beatPulse,
+                        audioColorPalette);
 
                     var isBlackout = colorProcessingSettings.BlackoutThreshold > 0 &&
                         channelColors.Count > 0 &&
@@ -3342,6 +3403,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentAudioFrequencies = null;
                 _currentAudioBandSpreadPercent = null;
                 _currentAudioBeatPulsePercent = null;
+                _currentAudioColorPalette = null;
                 _currentSamplingBreadthPercent = null;
                 _currentSamplingMode = null;
                 _currentColorSmoothingPercent = null;
@@ -3582,6 +3644,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var audioFrequencies = ResolveAudioFrequencies(config, userId);
             var audioBandSpreadPercent = ResolveAudioBandSpreadPercent(config, userId);
             var audioBeatPulsePercent = ResolveAudioBeatPulsePercent(config, userId);
+            var audioColorPalette = ResolveAudioColorPalette(config, userId);
             var colorProcessingSettings = ResolveColorProcessingSettings(config, userId);
             var executionSettings = ResolveExecutionSettings(config, userId);
             var selectedChannelIds = ResolveChannelIds(config, userId);
@@ -3686,6 +3749,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioFrequencies = isAudioPlayback ? audioFrequencies : null;
                     _currentAudioBandSpreadPercent = isAudioPlayback ? audioBandSpreadPercent : null;
                     _currentAudioBeatPulsePercent = isAudioPlayback ? audioBeatPulsePercent : null;
+                    _currentAudioColorPalette = isAudioPlayback ? audioColorPalette : null;
                     _currentSamplingBreadthPercent = performanceSettings.SamplingBreadthPercent;
                     _currentSamplingMode = performanceSettings.SamplingMode;
                     _currentColorSmoothingPercent = performanceSettings.ColorSmoothingPercent;
@@ -3958,6 +4022,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         audioFrequencies,
                         audioBandSpreadPercent,
                         audioBeatPulsePercent,
+                        audioColorPalette,
                         performanceSettings.ColorSmoothingPercent,
                         colorProcessingSettings));
                 }
@@ -4320,6 +4385,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentAudioFrequencies = null;
             _currentAudioBandSpreadPercent = null;
             _currentAudioBeatPulsePercent = null;
+            _currentAudioColorPalette = null;
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
             _currentColorSmoothingPercent = null;
@@ -4474,6 +4540,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveAudioHighFrequencyHz { get; init; }
         public int? ActiveAudioBandSpreadPercent { get; init; }
         public int? ActiveAudioBeatPulsePercent { get; init; }
+        public string? ActiveAudioColorPalette { get; init; }
         public int? ActiveSamplingBreadthPercent { get; init; }
         public string? ActiveSamplingMode { get; init; }
         public int? ActiveColorSmoothingPercent { get; init; }
