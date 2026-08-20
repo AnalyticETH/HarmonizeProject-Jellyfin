@@ -335,6 +335,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool Succeeded { get; set; }
         public bool Skipped { get; set; }
         public bool WasCatchUp { get; set; }
+        public bool WasDeferred { get; set; }
         public string Message { get; set; } = string.Empty;
         public string? CleanupWarning { get; set; }
         public List<HueSceneScheduleTargetResult> TargetResults { get; set; } = new List<HueSceneScheduleTargetResult>();
@@ -465,6 +466,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string ColorPresetEffectTemperature = "Temperature";
         public const string ColorPresetEffectAurora = "Aurora";
         public const string SceneScheduleEffectPlaylist = "Playlist";
+        public const string SceneAutomationPlaybackPolicySkip = "Skip";
+        public const string SceneAutomationPlaybackPolicyDefer = "Defer";
         public const int MinPreviewDurationSeconds = 1;
         public const int MaxPreviewDurationSeconds = 30;
         public const int MinColorPresetTransitionSeconds = 0;
@@ -515,6 +518,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int DefaultSceneScheduleHistoryRetentionCount = MaxSceneScheduleHistoryCount;
         public const int MinSceneAutomationCatchUpMinutes = 0;
         public const int MaxSceneAutomationCatchUpMinutes = 120;
+        public const int MinSceneAutomationDeferMinutes = 1;
+        public const int MaxSceneAutomationDeferMinutes = 120;
+        public const int DefaultSceneAutomationDeferMinutes = 15;
 
         private static readonly string[] ColorPresetEffects =
         {
@@ -534,6 +540,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             PlaybackMediaFilterOtherVideo,
             PlaybackMediaFilterAudio,
             PlaybackMediaFilterAllMedia
+        };
+
+        private static readonly string[] SceneAutomationPlaybackPolicies =
+        {
+            SceneAutomationPlaybackPolicySkip,
+            SceneAutomationPlaybackPolicyDefer
         };
 
         private static readonly string[] AudioColorPalettes =
@@ -601,6 +613,30 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (match == null)
             {
                 normalized = PlaybackMediaFilterAllVideo;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the canonical policy used when an automatic scene cue collides with
+        /// active Jellyfin playback. Blank values preserve the original skip behavior.
+        /// </summary>
+        public static bool TryNormalizeSceneAutomationPlaybackPolicy(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = SceneAutomationPlaybackPolicySkip;
+                return true;
+            }
+
+            var match = SceneAutomationPlaybackPolicies.FirstOrDefault(policy =>
+                string.Equals(policy, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = SceneAutomationPlaybackPolicySkip;
                 return false;
             }
 
@@ -804,6 +840,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// is recovered per cue and older missed occurrences are not replayed in a burst.
         /// </summary>
         public int SceneAutomationCatchUpMinutes { get; set; }
+
+        /// <summary>
+        /// Controls automatic scene cues that become due while playback owns the Hue
+        /// bridge. Skip preserves the historical behavior; Defer retries one occurrence
+        /// after playback ends for the bounded defer window.
+        /// </summary>
+        public string SceneAutomationPlaybackPolicy { get; set; } = SceneAutomationPlaybackPolicySkip;
+
+        /// <summary>
+        /// Maximum wall-clock wait for a deferred automatic cue before it is recorded as
+        /// skipped. This setting is used only when the playback policy is Defer.
+        /// </summary>
+        public int SceneAutomationDeferMinutes { get; set; } = DefaultSceneAutomationDeferMinutes;
 
         /// <summary>
         /// Retains the bounded, sanitized scheduled-scene run history in plugin
@@ -2490,6 +2539,15 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 SceneAutomationCatchUpMinutes > MaxSceneAutomationCatchUpMinutes)
             {
                 errors.Add($"Scene automation catch-up window must be between {MinSceneAutomationCatchUpMinutes} and {MaxSceneAutomationCatchUpMinutes} minutes");
+            }
+
+            if (!TryNormalizeSceneAutomationPlaybackPolicy(SceneAutomationPlaybackPolicy, out _))
+                errors.Add("Scene automation playback policy must be Skip or Defer");
+
+            if (SceneAutomationDeferMinutes < MinSceneAutomationDeferMinutes ||
+                SceneAutomationDeferMinutes > MaxSceneAutomationDeferMinutes)
+            {
+                errors.Add($"Scene automation defer window must be between {MinSceneAutomationDeferMinutes} and {MaxSceneAutomationDeferMinutes} minutes");
             }
 
             if (SessionHistoryRetentionCount < MinSessionHistoryRetentionCount ||

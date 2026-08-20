@@ -3707,8 +3707,8 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Returns bounded sanitized run history for scheduled scene cues. Bridge
         /// credentials and connection details are never retained or serialized. The
-        /// optional outcome filter accepts Succeeded, Failed, Skipped, or Recovered;
-        /// recovered runs also match their underlying succeeded/failed/skipped outcome.
+        /// optional outcome filter accepts Succeeded, Failed, Skipped, Recovered, or
+        /// Deferred; recovered/deferred runs also match their underlying outcome.
         /// </summary>
         [HttpGet("SceneSchedules/History")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -3778,6 +3778,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 "succeeded",
                 "skipped",
                 "wasCatchUp",
+                "wasDeferred",
                 "runAtUtc",
                 "runCount",
                 "targetResultCount",
@@ -3799,6 +3800,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     run.Succeeded,
                     run.Skipped,
                     run.WasCatchUp,
+                    run.WasDeferred,
                     run.RunAtUtc,
                     run.RunCount,
                     run.TargetResults?.Count ?? 0,
@@ -7661,6 +7663,8 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? SceneScheduleHistoryRetentionCount { get; set; } = PluginConfiguration.DefaultSceneScheduleHistoryRetentionCount;
         public bool? SceneAutomationEnabled { get; set; }
         public int SceneAutomationCatchUpMinutes { get; set; }
+        public string? SceneAutomationPlaybackPolicy { get; set; }
+        public int? SceneAutomationDeferMinutes { get; set; }
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string ChannelIds { get; set; } = string.Empty;
         public bool UseCinemaMode { get; set; } = true;
@@ -7721,6 +7725,15 @@ namespace Jellyfin.Plugin.Hue.Api
                 SceneScheduleHistoryRetentionCount = config.SceneScheduleHistoryRetentionCount,
                 SceneAutomationEnabled = config.SceneAutomationEnabled,
                 SceneAutomationCatchUpMinutes = config.SceneAutomationCatchUpMinutes,
+                SceneAutomationPlaybackPolicy = PluginConfiguration.TryNormalizeSceneAutomationPlaybackPolicy(
+                    config.SceneAutomationPlaybackPolicy,
+                    out var normalizedPlaybackPolicy)
+                    ? normalizedPlaybackPolicy
+                    : PluginConfiguration.SceneAutomationPlaybackPolicySkip,
+                SceneAutomationDeferMinutes = Math.Clamp(
+                    config.SceneAutomationDeferMinutes,
+                    PluginConfiguration.MinSceneAutomationDeferMinutes,
+                    PluginConfiguration.MaxSceneAutomationDeferMinutes),
                 EntertainmentAreaId = config.EntertainmentAreaId,
                 ChannelIds = config.ChannelIds,
                 UseCinemaMode = config.UseCinemaMode,
@@ -7802,6 +7815,10 @@ namespace Jellyfin.Plugin.Hue.Api
             if (SceneAutomationEnabled.HasValue)
                 config.SceneAutomationEnabled = SceneAutomationEnabled.Value;
             config.SceneAutomationCatchUpMinutes = SceneAutomationCatchUpMinutes;
+            if (!string.IsNullOrWhiteSpace(SceneAutomationPlaybackPolicy))
+                config.SceneAutomationPlaybackPolicy = SceneAutomationPlaybackPolicy.Trim();
+            if (SceneAutomationDeferMinutes.HasValue)
+                config.SceneAutomationDeferMinutes = SceneAutomationDeferMinutes.Value;
             config.EntertainmentAreaId = EntertainmentAreaId?.Trim() ?? string.Empty;
             config.ChannelIds = ChannelIds?.Trim() ?? string.Empty;
             config.UseCinemaMode = UseCinemaMode;

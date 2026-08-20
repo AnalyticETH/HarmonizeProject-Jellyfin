@@ -23,8 +23,11 @@ public sealed class HueSceneAutomationService : BackgroundService
     private readonly IHueStreamTester _streamTester;
     private readonly HueClient _hueClient;
     private readonly ILogger<HueSceneAutomationService> _logger;
+    private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
     private readonly object _runSlotLock = new();
     private readonly Dictionary<string, DateTime> _lastRunSlots = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _deferredRunLock = new();
+    private readonly Dictionary<string, HueSceneDeferredRun> _deferredRuns = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _manualRunCancellationLock = new();
     private readonly Dictionary<string, CancellationTokenSource> _manualRunCancellations = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _runtimeStateLock = new();
@@ -46,11 +49,13 @@ public sealed class HueSceneAutomationService : BackgroundService
     public HueSceneAutomationService(
         IHueStreamTester streamTester,
         HueClient hueClient,
-        ILogger<HueSceneAutomationService> logger)
+        ILogger<HueSceneAutomationService> logger,
+        HueBridgeLifecycleGate? bridgeLifecycleGate = null)
     {
         _streamTester = streamTester ?? throw new ArgumentNullException(nameof(streamTester));
         _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
     }
 
     /// <summary>
@@ -170,6 +175,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                     state.LastSucceeded = null;
                     state.LastSkipped = false;
                     state.LastWasCatchUp = false;
+                    state.LastWasDeferred = false;
+                    state.DeferredPending = false;
+                    state.DeferredOccurrenceSlot = null;
+                    state.DeferredAtLocal = null;
+                    state.DeferredUntilLocal = null;
                     state.LastMessage = null;
                     state.LastCleanupWarning = null;
                     state.LastTargetResults = Array.Empty<HueSceneScheduleTargetResult>();
@@ -735,8 +745,8 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     /// <summary>
     /// Applies the credential-free outcome vocabulary used by the administrator history
-    /// API. Recovered runs retain their underlying succeeded/failed/skipped outcome while
-    /// also matching the <c>Recovered</c> filter.
+    /// API. Recovered and deferred runs retain their underlying succeeded/failed/skipped
+    /// outcome while also matching their corresponding filters.
     /// </summary>
     internal static bool MatchesHistoryOutcome(
         HueSceneAutomationRunResult result,
@@ -751,6 +761,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             "failed" => !result.Succeeded && !result.Skipped,
             "skipped" => result.Skipped,
             "recovered" => result.WasCatchUp,
+            "deferred" => result.WasDeferred,
             _ => false
         };
     }
@@ -787,6 +798,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                 state.LastSucceeded = null;
                 state.LastSkipped = false;
                 state.LastWasCatchUp = false;
+                state.LastWasDeferred = false;
+                state.DeferredPending = false;
+                state.DeferredOccurrenceSlot = null;
+                state.DeferredAtLocal = null;
+                state.DeferredUntilLocal = null;
                 state.LastMessage = null;
                 state.LastCleanupWarning = null;
             }
@@ -822,6 +838,15 @@ public sealed class HueSceneAutomationService : BackgroundService
         EnsureHistoryLoaded();
         var localNow = DateTime.Now;
         var config = Plugin.Instance?.Configuration;
+        var playbackPolicy = PluginConfiguration.TryNormalizeSceneAutomationPlaybackPolicy(
+            config?.SceneAutomationPlaybackPolicy,
+            out var normalizedPlaybackPolicy)
+            ? normalizedPlaybackPolicy
+            : PluginConfiguration.SceneAutomationPlaybackPolicySkip;
+        var deferMinutes = Math.Clamp(
+            config?.SceneAutomationDeferMinutes ?? PluginConfiguration.DefaultSceneAutomationDeferMinutes,
+            PluginConfiguration.MinSceneAutomationDeferMinutes,
+            PluginConfiguration.MaxSceneAutomationDeferMinutes);
         var schedules = config?.SceneSchedules?
             .Where(schedule => schedule != null)
             .Select(CloneSchedule)
@@ -930,6 +955,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                 LastSucceeded = runtime.LastSucceeded,
                 LastSkipped = runtime.LastSkipped,
                 LastWasCatchUp = runtime.LastWasCatchUp,
+                LastWasDeferred = runtime.LastWasDeferred,
+                DeferredPending = runtime.DeferredPending,
+                DeferredOccurrenceSlot = runtime.DeferredOccurrenceSlot,
+                DeferredUntilLocal = runtime.DeferredUntilLocal,
                 LastMessage = runtime.LastMessage,
                 LastCleanupWarning = runtime.LastCleanupWarning,
                 LastTargetResults = runtime.LastTargetResults?.Select(CloneTargetResult).ToArray()
@@ -946,6 +975,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                 config?.SceneAutomationCatchUpMinutes ?? PluginConfiguration.MinSceneAutomationCatchUpMinutes,
                 PluginConfiguration.MinSceneAutomationCatchUpMinutes,
                 PluginConfiguration.MaxSceneAutomationCatchUpMinutes),
+            PlaybackPolicy = playbackPolicy,
+            DeferMinutes = deferMinutes,
+            PlaybackActive = _bridgeLifecycleGate.IsPlaybackActive,
             GeneratedAtUtc = DateTime.UtcNow,
             ServerLocalNow = DateTime.SpecifyKind(localNow, DateTimeKind.Unspecified),
             ServerTimeZoneId = TimeZoneInfo.Local.Id,
@@ -2644,32 +2676,110 @@ public sealed class HueSceneAutomationService : BackgroundService
             .Select(entry => entry.Schedule)
             .ToArray();
         if (schedules == null || schedules.Length == 0)
+        {
+            ClearAllDeferredRuns();
             return;
+        }
 
         var catchUpMinutes = Math.Clamp(
             config.SceneAutomationCatchUpMinutes,
             PluginConfiguration.MinSceneAutomationCatchUpMinutes,
             PluginConfiguration.MaxSceneAutomationCatchUpMinutes);
+        var deferMinutes = Math.Clamp(
+            config.SceneAutomationDeferMinutes,
+            PluginConfiguration.MinSceneAutomationDeferMinutes,
+            PluginConfiguration.MaxSceneAutomationDeferMinutes);
+        var deferDuringPlayback = PluginConfiguration.TryNormalizeSceneAutomationPlaybackPolicy(
+            config.SceneAutomationPlaybackPolicy,
+            out var playbackPolicy) &&
+            string.Equals(
+                playbackPolicy,
+                PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+                StringComparison.OrdinalIgnoreCase);
+
+        PruneDeferredRuns(schedules, deferDuringPlayback);
 
         foreach (var schedule in schedules)
         {
-            var isDue = IsDue(schedule, localNow);
-            var recoveredOccurrence = isDue
+            HueSceneDeferredRun? deferredRun = null;
+            var deferredExpired = false;
+            var hasDeferredRun = deferDuringPlayback && TryGetDeferredRun(
+                schedule.Id,
+                localNow,
+                deferMinutes,
+                out deferredRun,
+                out deferredExpired);
+            if (deferredExpired)
+            {
+                if (TryClaimRunSlot(schedule.Id, deferredRun!.OccurrenceSlot))
+                {
+                    RecordSkippedOccurrence(
+                        config,
+                        schedule,
+                        CreateDeferredExpiredResult(config, schedule, deferMinutes));
+                    if (!string.IsNullOrWhiteSpace(schedule.RunDate))
+                        DisableCompletedOneTimeSchedule(config, schedule);
+                }
+
+                continue;
+            }
+
+            var isDue = hasDeferredRun || IsDue(schedule, localNow);
+            var recoveredOccurrence = hasDeferredRun || isDue
                 ? null
                 : GetMostRecentMissedOccurrence(schedule, localNow, catchUpMinutes);
             if (!isDue && recoveredOccurrence == null)
                 continue;
 
-            var slot = isDue
-                ? GetScheduleRunSlot(schedule, localNow)
-                : recoveredOccurrence!.UtcTime;
+            var slot = hasDeferredRun
+                ? deferredRun!.OccurrenceSlot
+                : isDue
+                    ? GetScheduleRunSlot(schedule, localNow)
+                    : recoveredOccurrence!.UtcTime;
+            var wasCatchUp = !hasDeferredRun && !isDue;
+
+            // A pending administrator skip always wins over a deferred occurrence. It is
+            // safe to consume it while playback is active because no bridge mutation occurs.
+            if (deferDuringPlayback && _bridgeLifecycleGate.IsPlaybackActive)
+            {
+                if (TryConsumeSkippedOccurrence(config, schedule, out var blockedSkippedResult, out var blockedSkipPersistenceFailed))
+                {
+                    if (TryClaimRunSlot(schedule.Id, slot))
+                    {
+                        blockedSkippedResult!.WasCatchUp = wasCatchUp;
+                        blockedSkippedResult.WasDeferred = hasDeferredRun;
+                        RemoveDeferredRun(schedule.Id);
+                        RecordSkippedOccurrence(config, schedule, blockedSkippedResult);
+                    }
+
+                    continue;
+                }
+
+                // If clearing a skip marker failed, leave both the marker and any pending
+                // deferred occurrence intact so a later poll can retry safely.
+                if (blockedSkipPersistenceFailed)
+                    continue;
+
+                if (!hasDeferredRun)
+                {
+                    QueueDeferredRun(schedule, slot, localNow, deferMinutes);
+                }
+                continue;
+            }
+
             if (!TryClaimRunSlot(schedule.Id, slot))
                 continue;
+
+            if (hasDeferredRun)
+                RemoveDeferredRun(schedule.Id);
 
             if (TryConsumeSkippedOccurrence(config, schedule, out var skippedResult, out var skipPersistenceFailed))
             {
                 if (skippedResult != null)
-                    skippedResult.WasCatchUp = !isDue;
+                {
+                    skippedResult.WasCatchUp = wasCatchUp;
+                    skippedResult.WasDeferred = hasDeferredRun;
+                }
                 RecordSkippedOccurrence(config, schedule, skippedResult!);
                 continue;
             }
@@ -2684,7 +2794,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 config,
                 schedule,
                 cancellationToken,
-                wasCatchUp: !isDue).ConfigureAwait(false);
+                wasCatchUp: wasCatchUp,
+                wasDeferred: hasDeferredRun).ConfigureAwait(false);
             if (result.Succeeded)
             {
                 DisableCompletedOneTimeSchedule(config, schedule);
@@ -2704,6 +2815,39 @@ public sealed class HueSceneAutomationService : BackgroundService
                     result.Message);
             }
         }
+    }
+
+    private void PruneDeferredRuns(
+        IReadOnlyList<HueSceneSchedule> schedules,
+        bool deferDuringPlayback)
+    {
+        HashSet<string> configuredIds = schedules
+            .Where(schedule => schedule.Enabled)
+            .Select(schedule => schedule.Id?.Trim() ?? string.Empty)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        string[] staleIds;
+        lock (_deferredRunLock)
+        {
+            staleIds = _deferredRuns.Keys
+                .Where(id => !deferDuringPlayback || !configuredIds.Contains(id))
+                .ToArray();
+        }
+
+        foreach (var staleId in staleIds)
+            RemoveDeferredRun(staleId);
+    }
+
+    private void ClearAllDeferredRuns()
+    {
+        string[] ids;
+        lock (_deferredRunLock)
+        {
+            ids = _deferredRuns.Keys.ToArray();
+        }
+
+        foreach (var id in ids)
+            RemoveDeferredRun(id);
     }
 
     private bool TryConsumeSkippedOccurrence(
@@ -2774,9 +2918,14 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.LastSucceeded = false;
             state.LastSkipped = true;
             state.LastWasCatchUp = result.WasCatchUp;
+            state.LastWasDeferred = result.WasDeferred;
             state.LastMessage = result.Message;
             state.LastCleanupWarning = null;
             state.LastTargetResults = Array.Empty<HueSceneScheduleTargetResult>();
+            state.DeferredPending = false;
+            state.DeferredOccurrenceSlot = null;
+            state.DeferredAtLocal = null;
+            state.DeferredUntilLocal = null;
             result.RunCount = state.RunCount;
         }
 
@@ -2791,7 +2940,9 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private static HueSceneAutomationRunResult CreateSkippedOccurrenceResult(
         PluginConfiguration config,
-        HueSceneSchedule schedule)
+        HueSceneSchedule schedule,
+        string? message = null,
+        bool wasDeferred = false)
     {
         var isPlaylist = !string.IsNullOrWhiteSpace(schedule.PlaylistName);
         var preset = config.ColorPresets?.FirstOrDefault(candidate =>
@@ -2815,9 +2966,10 @@ public sealed class HueSceneAutomationService : BackgroundService
             IncludeDefaultTarget = schedule.IncludeDefaultTarget,
             Succeeded = false,
             Skipped = true,
-            Message = string.IsNullOrWhiteSpace(schedule.RunDate)
+            WasDeferred = wasDeferred,
+            Message = message ?? (string.IsNullOrWhiteSpace(schedule.RunDate)
                 ? "The next automatic scene occurrence was skipped by the administrator."
-                : "The one-time scene occurrence was skipped by the administrator and the cue was disabled.",
+                : "The one-time scene occurrence was skipped by the administrator and the cue was disabled."),
             RunAtUtc = DateTime.UtcNow
         };
     }
@@ -3088,7 +3240,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         PluginConfiguration config,
         HueSceneSchedule schedule,
         CancellationToken cancellationToken,
-        bool wasCatchUp = false)
+        bool wasCatchUp = false,
+        bool wasDeferred = false)
     {
         if (!TryBeginRun(schedule, out var currentRunCount, out var alreadyRunning))
         {
@@ -3107,12 +3260,14 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             result = await RunScheduleCoreAsync(config, schedule, cancellationToken).ConfigureAwait(false);
             result.WasCatchUp = wasCatchUp;
+            result.WasDeferred = wasDeferred;
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             result = Failure(schedule.Id, "The scene cue run was canceled.", schedule);
             result.WasCatchUp = wasCatchUp;
+            result.WasDeferred = wasDeferred;
             throw;
         }
         catch (Exception ex)
@@ -3120,6 +3275,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             _logger.LogWarning(ex, "Hue scene schedule {0} failed unexpectedly", schedule.Name);
             result = Failure(schedule.Id, "The scheduled scene could not be completed.", schedule);
             result.WasCatchUp = wasCatchUp;
+            result.WasDeferred = wasDeferred;
             return result;
         }
         finally
@@ -3203,10 +3359,15 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.LastSucceeded = result?.Succeeded ?? false;
             state.LastSkipped = result?.Skipped ?? false;
             state.LastWasCatchUp = result?.WasCatchUp ?? false;
+            state.LastWasDeferred = result?.WasDeferred ?? false;
             state.LastMessage = result?.Message ?? "The scheduled scene ended without a result.";
             state.LastCleanupWarning = result?.CleanupWarning;
             state.LastTargetResults = result?.TargetResults?.Select(CloneTargetResult).ToArray()
                 ?? Array.Empty<HueSceneScheduleTargetResult>();
+            state.DeferredPending = false;
+            state.DeferredOccurrenceSlot = null;
+            state.DeferredAtLocal = null;
+            state.DeferredUntilLocal = null;
             if (result != null)
                 result.RunCount = state.RunCount;
 
@@ -3329,6 +3490,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     state.LastSucceeded = latest.Succeeded;
                     state.LastSkipped = latest.Skipped;
                     state.LastWasCatchUp = latest.WasCatchUp;
+                    state.LastWasDeferred = latest.WasDeferred;
                     state.LastMessage = latest.Message;
                     state.LastCleanupWarning = latest.CleanupWarning;
                     state.LastTargetResults = latest.TargetResults?.Select(CloneTargetResult).ToArray()
@@ -3411,6 +3573,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Succeeded = result.Succeeded,
             Skipped = result.Skipped,
             WasCatchUp = result.WasCatchUp,
+            WasDeferred = result.WasDeferred,
             Message = result.Message,
             CleanupWarning = result.CleanupWarning,
             TargetResults = result.TargetResults?.Select(CloneTargetResult).ToList()
@@ -3445,6 +3608,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Succeeded = source.Succeeded,
             Skipped = source.Skipped,
             WasCatchUp = source.WasCatchUp,
+            WasDeferred = source.WasDeferred,
             Message = source.Message?.Trim() ?? string.Empty,
             CleanupWarning = source.CleanupWarning?.Trim(),
             TargetResults = source.TargetResults?.Where(target => target != null)
@@ -3480,6 +3644,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Succeeded = entry.Succeeded,
             Skipped = entry.Skipped,
             WasCatchUp = entry.WasCatchUp,
+            WasDeferred = entry.WasDeferred,
             Message = entry.Message?.Trim() ?? string.Empty,
             CleanupWarning = entry.CleanupWarning?.Trim(),
             TargetResults = entry.TargetResults?.Where(target => target != null)
@@ -3507,6 +3672,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Succeeded = source.Succeeded,
             Skipped = source.Skipped,
             WasCatchUp = source.WasCatchUp,
+            WasDeferred = source.WasDeferred,
             Message = source.Message,
             CleanupWarning = source.CleanupWarning,
             TargetResults = source.TargetResults?.Select(CloneTargetResult).ToArray()
@@ -3547,6 +3713,132 @@ public sealed class HueSceneAutomationService : BackgroundService
             ? $"User mapping {mapping.UserId?.Trim() ?? targetUserId}"
             : mapping.UserName.Trim();
     }
+
+    private bool TryGetDeferredRun(
+        string scheduleId,
+        DateTime localNow,
+        int deferMinutes,
+        out HueSceneDeferredRun? deferredRun,
+        out bool expired)
+    {
+        deferredRun = null;
+        expired = false;
+        var key = scheduleId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(key))
+            return false;
+
+        lock (_deferredRunLock)
+        {
+            if (!_deferredRuns.TryGetValue(key, out var current))
+                return false;
+
+            if (localNow - current.DeferredAtLocal >= TimeSpan.FromMinutes(deferMinutes))
+            {
+                _deferredRuns.Remove(key);
+                deferredRun = current;
+                expired = true;
+            }
+            else
+            {
+                deferredRun = current;
+            }
+        }
+
+        if (expired)
+            ClearDeferredRuntimeState(key);
+
+        return !expired;
+    }
+
+    private void QueueDeferredRun(
+        HueSceneSchedule schedule,
+        DateTime occurrenceSlot,
+        DateTime localNow,
+        int deferMinutes)
+    {
+        var key = schedule.Id?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(key))
+            return;
+
+        var queued = false;
+        lock (_deferredRunLock)
+        {
+            if (!_deferredRuns.ContainsKey(key))
+            {
+                _deferredRuns[key] = new HueSceneDeferredRun(occurrenceSlot, localNow);
+                queued = true;
+            }
+        }
+
+        MarkDeferredRuntimeState(key, occurrenceSlot, localNow, deferMinutes);
+        if (queued)
+        {
+            _logger.LogInformation(
+                "Deferred Hue scene schedule {0} until playback is idle (window {1} minutes)",
+                schedule.Name,
+                deferMinutes);
+        }
+    }
+
+    private void RemoveDeferredRun(string scheduleId)
+    {
+        var key = scheduleId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(key))
+            return;
+
+        lock (_deferredRunLock)
+        {
+            _deferredRuns.Remove(key);
+        }
+
+        ClearDeferredRuntimeState(key);
+    }
+
+    private void MarkDeferredRuntimeState(
+        string scheduleId,
+        DateTime occurrenceSlot,
+        DateTime deferredAtLocal,
+        int deferMinutes)
+    {
+        lock (_runtimeStateLock)
+        {
+            if (!_runtimeStates.TryGetValue(scheduleId, out var state))
+            {
+                state = new HueSceneScheduleRuntimeState();
+                _runtimeStates[scheduleId] = state;
+            }
+
+            state.DeferredPending = true;
+            state.DeferredOccurrenceSlot = occurrenceSlot;
+            state.DeferredAtLocal = deferredAtLocal;
+            state.DeferredUntilLocal = deferredAtLocal.AddMinutes(deferMinutes);
+            state.LastMessage = "Waiting for active playback to finish before running this automatic cue.";
+        }
+    }
+
+    private void ClearDeferredRuntimeState(string scheduleId)
+    {
+        lock (_runtimeStateLock)
+        {
+            if (!_runtimeStates.TryGetValue(scheduleId, out var state))
+                return;
+
+            state.DeferredPending = false;
+            state.DeferredOccurrenceSlot = null;
+            state.DeferredAtLocal = null;
+            state.DeferredUntilLocal = null;
+        }
+    }
+
+    private static HueSceneAutomationRunResult CreateDeferredExpiredResult(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        int deferMinutes)
+        => CreateSkippedOccurrenceResult(
+            config,
+            schedule,
+            $"The automatic scene occurrence was skipped because playback remained active beyond the {deferMinutes}-minute defer window.",
+            wasDeferred: true);
 
     private bool TryClaimRunSlot(string scheduleId, DateTime slot)
     {
@@ -3683,6 +3975,11 @@ internal sealed class HueSceneScheduleRuntimeState
     public bool? LastSucceeded { get; set; }
     public bool LastSkipped { get; set; }
     public bool LastWasCatchUp { get; set; }
+    public bool LastWasDeferred { get; set; }
+    public bool DeferredPending { get; set; }
+    public DateTime? DeferredOccurrenceSlot { get; set; }
+    public DateTime? DeferredAtLocal { get; set; }
+    public DateTime? DeferredUntilLocal { get; set; }
     public string? LastMessage { get; set; }
     public string? LastCleanupWarning { get; set; }
     public IReadOnlyList<HueSceneScheduleTargetResult> LastTargetResults { get; set; } = Array.Empty<HueSceneScheduleTargetResult>();
@@ -3697,6 +3994,11 @@ internal sealed class HueSceneScheduleRuntimeState
             LastSucceeded = LastSucceeded,
             LastSkipped = LastSkipped,
             LastWasCatchUp = LastWasCatchUp,
+            LastWasDeferred = LastWasDeferred,
+            DeferredPending = DeferredPending,
+            DeferredOccurrenceSlot = DeferredOccurrenceSlot,
+            DeferredAtLocal = DeferredAtLocal,
+            DeferredUntilLocal = DeferredUntilLocal,
             LastMessage = LastMessage,
             LastCleanupWarning = LastCleanupWarning,
             LastTargetResults = LastTargetResults?.Select(target => new HueSceneScheduleTargetResult
@@ -3710,6 +4012,18 @@ internal sealed class HueSceneScheduleRuntimeState
             }).ToArray() ?? Array.Empty<HueSceneScheduleTargetResult>()
         };
     }
+}
+
+internal sealed class HueSceneDeferredRun
+{
+    public HueSceneDeferredRun(DateTime occurrenceSlot, DateTime deferredAtLocal)
+    {
+        OccurrenceSlot = occurrenceSlot;
+        DeferredAtLocal = deferredAtLocal;
+    }
+
+    public DateTime OccurrenceSlot { get; }
+    public DateTime DeferredAtLocal { get; }
 }
 
 internal sealed class HueSceneScheduleReadiness
@@ -3782,6 +4096,9 @@ public sealed class HueSceneAutomationRunResult
 
     [JsonPropertyName("wasCatchUp")]
     public bool WasCatchUp { get; set; }
+
+    [JsonPropertyName("wasDeferred")]
+    public bool WasDeferred { get; set; }
 
     [JsonPropertyName("message")]
     public string Message { get; init; } = string.Empty;
@@ -4191,6 +4508,18 @@ public sealed class HueSceneScheduleRuntimeStatus
     [JsonPropertyName("lastWasCatchUp")]
     public bool LastWasCatchUp { get; init; }
 
+    [JsonPropertyName("lastWasDeferred")]
+    public bool LastWasDeferred { get; init; }
+
+    [JsonPropertyName("deferredPending")]
+    public bool DeferredPending { get; init; }
+
+    [JsonPropertyName("deferredOccurrenceSlot")]
+    public DateTime? DeferredOccurrenceSlot { get; init; }
+
+    [JsonPropertyName("deferredUntilLocal")]
+    public DateTime? DeferredUntilLocal { get; init; }
+
     [JsonPropertyName("lastMessage")]
     public string? LastMessage { get; init; }
 
@@ -4217,6 +4546,15 @@ public sealed class HueSceneAutomationStatus
 
     [JsonPropertyName("catchUpMinutes")]
     public int CatchUpMinutes { get; init; }
+
+    [JsonPropertyName("playbackPolicy")]
+    public string PlaybackPolicy { get; init; } = PluginConfiguration.SceneAutomationPlaybackPolicySkip;
+
+    [JsonPropertyName("deferMinutes")]
+    public int DeferMinutes { get; init; } = PluginConfiguration.DefaultSceneAutomationDeferMinutes;
+
+    [JsonPropertyName("playbackActive")]
+    public bool PlaybackActive { get; init; }
 
     [JsonPropertyName("generatedAtUtc")]
     public DateTime GeneratedAtUtc { get; init; }

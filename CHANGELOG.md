@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.175] - 2026-08-20
+
+### Added
+- **Playback-aware scheduled cues**: choose the historical immediate **Skip** behavior or a bounded **Defer** policy that holds one automatic occurrence while playback owns the bridge, retries it after playback ends, and never consumes a finite execution limit while waiting
+- **Deferred-cue safety and telemetry**: expired waits are recorded as sanitized skipped outcomes, one-time cues are disabled safely, and scheduler status/history expose pending, deferred, playback-active, policy, and wait-window state without credentials
+- **Portable administrator controls**: carry the playback conflict policy and 1-120 minute defer window through configuration validation, API settings, credential-safe backup/import, and the configuration page
+- **Regression coverage**: verify defer queueing, post-playback execution, expiry, telemetry, validation, and API round trips
+
 ## [1.5.174] - 2026-08-20
 
 ### Added
