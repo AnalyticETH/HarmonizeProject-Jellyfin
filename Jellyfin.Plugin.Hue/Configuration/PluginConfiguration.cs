@@ -49,6 +49,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? AudioHighFrequencyHzOverride { get; set; }
         public int? AudioBandSpreadPercentOverride { get; set; }
         public int? AudioBeatPulsePercentOverride { get; set; }
+        public int? AudioBeatPulseDecayPercentOverride { get; set; }
         public string? AudioColorPaletteOverride { get; set; }
         public string? AudioSpatialModeOverride { get; set; }
         public string? AudioChannelModeOverride { get; set; }
@@ -436,6 +437,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MinAudioBeatPulsePercent = 0;
         public const int MaxAudioBeatPulsePercent = 100;
         public const int DefaultAudioBeatPulsePercent = 0;
+        public const int MinAudioBeatPulseDecayPercent = 0;
+        public const int MaxAudioBeatPulseDecayPercent = 100;
+        public const int DefaultAudioBeatPulseDecayPercent = 0;
         public const string ColorPresetEffectSolid = "Solid";
         public const string ColorPresetEffectPulse = "Pulse";
         public const string ColorPresetEffectRainbow = "Rainbow";
@@ -851,6 +855,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int AudioBeatPulsePercent { get; set; } = DefaultAudioBeatPulsePercent;
         /// <summary>
+        /// Controls how much of an audio beat pulse carries into subsequent frames.
+        /// Zero preserves the original instantaneous transient; higher values add a
+        /// bounded visible release tail without allowing a pulse to remain permanent.
+        /// </summary>
+        public int AudioBeatPulseDecayPercent { get; set; } = DefaultAudioBeatPulseDecayPercent;
+        /// <summary>
         /// Selects the palette used by audio-reactive playback. Spectrum preserves the
         /// original drifting hue behavior; the other palettes provide explicit band,
         /// warm, cool, or monochrome presentation choices.
@@ -970,6 +980,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 mapping?.AudioBeatPulsePercentOverride ?? AudioBeatPulsePercent,
                 MinAudioBeatPulsePercent,
                 MaxAudioBeatPulsePercent);
+        }
+
+        /// <summary>
+        /// Gets the effective audio beat-pulse release for a user. A missing override
+        /// inherits the global setting; invalid hand-edited values are clamped for
+        /// runtime continuity.
+        /// </summary>
+        public int GetAudioBeatPulseDecayPercentForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return Math.Clamp(
+                mapping?.AudioBeatPulseDecayPercentOverride ?? AudioBeatPulseDecayPercent,
+                MinAudioBeatPulseDecayPercent,
+                MaxAudioBeatPulseDecayPercent);
         }
 
         /// <summary>
@@ -1368,6 +1393,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.AudioBeatPulsePercentOverride.Value > MaxAudioBeatPulsePercent))
             {
                 errors.Add($"{label} audio beat pulse override must be between {MinAudioBeatPulsePercent} and {MaxAudioBeatPulsePercent} percent");
+            }
+            if (mapping.AudioBeatPulseDecayPercentOverride.HasValue &&
+                (mapping.AudioBeatPulseDecayPercentOverride.Value < MinAudioBeatPulseDecayPercent ||
+                 mapping.AudioBeatPulseDecayPercentOverride.Value > MaxAudioBeatPulseDecayPercent))
+            {
+                errors.Add($"{label} audio beat pulse decay override must be between {MinAudioBeatPulseDecayPercent} and {MaxAudioBeatPulseDecayPercent} percent");
             }
             var audioColorPaletteOverride = mapping.AudioColorPaletteOverride?.Trim();
             if (!string.IsNullOrWhiteSpace(audioColorPaletteOverride) &&
@@ -2388,6 +2419,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (AudioBeatPulsePercent < MinAudioBeatPulsePercent || AudioBeatPulsePercent > MaxAudioBeatPulsePercent)
                     errors.Add($"Audio beat pulse must be between {MinAudioBeatPulsePercent} and {MaxAudioBeatPulsePercent} percent");
+
+                if (AudioBeatPulseDecayPercent < MinAudioBeatPulseDecayPercent || AudioBeatPulseDecayPercent > MaxAudioBeatPulseDecayPercent)
+                    errors.Add($"Audio beat pulse decay must be between {MinAudioBeatPulseDecayPercent} and {MaxAudioBeatPulseDecayPercent} percent");
 
                 if (!TryNormalizeAudioColorPalette(AudioColorPalette, out _))
                     errors.Add("Audio color palette must be Spectrum, Band, Warm, Cool, or Monochrome");

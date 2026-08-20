@@ -1418,6 +1418,24 @@ public class PluginConfigurationTests
         Assert.Contains("Audio beat pulse must be between 0 and 100 percent", config.Validate());
     }
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void Validate_WhenAudioBeatPulseDecayOutOfRange_ReturnsError(int decay)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            AudioBeatPulseDecayPercent = decay
+        };
+
+        Assert.Contains("Audio beat pulse decay must be between 0 and 100 percent", config.Validate());
+    }
+
     [Fact]
     public void Validate_WhenAudioColorPaletteIsInvalid_ReturnsError()
     {
@@ -1803,6 +1821,7 @@ public class PluginConfigurationTests
         Assert.Equal(PluginConfiguration.DefaultAudioHighFrequencyHz, config.AudioHighFrequencyHz);
         Assert.Equal(PluginConfiguration.DefaultAudioBandSpreadPercent, config.AudioBandSpreadPercent);
         Assert.Equal(PluginConfiguration.DefaultAudioBeatPulsePercent, config.AudioBeatPulsePercent);
+        Assert.Equal(PluginConfiguration.DefaultAudioBeatPulseDecayPercent, config.AudioBeatPulseDecayPercent);
         Assert.Equal(PluginConfiguration.AudioColorPaletteSpectrum, config.AudioColorPalette);
         Assert.Equal(PluginConfiguration.AudioSpatialModeSpatial, config.AudioSpatialMode);
         Assert.Equal(PluginConfiguration.AudioChannelModeMono, config.AudioChannelMode);
@@ -2578,6 +2597,33 @@ public class PluginConfigurationTests
 
         config.UserMappings[0].AudioBeatPulsePercentOverride = -1;
         Assert.Equal(PluginConfiguration.MinAudioBeatPulsePercent, config.GetAudioBeatPulsePercentForUser(userId));
+    }
+
+    [Fact]
+    public void GetAudioBeatPulseDecayPercentForUser_UsesOverrideAndClampsInvalidValues()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            AudioBeatPulseDecayPercent = 20,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    AudioBeatPulseDecayPercentOverride = 60
+                }
+            }
+        };
+
+        Assert.Equal(60, config.GetAudioBeatPulseDecayPercentForUser(userId));
+        Assert.Equal(20, config.GetAudioBeatPulseDecayPercentForUser(System.Guid.NewGuid()));
+
+        config.UserMappings[0].AudioBeatPulseDecayPercentOverride = 999;
+        Assert.Equal(PluginConfiguration.MaxAudioBeatPulseDecayPercent, config.GetAudioBeatPulseDecayPercentForUser(userId));
+
+        config.UserMappings[0].AudioBeatPulseDecayPercentOverride = -1;
+        Assert.Equal(PluginConfiguration.MinAudioBeatPulseDecayPercent, config.GetAudioBeatPulseDecayPercentForUser(userId));
     }
 
     [Fact]
