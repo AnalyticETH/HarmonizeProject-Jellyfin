@@ -3750,6 +3750,7 @@ public sealed class HueApiControllerTests : IDisposable
             Name = " Evening Cue ",
             PresetName = "evening",
             Priority = 42,
+            PlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
             TargetUserId = "user-1",
             TimeOfDay = "07:05",
             TimeZoneId = TimeZoneInfo.Utc.Id,
@@ -3767,6 +3768,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(savedResult.Id));
         Assert.Equal("Living Room", savedResult.TargetLabel);
         Assert.Equal(42, savedResult.Priority);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, savedResult.PlaybackPolicy);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, savedResult.EffectivePlaybackPolicy);
         Assert.Equal("07:05", savedResult.TimeOfDay);
         Assert.Equal(TimeZoneInfo.Utc.Id, savedResult.TimeZoneId);
         Assert.Equal("2026-08-01", savedResult.StartDate);
@@ -3781,6 +3784,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(new[] { "2026-12-24", "2026-12-31" }, configuration.SceneSchedules[0].ExcludedDates);
         Assert.Equal(12, configuration.SceneSchedules[0].DurationSeconds);
         Assert.Equal(42, configuration.SceneSchedules[0].Priority);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, configuration.SceneSchedules[0].PlaybackPolicy);
         Assert.Single(configuration.SceneSchedules);
 
         var updated = controller.SaveSceneSchedule(new HueSceneScheduleRequest
@@ -3798,6 +3802,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(3, configuration.SceneSchedules[0].MaxRuns);
         Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
         Assert.Equal(42, configuration.SceneSchedules[0].Priority);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, configuration.SceneSchedules[0].PlaybackPolicy);
 
         var list = controller.GetSceneSchedules();
         var listResponse = Assert.IsType<OkObjectResult>(list.Result);
@@ -7252,6 +7257,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Name = "Morning cue",
                     PresetName = "Accent",
                     Priority = 55,
+                    PlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
                     TimeOfDay = "08:15",
                     StartDate = "2026-08-01",
                     EndDate = "2026-12-31",
@@ -7302,6 +7308,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Single(document.SceneSchedules);
         Assert.Equal("Morning cue", document.SceneSchedules[0].Name);
         Assert.Equal(55, document.SceneSchedules[0].Priority);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, document.SceneSchedules[0].PlaybackPolicy);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, document.SceneSchedules[0].EffectivePlaybackPolicy);
         Assert.Equal("2026-08-01", document.SceneSchedules[0].StartDate);
         Assert.Equal("2026-12-31", document.SceneSchedules[0].EndDate);
         Assert.Equal(new[] { "2026-12-24" }, document.SceneSchedules[0].ExcludedDates);

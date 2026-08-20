@@ -175,6 +175,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// default ordering; higher values run first, up to the configured maximum.
         /// </summary>
         public int Priority { get; set; }
+        /// <summary>
+        /// Optional playback-conflict policy for this cue. Inherit keeps the global scene
+        /// automation policy; Skip and Defer allow an individual cue to override it.
+        /// </summary>
+        public string PlaybackPolicy { get; set; } = PluginConfiguration.SceneAutomationPlaybackPolicyInherit;
         public string TargetUserId { get; set; } = string.Empty;
         /// <summary>
         /// Optional explicit user-mapping targets for a selected-target cue. When populated,
@@ -482,6 +487,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string SceneScheduleEffectPlaylist = "Playlist";
         public const string SceneAutomationPlaybackPolicySkip = "Skip";
         public const string SceneAutomationPlaybackPolicyDefer = "Defer";
+        public const string SceneAutomationPlaybackPolicyInherit = "Inherit";
         public const int MinPreviewDurationSeconds = 1;
         public const int MaxPreviewDurationSeconds = 30;
         public const int MinColorPresetTransitionSeconds = 0;
@@ -558,6 +564,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
         private static readonly string[] SceneAutomationPlaybackPolicies =
         {
+            SceneAutomationPlaybackPolicySkip,
+            SceneAutomationPlaybackPolicyDefer
+        };
+
+        private static readonly string[] SceneAutomationSchedulePlaybackPolicies =
+        {
+            SceneAutomationPlaybackPolicyInherit,
             SceneAutomationPlaybackPolicySkip,
             SceneAutomationPlaybackPolicyDefer
         };
@@ -651,6 +664,30 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (match == null)
             {
                 normalized = SceneAutomationPlaybackPolicySkip;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the canonical per-cue playback policy. Blank values inherit the global
+        /// policy so schedules written before per-cue overrides remain backward compatible.
+        /// </summary>
+        public static bool TryNormalizeSceneAutomationSchedulePlaybackPolicy(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = SceneAutomationPlaybackPolicyInherit;
+                return true;
+            }
+
+            var match = SceneAutomationSchedulePlaybackPolicies.FirstOrDefault(policy =>
+                string.Equals(policy, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = SceneAutomationPlaybackPolicyInherit;
                 return false;
             }
 
@@ -2107,6 +2144,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
             {
                 errors.Add($"{label} priority must be between {MinSceneSchedulePriority} and {MaxSceneSchedulePriority}");
             }
+
+            if (!TryNormalizeSceneAutomationSchedulePlaybackPolicy(schedule.PlaybackPolicy, out _))
+                errors.Add($"{label} playback policy must be Inherit, Skip, or Defer");
 
             if (!TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
                 errors.Add($"{label} time must use 24-hour HH:mm format");

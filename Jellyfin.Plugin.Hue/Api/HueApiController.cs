@@ -615,6 +615,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetName = schedule.PresetName,
                 PlaylistName = schedule.PlaylistName,
                 Priority = schedule.Priority,
+                PlaybackPolicy = HueSceneAutomationService.NormalizeSchedulePlaybackPolicy(schedule.PlaybackPolicy),
+                EffectivePlaybackPolicy = HueSceneAutomationService.GetEffectivePlaybackPolicy(config, schedule),
                 Effect = effect,
                 EffectSpeedPercent = isPlaylist || preset == null
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
@@ -672,6 +674,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetName = schedule.PresetName,
                 PlaylistName = schedule.PlaylistName,
                 Priority = schedule.Priority,
+                PlaybackPolicy = schedule.PlaybackPolicy,
                 TargetUserId = schedule.TargetUserId,
                 TargetUserIds = schedule.TargetUserIds?.ToList() ?? new List<string>(),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
@@ -3893,6 +3896,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.RunCount = candidateSchedules[existingIndex].RunCount;
                 if (!request.Priority.HasValue)
                     schedule.Priority = candidateSchedules[existingIndex].Priority;
+                if (request.PlaybackPolicy == null)
+                    schedule.PlaybackPolicy = candidateSchedules[existingIndex].PlaybackPolicy;
                 if (!request.TargetAllEnabledMappings.HasValue)
                     schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
                 if (request.TargetUserIds == null)
@@ -6578,6 +6583,8 @@ namespace Jellyfin.Plugin.Hue.Api
                         schedule.RunCount = candidateSchedules[existingIndex].RunCount;
                     if (scheduleRequest != null && !scheduleRequest.Priority.HasValue)
                         schedule.Priority = candidateSchedules[existingIndex].Priority;
+                    if (scheduleRequest != null && scheduleRequest.PlaybackPolicy == null)
+                        schedule.PlaybackPolicy = candidateSchedules[existingIndex].PlaybackPolicy;
                     if (scheduleRequest != null && !scheduleRequest.TargetAllEnabledMappings.HasValue)
                         schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
                     if (scheduleRequest?.TargetUserIds == null)
@@ -9278,6 +9285,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("priority")]
         public int? Priority { get; set; }
 
+        [JsonPropertyName("playbackPolicy")]
+        public string? PlaybackPolicy { get; set; }
+
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
 
@@ -9353,6 +9363,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetName = PresetName?.Trim() ?? string.Empty,
                 PlaylistName = PlaylistName?.Trim() ?? string.Empty,
                 Priority = Priority ?? PluginConfiguration.MinSceneSchedulePriority,
+                PlaybackPolicy = string.IsNullOrWhiteSpace(PlaybackPolicy)
+                    ? PluginConfiguration.SceneAutomationPlaybackPolicyInherit
+                    : PlaybackPolicy.Trim(),
                 TargetUserId = TargetUserId?.Trim() ?? string.Empty,
                 TargetUserIds = (TargetUserIds ?? new List<string>())
                     .Select(value => value?.Trim() ?? string.Empty)
@@ -9666,6 +9679,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("priority")]
         public int Priority { get; set; }
+
+        [JsonPropertyName("playbackPolicy")]
+        public string PlaybackPolicy { get; set; } = PluginConfiguration.SceneAutomationPlaybackPolicyInherit;
+
+        [JsonPropertyName("effectivePlaybackPolicy")]
+        public string EffectivePlaybackPolicy { get; set; } = PluginConfiguration.SceneAutomationPlaybackPolicySkip;
 
         [JsonPropertyName("effect")]
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;

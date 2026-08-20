@@ -441,7 +441,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene or an ordered saved-scene playlist automatically at a chosen wall-clock time and time zone. Playlist cues run each saved scene in order for the playlist's repeat passes and keep every scene's own duration and effect; their pass count and total duration are shown in status, calendar, and history. The saved scene's effect and 25-400% animation speed are inherited by every single-scene cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) for the saved scene or playlist; a 1-30 second override is available only for single-scene cues. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, or multi-select a deliberate subset of enabled mappings and optionally the default bridge; each selected target is validated and reported without exposing credentials. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene or an ordered saved-scene playlist automatically at a chosen wall-clock time and time zone. Playlist cues run each saved scene in order for the playlist's repeat passes and keep every scene's own duration and effect; their pass count and total duration are shown in status, calendar, and history. The saved scene's effect and 25-400% animation speed are inherited by every single-scene cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) for the saved scene or playlist; a 1-30 second override is available only for single-scene cues. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Choose a playback policy per cue: <strong>Inherit global policy</strong> keeps the scheduler-wide setting, while Skip or Defer overrides it for this cue only. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, or multi-select a deliberate subset of enabled mappings and optionally the default bridge; each selected target is validated and reported without exposing credentials. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -521,6 +521,15 @@
                                 <label class="inputLabel inputLabelUnfocused" for="sceneSchedulePriority">Priority</label>
                                 <input id="sceneSchedulePriority" type="number" min="0" max="100" value="0" is="emby-input" />
                                 <div class="fieldDescription">0-100; higher-priority cues run first when due together. Equal priorities keep saved order.</div>
+                            </div>
+                            <div style="flex: 0 1 190px;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneSchedulePlaybackPolicy">Playback conflict</label>
+                                <select id="sceneSchedulePlaybackPolicy" is="emby-select" style="width: 100%;">
+                                    <option value="Inherit">Inherit global policy</option>
+                                    <option value="Skip">Skip this cue</option>
+                                    <option value="Defer">Defer this cue</option>
+                                </select>
+                                <div class="fieldDescription">Override the global playback policy for this cue only.</div>
                             </div>
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleRecurrence">Recurrence</label>
@@ -4969,6 +4978,8 @@
                             var playlist = HueConfigurationPage.readStatusField(schedule, "PlaylistName", "");
                             var contentName = playlist || preset;
                             var priority = HueConfigurationPage.readStatusField(schedule, "Priority", 0);
+                            var playbackPolicy = HueConfigurationPage.readStatusField(schedule, "PlaybackPolicy", "Skip");
+                            var playbackPolicyOverride = HueConfigurationPage.readStatusField(schedule, "PlaybackPolicyOverride", "Inherit");
                             var effect = HueConfigurationPage.readStatusField(schedule, "Effect", "Solid");
                             var effectSpeed = HueConfigurationPage.readStatusField(schedule, "EffectSpeedPercent", 100);
                             var duration = HueConfigurationPage.readStatusField(schedule, "DurationSeconds", 0);
@@ -5040,7 +5051,7 @@
                             var transitionLabel = (Number(transition) > 0 || Number(transitionOut) > 0)
                                 ? " · fade " + Number(transition || 0) + "s/" + Number(transitionOut || 0) + "s"
                                 : "";
-                            addCell(String(contentName) + (playlist ? " · " + Number(playlistStepCount || 0) + " steps × " + Number(playlistRepeatCount || 1) + " pass" + (Number(playlistRepeatCount || 1) === 1 ? "" : "es") : "") + " · " + String(effect) + " · speed " + String(Number(effectSpeed || 100)) + "% · " + String(time) + " · " + String(duration || 0) + "s" + transitionLabel + (Number(priority || 0) > 0 ? " · priority " + String(Number(priority)) : "") + " · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
+                            addCell(String(contentName) + (playlist ? " · " + Number(playlistStepCount || 0) + " steps × " + Number(playlistRepeatCount || 1) + " pass" + (Number(playlistRepeatCount || 1) === 1 ? "" : "es") : "") + " · " + String(effect) + " · speed " + String(Number(effectSpeed || 100)) + "% · " + String(time) + " · " + String(duration || 0) + "s" + transitionLabel + (Number(priority || 0) > 0 ? " · priority " + String(Number(priority)) : "") + " · playback " + String(playbackPolicy) + (String(playbackPolicyOverride).toLowerCase() !== "inherit" ? " (override)" : "") + " · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
                             addCell(deferredPending
@@ -5917,6 +5928,7 @@
                     page.querySelector('#sceneScheduleDuration').value = get('DurationSeconds', 'durationSeconds', 0) || '';
                     page.querySelector('#sceneScheduleMaxRuns').value = get('MaxRuns', 'maxRuns', 0) || '';
                     page.querySelector('#sceneSchedulePriority').value = get('Priority', 'priority', 0) || '0';
+                    page.querySelector('#sceneSchedulePlaybackPolicy').value = get('PlaybackPolicy', 'playbackPolicy', 'Inherit') || 'Inherit';
                     page.querySelector('#sceneScheduleRecurrence').value = get('Recurrence', 'recurrence', 'Weekly') || 'Weekly';
                     page.querySelector('#sceneScheduleRecurrenceInterval').value = get('RecurrenceInterval', 'recurrenceInterval', 1) || '1';
                     page.querySelector('#sceneScheduleDayOfMonth').value = get('DayOfMonth', 'dayOfMonth', 0) || '';
@@ -5985,6 +5997,7 @@
                     page.querySelector('#sceneScheduleDuration').value = '';
                     page.querySelector('#sceneScheduleMaxRuns').value = '';
                     page.querySelector('#sceneSchedulePriority').value = '0';
+                    page.querySelector('#sceneSchedulePlaybackPolicy').value = 'Inherit';
                     page.querySelector('#sceneScheduleRecurrence').value = 'Weekly';
                     page.querySelector('#sceneScheduleRecurrenceInterval').value = '1';
                     page.querySelector('#sceneScheduleDayOfMonth').value = '';
@@ -6019,6 +6032,7 @@
                     var maxRuns = maxRunsText ? Number(maxRunsText) : 0;
                     var priorityText = page.querySelector('#sceneSchedulePriority').value.trim();
                     var priority = priorityText ? Number(priorityText) : 0;
+                    var playbackPolicy = page.querySelector('#sceneSchedulePlaybackPolicy').value || 'Inherit';
                     var recurrence = page.querySelector('#sceneScheduleRecurrence').value || 'Weekly';
                     var recurrenceIntervalText = page.querySelector('#sceneScheduleRecurrenceInterval').value.trim();
                     var recurrenceInterval = recurrenceIntervalText ? Number(recurrenceIntervalText) : 1;
@@ -6140,6 +6154,7 @@
                             durationSeconds: durationSeconds,
                             maxRuns: maxRuns,
                             priority: priority,
+                            playbackPolicy: playbackPolicy,
                             recurrence: recurrence,
                             recurrenceInterval: recurrenceInterval,
                             dayOfMonth: dayOfMonth,

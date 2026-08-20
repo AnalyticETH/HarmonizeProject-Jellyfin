@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.177] - 2026-08-20
+
+### Added
+- **Per-cue playback conflict overrides**: each scheduled cue can inherit the global Skip/Defer policy or explicitly choose Skip or bounded Defer without changing other cues
+- **Effective policy telemetry**: schedule API results, runtime status, configuration UI, and credential-safe import/export expose both the persisted override and the effective policy
+
+### Reliability
+- **Policy-aware deferred-state cleanup**: persisted deferred occurrences are retained only for enabled cues whose effective policy is Defer, preventing stale waits after a cue-level policy change
+- **Regression coverage**: verify per-cue policy validation, API round trips, global inheritance, override queueing, and override skip behavior
+
 ## [1.5.176] - 2026-08-20
 
 ### Added
