@@ -207,6 +207,97 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void AnalyzeAudioChannelSamples_PreservesStereoSourceEnergy()
+    {
+        const int sampleRate = 8000;
+        const int sampleCount = 8000;
+        var pcm = new byte[sampleCount * 2 * 2];
+        for (var index = 0; index < sampleCount; index++)
+        {
+            var left = (short)(Math.Sin(2 * Math.PI * 700 * index / sampleRate) * 16000);
+            var right = (short)(Math.Sin(2 * Math.PI * 1800 * index / sampleRate) * 16000);
+            var offset = index * 4;
+            pcm[offset] = (byte)(left & 0xff);
+            pcm[offset + 1] = (byte)((left >> 8) & 0xff);
+            pcm[offset + 2] = (byte)(right & 0xff);
+            pcm[offset + 3] = (byte)((right >> 8) & 0xff);
+        }
+
+        var analysis = HueSyncService.AnalyzeAudioChannelSamples(
+            pcm,
+            pcm.Length,
+            sampleRate,
+            channels: 2,
+            lowFrequencyHz: 70,
+            midFrequencyHz: 700,
+            highFrequencyHz: 1800);
+
+        Assert.True(analysis.LeftMid > 0.4);
+        Assert.True(analysis.RightHigh > 0.4);
+        Assert.True(analysis.LeftHigh < 0.1);
+        Assert.True(analysis.RightMid < 0.1);
+        Assert.Equal(analysis.MixedEnergy, HueSyncService.AnalyzeAudioSamples(
+            pcm,
+            pcm.Length,
+            sampleRate,
+            channels: 2,
+            lowFrequencyHz: 70,
+            midFrequencyHz: 700,
+            highFrequencyHz: 1800));
+    }
+
+    [Fact]
+    public void BuildAudioChannelColors_UsesStereoSourceOnlyForSpatialRouting()
+    {
+        const int sampleRate = 8000;
+        const int sampleCount = 8000;
+        var pcm = new byte[sampleCount * 2 * 2];
+        for (var index = 0; index < sampleCount; index++)
+        {
+            var left = (short)(Math.Sin(2 * Math.PI * 700 * index / sampleRate) * 16000);
+            var right = (short)(Math.Sin(2 * Math.PI * 1800 * index / sampleRate) * 16000);
+            var offset = index * 4;
+            pcm[offset] = (byte)(left & 0xff);
+            pcm[offset + 1] = (byte)((left >> 8) & 0xff);
+            pcm[offset + 2] = (byte)(right & 0xff);
+            pcm[offset + 3] = (byte)((right >> 8) & 0xff);
+        }
+
+        var analysis = HueSyncService.AnalyzeAudioChannelSamples(
+            pcm,
+            pcm.Length,
+            sampleRate,
+            channels: 2,
+            lowFrequencyHz: 70,
+            midFrequencyHz: 700,
+            highFrequencyHz: 1800);
+        var lights = new Dictionary<int, (double x, double z)>
+        {
+            [1] = (-1, 0),
+            [2] = (1, 0)
+        };
+        var stereo = HueSyncService.BuildAudioChannelColors(
+            lights,
+            analysis.MixedEnergy,
+            frameIndex: 5,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeSpatial,
+            audioChannelMode: PluginConfiguration.AudioChannelModeStereo,
+            audioChannelAnalysis: analysis);
+        var uniform = HueSyncService.BuildAudioChannelColors(
+            lights,
+            analysis.MixedEnergy,
+            frameIndex: 5,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeUniform,
+            audioChannelMode: PluginConfiguration.AudioChannelModeStereo,
+            audioChannelAnalysis: analysis);
+
+        Assert.NotEqual(stereo[1], stereo[2]);
+        Assert.Equal(uniform[1], uniform[2]);
+    }
+
+    [Fact]
     public void CalculateAudioBeatPulse_RespondsOnlyToRisingEnergy()
     {
         var previous = (Rms: 0.2, Low: 0.1, Mid: 0.2, High: 0.3);
@@ -659,6 +750,38 @@ public sealed class HueSyncServiceTests
         Assert.Equal(
             PluginConfiguration.AudioSpatialModeSpatial,
             HueSyncService.ResolveAudioSpatialMode(configuration, userId));
+    }
+
+    [Fact]
+    public void ResolveAudioChannelMode_UsesPerUserOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioChannelMode = PluginConfiguration.AudioChannelModeStereo,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString(), AudioChannelModeOverride = PluginConfiguration.AudioChannelModeMono }
+            }
+        };
+
+        Assert.Equal(
+            PluginConfiguration.AudioChannelModeMono,
+            HueSyncService.ResolveAudioChannelMode(configuration, userId));
+        Assert.Equal(
+            PluginConfiguration.AudioChannelModeStereo,
+            HueSyncService.ResolveAudioChannelMode(configuration, System.Guid.NewGuid()));
+
+        configuration.UserMappings[0].AudioChannelModeOverride = "invalid";
+        Assert.Equal(
+            PluginConfiguration.AudioChannelModeStereo,
+            HueSyncService.ResolveAudioChannelMode(configuration, userId));
+
+        configuration.UserMappings.Clear();
+        configuration.AudioChannelMode = "invalid";
+        Assert.Equal(
+            PluginConfiguration.AudioChannelModeMono,
+            HueSyncService.ResolveAudioChannelMode(configuration, userId));
     }
 
     [Fact]

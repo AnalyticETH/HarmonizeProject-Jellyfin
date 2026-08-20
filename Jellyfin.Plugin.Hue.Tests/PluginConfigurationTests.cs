@@ -1408,6 +1408,22 @@ public class PluginConfigurationTests
         Assert.Contains("Audio spatial mode must be Spatial, Uniform, or Mirror", config.Validate());
     }
 
+    [Fact]
+    public void Validate_WhenAudioChannelModeIsInvalid_ReturnsError()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            AudioChannelMode = "InvalidMode"
+        };
+
+        Assert.Contains("Audio channel mode must be Mono or Stereo", config.Validate());
+    }
+
     [Theory]
     [InlineData(19, 420, 1600)]
     [InlineData(90, 420, 3901)]
@@ -1747,6 +1763,7 @@ public class PluginConfigurationTests
         Assert.Equal(PluginConfiguration.DefaultAudioBeatPulsePercent, config.AudioBeatPulsePercent);
         Assert.Equal(PluginConfiguration.AudioColorPaletteSpectrum, config.AudioColorPalette);
         Assert.Equal(PluginConfiguration.AudioSpatialModeSpatial, config.AudioSpatialMode);
+        Assert.Equal(PluginConfiguration.AudioChannelModeMono, config.AudioChannelMode);
         Assert.Equal(PluginConfiguration.FrameResolutionStandard, config.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeStretch, config.VideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOff, config.VideoDeinterlaceMode);
@@ -2575,6 +2592,59 @@ public class PluginConfigurationTests
         config.UserMappings.Clear();
         config.AudioSpatialMode = "invalid";
         Assert.Equal(PluginConfiguration.AudioSpatialModeSpatial, config.GetAudioSpatialModeForUser(userId));
+    }
+
+    [Fact]
+    public void GetAudioChannelModeForUser_UsesOverrideAndFallsBackSafely()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            AudioChannelMode = PluginConfiguration.AudioChannelModeStereo,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    AudioChannelModeOverride = PluginConfiguration.AudioChannelModeMono
+                }
+            }
+        };
+
+        Assert.Equal(PluginConfiguration.AudioChannelModeMono, config.GetAudioChannelModeForUser(userId));
+        Assert.Equal(PluginConfiguration.AudioChannelModeStereo, config.GetAudioChannelModeForUser(System.Guid.NewGuid()));
+
+        config.UserMappings[0].AudioChannelModeOverride = "invalid";
+        Assert.Equal(PluginConfiguration.AudioChannelModeStereo, config.GetAudioChannelModeForUser(userId));
+
+        config.UserMappings.Clear();
+        config.AudioChannelMode = "invalid";
+        Assert.Equal(PluginConfiguration.AudioChannelModeMono, config.GetAudioChannelModeForUser(userId));
+    }
+
+    [Fact]
+    public void ValidatePerformanceOverrides_WhenAudioChannelModeIsInvalid_ReturnsError()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    AudioChannelModeOverride = "InvalidMode"
+                }
+            }
+        };
+
+        Assert.Contains(
+            "User mapping 1 audio channel mode override must be Mono or Stereo",
+            config.Validate());
     }
 
     [Fact]

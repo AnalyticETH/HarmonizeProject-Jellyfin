@@ -5242,6 +5242,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveAudioBeatPulsePercent = runtime?.ActiveAudioBeatPulsePercent,
                 ActiveAudioColorPalette = runtime?.ActiveAudioColorPalette,
                 ActiveAudioSpatialMode = runtime?.ActiveAudioSpatialMode,
+                ActiveAudioChannelMode = runtime?.ActiveAudioChannelMode,
                 ActiveFrameResolution = runtime?.ActiveFrameResolution,
                 ActiveVideoScalingMode = runtime?.ActiveVideoScalingMode,
                 ActiveVideoDeinterlaceMode = runtime?.ActiveVideoDeinterlaceMode,
@@ -6856,7 +6857,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 AudioBandSpreadPercentOverride = source.AudioBandSpreadPercentOverride,
                 AudioBeatPulsePercentOverride = source.AudioBeatPulsePercentOverride,
                 AudioColorPaletteOverride = PluginConfiguration.NormalizeOptionalAudioColorPalette(source.AudioColorPaletteOverride),
-                AudioSpatialModeOverride = PluginConfiguration.NormalizeOptionalAudioSpatialMode(source.AudioSpatialModeOverride)
+                AudioSpatialModeOverride = PluginConfiguration.NormalizeOptionalAudioSpatialMode(source.AudioSpatialModeOverride),
+                AudioChannelModeOverride = PluginConfiguration.NormalizeOptionalAudioChannelMode(source.AudioChannelModeOverride)
             };
 
             preservedCredentialPair = false;
@@ -7656,6 +7658,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int AudioBeatPulsePercent { get; set; } = PluginConfiguration.DefaultAudioBeatPulsePercent;
         public string AudioColorPalette { get; set; } = PluginConfiguration.AudioColorPaletteSpectrum;
         public string AudioSpatialMode { get; set; } = PluginConfiguration.AudioSpatialModeSpatial;
+        public string AudioChannelMode { get; set; } = PluginConfiguration.AudioChannelModeMono;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = PluginConfiguration.FrameResolutionStandard;
         public string VideoScalingMode { get; set; } = PluginConfiguration.VideoScalingModeStretch;
@@ -7706,6 +7709,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AudioBeatPulsePercent = config.AudioBeatPulsePercent,
                 AudioColorPalette = config.AudioColorPalette,
                 AudioSpatialMode = config.AudioSpatialMode,
+                AudioChannelMode = config.AudioChannelMode,
                 TargetFps = config.TargetFps,
                 FrameResolution = config.FrameResolution,
                 VideoScalingMode = config.VideoScalingMode,
@@ -7775,6 +7779,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.AudioBeatPulsePercent = AudioBeatPulsePercent;
             config.AudioColorPalette = AudioColorPalette?.Trim() ?? PluginConfiguration.AudioColorPaletteSpectrum;
             config.AudioSpatialMode = AudioSpatialMode?.Trim() ?? PluginConfiguration.AudioSpatialModeSpatial;
+            config.AudioChannelMode = AudioChannelMode?.Trim() ?? PluginConfiguration.AudioChannelModeMono;
             config.TargetFps = TargetFps;
             config.FrameResolution = FrameResolution?.Trim() ?? PluginConfiguration.FrameResolutionStandard;
             config.VideoScalingMode = VideoScalingMode?.Trim() ?? PluginConfiguration.VideoScalingModeStretch;
@@ -7827,6 +7832,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? AudioBeatPulsePercentOverride { get; set; }
         public string? AudioColorPaletteOverride { get; set; }
         public string? AudioSpatialModeOverride { get; set; }
+        public string? AudioChannelModeOverride { get; set; }
         public int? BrightnessBoostOverride { get; set; }
         public int? RedGainOverride { get; set; }
         public int? GreenGainOverride { get; set; }
@@ -7875,6 +7881,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AudioBeatPulsePercentOverride = mapping.AudioBeatPulsePercentOverride,
                 AudioColorPaletteOverride = mapping.AudioColorPaletteOverride,
                 AudioSpatialModeOverride = mapping.AudioSpatialModeOverride,
+                AudioChannelModeOverride = mapping.AudioChannelModeOverride,
                 BrightnessBoostOverride = mapping.BrightnessBoostOverride,
                 RedGainOverride = mapping.RedGainOverride,
                 GreenGainOverride = mapping.GreenGainOverride,
@@ -9877,6 +9884,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ActiveAudioBeatPulsePercent { get; set; }
         public string? ActiveAudioColorPalette { get; set; }
         public string? ActiveAudioSpatialMode { get; set; }
+        public string? ActiveAudioChannelMode { get; set; }
         public string? ActiveFrameResolution { get; set; }
         public string? ActiveVideoScalingMode { get; set; }
         public string? ActiveVideoDeinterlaceMode { get; set; }

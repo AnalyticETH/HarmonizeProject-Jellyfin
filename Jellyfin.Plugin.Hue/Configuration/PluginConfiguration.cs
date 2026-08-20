@@ -51,6 +51,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? AudioBeatPulsePercentOverride { get; set; }
         public string? AudioColorPaletteOverride { get; set; }
         public string? AudioSpatialModeOverride { get; set; }
+        public string? AudioChannelModeOverride { get; set; }
         public int? TargetFpsOverride { get; set; }
         public string? FrameResolutionOverride { get; set; }
         public string? VideoScalingModeOverride { get; set; }
@@ -392,6 +393,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string AudioSpatialModeSpatial = "Spatial";
         public const string AudioSpatialModeUniform = "Uniform";
         public const string AudioSpatialModeMirror = "Mirror";
+        public const string AudioChannelModeMono = "Mono";
+        public const string AudioChannelModeStereo = "Stereo";
 
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
@@ -517,6 +520,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             AudioSpatialModeSpatial,
             AudioSpatialModeUniform,
             AudioSpatialModeMirror
+        };
+
+        private static readonly string[] AudioChannelModes =
+        {
+            AudioChannelModeMono,
+            AudioChannelModeStereo
         };
 
         /// <summary>
@@ -661,6 +670,45 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Returns the canonical spelling for a supported audio source-channel mode.
+        /// Blank values preserve the legacy mono mix behavior.
+        /// </summary>
+        public static bool TryNormalizeAudioChannelMode(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = AudioChannelModeMono;
+                return true;
+            }
+
+            var match = AudioChannelModes.FirstOrDefault(mode =>
+                string.Equals(mode, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = AudioChannelModeMono;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
+        /// Normalizes an optional per-user audio source-channel mode while preserving
+        /// invalid text for configuration validation feedback. Blank values become null
+        /// so inheritance remains explicit in persisted mapping profiles.
+        /// </summary>
+        public static string? NormalizeOptionalAudioChannelMode(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            return TryNormalizeAudioChannelMode(value, out var normalized)
+                ? normalized
+                : value.Trim();
+        }
+
+        /// <summary>
         /// Clamps persisted or telemetry-only effect speed values to the supported range.
         /// Request and configuration validation still rejects out-of-range user input.
         /// </summary>
@@ -789,6 +837,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// mixed response to every channel, and Mirror produces a symmetric room pattern.
         /// </summary>
         public string AudioSpatialMode { get; set; } = AudioSpatialModeSpatial;
+        /// <summary>
+        /// Selects whether stereo PCM is mixed to mono (legacy default) or its left/right
+        /// source energy is preserved for physical channel placement during audio playback.
+        /// </summary>
+        public string AudioChannelMode { get; set; } = AudioChannelModeMono;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = FrameResolutionStandard;
         public string VideoScalingMode { get; set; } = VideoScalingModeStretch;
@@ -929,6 +982,24 @@ namespace Jellyfin.Plugin.Hue.Configuration
             return TryNormalizeAudioSpatialMode(AudioSpatialMode, out var normalizedGlobal)
                 ? normalizedGlobal
                 : AudioSpatialModeSpatial;
+        }
+
+        /// <summary>
+        /// Gets the effective audio source-channel mode for a user. Blank overrides inherit
+        /// the global mode; invalid hand-edited values fall back safely while validation
+        /// reports the bad value.
+        /// </summary>
+        public string GetAudioChannelModeForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var overrideMode = NormalizeOptionalAudioChannelMode(mapping?.AudioChannelModeOverride);
+            if (overrideMode != null && TryNormalizeAudioChannelMode(overrideMode, out var normalizedOverride))
+                return normalizedOverride;
+
+            return TryNormalizeAudioChannelMode(AudioChannelMode, out var normalizedGlobal)
+                ? normalizedGlobal
+                : AudioChannelModeMono;
         }
 
         /// <summary>
@@ -1284,6 +1355,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 !TryNormalizeAudioSpatialMode(audioSpatialModeOverride, out _))
             {
                 errors.Add($"{label} audio spatial mode override must be Spatial, Uniform, or Mirror");
+            }
+            var audioChannelModeOverride = mapping.AudioChannelModeOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(audioChannelModeOverride) &&
+                !TryNormalizeAudioChannelMode(audioChannelModeOverride, out _))
+            {
+                errors.Add($"{label} audio channel mode override must be Mono or Stereo");
             }
             if (mapping.AudioLowFrequencyHzOverride.HasValue &&
                 mapping.AudioMidFrequencyHzOverride.HasValue &&
@@ -2248,6 +2325,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (!TryNormalizeAudioSpatialMode(AudioSpatialMode, out _))
                     errors.Add("Audio spatial mode must be Spatial, Uniform, or Mirror");
+
+                if (!TryNormalizeAudioChannelMode(AudioChannelMode, out _))
+                    errors.Add("Audio channel mode must be Mono or Stereo");
 
                 if (!string.Equals(FrameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(FrameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&
