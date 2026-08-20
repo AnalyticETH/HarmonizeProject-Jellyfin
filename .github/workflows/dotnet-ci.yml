@@ -7,6 +7,10 @@ on:
     branches: [ main, master, develop ]
   workflow_dispatch:
 
+concurrency:
+  group: jellyfin-hue-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   DOTNET_VERSION: '8.0.x'
   BUILD_CONFIGURATION: 'Release'
@@ -227,6 +231,25 @@ jobs:
         echo "tag=v$VERSION" >> $GITHUB_OUTPUT
         echo "Detected version: $VERSION"
 
+    - name: Check whether release tag already exists
+      id: release_tag
+      run: |
+        set -euo pipefail
+        TAG="${{ steps.version.outputs.tag }}"
+        if git ls-remote --exit-code --refs origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+          echo "Release tag ${TAG} already exists; this push will not replace it."
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          echo "Release tag ${TAG} is not present; a new release may be created."
+        fi
+
+    - name: Record duplicate-release guard
+      if: steps.release_tag.outputs.exists == 'true'
+      run: |
+        echo "## Release guard" >> "$GITHUB_STEP_SUMMARY"
+        echo "Skipped GitHub Release creation because tag **${{ steps.version.outputs.tag }}** already exists." >> "$GITHUB_STEP_SUMMARY"
+
     - name: Download release package
       uses: actions/download-artifact@v4
       with:
@@ -255,6 +278,7 @@ jobs:
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Create GitHub Release
+      if: steps.release_tag.outputs.exists != 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.version.outputs.tag }}

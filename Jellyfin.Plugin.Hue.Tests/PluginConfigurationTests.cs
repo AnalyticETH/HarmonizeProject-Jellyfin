@@ -1421,7 +1421,7 @@ public class PluginConfigurationTests
             AudioChannelMode = "InvalidMode"
         };
 
-        Assert.Contains("Audio channel mode must be Mono or Stereo", config.Validate());
+        Assert.Contains("Audio channel mode must be Mono, Stereo, Left, or Right", config.Validate());
     }
 
     [Theory]
@@ -2617,6 +2617,12 @@ public class PluginConfigurationTests
         config.UserMappings[0].AudioChannelModeOverride = "invalid";
         Assert.Equal(PluginConfiguration.AudioChannelModeStereo, config.GetAudioChannelModeForUser(userId));
 
+        config.UserMappings[0].AudioChannelModeOverride = "left";
+        Assert.Equal(PluginConfiguration.AudioChannelModeLeft, config.GetAudioChannelModeForUser(userId));
+
+        config.UserMappings[0].AudioChannelModeOverride = "RIGHT";
+        Assert.Equal(PluginConfiguration.AudioChannelModeRight, config.GetAudioChannelModeForUser(userId));
+
         config.UserMappings.Clear();
         config.AudioChannelMode = "invalid";
         Assert.Equal(PluginConfiguration.AudioChannelModeMono, config.GetAudioChannelModeForUser(userId));
@@ -2643,7 +2649,7 @@ public class PluginConfigurationTests
         };
 
         Assert.Contains(
-            "User mapping 1 audio channel mode override must be Mono or Stereo",
+            "User mapping 1 audio channel mode override must be Mono, Stereo, Left, or Right",
             config.Validate());
     }
 
