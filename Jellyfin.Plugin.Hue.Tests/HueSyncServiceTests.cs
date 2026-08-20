@@ -270,6 +270,36 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void ApplyAudioBandGains_ScalesMixedAndSourceBandsWithoutChangingRms()
+    {
+        var analysis = new HueSyncService.AudioChannelAnalysis(
+            Rms: 0.4,
+            Low: 0.1,
+            Mid: 0.2,
+            High: 0.3,
+            LeftRms: 0.3,
+            LeftLow: 0.11,
+            LeftMid: 0.21,
+            LeftHigh: 0.31,
+            RightRms: 0.2,
+            RightLow: 0.12,
+            RightMid: 0.22,
+            RightHigh: 0.32);
+
+        var neutral = HueSyncService.ApplyAudioBandGains(analysis);
+        var tuned = HueSyncService.ApplyAudioBandGains(analysis, 0, 150, 200);
+
+        Assert.Equal(analysis, neutral);
+        Assert.Equal(analysis.Rms, tuned.Rms);
+        Assert.Equal(0, tuned.Low);
+        Assert.Equal(0.3, tuned.Mid, 6);
+        Assert.Equal(0.6, tuned.High, 6);
+        Assert.Equal(0, tuned.LeftLow);
+        Assert.Equal(0.315, tuned.LeftMid, 6);
+        Assert.Equal(0.64, tuned.RightHigh, 6);
+    }
+
+    [Fact]
     public void BuildAudioChannelColors_UsesStereoSourceOnlyForSpatialRouting()
     {
         const int sampleRate = 8000;
@@ -715,6 +745,39 @@ public sealed class HueSyncServiceTests
         Assert.Equal(
             PluginConfiguration.MinAudioNoiseGatePercent,
             HueSyncService.ResolveAudioNoiseGatePercent(configuration, userId));
+    }
+
+    [Fact]
+    public void ResolveAudioBandGains_UsesPerUserOverrideAndClampsInvalidValues()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioLowGainPercent = 80,
+            AudioMidGainPercent = 110,
+            AudioHighGainPercent = 140,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString(),
+                    AudioLowGainPercentOverride = 40,
+                    AudioMidGainPercentOverride = 160,
+                    AudioHighGainPercentOverride = 200
+                }
+            }
+        };
+
+        Assert.Equal((40, 160, 200), HueSyncService.ResolveAudioBandGains(configuration, userId));
+        Assert.Equal((80, 110, 140), HueSyncService.ResolveAudioBandGains(configuration, System.Guid.NewGuid()));
+
+        configuration.UserMappings[0].AudioLowGainPercentOverride = -1;
+        configuration.UserMappings[0].AudioMidGainPercentOverride = 999;
+        Assert.Equal(
+            (PluginConfiguration.MinAudioBandGainPercent,
+                PluginConfiguration.MaxAudioBandGainPercent,
+                PluginConfiguration.MaxAudioBandGainPercent),
+            HueSyncService.ResolveAudioBandGains(configuration, userId));
     }
 
     [Fact]

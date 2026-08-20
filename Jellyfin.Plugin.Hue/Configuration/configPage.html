@@ -766,6 +766,24 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioLowGainPercent">Audio Low Band Gain (%)</label>
+                            <input id="audioLowGainPercent" name="audioLowGainPercent" type="number" min="0" max="200" is="emby-input" />
+                            <div class="fieldDescription">Scales bass/low-band energy before palette rendering (0-200%, default: 100%). Zero mutes the band; values above 100% compensate for a weak low end.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioMidGainPercent">Audio Mid Band Gain (%)</label>
+                            <input id="audioMidGainPercent" name="audioMidGainPercent" type="number" min="0" max="200" is="emby-input" />
+                            <div class="fieldDescription">Scales midrange energy before palette rendering (0-200%, default: 100%).</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioHighGainPercent">Audio High Band Gain (%)</label>
+                            <input id="audioHighGainPercent" name="audioHighGainPercent" type="number" min="0" max="200" is="emby-input" />
+                            <div class="fieldDescription">Scales treble/high-band energy before palette rendering (0-200%, default: 100%).</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="audioBandSpreadPercent">Audio Band Spread (%)</label>
                             <input id="audioBandSpreadPercent" name="audioBandSpreadPercent" type="number" min="0" max="100" is="emby-input" />
                             <div class="fieldDescription">Averages each low/mid/high center across nearby frequencies by this percentage (0-100%, default: 0%). Zero preserves exact-center analysis; higher values catch content between centers.</div>
@@ -1017,6 +1035,24 @@
                                     <label class="inputLabel inputLabelUnfocused" for="mappingAudioHighFrequencyHzOverride">Audio High Band Center Override (Hz)</label>
                                     <input id="mappingAudioHighFrequencyHzOverride" type="number" min="20" max="3900" is="emby-input" />
                                     <div class="fieldDescription">Optional high/treble center (20-3900 Hz). Leave blank to inherit the global audio profile.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioLowGainPercentOverride">Audio Low Band Gain Override (%)</label>
+                                    <input id="mappingAudioLowGainPercentOverride" type="number" min="0" max="200" is="emby-input" />
+                                    <div class="fieldDescription">Optional bass/low-band gain (0-200%). Leave blank to inherit the global audio gain.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioMidGainPercentOverride">Audio Mid Band Gain Override (%)</label>
+                                    <input id="mappingAudioMidGainPercentOverride" type="number" min="0" max="200" is="emby-input" />
+                                    <div class="fieldDescription">Optional midrange gain (0-200%). Leave blank to inherit the global audio gain.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioHighGainPercentOverride">Audio High Band Gain Override (%)</label>
+                                    <input id="mappingAudioHighGainPercentOverride" type="number" min="0" max="200" is="emby-input" />
+                                    <div class="fieldDescription">Optional treble/high-band gain (0-200%). Leave blank to inherit the global audio gain.</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -1528,6 +1564,9 @@
                         page.querySelector('#audioLowFrequencyHz').value = getConfigValue('AudioLowFrequencyHz', 90);
                         page.querySelector('#audioMidFrequencyHz').value = getConfigValue('AudioMidFrequencyHz', 420);
                         page.querySelector('#audioHighFrequencyHz').value = getConfigValue('AudioHighFrequencyHz', 1600);
+                        page.querySelector('#audioLowGainPercent').value = getConfigValue('AudioLowGainPercent', 100);
+                        page.querySelector('#audioMidGainPercent').value = getConfigValue('AudioMidGainPercent', 100);
+                        page.querySelector('#audioHighGainPercent').value = getConfigValue('AudioHighGainPercent', 100);
                         page.querySelector('#audioBandSpreadPercent').value = getConfigValue('AudioBandSpreadPercent', 0);
                         page.querySelector('#audioBeatPulsePercent').value = getConfigValue('AudioBeatPulsePercent', 0);
                         page.querySelector('#audioBeatPulseDecayPercent').value = getConfigValue('AudioBeatPulseDecayPercent', 0);
@@ -1595,6 +1634,9 @@
                         AudioLowFrequencyHz: parseNumberOrDefault('#audioLowFrequencyHz', 90),
                         AudioMidFrequencyHz: parseNumberOrDefault('#audioMidFrequencyHz', 420),
                         AudioHighFrequencyHz: parseNumberOrDefault('#audioHighFrequencyHz', 1600),
+                        AudioLowGainPercent: parseNumberOrDefault('#audioLowGainPercent', 100),
+                        AudioMidGainPercent: parseNumberOrDefault('#audioMidGainPercent', 100),
+                        AudioHighGainPercent: parseNumberOrDefault('#audioHighGainPercent', 100),
                         AudioBandSpreadPercent: parseNumberOrDefault('#audioBandSpreadPercent', 0),
                         AudioBeatPulsePercent: parseNumberOrDefault('#audioBeatPulsePercent', 0),
                         AudioBeatPulseDecayPercent: parseNumberOrDefault('#audioBeatPulseDecayPercent', 0),
@@ -6572,6 +6614,9 @@
                         var audioLowFrequency = HueConfigurationPage.readStatusField(status, "ActiveAudioLowFrequencyHz", null);
                         var audioMidFrequency = HueConfigurationPage.readStatusField(status, "ActiveAudioMidFrequencyHz", null);
                         var audioHighFrequency = HueConfigurationPage.readStatusField(status, "ActiveAudioHighFrequencyHz", null);
+                        var audioLowGain = HueConfigurationPage.readStatusField(status, "ActiveAudioLowGainPercent", null);
+                        var audioMidGain = HueConfigurationPage.readStatusField(status, "ActiveAudioMidGainPercent", null);
+                        var audioHighGain = HueConfigurationPage.readStatusField(status, "ActiveAudioHighGainPercent", null);
                         var audioBandSpread = HueConfigurationPage.readStatusField(status, "ActiveAudioBandSpreadPercent", null);
                         var audioBeatPulse = HueConfigurationPage.readStatusField(status, "ActiveAudioBeatPulsePercent", null);
                         var audioBeatPulseDecay = HueConfigurationPage.readStatusField(status, "ActiveAudioBeatPulseDecayPercent", null);
@@ -6632,7 +6677,7 @@
                             : String(targetFps) + " FPS · " + (frameResolution || "—");
                         page.querySelector('#runtimeAudioProfile').textContent = audioSensitivity == null
                             ? "—"
-                            : String(audioSensitivity) + "% sensitivity · gate " + String(audioNoiseGate == null ? "—" : audioNoiseGate) + "% · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz · spread " + String(audioBandSpread == null ? "—" : audioBandSpread) + "% · beat " + String(audioBeatPulse == null ? "—" : audioBeatPulse) + "% · release " + String(audioBeatPulseDecay == null ? "—" : audioBeatPulseDecay) + "% · palette " + String(audioColorPalette || "—") + " · routing " + String(audioSpatialMode || "—") + " · source " + String(audioChannelMode || "—");
+                            : String(audioSensitivity) + "% sensitivity · gate " + String(audioNoiseGate == null ? "—" : audioNoiseGate) + "% · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz · gain " + String(audioLowGain == null ? "—" : audioLowGain) + "/" + String(audioMidGain == null ? "—" : audioMidGain) + "/" + String(audioHighGain == null ? "—" : audioHighGain) + "% · spread " + String(audioBandSpread == null ? "—" : audioBandSpread) + "% · beat " + String(audioBeatPulse == null ? "—" : audioBeatPulse) + "% · release " + String(audioBeatPulseDecay == null ? "—" : audioBeatPulseDecay) + "% · palette " + String(audioColorPalette || "—") + " · routing " + String(audioSpatialMode || "—") + " · source " + String(audioChannelMode || "—");
                         page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
                             ? "—"
                             : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
@@ -7560,6 +7605,9 @@
                                 getMappingValue('AudioLowFrequencyHzOverride', 'audioLowFrequencyHzOverride'),
                                 getMappingValue('AudioMidFrequencyHzOverride', 'audioMidFrequencyHzOverride'),
                                 getMappingValue('AudioHighFrequencyHzOverride', 'audioHighFrequencyHzOverride'),
+                                getMappingValue('AudioLowGainPercentOverride', 'audioLowGainPercentOverride'),
+                                getMappingValue('AudioMidGainPercentOverride', 'audioMidGainPercentOverride'),
+                                getMappingValue('AudioHighGainPercentOverride', 'audioHighGainPercentOverride'),
                                 getMappingValue('AudioBandSpreadPercentOverride', 'audioBandSpreadPercentOverride'),
                                 getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride'),
                                 getMappingValue('AudioBeatPulseDecayPercentOverride', 'audioBeatPulseDecayPercentOverride'),
@@ -8394,6 +8442,9 @@
                         AudioLowFrequencyHzOverride: readOptionalNumber('mappingAudioLowFrequencyHzOverride'),
                         AudioMidFrequencyHzOverride: readOptionalNumber('mappingAudioMidFrequencyHzOverride'),
                         AudioHighFrequencyHzOverride: readOptionalNumber('mappingAudioHighFrequencyHzOverride'),
+                        AudioLowGainPercentOverride: readOptionalNumber('mappingAudioLowGainPercentOverride'),
+                        AudioMidGainPercentOverride: readOptionalNumber('mappingAudioMidGainPercentOverride'),
+                        AudioHighGainPercentOverride: readOptionalNumber('mappingAudioHighGainPercentOverride'),
                         AudioBandSpreadPercentOverride: readOptionalNumber('mappingAudioBandSpreadPercentOverride'),
                         AudioBeatPulsePercentOverride: readOptionalNumber('mappingAudioBeatPulsePercentOverride'),
                         AudioBeatPulseDecayPercentOverride: readOptionalNumber('mappingAudioBeatPulseDecayPercentOverride'),
@@ -8482,6 +8533,9 @@
                         '#mappingAudioLowFrequencyHzOverride',
                         '#mappingAudioMidFrequencyHzOverride',
                         '#mappingAudioHighFrequencyHzOverride',
+                        '#mappingAudioLowGainPercentOverride',
+                        '#mappingAudioMidGainPercentOverride',
+                        '#mappingAudioHighGainPercentOverride',
                         '#mappingAudioBandSpreadPercentOverride',
                         '#mappingAudioBeatPulsePercentOverride',
                         '#mappingAudioBeatPulseDecayPercentOverride',
@@ -8572,6 +8626,9 @@
                         var audioLowFrequencyHzOverride = getMappingValue('AudioLowFrequencyHzOverride', 'audioLowFrequencyHzOverride');
                         var audioMidFrequencyHzOverride = getMappingValue('AudioMidFrequencyHzOverride', 'audioMidFrequencyHzOverride');
                         var audioHighFrequencyHzOverride = getMappingValue('AudioHighFrequencyHzOverride', 'audioHighFrequencyHzOverride');
+                        var audioLowGainPercentOverride = getMappingValue('AudioLowGainPercentOverride', 'audioLowGainPercentOverride');
+                        var audioMidGainPercentOverride = getMappingValue('AudioMidGainPercentOverride', 'audioMidGainPercentOverride');
+                        var audioHighGainPercentOverride = getMappingValue('AudioHighGainPercentOverride', 'audioHighGainPercentOverride');
                         var audioBandSpreadPercentOverride = getMappingValue('AudioBandSpreadPercentOverride', 'audioBandSpreadPercentOverride');
                         var audioBeatPulsePercentOverride = getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride');
                         var audioBeatPulseDecayPercentOverride = getMappingValue('AudioBeatPulseDecayPercentOverride', 'audioBeatPulseDecayPercentOverride');
@@ -8638,6 +8695,9 @@
                         page.querySelector('#mappingAudioLowFrequencyHzOverride').value = audioLowFrequencyHzOverride == null ? "" : audioLowFrequencyHzOverride;
                         page.querySelector('#mappingAudioMidFrequencyHzOverride').value = audioMidFrequencyHzOverride == null ? "" : audioMidFrequencyHzOverride;
                         page.querySelector('#mappingAudioHighFrequencyHzOverride').value = audioHighFrequencyHzOverride == null ? "" : audioHighFrequencyHzOverride;
+                        page.querySelector('#mappingAudioLowGainPercentOverride').value = audioLowGainPercentOverride == null ? "" : audioLowGainPercentOverride;
+                        page.querySelector('#mappingAudioMidGainPercentOverride').value = audioMidGainPercentOverride == null ? "" : audioMidGainPercentOverride;
+                        page.querySelector('#mappingAudioHighGainPercentOverride').value = audioHighGainPercentOverride == null ? "" : audioHighGainPercentOverride;
                         page.querySelector('#mappingAudioBandSpreadPercentOverride').value = audioBandSpreadPercentOverride == null ? "" : audioBandSpreadPercentOverride;
                         page.querySelector('#mappingAudioBeatPulsePercentOverride').value = audioBeatPulsePercentOverride == null ? "" : audioBeatPulsePercentOverride;
                         page.querySelector('#mappingAudioBeatPulseDecayPercentOverride').value = audioBeatPulseDecayPercentOverride == null ? "" : audioBeatPulseDecayPercentOverride;

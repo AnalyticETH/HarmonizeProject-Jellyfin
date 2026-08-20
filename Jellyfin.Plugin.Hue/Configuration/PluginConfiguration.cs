@@ -48,6 +48,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? AudioLowFrequencyHzOverride { get; set; }
         public int? AudioMidFrequencyHzOverride { get; set; }
         public int? AudioHighFrequencyHzOverride { get; set; }
+        public int? AudioLowGainPercentOverride { get; set; }
+        public int? AudioMidGainPercentOverride { get; set; }
+        public int? AudioHighGainPercentOverride { get; set; }
         public int? AudioBandSpreadPercentOverride { get; set; }
         public int? AudioBeatPulsePercentOverride { get; set; }
         public int? AudioBeatPulseDecayPercentOverride { get; set; }
@@ -435,6 +438,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int DefaultAudioLowFrequencyHz = 90;
         public const int DefaultAudioMidFrequencyHz = 420;
         public const int DefaultAudioHighFrequencyHz = 1600;
+        public const int MinAudioBandGainPercent = 0;
+        public const int MaxAudioBandGainPercent = 200;
+        public const int DefaultAudioBandGainPercent = 100;
         public const int MinAudioBandSpreadPercent = 0;
         public const int MaxAudioBandSpreadPercent = 100;
         public const int DefaultAudioBandSpreadPercent = 0;
@@ -853,6 +859,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int AudioMidFrequencyHz { get; set; } = DefaultAudioMidFrequencyHz;
         public int AudioHighFrequencyHz { get; set; } = DefaultAudioHighFrequencyHz;
         /// <summary>
+        /// Scales each low/mid/high audio band independently before palette rendering.
+        /// Neutral 100% values preserve the original analyzer balance; zero mutes a band
+        /// and values through 200% compensate for room or source imbalance.
+        /// </summary>
+        public int AudioLowGainPercent { get; set; } = DefaultAudioBandGainPercent;
+        public int AudioMidGainPercent { get; set; } = DefaultAudioBandGainPercent;
+        public int AudioHighGainPercent { get; set; } = DefaultAudioBandGainPercent;
+        /// <summary>
         /// Expands each audio center into a bounded frequency band. Zero preserves the
         /// original single-center DFT behavior; higher values average nearby frequencies
         /// so real-world content between configured centers remains reactive.
@@ -974,6 +988,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 mapping?.AudioNoiseGatePercentOverride ?? AudioNoiseGatePercent,
                 MinAudioNoiseGatePercent,
                 MaxAudioNoiseGatePercent);
+        }
+
+        /// <summary>
+        /// Gets the effective low/mid/high audio band gains for a user. Missing overrides
+        /// inherit the global profile; invalid hand-edited values are clamped for runtime
+        /// continuity while configuration validation reports the bad values.
+        /// </summary>
+        public (int LowGainPercent, int MidGainPercent, int HighGainPercent) GetAudioBandGainsForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return (
+                Math.Clamp(mapping?.AudioLowGainPercentOverride ?? AudioLowGainPercent, MinAudioBandGainPercent, MaxAudioBandGainPercent),
+                Math.Clamp(mapping?.AudioMidGainPercentOverride ?? AudioMidGainPercent, MinAudioBandGainPercent, MaxAudioBandGainPercent),
+                Math.Clamp(mapping?.AudioHighGainPercentOverride ?? AudioHighGainPercent, MinAudioBandGainPercent, MaxAudioBandGainPercent));
         }
 
         /// <summary>
@@ -1412,6 +1441,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
             ValidateAudioFrequencyOverride(mapping.AudioLowFrequencyHzOverride, $"{label} audio low frequency override", errors);
             ValidateAudioFrequencyOverride(mapping.AudioMidFrequencyHzOverride, $"{label} audio mid frequency override", errors);
             ValidateAudioFrequencyOverride(mapping.AudioHighFrequencyHzOverride, $"{label} audio high frequency override", errors);
+            ValidateAudioBandGainOverride(mapping.AudioLowGainPercentOverride, $"{label} audio low gain override", errors);
+            ValidateAudioBandGainOverride(mapping.AudioMidGainPercentOverride, $"{label} audio mid gain override", errors);
+            ValidateAudioBandGainOverride(mapping.AudioHighGainPercentOverride, $"{label} audio high gain override", errors);
             if (mapping.AudioBandSpreadPercentOverride.HasValue &&
                 (mapping.AudioBandSpreadPercentOverride.Value < MinAudioBandSpreadPercent ||
                  mapping.AudioBandSpreadPercentOverride.Value > MaxAudioBandSpreadPercent))
@@ -1520,6 +1552,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             if (value.HasValue && (value.Value < MinAudioFrequencyHz || value.Value > MaxAudioFrequencyHz))
                 errors.Add($"{label} must be between {MinAudioFrequencyHz} and {MaxAudioFrequencyHz} Hz");
+        }
+
+        private static void ValidateAudioBandGainOverride(int? value, string label, List<string> errors)
+        {
+            if (value.HasValue && (value.Value < MinAudioBandGainPercent || value.Value > MaxAudioBandGainPercent))
+                errors.Add($"{label} must be between {MinAudioBandGainPercent} and {MaxAudioBandGainPercent} percent");
         }
 
         /// <summary>
@@ -2445,6 +2483,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 else if (AudioLowFrequencyHz >= AudioMidFrequencyHz || AudioMidFrequencyHz >= AudioHighFrequencyHz)
                 {
                     errors.Add("Audio frequencies must be strictly ordered low < mid < high");
+                }
+
+                if (AudioLowGainPercent < MinAudioBandGainPercent || AudioLowGainPercent > MaxAudioBandGainPercent ||
+                    AudioMidGainPercent < MinAudioBandGainPercent || AudioMidGainPercent > MaxAudioBandGainPercent ||
+                    AudioHighGainPercent < MinAudioBandGainPercent || AudioHighGainPercent > MaxAudioBandGainPercent)
+                {
+                    errors.Add($"Audio band gains must be between {MinAudioBandGainPercent} and {MaxAudioBandGainPercent} percent");
                 }
 
                 if (AudioBandSpreadPercent < MinAudioBandSpreadPercent || AudioBandSpreadPercent > MaxAudioBandSpreadPercent)

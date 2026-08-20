@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.172] - 2026-08-20
+
+### Added
+- **Configurable audio band gains**: independently scale low, mid, and high audio energy from 0-200% while neutral 100% values preserve the original analyzer balance
+- **Per-user band-balance profiles**: inherit or override each band gain with bounded runtime clamping, active status telemetry, administrator controls, and credential-safe backup/import support
+- **Regression coverage**: verify band-gain scaling, defaults, bounds, inheritance, runtime resolution, and API round trips
+
 ## [1.5.171] - 2026-08-20
 
 ### Added
