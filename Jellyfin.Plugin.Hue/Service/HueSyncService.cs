@@ -106,6 +106,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private int? _currentAudioSensitivityPercent;
         private int? _currentAudioNoiseGatePercent;
         private (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz)? _currentAudioFrequencies;
+        private (int LowGainPercent, int MidGainPercent, int HighGainPercent)? _currentAudioBandGains;
         private int? _currentAudioBandSpreadPercent;
         private int? _currentAudioBeatPulsePercent;
         private int? _currentAudioBeatPulseDecayPercent;
@@ -414,6 +415,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioSensitivityPercent = null;
                     _currentAudioNoiseGatePercent = null;
                     _currentAudioFrequencies = null;
+                    _currentAudioBandGains = null;
                     _currentAudioBandSpreadPercent = null;
                     _currentAudioBeatPulsePercent = null;
                     _currentAudioBeatPulseDecayPercent = null;
@@ -513,6 +515,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentAudioSensitivityPercent = null;
                 _currentAudioNoiseGatePercent = null;
                 _currentAudioFrequencies = null;
+                _currentAudioBandGains = null;
                 _currentAudioBandSpreadPercent = null;
                 _currentAudioBeatPulsePercent = null;
                 _currentAudioBeatPulseDecayPercent = null;
@@ -555,6 +558,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int? currentAudioSensitivityPercent;
             int? currentAudioNoiseGatePercent;
             (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz)? currentAudioFrequencies;
+            (int LowGainPercent, int MidGainPercent, int HighGainPercent)? currentAudioBandGains;
             int? currentAudioBandSpreadPercent;
             int? currentAudioBeatPulsePercent;
             int? currentAudioBeatPulseDecayPercent;
@@ -606,6 +610,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentAudioSensitivityPercent = _currentAudioSensitivityPercent;
                 currentAudioNoiseGatePercent = _currentAudioNoiseGatePercent;
                 currentAudioFrequencies = _currentAudioFrequencies;
+                currentAudioBandGains = _currentAudioBandGains;
                 currentAudioBandSpreadPercent = _currentAudioBandSpreadPercent;
                 currentAudioBeatPulsePercent = _currentAudioBeatPulsePercent;
                 currentAudioBeatPulseDecayPercent = _currentAudioBeatPulseDecayPercent;
@@ -665,6 +670,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveAudioLowFrequencyHz = isSyncing ? currentAudioFrequencies?.LowFrequencyHz : null,
                 ActiveAudioMidFrequencyHz = isSyncing ? currentAudioFrequencies?.MidFrequencyHz : null,
                 ActiveAudioHighFrequencyHz = isSyncing ? currentAudioFrequencies?.HighFrequencyHz : null,
+                ActiveAudioLowGainPercent = isSyncing ? currentAudioBandGains?.LowGainPercent : null,
+                ActiveAudioMidGainPercent = isSyncing ? currentAudioBandGains?.MidGainPercent : null,
+                ActiveAudioHighGainPercent = isSyncing ? currentAudioBandGains?.HighGainPercent : null,
                 ActiveAudioBandSpreadPercent = isSyncing ? currentAudioBandSpreadPercent : null,
                 ActiveAudioBeatPulsePercent = isSyncing ? currentAudioBeatPulsePercent : null,
                 ActiveAudioBeatPulseDecayPercent = isSyncing ? currentAudioBeatPulseDecayPercent : null,
@@ -1692,6 +1700,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentAudioSensitivityPercent = null;
             _currentAudioNoiseGatePercent = null;
             _currentAudioFrequencies = null;
+            _currentAudioBandGains = null;
             _currentAudioBandSpreadPercent = null;
             _currentAudioBeatPulsePercent = null;
             _currentAudioBeatPulseDecayPercent = null;
@@ -1945,6 +1954,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioSensitivityPercent = null;
                     _currentAudioNoiseGatePercent = null;
                     _currentAudioFrequencies = null;
+                    _currentAudioBandGains = null;
                     _currentAudioBandSpreadPercent = null;
                     _currentAudioBeatPulsePercent = null;
                     _currentAudioBeatPulseDecayPercent = null;
@@ -2253,6 +2263,18 @@ namespace Jellyfin.Plugin.Hue.Service
                 frequencies.LowFrequencyHz,
                 frequencies.MidFrequencyHz,
                 frequencies.HighFrequencyHz);
+        }
+
+        internal static (int LowGainPercent, int MidGainPercent, int HighGainPercent) ResolveAudioBandGains(
+            PluginConfiguration config,
+            Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            var gains = config.GetAudioBandGainsForUser(userId);
+            return (
+                Math.Clamp(gains.LowGainPercent, PluginConfiguration.MinAudioBandGainPercent, PluginConfiguration.MaxAudioBandGainPercent),
+                Math.Clamp(gains.MidGainPercent, PluginConfiguration.MinAudioBandGainPercent, PluginConfiguration.MaxAudioBandGainPercent),
+                Math.Clamp(gains.HighGainPercent, PluginConfiguration.MinAudioBandGainPercent, PluginConfiguration.MaxAudioBandGainPercent));
         }
 
         internal static int ResolveAudioBandSpreadPercent(PluginConfiguration config, Guid userId)
@@ -3091,6 +3113,43 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
+        /// Applies independent bounded low/mid/high multipliers to band energy while
+        /// preserving RMS loudness for the shared sensitivity envelope. Neutral 100%
+        /// gains preserve the exact analyzer output and source-channel routing.
+        /// </summary>
+        internal static AudioChannelAnalysis ApplyAudioBandGains(
+            AudioChannelAnalysis analysis,
+            int lowGainPercent = PluginConfiguration.DefaultAudioBandGainPercent,
+            int midGainPercent = PluginConfiguration.DefaultAudioBandGainPercent,
+            int highGainPercent = PluginConfiguration.DefaultAudioBandGainPercent)
+        {
+            var lowGain = Math.Clamp(
+                lowGainPercent,
+                PluginConfiguration.MinAudioBandGainPercent,
+                PluginConfiguration.MaxAudioBandGainPercent) / 100.0;
+            var midGain = Math.Clamp(
+                midGainPercent,
+                PluginConfiguration.MinAudioBandGainPercent,
+                PluginConfiguration.MaxAudioBandGainPercent) / 100.0;
+            var highGain = Math.Clamp(
+                highGainPercent,
+                PluginConfiguration.MinAudioBandGainPercent,
+                PluginConfiguration.MaxAudioBandGainPercent) / 100.0;
+            return analysis with
+            {
+                Low = analysis.Low * lowGain,
+                Mid = analysis.Mid * midGain,
+                High = analysis.High * highGain,
+                LeftLow = analysis.LeftLow * lowGain,
+                LeftMid = analysis.LeftMid * midGain,
+                LeftHigh = analysis.LeftHigh * highGain,
+                RightLow = analysis.RightLow * lowGain,
+                RightMid = analysis.RightMid * midGain,
+                RightHigh = analysis.RightHigh * highGain
+            };
+        }
+
+        /// <summary>
         /// Converts a raw PCM window into mixed low, middle, and high-band energy. This
         /// compatibility wrapper preserves the original mono analyzer contract.
         /// </summary>
@@ -3378,6 +3437,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int audioSensitivityPercent,
             int audioNoiseGatePercent,
             (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz) audioFrequencies,
+            (int LowGainPercent, int MidGainPercent, int HighGainPercent) audioBandGains,
             int audioBandSpreadPercent,
             int audioBeatPulsePercent,
             int audioBeatPulseDecayPercent,
@@ -3441,17 +3501,21 @@ namespace Jellyfin.Plugin.Hue.Service
                     }
 
                     _ffmpegStreamer?.MarkFrameRead();
-                    var audioAnalysis = ApplyAudioNoiseGate(
-                        AnalyzeAudioChannelSamples(
-                            buffer,
-                            sampleRead.BytesRead,
-                            AudioSampleRate,
-                            AudioChannels,
-                            audioFrequencies.LowFrequencyHz,
-                            audioFrequencies.MidFrequencyHz,
-                            audioFrequencies.HighFrequencyHz,
-                            audioBandSpreadPercent),
-                        audioNoiseGatePercent);
+                    var audioAnalysis = ApplyAudioBandGains(
+                        ApplyAudioNoiseGate(
+                            AnalyzeAudioChannelSamples(
+                                buffer,
+                                sampleRead.BytesRead,
+                                AudioSampleRate,
+                                AudioChannels,
+                                audioFrequencies.LowFrequencyHz,
+                                audioFrequencies.MidFrequencyHz,
+                                audioFrequencies.HighFrequencyHz,
+                                audioBandSpreadPercent),
+                            audioNoiseGatePercent),
+                        audioBandGains.LowGainPercent,
+                        audioBandGains.MidGainPercent,
+                        audioBandGains.HighGainPercent);
                     var energy = audioAnalysis.MixedEnergy;
                     var beatPulse = CalculateAudioBeatPulse(
                         previousEnergy,
@@ -3650,6 +3714,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentAudioSensitivityPercent = null;
                 _currentAudioNoiseGatePercent = null;
                 _currentAudioFrequencies = null;
+                _currentAudioBandGains = null;
                 _currentAudioBandSpreadPercent = null;
                 _currentAudioBeatPulsePercent = null;
                 _currentAudioBeatPulseDecayPercent = null;
@@ -3895,6 +3960,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var audioSensitivityPercent = ResolveAudioSensitivityPercent(config, userId);
             var audioNoiseGatePercent = ResolveAudioNoiseGatePercent(config, userId);
             var audioFrequencies = ResolveAudioFrequencies(config, userId);
+            var audioBandGains = ResolveAudioBandGains(config, userId);
             var audioBandSpreadPercent = ResolveAudioBandSpreadPercent(config, userId);
             var audioBeatPulsePercent = ResolveAudioBeatPulsePercent(config, userId);
             var audioBeatPulseDecayPercent = ResolveAudioBeatPulseDecayPercent(config, userId);
@@ -4004,6 +4070,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioSensitivityPercent = isAudioPlayback ? audioSensitivityPercent : null;
                     _currentAudioNoiseGatePercent = isAudioPlayback ? audioNoiseGatePercent : null;
                     _currentAudioFrequencies = isAudioPlayback ? audioFrequencies : null;
+                    _currentAudioBandGains = isAudioPlayback ? audioBandGains : null;
                     _currentAudioBandSpreadPercent = isAudioPlayback ? audioBandSpreadPercent : null;
                     _currentAudioBeatPulsePercent = isAudioPlayback ? audioBeatPulsePercent : null;
                     _currentAudioBeatPulseDecayPercent = isAudioPlayback ? audioBeatPulseDecayPercent : null;
@@ -4281,6 +4348,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         audioSensitivityPercent,
                         audioNoiseGatePercent,
                         audioFrequencies,
+                        audioBandGains,
                         audioBandSpreadPercent,
                         audioBeatPulsePercent,
                         audioBeatPulseDecayPercent,
@@ -4655,6 +4723,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentAudioSensitivityPercent = null;
             _currentAudioNoiseGatePercent = null;
             _currentAudioFrequencies = null;
+            _currentAudioBandGains = null;
             _currentAudioBandSpreadPercent = null;
             _currentAudioBeatPulsePercent = null;
             _currentAudioBeatPulseDecayPercent = null;
@@ -4814,6 +4883,9 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveAudioLowFrequencyHz { get; init; }
         public int? ActiveAudioMidFrequencyHz { get; init; }
         public int? ActiveAudioHighFrequencyHz { get; init; }
+        public int? ActiveAudioLowGainPercent { get; init; }
+        public int? ActiveAudioMidGainPercent { get; init; }
+        public int? ActiveAudioHighGainPercent { get; init; }
         public int? ActiveAudioBandSpreadPercent { get; init; }
         public int? ActiveAudioBeatPulsePercent { get; init; }
         public int? ActiveAudioBeatPulseDecayPercent { get; init; }

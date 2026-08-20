@@ -5817,6 +5817,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveAudioLowFrequencyHz);
         Assert.Null(status.ActiveAudioMidFrequencyHz);
         Assert.Null(status.ActiveAudioHighFrequencyHz);
+        Assert.Null(status.ActiveAudioLowGainPercent);
+        Assert.Null(status.ActiveAudioMidGainPercent);
+        Assert.Null(status.ActiveAudioHighGainPercent);
         Assert.Null(status.ActiveAudioBandSpreadPercent);
         Assert.Null(status.ActiveAudioBeatPulsePercent);
         Assert.Null(status.ActiveAudioColorPalette);
@@ -6565,6 +6568,9 @@ public sealed class HueApiControllerTests : IDisposable
                     AudioLowFrequencyHzOverride = 60,
                     AudioMidFrequencyHzOverride = 700,
                     AudioHighFrequencyHzOverride = 2400,
+                    AudioLowGainPercentOverride = 45,
+                    AudioMidGainPercentOverride = 125,
+                    AudioHighGainPercentOverride = 175,
                     AudioBandSpreadPercentOverride = 35,
                     AudioBeatPulsePercentOverride = 65,
                     AudioBeatPulseDecayPercentOverride = 75,
@@ -6611,6 +6617,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)60, mapping.AudioLowFrequencyHzOverride);
         Assert.Equal((int?)700, mapping.AudioMidFrequencyHzOverride);
         Assert.Equal((int?)2400, mapping.AudioHighFrequencyHzOverride);
+        Assert.Equal((int?)45, mapping.AudioLowGainPercentOverride);
+        Assert.Equal((int?)125, mapping.AudioMidGainPercentOverride);
+        Assert.Equal((int?)175, mapping.AudioHighGainPercentOverride);
         Assert.Equal((int?)35, mapping.AudioBandSpreadPercentOverride);
         Assert.Equal((int?)65, mapping.AudioBeatPulsePercentOverride);
         Assert.Equal((int?)75, mapping.AudioBeatPulseDecayPercentOverride);
@@ -7082,6 +7091,9 @@ public sealed class HueApiControllerTests : IDisposable
             AudioLowFrequencyHz = 70,
             AudioMidFrequencyHz = 600,
             AudioHighFrequencyHz = 2200,
+            AudioLowGainPercent = 75,
+            AudioMidGainPercent = 115,
+            AudioHighGainPercent = 165,
             AudioBandSpreadPercent = 18,
             AudioBeatPulsePercent = 42,
             AudioBeatPulseDecayPercent = 55,
@@ -7132,6 +7144,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(70, settings.AudioLowFrequencyHz);
         Assert.Equal(600, settings.AudioMidFrequencyHz);
         Assert.Equal(2200, settings.AudioHighFrequencyHz);
+        Assert.Equal(75, settings.AudioLowGainPercent);
+        Assert.Equal(115, settings.AudioMidGainPercent);
+        Assert.Equal(165, settings.AudioHighGainPercent);
         Assert.Equal(18, settings.AudioBandSpreadPercent);
         Assert.Equal(42, settings.AudioBeatPulsePercent);
         Assert.Equal(55, settings.AudioBeatPulseDecayPercent);
@@ -7197,6 +7212,9 @@ public sealed class HueApiControllerTests : IDisposable
                     AudioLowFrequencyHzOverride = 60,
                     AudioMidFrequencyHzOverride = 700,
                     AudioHighFrequencyHzOverride = 2400,
+                    AudioLowGainPercentOverride = 55,
+                    AudioMidGainPercentOverride = 130,
+                    AudioHighGainPercentOverride = 180,
                     AudioBandSpreadPercentOverride = 35,
                     AudioBeatPulsePercentOverride = 65,
                     AudioBeatPulseDecayPercentOverride = 75,
@@ -7253,6 +7271,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(60, mapping.AudioLowFrequencyHzOverride);
         Assert.Equal(700, mapping.AudioMidFrequencyHzOverride);
         Assert.Equal(2400, mapping.AudioHighFrequencyHzOverride);
+        Assert.Equal(55, mapping.AudioLowGainPercentOverride);
+        Assert.Equal(130, mapping.AudioMidGainPercentOverride);
+        Assert.Equal(180, mapping.AudioHighGainPercentOverride);
         Assert.Equal(35, mapping.AudioBandSpreadPercentOverride);
         Assert.Equal(65, mapping.AudioBeatPulsePercentOverride);
         Assert.Equal(75, mapping.AudioBeatPulseDecayPercentOverride);
@@ -7895,6 +7916,9 @@ public sealed class HueApiControllerTests : IDisposable
                     AudioLowFrequencyHzOverride = 60,
                     AudioMidFrequencyHzOverride = 700,
                     AudioHighFrequencyHzOverride = 2400,
+                    AudioLowGainPercentOverride = 45,
+                    AudioMidGainPercentOverride = 135,
+                    AudioHighGainPercentOverride = 185,
                     AudioBandSpreadPercentOverride = 35,
                     AudioBeatPulsePercentOverride = 65,
                     AudioColorPaletteOverride = PluginConfiguration.AudioColorPaletteCool,
@@ -7942,6 +7966,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(60, mapping.AudioLowFrequencyHzOverride);
         Assert.Equal(700, mapping.AudioMidFrequencyHzOverride);
         Assert.Equal(2400, mapping.AudioHighFrequencyHzOverride);
+        Assert.Equal(45, mapping.AudioLowGainPercentOverride);
+        Assert.Equal(135, mapping.AudioMidGainPercentOverride);
+        Assert.Equal(185, mapping.AudioHighGainPercentOverride);
         Assert.Equal(35, mapping.AudioBandSpreadPercentOverride);
         Assert.Equal(65, mapping.AudioBeatPulsePercentOverride);
         Assert.Equal(PluginConfiguration.AudioColorPaletteCool, mapping.AudioColorPaletteOverride);
@@ -8063,6 +8090,9 @@ public sealed class HueApiControllerTests : IDisposable
             AudioLowFrequencyHz = 70,
             AudioMidFrequencyHz = 600,
             AudioHighFrequencyHz = 2200,
+            AudioLowGainPercent = 70,
+            AudioMidGainPercent = 120,
+            AudioHighGainPercent = 180,
             AudioBandSpreadPercent = 18,
             AudioBeatPulsePercent = 42,
             AudioColorPalette = PluginConfiguration.AudioColorPaletteCool,
@@ -8097,6 +8127,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(70, configuration.AudioLowFrequencyHz);
         Assert.Equal(600, configuration.AudioMidFrequencyHz);
         Assert.Equal(2200, configuration.AudioHighFrequencyHz);
+        Assert.Equal(70, configuration.AudioLowGainPercent);
+        Assert.Equal(120, configuration.AudioMidGainPercent);
+        Assert.Equal(180, configuration.AudioHighGainPercent);
         Assert.Equal(18, configuration.AudioBandSpreadPercent);
         Assert.Equal(42, configuration.AudioBeatPulsePercent);
         Assert.Equal(PluginConfiguration.AudioColorPaletteCool, configuration.AudioColorPalette);

@@ -1402,6 +1402,24 @@ public class PluginConfigurationTests
 
     [Theory]
     [InlineData(-1)]
+    [InlineData(201)]
+    public void Validate_WhenAudioBandGainOutOfRange_ReturnsError(int gain)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            AudioLowGainPercent = gain
+        };
+
+        Assert.Contains("Audio band gains must be between 0 and 200 percent", config.Validate());
+    }
+
+    [Theory]
+    [InlineData(-1)]
     [InlineData(101)]
     public void Validate_WhenAudioBandSpreadOutOfRange_ReturnsError(int spread)
     {
@@ -1835,6 +1853,9 @@ public class PluginConfigurationTests
         Assert.Equal(20, config.TargetFps);
         Assert.Equal(PluginConfiguration.DefaultAudioSensitivityPercent, config.AudioSensitivityPercent);
         Assert.Equal(PluginConfiguration.DefaultAudioNoiseGatePercent, config.AudioNoiseGatePercent);
+        Assert.Equal(PluginConfiguration.DefaultAudioBandGainPercent, config.AudioLowGainPercent);
+        Assert.Equal(PluginConfiguration.DefaultAudioBandGainPercent, config.AudioMidGainPercent);
+        Assert.Equal(PluginConfiguration.DefaultAudioBandGainPercent, config.AudioHighGainPercent);
         Assert.Equal(PluginConfiguration.DefaultAudioLowFrequencyHz, config.AudioLowFrequencyHz);
         Assert.Equal(PluginConfiguration.DefaultAudioMidFrequencyHz, config.AudioMidFrequencyHz);
         Assert.Equal(PluginConfiguration.DefaultAudioHighFrequencyHz, config.AudioHighFrequencyHz);
@@ -2592,6 +2613,39 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetAudioBandGainsForUser_UsesOverrideAndClampsInvalidValues()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            AudioLowGainPercent = 80,
+            AudioMidGainPercent = 110,
+            AudioHighGainPercent = 140,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString(),
+                    AudioLowGainPercentOverride = 40,
+                    AudioMidGainPercentOverride = 160,
+                    AudioHighGainPercentOverride = 200
+                }
+            }
+        };
+
+        Assert.Equal((40, 160, 200), config.GetAudioBandGainsForUser(userId));
+        Assert.Equal((80, 110, 140), config.GetAudioBandGainsForUser(System.Guid.NewGuid()));
+
+        config.UserMappings[0].AudioLowGainPercentOverride = -1;
+        config.UserMappings[0].AudioMidGainPercentOverride = 999;
+        Assert.Equal(
+            (PluginConfiguration.MinAudioBandGainPercent,
+                PluginConfiguration.MaxAudioBandGainPercent,
+                PluginConfiguration.MaxAudioBandGainPercent),
+            config.GetAudioBandGainsForUser(userId));
+    }
+
+    [Fact]
     public void GetAudioBandSpreadPercentForUser_UsesOverrideAndClampsInvalidValues()
     {
         var userId = System.Guid.NewGuid();
@@ -3072,6 +3126,9 @@ public class PluginConfigurationTests
                     AudioLowFrequencyHzOverride = 2000,
                     AudioMidFrequencyHzOverride = 100,
                     AudioHighFrequencyHzOverride = 4000,
+                    AudioLowGainPercentOverride = -1,
+                    AudioMidGainPercentOverride = 201,
+                    AudioHighGainPercentOverride = 201,
                     AudioBandSpreadPercentOverride = 101,
                     AudioBeatPulsePercentOverride = 101,
                     AudioColorPaletteOverride = "InvalidPalette",
@@ -3090,6 +3147,9 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 target FPS override must be between 1 and 60", errors);
         Assert.Contains("User mapping 1 audio sensitivity override must be between 25 and 400 percent", errors);
         Assert.Contains("User mapping 1 audio high frequency override must be between 20 and 3900 Hz", errors);
+        Assert.Contains("User mapping 1 audio low gain override must be between 0 and 200 percent", errors);
+        Assert.Contains("User mapping 1 audio mid gain override must be between 0 and 200 percent", errors);
+        Assert.Contains("User mapping 1 audio high gain override must be between 0 and 200 percent", errors);
         Assert.Contains("User mapping 1 audio band spread override must be between 0 and 100 percent", errors);
         Assert.Contains("User mapping 1 audio beat pulse override must be between 0 and 100 percent", errors);
         Assert.Contains("User mapping 1 audio color palette override must be Spectrum, Band, Warm, Cool, or Monochrome", errors);

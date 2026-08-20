@@ -5239,6 +5239,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveAudioLowFrequencyHz = runtime?.ActiveAudioLowFrequencyHz,
                 ActiveAudioMidFrequencyHz = runtime?.ActiveAudioMidFrequencyHz,
                 ActiveAudioHighFrequencyHz = runtime?.ActiveAudioHighFrequencyHz,
+                ActiveAudioLowGainPercent = runtime?.ActiveAudioLowGainPercent,
+                ActiveAudioMidGainPercent = runtime?.ActiveAudioMidGainPercent,
+                ActiveAudioHighGainPercent = runtime?.ActiveAudioHighGainPercent,
                 ActiveAudioBandSpreadPercent = runtime?.ActiveAudioBandSpreadPercent,
                 ActiveAudioBeatPulsePercent = runtime?.ActiveAudioBeatPulsePercent,
                 ActiveAudioBeatPulseDecayPercent = runtime?.ActiveAudioBeatPulseDecayPercent,
@@ -6857,6 +6860,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 AudioLowFrequencyHzOverride = source.AudioLowFrequencyHzOverride,
                 AudioMidFrequencyHzOverride = source.AudioMidFrequencyHzOverride,
                 AudioHighFrequencyHzOverride = source.AudioHighFrequencyHzOverride,
+                AudioLowGainPercentOverride = source.AudioLowGainPercentOverride,
+                AudioMidGainPercentOverride = source.AudioMidGainPercentOverride,
+                AudioHighGainPercentOverride = source.AudioHighGainPercentOverride,
                 AudioBandSpreadPercentOverride = source.AudioBandSpreadPercentOverride,
                 AudioBeatPulsePercentOverride = source.AudioBeatPulsePercentOverride,
                 AudioBeatPulseDecayPercentOverride = source.AudioBeatPulseDecayPercentOverride,
@@ -7661,6 +7667,9 @@ namespace Jellyfin.Plugin.Hue.Api
         public int AudioLowFrequencyHz { get; set; } = PluginConfiguration.DefaultAudioLowFrequencyHz;
         public int AudioMidFrequencyHz { get; set; } = PluginConfiguration.DefaultAudioMidFrequencyHz;
         public int AudioHighFrequencyHz { get; set; } = PluginConfiguration.DefaultAudioHighFrequencyHz;
+        public int AudioLowGainPercent { get; set; } = PluginConfiguration.DefaultAudioBandGainPercent;
+        public int AudioMidGainPercent { get; set; } = PluginConfiguration.DefaultAudioBandGainPercent;
+        public int AudioHighGainPercent { get; set; } = PluginConfiguration.DefaultAudioBandGainPercent;
         public int AudioBandSpreadPercent { get; set; } = PluginConfiguration.DefaultAudioBandSpreadPercent;
         public int AudioBeatPulsePercent { get; set; } = PluginConfiguration.DefaultAudioBeatPulsePercent;
         public int AudioBeatPulseDecayPercent { get; set; } = PluginConfiguration.DefaultAudioBeatPulseDecayPercent;
@@ -7716,6 +7725,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 AudioLowFrequencyHz = config.AudioLowFrequencyHz,
                 AudioMidFrequencyHz = config.AudioMidFrequencyHz,
                 AudioHighFrequencyHz = config.AudioHighFrequencyHz,
+                AudioLowGainPercent = config.AudioLowGainPercent,
+                AudioMidGainPercent = config.AudioMidGainPercent,
+                AudioHighGainPercent = config.AudioHighGainPercent,
                 AudioBandSpreadPercent = config.AudioBandSpreadPercent,
                 AudioBeatPulsePercent = config.AudioBeatPulsePercent,
                 AudioBeatPulseDecayPercent = config.AudioBeatPulseDecayPercent,
@@ -7792,6 +7804,9 @@ namespace Jellyfin.Plugin.Hue.Api
             config.AudioLowFrequencyHz = AudioLowFrequencyHz;
             config.AudioMidFrequencyHz = AudioMidFrequencyHz;
             config.AudioHighFrequencyHz = AudioHighFrequencyHz;
+            config.AudioLowGainPercent = AudioLowGainPercent;
+            config.AudioMidGainPercent = AudioMidGainPercent;
+            config.AudioHighGainPercent = AudioHighGainPercent;
             config.AudioBandSpreadPercent = AudioBandSpreadPercent;
             config.AudioBeatPulsePercent = AudioBeatPulsePercent;
             config.AudioBeatPulseDecayPercent = AudioBeatPulseDecayPercent;
@@ -7847,6 +7862,9 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? AudioLowFrequencyHzOverride { get; set; }
         public int? AudioMidFrequencyHzOverride { get; set; }
         public int? AudioHighFrequencyHzOverride { get; set; }
+        public int? AudioLowGainPercentOverride { get; set; }
+        public int? AudioMidGainPercentOverride { get; set; }
+        public int? AudioHighGainPercentOverride { get; set; }
         public int? AudioBandSpreadPercentOverride { get; set; }
         public int? AudioBeatPulsePercentOverride { get; set; }
         public int? AudioBeatPulseDecayPercentOverride { get; set; }
@@ -7898,6 +7916,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 AudioLowFrequencyHzOverride = mapping.AudioLowFrequencyHzOverride,
                 AudioMidFrequencyHzOverride = mapping.AudioMidFrequencyHzOverride,
                 AudioHighFrequencyHzOverride = mapping.AudioHighFrequencyHzOverride,
+                AudioLowGainPercentOverride = mapping.AudioLowGainPercentOverride,
+                AudioMidGainPercentOverride = mapping.AudioMidGainPercentOverride,
+                AudioHighGainPercentOverride = mapping.AudioHighGainPercentOverride,
                 AudioBandSpreadPercentOverride = mapping.AudioBandSpreadPercentOverride,
                 AudioBeatPulsePercentOverride = mapping.AudioBeatPulsePercentOverride,
                 AudioBeatPulseDecayPercentOverride = mapping.AudioBeatPulseDecayPercentOverride,
@@ -9903,6 +9924,9 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ActiveAudioLowFrequencyHz { get; set; }
         public int? ActiveAudioMidFrequencyHz { get; set; }
         public int? ActiveAudioHighFrequencyHz { get; set; }
+        public int? ActiveAudioLowGainPercent { get; set; }
+        public int? ActiveAudioMidGainPercent { get; set; }
+        public int? ActiveAudioHighGainPercent { get; set; }
         public int? ActiveAudioBandSpreadPercent { get; set; }
         public int? ActiveAudioBeatPulsePercent { get; set; }
         public int? ActiveAudioBeatPulseDecayPercent { get; set; }
