@@ -45,7 +45,7 @@ jobs:
           if [ "$COUNT" -gt 0 ]; then
             echo "::warning::gitleaks found $COUNT potential secret(s); see the gitleaks-report artifact"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: gitleaks-report
@@ -68,7 +68,7 @@ jobs:
           "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --config auto --metrics off --json --output semgrep.json . || true
           COUNT=$(jq '.results | length' semgrep.json 2>/dev/null || echo 0)
           { echo "### Static analysis (semgrep)"; echo "Findings: **$COUNT** (informational)"; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: semgrep-report
