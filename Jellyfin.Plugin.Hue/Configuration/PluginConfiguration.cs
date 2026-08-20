@@ -50,6 +50,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? AudioBandSpreadPercentOverride { get; set; }
         public int? AudioBeatPulsePercentOverride { get; set; }
         public string? AudioColorPaletteOverride { get; set; }
+        public string? AudioSpatialModeOverride { get; set; }
         public int? TargetFpsOverride { get; set; }
         public string? FrameResolutionOverride { get; set; }
         public string? VideoScalingModeOverride { get; set; }
@@ -388,6 +389,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string AudioColorPaletteWarm = "Warm";
         public const string AudioColorPaletteCool = "Cool";
         public const string AudioColorPaletteMonochrome = "Monochrome";
+        public const string AudioSpatialModeSpatial = "Spatial";
+        public const string AudioSpatialModeUniform = "Uniform";
+        public const string AudioSpatialModeMirror = "Mirror";
 
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
@@ -508,6 +512,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
             AudioColorPaletteMonochrome
         };
 
+        private static readonly string[] AudioSpatialModes =
+        {
+            AudioSpatialModeSpatial,
+            AudioSpatialModeUniform,
+            AudioSpatialModeMirror
+        };
+
         /// <summary>
         /// Returns the canonical spelling for a supported saved-scene effect. Blank
         /// values are treated as the legacy solid-color behavior.
@@ -606,6 +617,45 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 return null;
 
             return TryNormalizeAudioColorPalette(value, out var normalized)
+                ? normalized
+                : value.Trim();
+        }
+
+        /// <summary>
+        /// Returns the canonical spelling for a supported audio spatial routing mode.
+        /// Blank values preserve the default Spatial behavior.
+        /// </summary>
+        public static bool TryNormalizeAudioSpatialMode(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = AudioSpatialModeSpatial;
+                return true;
+            }
+
+            var match = AudioSpatialModes.FirstOrDefault(mode =>
+                string.Equals(mode, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = AudioSpatialModeSpatial;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
+        /// Normalizes an optional per-user audio spatial mode while preserving invalid text
+        /// for configuration validation feedback. Blank values become null so inheritance
+        /// remains explicit in persisted mapping profiles.
+        /// </summary>
+        public static string? NormalizeOptionalAudioSpatialMode(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            return TryNormalizeAudioSpatialMode(value, out var normalized)
                 ? normalized
                 : value.Trim();
         }
@@ -733,6 +783,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// warm, cool, or monochrome presentation choices.
         /// </summary>
         public string AudioColorPalette { get; set; } = AudioColorPaletteSpectrum;
+        /// <summary>
+        /// Selects how low/mid/high audio energy is routed across entertainment channels.
+        /// Spatial preserves the original position-aware mapping, Uniform sends the same
+        /// mixed response to every channel, and Mirror produces a symmetric room pattern.
+        /// </summary>
+        public string AudioSpatialMode { get; set; } = AudioSpatialModeSpatial;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = FrameResolutionStandard;
         public string VideoScalingMode { get; set; } = VideoScalingModeStretch;
@@ -855,6 +911,24 @@ namespace Jellyfin.Plugin.Hue.Configuration
             return TryNormalizeAudioColorPalette(AudioColorPalette, out var normalizedGlobal)
                 ? normalizedGlobal
                 : AudioColorPaletteSpectrum;
+        }
+
+        /// <summary>
+        /// Gets the effective audio spatial routing mode for a user. A missing or blank
+        /// override inherits the global mode; invalid hand-edited values fall back to the
+        /// global mode for runtime continuity while validation reports the bad value.
+        /// </summary>
+        public string GetAudioSpatialModeForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var overrideMode = NormalizeOptionalAudioSpatialMode(mapping?.AudioSpatialModeOverride);
+            if (overrideMode != null && TryNormalizeAudioSpatialMode(overrideMode, out var normalizedOverride))
+                return normalizedOverride;
+
+            return TryNormalizeAudioSpatialMode(AudioSpatialMode, out var normalizedGlobal)
+                ? normalizedGlobal
+                : AudioSpatialModeSpatial;
         }
 
         /// <summary>
@@ -1204,6 +1278,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 !TryNormalizeAudioColorPalette(audioColorPaletteOverride, out _))
             {
                 errors.Add($"{label} audio color palette override must be Spectrum, Band, Warm, Cool, or Monochrome");
+            }
+            var audioSpatialModeOverride = mapping.AudioSpatialModeOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(audioSpatialModeOverride) &&
+                !TryNormalizeAudioSpatialMode(audioSpatialModeOverride, out _))
+            {
+                errors.Add($"{label} audio spatial mode override must be Spatial, Uniform, or Mirror");
             }
             if (mapping.AudioLowFrequencyHzOverride.HasValue &&
                 mapping.AudioMidFrequencyHzOverride.HasValue &&
@@ -2165,6 +2245,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (!TryNormalizeAudioColorPalette(AudioColorPalette, out _))
                     errors.Add("Audio color palette must be Spectrum, Band, Warm, Cool, or Monochrome");
+
+                if (!TryNormalizeAudioSpatialMode(AudioSpatialMode, out _))
+                    errors.Add("Audio spatial mode must be Spatial, Uniform, or Mirror");
 
                 if (!string.Equals(FrameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(FrameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&

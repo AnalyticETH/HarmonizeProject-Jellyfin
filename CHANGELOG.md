@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.166] - 2026-08-19
+
+### Added
+- **Audio spatial routing**: choose Spatial (backward-compatible position-aware routing), Uniform (one mixed response for every channel), or Mirror (symmetric center-to-edge routing) for Audio and All-media playback
+- **Per-user routing profiles**: inherit or override the global mode with validation, safe runtime fallback, active status telemetry, and credential-free backup/import support
+- **Portable and testable audio routing**: carry modes through configuration save/load, mapping summaries, backup/export/import, administrator controls, and regression coverage
+
 ## [1.5.165] - 2026-08-19
 
 ### Added

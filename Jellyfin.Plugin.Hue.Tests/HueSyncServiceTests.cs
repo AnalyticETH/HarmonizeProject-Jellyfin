@@ -267,6 +267,51 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void BuildAudioChannelColors_SupportsSpatialUniformAndMirrorRouting()
+    {
+        var lights = new Dictionary<int, (double x, double z)>
+        {
+            [1] = (-1, 0),
+            [2] = (1, 0),
+            [3] = (0, 0)
+        };
+        var energy = (Rms: 0.25, Low: 0.35, Mid: 0.2, High: 0.1);
+
+        var spatial = HueSyncService.BuildAudioChannelColors(
+            lights,
+            energy,
+            frameIndex: 11,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeSpatial);
+        var uniform = HueSyncService.BuildAudioChannelColors(
+            lights,
+            energy,
+            frameIndex: 11,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeUniform);
+        var mirror = HueSyncService.BuildAudioChannelColors(
+            lights,
+            energy,
+            frameIndex: 11,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeMirror);
+
+        Assert.NotEqual(spatial[1], spatial[2]);
+        Assert.Equal(uniform[1], uniform[2]);
+        Assert.Equal(uniform[2], uniform[3]);
+        Assert.Equal(mirror[1], mirror[2]);
+        Assert.NotEqual(mirror[1], mirror[3]);
+        Assert.Equal(
+            spatial[1],
+            HueSyncService.BuildAudioChannelColors(
+                lights,
+                energy,
+                frameIndex: 11,
+                audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+                audioSpatialMode: "invalid")[1]);
+    }
+
+    [Fact]
     public void IsPlaybackSeek_RecognizesBackwardAndLargeForwardJumps()
     {
         var start = DateTime.UtcNow;
@@ -582,6 +627,38 @@ public sealed class HueSyncServiceTests
         Assert.Equal(
             PluginConfiguration.AudioColorPaletteSpectrum,
             HueSyncService.ResolveAudioColorPalette(configuration, userId));
+    }
+
+    [Fact]
+    public void ResolveAudioSpatialMode_UsesPerUserOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioSpatialMode = PluginConfiguration.AudioSpatialModeMirror,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString(), AudioSpatialModeOverride = PluginConfiguration.AudioSpatialModeUniform }
+            }
+        };
+
+        Assert.Equal(
+            PluginConfiguration.AudioSpatialModeUniform,
+            HueSyncService.ResolveAudioSpatialMode(configuration, userId));
+        Assert.Equal(
+            PluginConfiguration.AudioSpatialModeMirror,
+            HueSyncService.ResolveAudioSpatialMode(configuration, System.Guid.NewGuid()));
+
+        configuration.UserMappings[0].AudioSpatialModeOverride = "invalid";
+        Assert.Equal(
+            PluginConfiguration.AudioSpatialModeMirror,
+            HueSyncService.ResolveAudioSpatialMode(configuration, userId));
+
+        configuration.UserMappings.Clear();
+        configuration.AudioSpatialMode = "invalid";
+        Assert.Equal(
+            PluginConfiguration.AudioSpatialModeSpatial,
+            HueSyncService.ResolveAudioSpatialMode(configuration, userId));
     }
 
     [Fact]
