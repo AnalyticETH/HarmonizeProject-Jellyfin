@@ -82,7 +82,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Output Brightness** | Final 0-100% brightness scale applied after boost, saturation, and hue shift (default: 100%). Use it to cap room brightness without changing color balance. |
 | **Blackout Threshold** | Set all channels to black when the sampled frame's average brightness falls below 0-255 (default: 15). Set to 0 to disable blackout handling. |
 | **Color Change Threshold** | Suppress Hue packets until the RGB16 color delta reaches 0-255 (default: 10). Lower values follow subtle changes; higher values reduce network traffic. |
-| **When Playback Is Paused** | Keep the last synced colors (default) or restore the original light state captured at playback start. Sync resumes automatically. Restoring uses the **Restore Light State After Sync** setting. |
+| **When Playback Is Paused** | Keep the last synced colors (default), restore the original light state captured at playback start, or dim each captured light to the configured cinema level while paused. Sync resumes automatically; final restoration still follows **Restore Light State After Sync**. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). Values may use quoted groups and escaped quotes/backslashes; the configuration save validates the same tokenization used by FFmpeg playback and reports malformed quotes before a session starts. |
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
 | **Network Retry Attempts** | Number of retry attempts for Hue REST requests and DTLS stream recovery (0-10, default: 3). |
@@ -149,7 +149,8 @@ including when the mapping uses the default bridge.
 
 Mappings can also override Cinema Mode, its dim level, and pause behavior. Choose **Inherit global
 setting** to keep the defaults, or enable/disable cinema mode, set a separate 0-100% dim level, and
-choose whether pausing that user's playback keeps the last colors or restores the captured light state.
+choose whether pausing that user's playback keeps the last colors, restores the captured light state,
+or dims to that user's effective cinema level.
 
 ### Admin API
 
@@ -216,7 +217,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET /HueSync/SceneSchedules/History/Export?limit=100&scheduleId=...&outcome=...` | Download the same credential-free scheduled-cue history document used by the administrator Export JSON action, including the selected cue and outcome filters. |
 | `GET /HueSync/SceneSchedules/History/ExportCsv?limit=100&scheduleId=...&outcome=...` | Download the same filtered scheduled-cue history as one credential-free UTF-8 CSV row per run, including outcome, recovery and restored-after-restart state, run count, bounded nested-result counts, messages, and cleanup warnings. |
 | `DELETE /HueSync/SceneSchedules/History` | Clear retained scheduled-cue run summaries and reset last-run pointers without stopping an active cue. |
-| `GET /HueSync/Status` | Read sanitized runtime state, active Jellyfin user and target, active performance/color/execution/channel/restoration profile including effective audio sensitivity, band centers, band spread, beat-pulse response, release, onset threshold, and visualizer palette, frame count, effective FPS, stream packet counters, reconnect attempts, seek-recovery restart count and last seek position, FFmpeg/DTLS health, cleanup warnings, the credential-free `lastSession` summary, whether the current sync can be stopped safely, and a `sessions` array for concurrent playback workers. |
+| `GET /HueSync/Status` | Read sanitized runtime state, active Jellyfin user and target, active performance/color/execution/channel/restoration profile including effective audio sensitivity, band centers, band spread, beat-pulse response, release, onset threshold, and visualizer palette, effective pause behavior and pause dim level, frame count, effective FPS, stream packet counters, reconnect attempts, seek-recovery restart count and last seek position, FFmpeg/DTLS health, cleanup warnings, the credential-free `lastSession` summary, whether the current sync can be stopped safely, and a `sessions` array for concurrent playback workers. |
 | `GET /HueSync/History?limit=20&outcome=Error` | Read the newest completed Hue session summaries (up to 25), optionally filtered by outcome, including target labels and aggregate playback quality/cleanup telemetry. Results are bounded in memory and never include bridge credentials or playback tokens. |
 | `GET /HueSync/History/Export?limit=25&outcome=Error` | Download the same sanitized session-history document used by the administrator Export JSON action for troubleshooting; bridge credentials and playback tokens are omitted. |
 | `GET /HueSync/History/ExportCsv?limit=25&outcome=Error` | Download the same filtered completed-session history as credential-free UTF-8 CSV with playback quality counters, timestamps, target metadata, errors, and cleanup warnings. |
@@ -406,7 +407,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.178 (Current)
+### Version 1.5.179 (Current)
+- **Pause-time dimming**: choose KeepLastColors, RestoreLightState, or DimToCinemaLevel so paused playback can dim captured lights to the effective cinema level without resetting their streamed colors
+- **Safe pause lifecycle**: capture the required light snapshot even when final restoration is disabled, apply brightness-only updates with retries, preserve resume ownership, and clear snapshots after playback cleanup
+- **Pause telemetry and coverage**: expose the effective pause policy and dim level in runtime status, add per-user override support, and cover brightness payloads, validation, and pause/resume lifecycle behavior
+
+### Version 1.5.178
 - **Target-aware scheduled playback conflicts**: choose the historical process-wide conflict scope or allow scheduled cues to continue when active playback owns a different bridge/entertainment-area target
 - **Scoped lifecycle arbitration**: matching-target scheduled previews reserve only their resolved Hue resource, preserving independent multi-room playback and credential-safe status telemetry
 - **Portable controls and regression coverage**: carry the conflict scope through configuration save/load, backup/import, administrator controls, and target-specific scheduler tests

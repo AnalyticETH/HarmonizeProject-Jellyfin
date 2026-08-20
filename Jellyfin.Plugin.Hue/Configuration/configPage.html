@@ -30,6 +30,7 @@
                             <div><strong>Execution:</strong> <span id="runtimeExecutionProfile">—</span></div>
                             <div><strong>Channels:</strong> <span id="runtimeChannelProfile">—</span></div>
                             <div><strong>Restoration:</strong> <span id="runtimeRestorationProfile">—</span></div>
+                            <div><strong>Pause behavior:</strong> <span id="runtimePauseBehavior">—</span></div>
                         </div>
                         <div style="flex: 1 1 280px;">
                             <div><strong>Health:</strong> <span id="runtimeHealth">—</span></div>
@@ -974,8 +975,9 @@
                             <select id="pauseBehavior" name="pauseBehavior" is="emby-select">
                                 <option value="KeepLastColors">Keep last synced colors</option>
                                 <option value="RestoreLightState">Restore original light state</option>
+                                <option value="DimToCinemaLevel">Dim to cinema level</option>
                             </select>
-                            <div class="fieldDescription">Choose whether pausing playback leaves the last Hue colors in place or restores the lights captured when playback started. Sync resumes automatically when playback continues.</div>
+                            <div class="fieldDescription">Choose whether pausing playback leaves the last Hue colors in place, restores the lights captured when playback started, or dims each captured light to the configured cinema level. Sync resumes automatically when playback continues.</div>
                         </div>
                     </fieldset>
 
@@ -1140,8 +1142,9 @@
                                         <option value="">Inherit global setting</option>
                                         <option value="KeepLastColors">Keep last synced colors</option>
                                         <option value="RestoreLightState">Restore original light state</option>
+                                        <option value="DimToCinemaLevel">Dim to cinema level</option>
                                     </select>
-                                    <div class="fieldDescription">Choose whether pausing this user's playback keeps the last Hue colors or restores the captured light state.</div>
+                                    <div class="fieldDescription">Choose whether pausing this user's playback keeps the last Hue colors, restores the captured light state, or dims to this mapping's effective cinema level.</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -6742,6 +6745,8 @@
                         var networkRetryAttempts = HueConfigurationPage.readStatusField(status, "ActiveNetworkRetryAttempts", null);
                         var activeChannelIds = HueConfigurationPage.readStatusField(status, "ActiveChannelIds", null);
                         var restoreLightState = HueConfigurationPage.readStatusField(status, "ActiveRestoreLightState", null);
+                        var pauseBehavior = HueConfigurationPage.readStatusField(status, "ActivePauseBehavior", null);
+                        var pauseBrightnessPercent = HueConfigurationPage.readStatusField(status, "ActivePauseBrightnessPercent", null);
                         var activeBridge = HueConfigurationPage.readStatusField(status, "ActiveBridgeIp", "—");
                         var activeArea = HueConfigurationPage.readStatusField(status, "ActiveEntertainmentAreaId", "—");
                         var frames = HueConfigurationPage.readStatusField(status, "FramesProcessed", 0);
@@ -6797,6 +6802,11 @@
                         page.querySelector('#runtimeRestorationProfile').textContent = restoreLightState == null
                             ? "—"
                             : (restoreLightState ? "Saved light state" : "Cinema/default restoration");
+                        page.querySelector('#runtimePauseBehavior').textContent = pauseBehavior == null
+                            ? "—"
+                            : (pauseBehavior === "DimToCinemaLevel"
+                                ? "Dim to cinema level" + (pauseBrightnessPercent == null ? "" : " (" + String(pauseBrightnessPercent) + "%)")
+                                : pauseBehavior === "RestoreLightState" ? "Restore original light state" : "Keep last synced colors");
                         page.querySelector('#runtimeTarget').textContent = activeBridge && activeArea && activeBridge !== "—"
                             ? activeBridge + " / " + activeArea
                             : "—";

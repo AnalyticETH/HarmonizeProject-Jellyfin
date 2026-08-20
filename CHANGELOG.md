@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.179] - 2026-08-20
+
+### Added
+- **Pause-time dimming**: choose KeepLastColors, RestoreLightState, or DimToCinemaLevel so paused playback can dim captured lights to the effective cinema level without resetting their streamed colors
+- **Per-user pause policy**: mappings can inherit or override the global pause behavior while reusing the existing effective cinema dim level
+
+### Reliability
+- **Brightness-only pause updates**: capture the required snapshot even when final restoration is disabled, update each light with retries, preserve the active playback lifecycle for resume, and clear snapshots during cleanup
+- **Runtime telemetry and regression coverage**: expose the effective pause policy/dim level while paused and cover validation, brightness payloads, and lifecycle behavior
+
 ## [1.5.178] - 2026-08-20
 
 ### Added

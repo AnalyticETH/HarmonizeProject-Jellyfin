@@ -139,6 +139,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private bool? _activeRestoreLightState;
         private IDisposable? _playbackLifecycleLease;
         private string? _activePauseBehavior;
+        private int? _activePauseBrightnessPercent;
         private string? _manuallyStoppedPlaySessionId;
         private bool _externalPlaybackStartPending;
         private bool _externalPlaybackStopRequested;
@@ -460,6 +461,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         _activeCinemaModeAttempted = null;
                         _activeRestoreLightState = null;
                         _activePauseBehavior = null;
+                        _activePauseBrightnessPercent = null;
                         _activeColorProcessingSettings = null;
                         _activeExecutionSettings = null;
                         _activeChannelIds = null;
@@ -593,6 +595,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 int NetworkRetryAttempts)? activeExecutionSettings;
             IReadOnlySet<int>? activeChannelIds;
             bool? activeRestoreLightState;
+            string? activePauseBehavior;
+            int? activePauseBrightnessPercent;
             string state;
             string message;
             string? lastError;
@@ -634,6 +638,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 activeExecutionSettings = _activeExecutionSettings;
                 activeChannelIds = _activeChannelIds;
                 activeRestoreLightState = _activeRestoreLightState;
+                activePauseBehavior = _activePauseBehavior;
+                activePauseBrightnessPercent = _activePauseBrightnessPercent;
                 state = _runtimeState;
                 message = _runtimeMessage;
                 lastError = _lastError;
@@ -711,6 +717,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveNetworkRetryAttempts = isSyncing ? activeExecutionSettings?.NetworkRetryAttempts : null,
                 ActiveChannelIds = isSyncing ? FormatChannelIds(activeChannelIds) : null,
                 ActiveRestoreLightState = isSyncing ? activeRestoreLightState : null,
+                ActivePauseBehavior = activePauseBehavior,
+                ActivePauseBrightnessPercent = activePauseBrightnessPercent,
                 ActiveBridgeIp = isSyncing ? bridgeConfig?.BridgeIp : null,
                 ActiveEntertainmentAreaId = isSyncing ? bridgeConfig?.AreaId : null,
                 IsSyncing = isSyncing,
@@ -1860,14 +1868,23 @@ namespace Jellyfin.Plugin.Hue.Service
                     activePauseBehavior ?? configuredPauseBehavior,
                     PluginConfiguration.PauseBehaviorRestoreLightState,
                     StringComparison.OrdinalIgnoreCase);
+                var pauseDimsLights = IsPauseBehaviorDimToCinemaLevel(
+                    activePauseBehavior ?? configuredPauseBehavior);
+                var pauseDescription = pauseRestoresLights
+                    ? "restore"
+                    : pauseDimsLights
+                        ? "dim to cinema level"
+                        : "keep-last-colors";
                 _logger.LogInformation(
                     "Playback paused, stopping light sync; pause behavior is {0}",
-                    pauseRestoresLights ? "restore" : "keep-last-colors");
+                    pauseDescription);
                 SetRuntimeStatus(
                     "Paused",
                     pauseRestoresLights
                         ? "Playback paused; lights are being restored."
-                        : "Playback paused; keeping the last synced colors.");
+                        : pauseDimsLights
+                            ? "Playback paused; lights are dimming to the configured cinema level."
+                            : "Playback paused; keeping the last synced colors.");
                 Task pauseCleanup;
                 lock (_syncLock)
                 {
@@ -1945,17 +1962,21 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 var config = Plugin.Instance?.Configuration;
                 string? activePauseBehavior;
+                int? activePauseBrightnessPercent;
                 lock (_syncLock)
                 {
                     activePauseBehavior = _activePauseBehavior;
+                    activePauseBrightnessPercent = _activePauseBrightnessPercent;
                 }
 
                 var restoreOnPause = string.Equals(
                     activePauseBehavior ?? config?.PauseBehavior,
                     PluginConfiguration.PauseBehaviorRestoreLightState,
                     StringComparison.OrdinalIgnoreCase);
+                var dimOnPause = IsPauseBehaviorDimToCinemaLevel(
+                    activePauseBehavior ?? config?.PauseBehavior);
                 var bridgeConfig = _currentBridgeConfig;
-                var savedLightStates = restoreOnPause ? _savedLightStates : null;
+                var savedLightStates = restoreOnPause || dimOnPause ? _savedLightStates : null;
                 StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId);
 
                 if (restoreOnPause)
@@ -1995,13 +2016,35 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
                 else if (bridgeConfig != null)
                 {
+                    var pauseMessage = "Playback paused; waiting to resume.";
+                    if (dimOnPause)
+                    {
+                        var dimResult = savedLightStates != null
+                            ? await _hueClient.SetLightBrightnessWithResult(
+                                bridgeConfig.Value.BridgeIp,
+                                bridgeConfig.Value.AppKey,
+                                savedLightStates,
+                                activePauseBrightnessPercent ?? config?.BrightnessDimLevel ?? 30).ConfigureAwait(false)
+                            : null;
+                        if (dimResult == null || !dimResult.Succeeded)
+                        {
+                            pauseMessage = dimResult == null
+                                ? "Playback paused; the pause dim level could not be applied, keeping the last synced colors."
+                                : $"Playback paused; pause dimming updated {dimResult.UpdatedCount} of {dimResult.AttemptedCount} light(s), with {dimResult.FailedCount} failure(s).";
+                        }
+                        else
+                        {
+                            pauseMessage = $"Playback paused; lights dimmed to {Math.Clamp(activePauseBrightnessPercent ?? config?.BrightnessDimLevel ?? 30, 0, 100)}%.";
+                        }
+                    }
+
                     await _hueClient.StopEntertainmentArea(
                         bridgeConfig.Value.BridgeIp,
                         bridgeConfig.Value.AppKey,
                         bridgeConfig.Value.AreaId).ConfigureAwait(false);
                     _bridgeAreaDeactivated = true;
                     ReleasePlaybackLifecycleLease();
-                    SetRuntimeStatus("Paused", "Playback paused; waiting to resume.");
+                    SetRuntimeStatus("Paused", pauseMessage);
                 }
                 else
                 {
@@ -2249,6 +2292,14 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             ArgumentNullException.ThrowIfNull(config);
             return config.GetPauseBehaviorOverrideForUser(userId) ?? config.PauseBehavior;
+        }
+
+        internal static bool IsPauseBehaviorDimToCinemaLevel(string? pauseBehavior)
+        {
+            return string.Equals(
+                pauseBehavior,
+                PluginConfiguration.PauseBehaviorDimToCinemaLevel,
+                StringComparison.OrdinalIgnoreCase);
         }
 
         internal static int ResolveAudioSensitivityPercent(PluginConfiguration config, Guid userId)
@@ -2603,9 +2654,10 @@ namespace Jellyfin.Plugin.Hue.Service
             bool restoreLightState,
             bool hasSavedLightStates,
             string? savedLightStatePlaySessionId,
-            string playSessionId)
+            string playSessionId,
+            bool captureForPause = false)
         {
-            return restoreLightState &&
+            return (restoreLightState || captureForPause) &&
                    (!hasSavedLightStates ||
                     !string.Equals(savedLightStatePlaySessionId, playSessionId, StringComparison.Ordinal));
         }
@@ -4190,6 +4242,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _activeCinemaModeAttempted = false;
                     _activeRestoreLightState = restoreLightState;
                     _activePauseBehavior = pauseBehavior;
+                    _activePauseBrightnessPercent = brightnessDimLevel;
                     syncStatePublished = true;
                 }
             }
@@ -4280,7 +4333,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     restoreLightState,
                     _savedLightStates != null,
                     _savedLightStatePlaySessionId,
-                    e.PlaySessionId);
+                    e.PlaySessionId,
+                    captureForPause: IsPauseBehaviorDimToCinemaLevel(pauseBehavior));
                 if (shouldCaptureLightState)
                 {
                     _logger.LogInformation("Saving current light states for restoration");
@@ -4578,6 +4632,15 @@ namespace Jellyfin.Plugin.Hue.Service
                         cleanupWarning = "Cinema-mode light restoration did not complete. Some lights may need manual recovery.";
                     }
                 }
+
+                // A pause-dimming session may capture a snapshot even when final
+                // light-state restoration is disabled. Never retain that snapshot
+                // beyond the playback lifecycle.
+                if (savedLightStates != null && ReferenceEquals(_savedLightStates, savedLightStates))
+                {
+                    _savedLightStates = null;
+                    _savedLightStatePlaySessionId = null;
+                }
             }
             catch (Exception ex)
             {
@@ -4610,6 +4673,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _activeCinemaModeAttempted = null;
                     _activeRestoreLightState = null;
                     _activePauseBehavior = null;
+                    _activePauseBrightnessPercent = null;
                     _activeColorProcessingSettings = null;
                     _activeExecutionSettings = null;
                     _activeChannelIds = null;
@@ -5019,6 +5083,12 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveNetworkRetryAttempts { get; init; }
         public string? ActiveChannelIds { get; init; }
         public bool? ActiveRestoreLightState { get; init; }
+        /// <summary>
+        /// Effective pause policy for the active playback lifecycle. This remains
+        /// available while playback is paused, when the stream itself is stopped.
+        /// </summary>
+        public string? ActivePauseBehavior { get; init; }
+        public int? ActivePauseBrightnessPercent { get; init; }
         public string? ActiveBridgeIp { get; init; }
         public string? ActiveEntertainmentAreaId { get; init; }
         public bool IsSyncing { get; init; }

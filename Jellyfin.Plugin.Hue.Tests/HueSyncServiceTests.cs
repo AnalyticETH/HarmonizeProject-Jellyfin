@@ -610,6 +610,33 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void ShouldCaptureLightState_DimPausePolicyCapturesWithoutFinalRestoration()
+    {
+        Assert.True(HueSyncService.ShouldCaptureLightState(
+            restoreLightState: false,
+            hasSavedLightStates: false,
+            savedLightStatePlaySessionId: null,
+            playSessionId: "session-a",
+            captureForPause: true));
+        Assert.False(HueSyncService.ShouldCaptureLightState(
+            restoreLightState: false,
+            hasSavedLightStates: true,
+            savedLightStatePlaySessionId: "session-a",
+            playSessionId: "session-a",
+            captureForPause: true));
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.PauseBehaviorDimToCinemaLevel, true)]
+    [InlineData("dimtocinemalevel", true)]
+    [InlineData(PluginConfiguration.PauseBehaviorKeepLastColors, false)]
+    [InlineData(PluginConfiguration.PauseBehaviorRestoreLightState, false)]
+    public void IsPauseBehaviorDimToCinemaLevel_RecognizesOnlyDimPolicy(string value, bool expected)
+    {
+        Assert.Equal(expected, HueSyncService.IsPauseBehaviorDimToCinemaLevel(value));
+    }
+
+    [Fact]
     public void ResolvePlaybackSettings_UsesPerUserOverridesAndGlobalFallback()
     {
         var userId = System.Guid.NewGuid();

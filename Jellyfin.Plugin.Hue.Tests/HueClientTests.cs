@@ -783,10 +783,7 @@ public class HueClientTests : IDisposable
                 "SendAsync",
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
-            .Callback<HttpRequestMessage, CancellationToken>((req, _) =>
-            {
-                capturedRequests.Add(req);
-            })
+            .Callback<HttpRequestMessage, CancellationToken>((req, _) => capturedRequests.Add(req))
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("{}", Encoding.UTF8, "application/json")
@@ -888,6 +885,83 @@ public class HueClientTests : IDisposable
 
         // Assert
         Assert.Equal(0, requestCount);
+    }
+
+    [Fact]
+    public async Task SetLightBrightnessWithResult_ChangesOnlyDimmingAndPreservesPowerState()
+    {
+        var lightStates = new List<HueClient.LightState>
+        {
+            new("light-on", true, 80, 0.3, 0.33),
+            new("light-off", false, 50, 0.4, 0.4)
+        };
+        var capturedBodies = new List<string>();
+        async Task<HttpResponseMessage> CaptureRequestAsync(HttpRequestMessage request)
+        {
+            capturedBodies.Add(await request.Content!.ReadAsStringAsync());
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
+        }
+
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Returns((HttpRequestMessage request, CancellationToken _) => CaptureRequestAsync(request));
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.SetLightBrightnessWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            lightStates,
+            25);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, result.AttemptedCount);
+        Assert.Equal(2, result.UpdatedCount);
+        Assert.All(capturedBodies, body => Assert.DoesNotContain("color", body, StringComparison.OrdinalIgnoreCase));
+        using var firstPayload = JsonDocument.Parse(capturedBodies[0]);
+        using var secondPayload = JsonDocument.Parse(capturedBodies[1]);
+        Assert.True(firstPayload.RootElement.GetProperty("on").GetProperty("on").GetBoolean());
+        Assert.False(secondPayload.RootElement.GetProperty("on").GetProperty("on").GetBoolean());
+        Assert.Equal(25, firstPayload.RootElement.GetProperty("dimming").GetProperty("brightness").GetInt32());
+        Assert.Equal(25, secondPayload.RootElement.GetProperty("dimming").GetProperty("brightness").GetInt32());
+    }
+
+    [Fact]
+    public async Task SetLightBrightnessWithResult_ClampsBrightnessAndReportsFailures()
+    {
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.BadRequest));
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.SetLightBrightnessWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            new List<HueClient.LightState> { new("light-1", true, 80, 0.3, 0.33) },
+            150);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(1, result.AttemptedCount);
+        Assert.Equal(0, result.UpdatedCount);
+        Assert.Equal(1, result.FailedCount);
     }
 
     [Fact]
