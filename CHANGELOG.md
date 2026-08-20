@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.178] - 2026-08-20
+
+### Added
+- **Target-aware scheduled playback conflicts**: choose the historical process-wide conflict scope or allow scheduled cues to continue when active playback owns a different bridge/entertainment-area target
+- **Scoped lifecycle arbitration**: matching-target scheduled previews reserve only their resolved Hue resource, preserving independent multi-room playback and credential-safe status telemetry
+
+### Reliability
+- **Portable controls and regression coverage**: carry the conflict scope through configuration save/load, backup/import, administrator controls, and target-specific scheduler tests
+
 ## [1.5.177] - 2026-08-20
 
 ### Added

@@ -73,4 +73,21 @@ public sealed class HueBridgeLifecycleGateTests
         using var replacement = gate.TryEnterPlayback("192.168.1.10|living-room");
         Assert.NotNull(replacement);
     }
+
+    [Fact]
+    public void ScopedDiagnosticCanUseIndependentTargetButNotActivePlaybackTarget()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var livingRoom = gate.TryEnterPlayback("192.168.1.10|living-room");
+
+        using var bedroomDiagnostic = gate.TryEnterDiagnostic("192.168.1.10|bedroom");
+        Assert.NotNull(bedroomDiagnostic);
+        Assert.True(gate.IsDiagnosticActive);
+        Assert.False(gate.IsPlaybackActiveForResource("192.168.1.10|bedroom"));
+        Assert.True(gate.IsPlaybackActiveForResource("192.168.1.10|living-room"));
+        Assert.Null(gate.TryEnterDiagnostic("192.168.1.10|living-room"));
+
+        bedroomDiagnostic!.Dispose();
+        Assert.False(gate.IsDiagnosticActive);
+    }
 }

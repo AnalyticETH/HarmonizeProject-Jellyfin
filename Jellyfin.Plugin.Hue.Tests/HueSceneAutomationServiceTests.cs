@@ -1414,6 +1414,120 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_MatchingTargetScopeAllowsIndependentRoomDuringPlayback()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationPlaybackScope = PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
+            SceneAutomationDeferMinutes = 10,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "matching-scope-app-secret",
+            HueClientKey = "matching-scope-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Matching-scope scene", Red = 40, Green = 50, Blue = 60, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "matching-scope-cue",
+                    Name = "Matching-scope cue",
+                    PresetName = "Matching-scope scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using (var otherRoomPlayback = lifecycleGate.TryEnterPlayback(
+                   HueSyncService.GetPlaybackResourceKey("192.168.1.200", "area-2")))
+        {
+            Assert.NotNull(otherRoomPlayback);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+        }
+
+        Assert.Equal(new[] { 40 }, streamTester.Reds);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.Equal(
+            PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
+            service.GetStatus().PlaybackConflictScope);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_MatchingTargetScopeDefersWhenCueTargetIsPlaying()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationPlaybackScope = PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
+            SceneAutomationDeferMinutes = 10,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "matching-target-app-secret",
+            HueClientKey = "matching-target-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Matching-target scene", Red = 70, Green = 80, Blue = 90, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "matching-target-cue",
+                    Name = "Matching-target cue",
+                    PresetName = "Matching-target scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using var matchingPlayback = lifecycleGate.TryEnterPlayback(
+            HueSyncService.GetPlaybackResourceKey("192.168.1.100", "area-1"));
+        Assert.NotNull(matchingPlayback);
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.Empty(streamTester.Reds);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.True(Assert.Single(service.GetStatus().Schedules).DeferredPending);
+        Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_RestoresPersistedDeferredCueAfterRestart()
     {
         var dueUtc = new DateTime(2026, 8, 18, 7, 5, 0, DateTimeKind.Utc);

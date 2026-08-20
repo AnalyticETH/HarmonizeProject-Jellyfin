@@ -7132,6 +7132,7 @@ public sealed class HueApiControllerTests : IDisposable
             SceneAutomationEnabled = false,
             SceneAutomationCatchUpMinutes = 37,
             SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationPlaybackScope = PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
             SceneAutomationDeferMinutes = 49,
             UserMappings = new List<UserBridgeMapping>
             {
@@ -7189,6 +7190,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(false, settings.SceneAutomationEnabled);
         Assert.Equal(37, settings.SceneAutomationCatchUpMinutes);
         Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, settings.SceneAutomationPlaybackPolicy);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget, settings.SceneAutomationPlaybackScope);
         Assert.Equal(49, settings.SceneAutomationDeferMinutes);
         var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
         Assert.DoesNotContain("default-app-key", serialized, StringComparison.Ordinal);
@@ -7209,6 +7211,7 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "area-1",
             SceneAutomationEnabled = false,
             SceneAutomationCatchUpMinutes = 22,
+            SceneAutomationPlaybackScope = PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
             PersistSessionHistory = true,
             PersistedSessionHistory = new List<HueSessionHistoryEntry>
             {
@@ -7330,6 +7333,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(document.Configuration.PersistSessionHistory);
         Assert.Equal(false, document.Configuration.SceneAutomationEnabled);
         Assert.Equal(22, document.Configuration.SceneAutomationCatchUpMinutes);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget, document.Configuration.SceneAutomationPlaybackScope);
 
         var serialized = System.Text.Json.JsonSerializer.Serialize(document);
         Assert.DoesNotContain("default-app-secret", serialized, StringComparison.Ordinal);
@@ -8151,6 +8155,7 @@ public sealed class HueApiControllerTests : IDisposable
             SceneAutomationEnabled = false,
             SceneAutomationCatchUpMinutes = 18,
             SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationPlaybackScope = PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
             SceneAutomationDeferMinutes = 42
         });
 
@@ -8192,6 +8197,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.False(configuration.SceneAutomationEnabled);
         Assert.Equal(18, configuration.SceneAutomationCatchUpMinutes);
         Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, configuration.SceneAutomationPlaybackPolicy);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget, configuration.SceneAutomationPlaybackScope);
         Assert.Equal(42, configuration.SceneAutomationDeferMinutes);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
@@ -8340,12 +8346,14 @@ public sealed class HueApiControllerTests : IDisposable
         var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
         {
             SceneAutomationPlaybackPolicy = "Queue",
+            SceneAutomationPlaybackScope = "GlobalOnly",
             SceneAutomationDeferMinutes = PluginConfiguration.MaxSceneAutomationDeferMinutes + 1
         });
 
         var response = Assert.IsType<BadRequestObjectResult>(action.Result);
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
         Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicySkip, configuration.SceneAutomationPlaybackPolicy);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackScopeAnyTarget, configuration.SceneAutomationPlaybackScope);
         Assert.Equal(12, configuration.SceneAutomationDeferMinutes);
     }
 

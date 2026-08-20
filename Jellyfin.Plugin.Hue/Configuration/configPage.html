@@ -663,6 +663,14 @@
                             <div class="fieldDescription">Playback always keeps control of the bridge. Skip preserves the immediate failure/attempt behavior; Defer holds one due occurrence and retries it after playback ends without consuming the cue's execution limit.</div>
                         </div>
                         <div class="inputContainer" style="max-width: 28em; margin-top: 0.75em;">
+                            <label class="inputLabel inputLabelUnfocused" for="sceneAutomationPlaybackScope">Playback conflict scope</label>
+                            <select id="sceneAutomationPlaybackScope" is="emby-select">
+                                <option value="AnyTarget">Any active playback session</option>
+                                <option value="MatchingTarget">Only the cue's target room(s)</option>
+                            </select>
+                            <div class="fieldDescription">Any active playback preserves the historical process-wide behavior. Matching target rooms lets independent Hue areas run scheduled cues while another room is playing; cues with unresolved targets conservatively use the process-wide block.</div>
+                        </div>
+                        <div class="inputContainer" style="max-width: 28em; margin-top: 0.75em;">
                             <label class="inputLabel inputLabelUnfocused" for="sceneAutomationDeferMinutes">Deferred cue wait window (minutes)</label>
                             <input id="sceneAutomationDeferMinutes" type="number" min="1" max="120" value="15" is="emby-input" />
                             <div class="fieldDescription">When Defer is selected, the pending occurrence waits up to 1-120 minutes for playback to finish. If playback remains active, the occurrence is recorded as skipped; the next recurrence remains eligible.</div>
@@ -1654,6 +1662,7 @@
                         page.querySelector('#sceneAutomationEnabled').checked = getConfigValue('SceneAutomationEnabled', true) !== false;
                         page.querySelector('#sceneAutomationCatchUpMinutes').value = getConfigValue('SceneAutomationCatchUpMinutes', 0);
                         page.querySelector('#sceneAutomationPlaybackPolicy').value = getConfigValue('SceneAutomationPlaybackPolicy', 'Skip');
+                        page.querySelector('#sceneAutomationPlaybackScope').value = getConfigValue('SceneAutomationPlaybackScope', 'AnyTarget');
                         page.querySelector('#sceneAutomationDeferMinutes').value = getConfigValue('SceneAutomationDeferMinutes', 15);
                         HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                         HueConfigurationPage.loadColorPresets(page);
@@ -1728,6 +1737,7 @@
                         SceneAutomationEnabled: page.querySelector('#sceneAutomationEnabled').checked,
                         SceneAutomationCatchUpMinutes: parseNumberOrDefault('#sceneAutomationCatchUpMinutes', 0),
                         SceneAutomationPlaybackPolicy: page.querySelector('#sceneAutomationPlaybackPolicy').value,
+                        SceneAutomationPlaybackScope: page.querySelector('#sceneAutomationPlaybackScope').value,
                         SceneAutomationDeferMinutes: parseNumberOrDefault('#sceneAutomationDeferMinutes', 15)
                     };
 
@@ -4879,6 +4889,7 @@
                         var automationEnabled = HueConfigurationPage.readStatusField(response, "AutomationEnabled", true) !== false;
                         var catchUpMinutes = Number(HueConfigurationPage.readStatusField(response, "CatchUpMinutes", 0) || 0);
                         var playbackPolicy = HueConfigurationPage.readStatusField(response, "PlaybackPolicy", "Skip");
+                        var playbackScope = HueConfigurationPage.readStatusField(response, "PlaybackConflictScope", "AnyTarget");
                         var deferMinutes = Number(HueConfigurationPage.readStatusField(response, "DeferMinutes", 15) || 15);
                         var playbackActive = HueConfigurationPage.readStatusField(response, "PlaybackActive", false) === true;
                         var schedules = HueConfigurationPage.readStatusField(response, "Schedules", []);
@@ -4912,6 +4923,7 @@
                                 : "Scheduled cue automation is paused · " + cueSummary + " · Run Now remains available") +
                                 (catchUpMinutes > 0 ? " · recovery window " + catchUpMinutes + "m" : "") +
                                 " · playback policy " + String(playbackPolicy) +
+                                " · conflict scope " + (String(playbackScope).toLowerCase() === "matchingtarget" ? "matching target" : String(playbackScope)) +
                                 (String(playbackPolicy).toLowerCase() === "defer" ? " (" + String(deferMinutes) + "m)" : "") +
                                 (restoredDeferredCount ? " · " + restoredDeferredCount + " deferred cue" + (restoredDeferredCount === 1 ? "" : "s") + " restored after restart" : "") +
                                 (playbackActive ? " · playback active" : "") +

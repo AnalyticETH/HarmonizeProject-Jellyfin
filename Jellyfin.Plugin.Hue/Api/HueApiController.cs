@@ -7674,6 +7674,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool? SceneAutomationEnabled { get; set; }
         public int SceneAutomationCatchUpMinutes { get; set; }
         public string? SceneAutomationPlaybackPolicy { get; set; }
+        public string? SceneAutomationPlaybackScope { get; set; }
         public int? SceneAutomationDeferMinutes { get; set; }
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string ChannelIds { get; set; } = string.Empty;
@@ -7740,6 +7741,11 @@ namespace Jellyfin.Plugin.Hue.Api
                     out var normalizedPlaybackPolicy)
                     ? normalizedPlaybackPolicy
                     : PluginConfiguration.SceneAutomationPlaybackPolicySkip,
+                SceneAutomationPlaybackScope = PluginConfiguration.TryNormalizeSceneAutomationPlaybackScope(
+                    config.SceneAutomationPlaybackScope,
+                    out var normalizedPlaybackScope)
+                    ? normalizedPlaybackScope
+                    : PluginConfiguration.SceneAutomationPlaybackScopeAnyTarget,
                 SceneAutomationDeferMinutes = Math.Clamp(
                     config.SceneAutomationDeferMinutes,
                     PluginConfiguration.MinSceneAutomationDeferMinutes,
@@ -7827,6 +7833,8 @@ namespace Jellyfin.Plugin.Hue.Api
             config.SceneAutomationCatchUpMinutes = SceneAutomationCatchUpMinutes;
             if (!string.IsNullOrWhiteSpace(SceneAutomationPlaybackPolicy))
                 config.SceneAutomationPlaybackPolicy = SceneAutomationPlaybackPolicy.Trim();
+            if (!string.IsNullOrWhiteSpace(SceneAutomationPlaybackScope))
+                config.SceneAutomationPlaybackScope = SceneAutomationPlaybackScope.Trim();
             if (SceneAutomationDeferMinutes.HasValue)
                 config.SceneAutomationDeferMinutes = SceneAutomationDeferMinutes.Value;
             config.EntertainmentAreaId = EntertainmentAreaId?.Trim() ?? string.Empty;
