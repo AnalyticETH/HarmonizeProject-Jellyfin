@@ -5235,6 +5235,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveEntertainmentAreaId = runtime?.ActiveEntertainmentAreaId,
                 ActiveTargetFps = runtime?.ActiveTargetFps,
                 ActiveAudioSensitivityPercent = runtime?.ActiveAudioSensitivityPercent,
+                ActiveAudioNoiseGatePercent = runtime?.ActiveAudioNoiseGatePercent,
                 ActiveAudioLowFrequencyHz = runtime?.ActiveAudioLowFrequencyHz,
                 ActiveAudioMidFrequencyHz = runtime?.ActiveAudioMidFrequencyHz,
                 ActiveAudioHighFrequencyHz = runtime?.ActiveAudioHighFrequencyHz,
@@ -6852,6 +6853,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 SamplingModeOverride = source.SamplingModeOverride,
                 ColorSmoothingPercentOverride = source.ColorSmoothingPercentOverride,
                 AudioSensitivityPercentOverride = source.AudioSensitivityPercentOverride,
+                AudioNoiseGatePercentOverride = source.AudioNoiseGatePercentOverride,
                 AudioLowFrequencyHzOverride = source.AudioLowFrequencyHzOverride,
                 AudioMidFrequencyHzOverride = source.AudioMidFrequencyHzOverride,
                 AudioHighFrequencyHzOverride = source.AudioHighFrequencyHzOverride,
@@ -7655,6 +7657,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int BrightnessDimLevel { get; set; } = 30;
         public string PauseBehavior { get; set; } = PluginConfiguration.PauseBehaviorKeepLastColors;
         public int AudioSensitivityPercent { get; set; } = PluginConfiguration.DefaultAudioSensitivityPercent;
+        public int AudioNoiseGatePercent { get; set; } = PluginConfiguration.DefaultAudioNoiseGatePercent;
         public int AudioLowFrequencyHz { get; set; } = PluginConfiguration.DefaultAudioLowFrequencyHz;
         public int AudioMidFrequencyHz { get; set; } = PluginConfiguration.DefaultAudioMidFrequencyHz;
         public int AudioHighFrequencyHz { get; set; } = PluginConfiguration.DefaultAudioHighFrequencyHz;
@@ -7709,6 +7712,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 BrightnessDimLevel = config.BrightnessDimLevel,
                 PauseBehavior = config.PauseBehavior,
                 AudioSensitivityPercent = config.AudioSensitivityPercent,
+                AudioNoiseGatePercent = config.AudioNoiseGatePercent,
                 AudioLowFrequencyHz = config.AudioLowFrequencyHz,
                 AudioMidFrequencyHz = config.AudioMidFrequencyHz,
                 AudioHighFrequencyHz = config.AudioHighFrequencyHz,
@@ -7784,6 +7788,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.BrightnessDimLevel = BrightnessDimLevel;
             config.PauseBehavior = PauseBehavior?.Trim() ?? PluginConfiguration.PauseBehaviorKeepLastColors;
             config.AudioSensitivityPercent = AudioSensitivityPercent;
+            config.AudioNoiseGatePercent = AudioNoiseGatePercent;
             config.AudioLowFrequencyHz = AudioLowFrequencyHz;
             config.AudioMidFrequencyHz = AudioMidFrequencyHz;
             config.AudioHighFrequencyHz = AudioHighFrequencyHz;
@@ -7838,6 +7843,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool? RestoreLightStateOverride { get; set; }
         public string? PlaybackMediaFilterOverride { get; set; }
         public int? AudioSensitivityPercentOverride { get; set; }
+        public int? AudioNoiseGatePercentOverride { get; set; }
         public int? AudioLowFrequencyHzOverride { get; set; }
         public int? AudioMidFrequencyHzOverride { get; set; }
         public int? AudioHighFrequencyHzOverride { get; set; }
@@ -7888,6 +7894,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 RestoreLightStateOverride = mapping.RestoreLightStateOverride,
                 PlaybackMediaFilterOverride = mapping.PlaybackMediaFilterOverride,
                 AudioSensitivityPercentOverride = mapping.AudioSensitivityPercentOverride,
+                AudioNoiseGatePercentOverride = mapping.AudioNoiseGatePercentOverride,
                 AudioLowFrequencyHzOverride = mapping.AudioLowFrequencyHzOverride,
                 AudioMidFrequencyHzOverride = mapping.AudioMidFrequencyHzOverride,
                 AudioHighFrequencyHzOverride = mapping.AudioHighFrequencyHzOverride,
@@ -9892,6 +9899,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? ActiveEntertainmentAreaId { get; set; }
         public int? ActiveTargetFps { get; set; }
         public int? ActiveAudioSensitivityPercent { get; set; }
+        public int? ActiveAudioNoiseGatePercent { get; set; }
         public int? ActiveAudioLowFrequencyHz { get; set; }
         public int? ActiveAudioMidFrequencyHz { get; set; }
         public int? ActiveAudioHighFrequencyHz { get; set; }
