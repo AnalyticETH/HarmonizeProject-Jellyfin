@@ -1490,6 +1490,24 @@ public class PluginConfigurationTests
         Assert.Contains("Audio beat pulse decay must be between 0 and 100 percent", config.Validate());
     }
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void Validate_WhenAudioBeatPulseThresholdOutOfRange_ReturnsError(int threshold)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            AudioBeatPulseThresholdPercent = threshold
+        };
+
+        Assert.Contains("Audio beat pulse threshold must be between 0 and 100 percent", config.Validate());
+    }
+
     [Fact]
     public void Validate_WhenAudioColorPaletteIsInvalid_ReturnsError()
     {
@@ -1881,6 +1899,7 @@ public class PluginConfigurationTests
         Assert.Equal(PluginConfiguration.DefaultAudioBandSpreadPercent, config.AudioBandSpreadPercent);
         Assert.Equal(PluginConfiguration.DefaultAudioBeatPulsePercent, config.AudioBeatPulsePercent);
         Assert.Equal(PluginConfiguration.DefaultAudioBeatPulseDecayPercent, config.AudioBeatPulseDecayPercent);
+        Assert.Equal(PluginConfiguration.DefaultAudioBeatPulseThresholdPercent, config.AudioBeatPulseThresholdPercent);
         Assert.Equal(PluginConfiguration.AudioColorPaletteSpectrum, config.AudioColorPalette);
         Assert.Equal(PluginConfiguration.AudioSpatialModeSpatial, config.AudioSpatialMode);
         Assert.Equal(PluginConfiguration.AudioChannelModeMono, config.AudioChannelMode);
@@ -2773,6 +2792,33 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetAudioBeatPulseThresholdPercentForUser_UsesOverrideAndClampsInvalidValues()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            AudioBeatPulseThresholdPercent = 20,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    AudioBeatPulseThresholdPercentOverride = 60
+                }
+            }
+        };
+
+        Assert.Equal(60, config.GetAudioBeatPulseThresholdPercentForUser(userId));
+        Assert.Equal(20, config.GetAudioBeatPulseThresholdPercentForUser(System.Guid.NewGuid()));
+
+        config.UserMappings[0].AudioBeatPulseThresholdPercentOverride = 999;
+        Assert.Equal(PluginConfiguration.MaxAudioBeatPulseThresholdPercent, config.GetAudioBeatPulseThresholdPercentForUser(userId));
+
+        config.UserMappings[0].AudioBeatPulseThresholdPercentOverride = -1;
+        Assert.Equal(PluginConfiguration.MinAudioBeatPulseThresholdPercent, config.GetAudioBeatPulseThresholdPercentForUser(userId));
+    }
+
+    [Fact]
     public void GetAudioColorPaletteForUser_UsesOverrideAndFallsBackSafely()
     {
         var userId = System.Guid.NewGuid();
@@ -3178,6 +3224,7 @@ public class PluginConfigurationTests
                     AudioResponseSmoothingPercentOverride = 91,
                     AudioBandSpreadPercentOverride = 101,
                     AudioBeatPulsePercentOverride = 101,
+                    AudioBeatPulseThresholdPercentOverride = 101,
                     AudioColorPaletteOverride = "InvalidPalette",
                     FrameResolutionOverride = "640x360",
                     VideoScalingModeOverride = "InvalidScaling",
@@ -3200,6 +3247,7 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 audio high gain override must be between 0 and 200 percent", errors);
         Assert.Contains("User mapping 1 audio band spread override must be between 0 and 100 percent", errors);
         Assert.Contains("User mapping 1 audio beat pulse override must be between 0 and 100 percent", errors);
+        Assert.Contains("User mapping 1 audio beat pulse threshold override must be between 0 and 100 percent", errors);
         Assert.Contains("User mapping 1 audio color palette override must be Spectrum, Band, Warm, Cool, or Monochrome", errors);
         Assert.Contains("User mapping 1 audio frequency overrides must be strictly ordered low < mid < high", errors);
         Assert.Contains("User mapping 1 frame resolution override must be 80x45, 160x90, or 320x180", errors);

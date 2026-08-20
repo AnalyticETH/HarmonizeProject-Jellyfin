@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.174] - 2026-08-20
+
+### Added
+- **Configurable beat-pulse onset threshold**: require a bounded 0-100% normalized energy rise before an enabled beat pulse attacks, while the default 0% preserves existing response
+- **Per-user threshold profiles**: inherit or override the onset threshold with runtime clamping, active status telemetry, administrator controls, and credential-safe backup/import support
+- **Regression coverage**: verify threshold math, defaults, bounds, inheritance, and API/configuration round trips
+
 ## [1.5.173] - 2026-08-20
 
 ### Added

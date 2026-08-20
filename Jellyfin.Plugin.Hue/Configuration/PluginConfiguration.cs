@@ -55,6 +55,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? AudioBandSpreadPercentOverride { get; set; }
         public int? AudioBeatPulsePercentOverride { get; set; }
         public int? AudioBeatPulseDecayPercentOverride { get; set; }
+        public int? AudioBeatPulseThresholdPercentOverride { get; set; }
         public string? AudioColorPaletteOverride { get; set; }
         public string? AudioSpatialModeOverride { get; set; }
         public string? AudioChannelModeOverride { get; set; }
@@ -454,6 +455,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MinAudioBeatPulseDecayPercent = 0;
         public const int MaxAudioBeatPulseDecayPercent = 100;
         public const int DefaultAudioBeatPulseDecayPercent = 0;
+        public const int MinAudioBeatPulseThresholdPercent = 0;
+        public const int MaxAudioBeatPulseThresholdPercent = 100;
+        public const int DefaultAudioBeatPulseThresholdPercent = 0;
         public const string ColorPresetEffectSolid = "Solid";
         public const string ColorPresetEffectPulse = "Pulse";
         public const string ColorPresetEffectRainbow = "Rainbow";
@@ -894,6 +898,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int AudioBeatPulseDecayPercent { get; set; } = DefaultAudioBeatPulseDecayPercent;
         /// <summary>
+        /// Requires a minimum normalized rise in audio energy before a beat pulse
+        /// attacks. Zero preserves the original response to every upward change.
+        /// </summary>
+        public int AudioBeatPulseThresholdPercent { get; set; } = DefaultAudioBeatPulseThresholdPercent;
+        /// <summary>
         /// Selects the palette used by audio-reactive playback. Spectrum preserves the
         /// original drifting hue behavior; the other palettes provide explicit band,
         /// warm, cool, or monochrome presentation choices.
@@ -1072,6 +1081,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 mapping?.AudioBeatPulseDecayPercentOverride ?? AudioBeatPulseDecayPercent,
                 MinAudioBeatPulseDecayPercent,
                 MaxAudioBeatPulseDecayPercent);
+        }
+
+        /// <summary>
+        /// Gets the effective minimum onset threshold for a user's beat pulse. A missing
+        /// override inherits the global setting; invalid hand-edited values are clamped
+        /// for runtime continuity while validation reports the bad value.
+        /// </summary>
+        public int GetAudioBeatPulseThresholdPercentForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return Math.Clamp(
+                mapping?.AudioBeatPulseThresholdPercentOverride ?? AudioBeatPulseThresholdPercent,
+                MinAudioBeatPulseThresholdPercent,
+                MaxAudioBeatPulseThresholdPercent);
         }
 
         /// <summary>
@@ -1492,6 +1516,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.AudioBeatPulseDecayPercentOverride.Value > MaxAudioBeatPulseDecayPercent))
             {
                 errors.Add($"{label} audio beat pulse decay override must be between {MinAudioBeatPulseDecayPercent} and {MaxAudioBeatPulseDecayPercent} percent");
+            }
+            if (mapping.AudioBeatPulseThresholdPercentOverride.HasValue &&
+                (mapping.AudioBeatPulseThresholdPercentOverride.Value < MinAudioBeatPulseThresholdPercent ||
+                 mapping.AudioBeatPulseThresholdPercentOverride.Value > MaxAudioBeatPulseThresholdPercent))
+            {
+                errors.Add($"{label} audio beat pulse threshold override must be between {MinAudioBeatPulseThresholdPercent} and {MaxAudioBeatPulseThresholdPercent} percent");
             }
             var audioColorPaletteOverride = mapping.AudioColorPaletteOverride?.Trim();
             if (!string.IsNullOrWhiteSpace(audioColorPaletteOverride) &&
@@ -2537,6 +2567,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (AudioBeatPulseDecayPercent < MinAudioBeatPulseDecayPercent || AudioBeatPulseDecayPercent > MaxAudioBeatPulseDecayPercent)
                     errors.Add($"Audio beat pulse decay must be between {MinAudioBeatPulseDecayPercent} and {MaxAudioBeatPulseDecayPercent} percent");
+
+                if (AudioBeatPulseThresholdPercent < MinAudioBeatPulseThresholdPercent ||
+                    AudioBeatPulseThresholdPercent > MaxAudioBeatPulseThresholdPercent)
+                    errors.Add($"Audio beat pulse threshold must be between {MinAudioBeatPulseThresholdPercent} and {MaxAudioBeatPulseThresholdPercent} percent");
 
                 if (!TryNormalizeAudioColorPalette(AudioColorPalette, out _))
                     errors.Add("Audio color palette must be Spectrum, Band, Warm, Cool, or Monochrome");
