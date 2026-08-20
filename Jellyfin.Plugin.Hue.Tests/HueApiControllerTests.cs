@@ -2736,10 +2736,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.False(result.Succeeded);
         Assert.Equal(2, result.Steps.Count);
         Assert.Equal(2, result.TargetResults.Count);
-        var defaultTarget = Assert.Single(result.TargetResults.Where(target => target.TargetLabel == "Default bridge target"));
+        var defaultTarget = Assert.Single(result.TargetResults, target => target.TargetLabel == "Default bridge target");
         Assert.True(defaultTarget.Succeeded);
         Assert.Equal(2, defaultTarget.CompletedStepCount);
-        var kitchenTarget = Assert.Single(result.TargetResults.Where(target => target.TargetLabel == "Kitchen"));
+        var kitchenTarget = Assert.Single(result.TargetResults, target => target.TargetLabel == "Kitchen");
         Assert.False(kitchenTarget.Succeeded);
         Assert.Equal(2, kitchenTarget.CompletedStepCount);
         streamTester.Verify(tester => tester.PreviewAsync(
@@ -3366,12 +3366,12 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("playlist-1", playlist.Id);
         Assert.Equal("Opening", playlist.Name);
         Assert.Equal(2, playlist.ReferenceCount);
-        var directSchedule = Assert.Single(result.ScheduledCues.Where(schedule => schedule.ReferenceType == "DirectScene"));
+        var directSchedule = Assert.Single(result.ScheduledCues, schedule => schedule.ReferenceType == "DirectScene");
         Assert.Equal("cue-1", directSchedule.Id);
         Assert.Equal("Opening cue", directSchedule.Name);
         Assert.True(directSchedule.Enabled);
         Assert.Empty(directSchedule.PlaylistName);
-        var playlistSchedule = Assert.Single(result.ScheduledCues.Where(schedule => schedule.ReferenceType == "Playlist"));
+        var playlistSchedule = Assert.Single(result.ScheduledCues, schedule => schedule.ReferenceType == "Playlist");
         Assert.Equal("cue-2", playlistSchedule.Id);
         Assert.Equal("Playlist cue", playlistSchedule.Name);
         Assert.False(playlistSchedule.Enabled);
@@ -6441,10 +6441,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.All(diagnostics.Targets, target => Assert.True(target.Ready));
         Assert.All(diagnostics.Targets, target => Assert.True(target.ChannelProfileValid));
         Assert.All(diagnostics.Targets, target => Assert.Equal(1, target.SelectedChannelCount));
-        var inherited = Assert.Single(diagnostics.Targets.Where(target => target.UserId == "user-inherited"));
+        var inherited = Assert.Single(diagnostics.Targets, target => target.UserId == "user-inherited");
         Assert.True(inherited.InheritsDefaultBridge);
         Assert.Equal("Global Room", inherited.EntertainmentAreaName);
-        var custom = Assert.Single(diagnostics.Targets.Where(target => target.UserId == "user-custom"));
+        var custom = Assert.Single(diagnostics.Targets, target => target.UserId == "user-custom");
         Assert.False(custom.InheritsDefaultBridge);
         Assert.Equal("Custom Room", custom.EntertainmentAreaName);
         Assert.Equal(2, requestedPaths.Count(path => path.EndsWith("/entertainment_configuration", StringComparison.Ordinal)));
@@ -7479,7 +7479,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("old-client-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("new-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("new-client-secret", serialized, StringComparison.Ordinal);
-        Assert.Equal("Keep", Assert.Single(configuration.ColorPresets.Where(preset => preset.Name == "Keep")).Name);
+        Assert.Equal("Keep", Assert.Single(configuration.ColorPresets, preset => preset.Name == "Keep").Name);
     }
 
     [Fact]
