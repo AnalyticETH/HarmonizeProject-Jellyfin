@@ -7081,7 +7081,7 @@ public sealed class HueApiControllerTests : IDisposable
             AudioBeatPulsePercent = 42,
             AudioColorPalette = PluginConfiguration.AudioColorPaletteWarm,
             AudioSpatialMode = PluginConfiguration.AudioSpatialModeMirror,
-            AudioChannelMode = PluginConfiguration.AudioChannelModeStereo,
+            AudioChannelMode = PluginConfiguration.AudioChannelModeLeft,
             FrameResolution = PluginConfiguration.FrameResolutionHigh,
             VideoScalingMode = PluginConfiguration.VideoScalingModeFit,
             VideoDeinterlaceMode = PluginConfiguration.VideoDeinterlaceModeAuto,
@@ -7127,7 +7127,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(42, settings.AudioBeatPulsePercent);
         Assert.Equal(PluginConfiguration.AudioColorPaletteWarm, settings.AudioColorPalette);
         Assert.Equal(PluginConfiguration.AudioSpatialModeMirror, settings.AudioSpatialMode);
-        Assert.Equal(PluginConfiguration.AudioChannelModeStereo, settings.AudioChannelMode);
+        Assert.Equal(PluginConfiguration.AudioChannelModeLeft, settings.AudioChannelMode);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, settings.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, settings.VideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, settings.VideoDeinterlaceMode);
@@ -8051,7 +8051,7 @@ public sealed class HueApiControllerTests : IDisposable
             AudioBeatPulsePercent = 42,
             AudioColorPalette = PluginConfiguration.AudioColorPaletteCool,
             AudioSpatialMode = PluginConfiguration.AudioSpatialModeUniform,
-            AudioChannelMode = PluginConfiguration.AudioChannelModeStereo,
+            AudioChannelMode = PluginConfiguration.AudioChannelModeRight,
             TargetFps = 30,
             FrameResolution = PluginConfiguration.FrameResolutionLow,
             VideoScalingMode = PluginConfiguration.VideoScalingModeCrop,
@@ -8083,7 +8083,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(42, configuration.AudioBeatPulsePercent);
         Assert.Equal(PluginConfiguration.AudioColorPaletteCool, configuration.AudioColorPalette);
         Assert.Equal(PluginConfiguration.AudioSpatialModeUniform, configuration.AudioSpatialMode);
-        Assert.Equal(PluginConfiguration.AudioChannelModeStereo, configuration.AudioChannelMode);
+        Assert.Equal(PluginConfiguration.AudioChannelModeRight, configuration.AudioChannelMode);
         Assert.Equal(30, configuration.TargetFps);
         Assert.Equal(PluginConfiguration.FrameResolutionLow, configuration.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeCrop, configuration.VideoScalingMode);
@@ -8328,7 +8328,7 @@ public sealed class HueApiControllerTests : IDisposable
             AudioBeatPulsePercentOverride = 65,
             AudioColorPaletteOverride = PluginConfiguration.AudioColorPaletteBand,
             AudioSpatialModeOverride = PluginConfiguration.AudioSpatialModeSpatial,
-            AudioChannelModeOverride = PluginConfiguration.AudioChannelModeStereo,
+            AudioChannelModeOverride = PluginConfiguration.AudioChannelModeLeft,
             BrightnessBoostOverride = 125,
             RedGainOverride = 115,
             GreenGainOverride = 95,
@@ -8371,7 +8371,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)65, mapping.AudioBeatPulsePercentOverride);
         Assert.Equal(PluginConfiguration.AudioColorPaletteBand, mapping.AudioColorPaletteOverride);
         Assert.Equal(PluginConfiguration.AudioSpatialModeSpatial, mapping.AudioSpatialModeOverride);
-        Assert.Equal(PluginConfiguration.AudioChannelModeStereo, mapping.AudioChannelModeOverride);
+        Assert.Equal(PluginConfiguration.AudioChannelModeLeft, mapping.AudioChannelModeOverride);
         Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)115, mapping.RedGainOverride);
         Assert.Equal((int?)95, mapping.GreenGainOverride);

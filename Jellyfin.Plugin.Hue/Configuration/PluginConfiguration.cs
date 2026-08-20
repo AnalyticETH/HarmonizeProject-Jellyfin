@@ -395,6 +395,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string AudioSpatialModeMirror = "Mirror";
         public const string AudioChannelModeMono = "Mono";
         public const string AudioChannelModeStereo = "Stereo";
+        public const string AudioChannelModeLeft = "Left";
+        public const string AudioChannelModeRight = "Right";
 
         private const int MinTargetFps = 1;
         private const int MaxTargetFps = 60;
@@ -525,7 +527,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private static readonly string[] AudioChannelModes =
         {
             AudioChannelModeMono,
-            AudioChannelModeStereo
+            AudioChannelModeStereo,
+            AudioChannelModeLeft,
+            AudioChannelModeRight
         };
 
         /// <summary>
@@ -671,7 +675,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
         /// <summary>
         /// Returns the canonical spelling for a supported audio source-channel mode.
-        /// Blank values preserve the legacy mono mix behavior.
+        /// Mono preserves the legacy mixed behavior; Left and Right isolate one source
+        /// channel when Spatial routing is active.
         /// </summary>
         public static bool TryNormalizeAudioChannelMode(string? value, out string normalized)
         {
@@ -1360,7 +1365,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (!string.IsNullOrWhiteSpace(audioChannelModeOverride) &&
                 !TryNormalizeAudioChannelMode(audioChannelModeOverride, out _))
             {
-                errors.Add($"{label} audio channel mode override must be Mono or Stereo");
+                errors.Add($"{label} audio channel mode override must be Mono, Stereo, Left, or Right");
             }
             if (mapping.AudioLowFrequencyHzOverride.HasValue &&
                 mapping.AudioMidFrequencyHzOverride.HasValue &&
@@ -2327,7 +2332,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     errors.Add("Audio spatial mode must be Spatial, Uniform, or Mirror");
 
                 if (!TryNormalizeAudioChannelMode(AudioChannelMode, out _))
-                    errors.Add("Audio channel mode must be Mono or Stereo");
+                    errors.Add("Audio channel mode must be Mono, Stereo, Left, or Right");
 
                 if (!string.Equals(FrameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(FrameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&

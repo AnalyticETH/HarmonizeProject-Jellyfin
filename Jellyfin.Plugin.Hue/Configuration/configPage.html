@@ -788,8 +788,10 @@
                             <select id="audioChannelMode" name="audioChannelMode" is="emby-select">
                                 <option value="Mono">Mono mix (backward-compatible default)</option>
                                 <option value="Stereo">Stereo left/right source separation</option>
+                                <option value="Left">Left source channel only</option>
+                                <option value="Right">Right source channel only</option>
                             </select>
-                            <div class="fieldDescription">Mono averages the captured PCM channels before analysis. Stereo preserves left/right energy and blends it across physical channel positions when Spatial routing is selected; Uniform and Mirror remain intentionally symmetric.</div>
+                            <div class="fieldDescription">Mono averages the captured PCM channels before analysis. Stereo preserves left/right energy and blends it across physical channel positions when Spatial routing is selected. Left or Right uses only that source channel for Spatial routing; Uniform and Mirror remain intentionally symmetric.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -1179,8 +1181,10 @@
                                         <option value="">Inherit global source channels</option>
                                         <option value="Mono">Mono mix</option>
                                         <option value="Stereo">Stereo left/right separation</option>
+                                        <option value="Left">Left source channel only</option>
+                                        <option value="Right">Right source channel only</option>
                                     </select>
-                                    <div class="fieldDescription">Optional per-user source-channel mode. Leave blank to inherit the global Audio Source Channels setting.</div>
+                                    <div class="fieldDescription">Optional per-user source-channel mode. Leave blank to inherit the global Audio Source Channels setting. Left and Right apply only with Spatial routing.</div>
                                 </div>
                             </fieldset>
 

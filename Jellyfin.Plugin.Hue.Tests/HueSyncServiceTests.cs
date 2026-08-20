@@ -298,6 +298,63 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void BuildAudioChannelColors_CanIsolateLeftOrRightSourceInSpatialMode()
+    {
+        var lights = new Dictionary<int, (double x, double z)> { [1] = (0, 0) };
+        var analysis = new HueSyncService.AudioChannelAnalysis(
+            Rms: 0.5,
+            Low: 0.1,
+            Mid: 0.2,
+            High: 0.3,
+            LeftRms: 0.8,
+            LeftLow: 0.2,
+            LeftMid: 0.7,
+            LeftHigh: 0.1,
+            RightRms: 0.2,
+            RightLow: 0.1,
+            RightMid: 0.1,
+            RightHigh: 0.8);
+
+        var left = HueSyncService.BuildAudioChannelColors(
+            lights,
+            analysis.MixedEnergy,
+            frameIndex: 2,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeSpatial,
+            audioChannelMode: PluginConfiguration.AudioChannelModeLeft,
+            audioChannelAnalysis: analysis);
+        var right = HueSyncService.BuildAudioChannelColors(
+            lights,
+            analysis.MixedEnergy,
+            frameIndex: 2,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeSpatial,
+            audioChannelMode: PluginConfiguration.AudioChannelModeRight,
+            audioChannelAnalysis: analysis);
+        var uniformLeft = HueSyncService.BuildAudioChannelColors(
+            lights,
+            analysis.MixedEnergy,
+            frameIndex: 2,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeUniform,
+            audioChannelMode: PluginConfiguration.AudioChannelModeLeft,
+            audioChannelAnalysis: analysis);
+        var uniformRight = HueSyncService.BuildAudioChannelColors(
+            lights,
+            analysis.MixedEnergy,
+            frameIndex: 2,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeUniform,
+            audioChannelMode: PluginConfiguration.AudioChannelModeRight,
+            audioChannelAnalysis: analysis);
+
+        Assert.NotEqual(left[1], right[1]);
+        Assert.True(left[1][1] > left[1][2]);
+        Assert.True(right[1][2] > right[1][1]);
+        Assert.Equal(uniformLeft[1], uniformRight[1]);
+    }
+
+    [Fact]
     public void CalculateAudioBeatPulse_RespondsOnlyToRisingEnergy()
     {
         var previous = (Rms: 0.2, Low: 0.1, Mid: 0.2, High: 0.3);

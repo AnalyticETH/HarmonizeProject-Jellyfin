@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.168] - 2026-08-20
+
+### Added
+- **Selectable audio source channels**: choose the backward-compatible Mono mix, Stereo left/right spatial blending, or isolate the Left or Right PCM source channel for Spatial routing
+- **Per-user source-channel selectors**: inherit or override Mono/Stereo/Left/Right with validation, safe fallback, live status telemetry, and credential-safe backup/import support
+- **Regression coverage**: verify source-channel isolation, symmetric non-Spatial behavior, configuration inheritance, and invalid-mode validation
+
 ## [1.5.167] - 2026-08-20
 
 ### Added

@@ -3136,7 +3136,9 @@ namespace Jellyfin.Plugin.Hue.Service
         /// Maps the analyzed bands onto an entertainment area's channels. Spatial mode
         /// favors bass on the left, mids in the center, and treble on the right; Uniform
         /// sends the same mixed response to every channel; Mirror produces a symmetric
-        /// center-to-edge pattern for rooms with matching left/right placement.
+        /// center-to-edge pattern for rooms with matching left/right placement. Spatial
+        /// source-channel selection can preserve stereo placement or intentionally use
+        /// only the left or right source channel; non-Spatial routing remains symmetric.
         /// </summary>
         internal static Dictionary<int, byte[]> BuildAudioChannelColors(
             IReadOnlyDictionary<int, (double x, double z)> lights,
@@ -3177,14 +3179,20 @@ namespace Jellyfin.Plugin.Hue.Service
                         : physicalX;
                 var z = normalizedSpatialMode == PluginConfiguration.AudioSpatialModeUniform ? 0.5 : physicalZ;
                 var lightEnergy = energy;
-                if (normalizedChannelMode == PluginConfiguration.AudioChannelModeStereo &&
-                    normalizedSpatialMode == PluginConfiguration.AudioSpatialModeSpatial &&
+                if (normalizedSpatialMode == PluginConfiguration.AudioSpatialModeSpatial &&
+                    normalizedChannelMode != PluginConfiguration.AudioChannelModeMono &&
                     audioChannelAnalysis.HasValue)
                 {
-                    lightEnergy = BlendAudioEnergy(
-                        audioChannelAnalysis.Value.LeftEnergy,
-                        audioChannelAnalysis.Value.RightEnergy,
-                        physicalX);
+                    lightEnergy = normalizedChannelMode switch
+                    {
+                        PluginConfiguration.AudioChannelModeStereo => BlendAudioEnergy(
+                            audioChannelAnalysis.Value.LeftEnergy,
+                            audioChannelAnalysis.Value.RightEnergy,
+                            physicalX),
+                        PluginConfiguration.AudioChannelModeLeft => audioChannelAnalysis.Value.LeftEnergy,
+                        PluginConfiguration.AudioChannelModeRight => audioChannelAnalysis.Value.RightEnergy,
+                        _ => energy
+                    };
                 }
 
                 var loudness = Math.Clamp(
@@ -3382,7 +3390,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         audioColorPalette,
                         audioSpatialMode,
                         audioChannelMode,
-                        string.Equals(audioChannelMode, PluginConfiguration.AudioChannelModeStereo, StringComparison.Ordinal)
+                        !string.Equals(audioChannelMode, PluginConfiguration.AudioChannelModeMono, StringComparison.Ordinal)
                             ? audioAnalysis
                             : null);
 
