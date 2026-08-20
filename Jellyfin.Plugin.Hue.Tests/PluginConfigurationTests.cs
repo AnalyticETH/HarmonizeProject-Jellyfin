@@ -2135,12 +2135,13 @@ public class PluginConfigurationTests
 
         var errors = config.Validate();
 
-        Assert.Contains("Pause behavior must be KeepLastColors or RestoreLightState", errors);
+        Assert.Contains("Pause behavior must be KeepLastColors, RestoreLightState, or DimToCinemaLevel", errors);
     }
 
     [Theory]
     [InlineData(PluginConfiguration.PauseBehaviorKeepLastColors)]
     [InlineData(PluginConfiguration.PauseBehaviorRestoreLightState)]
+    [InlineData(PluginConfiguration.PauseBehaviorDimToCinemaLevel)]
     [InlineData("restorelightstate")]
     public void Validate_WhenPauseBehaviorIsValid_ReturnsNoPauseError(string pauseBehavior)
     {
@@ -2156,7 +2157,7 @@ public class PluginConfigurationTests
 
         var errors = config.Validate();
 
-        Assert.DoesNotContain("Pause behavior must be KeepLastColors or RestoreLightState", errors);
+        Assert.DoesNotContain("Pause behavior must be KeepLastColors, RestoreLightState, or DimToCinemaLevel", errors);
     }
 
     [Theory]
@@ -3367,7 +3368,7 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         Assert.Contains("User mapping 1 brightness dim level override must be between 0 and 100", errors);
-        Assert.Contains("User mapping 1 pause behavior override must be KeepLastColors or RestoreLightState", errors);
+        Assert.Contains("User mapping 1 pause behavior override must be KeepLastColors, RestoreLightState, or DimToCinemaLevel", errors);
     }
 
     [Fact]

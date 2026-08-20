@@ -544,6 +544,19 @@ namespace Jellyfin.Plugin.Hue.Hue
         }
 
         /// <summary>
+        /// Summarizes a bounded brightness update used by pause-time dimming. The
+        /// original color/temperature state is intentionally not changed by this
+        /// operation, so playback can resume without a visible color reset.
+        /// </summary>
+        public sealed class LightStateBrightnessResult
+        {
+            public int AttemptedCount { get; init; }
+            public int UpdatedCount { get; init; }
+            public int FailedCount { get; init; }
+            public bool Succeeded => FailedCount == 0;
+        }
+
+        /// <summary>
         /// Summarizes a light-state capture attempt without exposing bridge credentials
         /// or individual light identifiers.
         /// </summary>
@@ -735,6 +748,67 @@ namespace Jellyfin.Plugin.Hue.Hue
         public async Task RestoreLightStates(string bridgeIp, string appKey, List<LightState> lightStates)
         {
             await RestoreLightStatesWithResult(bridgeIp, appKey, lightStates).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Changes only the dimming level of captured lights. This is used when playback
+        /// is paused with the DimToCinemaLevel policy; omitting color and temperature
+        /// fields preserves the most recently streamed colors while paused.
+        /// </summary>
+        public async Task<LightStateBrightnessResult> SetLightBrightnessWithResult(
+            string bridgeIp,
+            string appKey,
+            IReadOnlyList<LightState> lightStates,
+            int brightnessPercent)
+        {
+            ArgumentNullException.ThrowIfNull(lightStates);
+
+            var brightness = Math.Clamp(brightnessPercent, 0, 100);
+            var updatedCount = 0;
+            var failedCount = 0;
+
+            foreach (var state in lightStates)
+            {
+                try
+                {
+                    var updated = await ExecuteWithRetry(async () =>
+                    {
+                        var url = BuildBridgeUrl("https", bridgeIp, $"/clip/v2/resource/light/{Uri.EscapeDataString(state.Id)}");
+                        using var request = new HttpRequestMessage(HttpMethod.Put, url);
+                        request.Headers.Add("hue-application-key", appKey);
+                        var payload = new
+                        {
+                            on = new { on = state.IsOn },
+                            dimming = new { brightness }
+                        };
+                        request.Content = new StringContent(
+                            JsonSerializer.Serialize(payload),
+                            System.Text.Encoding.UTF8,
+                            "application/json");
+
+                        using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                        response.EnsureSuccessStatusCode();
+                        return true;
+                    }).ConfigureAwait(false);
+
+                    if (updated == true)
+                        updatedCount++;
+                    else
+                        failedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to set pause brightness for light {0}", state.Id);
+                    failedCount++;
+                }
+            }
+
+            return new LightStateBrightnessResult
+            {
+                AttemptedCount = lightStates.Count,
+                UpdatedCount = updatedCount,
+                FailedCount = failedCount
+            };
         }
 
         /// <summary>

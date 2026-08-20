@@ -1053,6 +1053,51 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task PlaybackPause_WithDimBehaviorAppliesCinemaLevelAndKeepsLifecycleForResume()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        Plugin.Instance!.Configuration.PauseBehavior = PluginConfiguration.PauseBehaviorDimToCinemaLevel;
+        Plugin.Instance.Configuration.BrightnessDimLevel = 25;
+        SetPrivateField(service, "_activePauseBehavior", PluginConfiguration.PauseBehaviorDimToCinemaLevel);
+        SetPrivateField(service, "_activePauseBrightnessPercent", 25);
+        SetPrivateField(service, "_savedLightStates", new List<HueClient.LightState>
+        {
+            new("light-id", true, 50, 0.1, 0.2)
+        });
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+        SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-10));
+
+        var progressMethod = typeof(HueSyncService).GetMethod("OnPlaybackProgress", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        progressMethod.Invoke(service, new object?[] { null, CreateProgress("session-a", isPaused: true) });
+
+        await handler.BrightnessRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.NotNull(handler.LastLightPutBody);
+        Assert.Contains("\"brightness\":25", handler.LastLightPutBody!, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"color\"", handler.LastLightPutBody!, StringComparison.Ordinal);
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForRuntimeStatusAsync(
+            service,
+            "Paused",
+            "Playback paused; lights dimmed to 25%.");
+
+        Assert.NotNull(GetPrivateField(service, "_savedLightStates"));
+        Assert.NotNull(GetPrivateField(service, "_currentBridgeConfig"));
+        Assert.Equal(PluginConfiguration.PauseBehaviorDimToCinemaLevel, service.GetRuntimeStatus().ActivePauseBehavior);
+        Assert.Equal(25, service.GetRuntimeStatus().ActivePauseBrightnessPercent);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PlaybackPause_DuringShutdownDoesNotPublishCleanupTask()
     {
         using var httpClient = new HttpClient(new BlockingHueHandler());
@@ -1268,6 +1313,8 @@ public sealed class HueSyncServiceLifecycleTests
         public TaskCompletionSource<bool> StopRequest { get; } = NewSignal();
         public TaskCompletionSource<bool> StopRequestCompleted { get; } = NewSignal();
         public TaskCompletionSource<bool> RestorationRequest { get; } = NewSignal();
+        public TaskCompletionSource<bool> BrightnessRequest { get; } = NewSignal();
+        public string? LastLightPutBody { get; private set; }
         public bool FailRestorationRequests { get; set; }
         public bool FailLightCaptureRequests { get; set; }
         public TaskCompletionSource<bool> LightCaptureRequest { get; } = NewSignal();
@@ -1312,7 +1359,14 @@ public sealed class HueSyncServiceLifecycleTests
                     StartAreaRequestCount++;
                 if (request.RequestUri?.AbsolutePath.Contains("/light/", StringComparison.Ordinal) == true)
                 {
+                    LastLightPutBody = body;
                     RestorationRequest.TrySetResult(true);
+                    if (body.Contains("\"dimming\"", StringComparison.Ordinal) &&
+                        !body.Contains("\"color\"", StringComparison.Ordinal) &&
+                        !body.Contains("\"color_temperature\"", StringComparison.Ordinal))
+                    {
+                        BrightnessRequest.TrySetResult(true);
+                    }
                     if (FailRestorationRequests)
                     {
                         return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);

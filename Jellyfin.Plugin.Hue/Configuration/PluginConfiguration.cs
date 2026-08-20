@@ -394,6 +394,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
     {
         public const string PauseBehaviorKeepLastColors = "KeepLastColors";
         public const string PauseBehaviorRestoreLightState = "RestoreLightState";
+        public const string PauseBehaviorDimToCinemaLevel = "DimToCinemaLevel";
         public const string SamplingModeAverage = "Average";
         public const string SamplingModeCenterWeighted = "CenterWeighted";
         public const string SamplingModeCenterPixel = "CenterPixel";
@@ -1600,9 +1601,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
             var pauseBehaviorOverride = mapping.PauseBehaviorOverride?.Trim();
             if (!string.IsNullOrWhiteSpace(pauseBehaviorOverride) &&
                 !string.Equals(pauseBehaviorOverride, PauseBehaviorKeepLastColors, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(pauseBehaviorOverride, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(pauseBehaviorOverride, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(pauseBehaviorOverride, PauseBehaviorDimToCinemaLevel, StringComparison.OrdinalIgnoreCase))
             {
-                errors.Add($"{label} pause behavior override must be KeepLastColors or RestoreLightState");
+                errors.Add($"{label} pause behavior override must be KeepLastColors, RestoreLightState, or DimToCinemaLevel");
             }
 
             var playbackMediaFilterOverride = mapping.PlaybackMediaFilterOverride?.Trim();
@@ -2761,8 +2763,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     errors.Add("Video deinterlace mode must be Off, Auto, or On");
 
                 if (!string.Equals(PauseBehavior, PauseBehaviorKeepLastColors, StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(PauseBehavior, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase))
-                    errors.Add("Pause behavior must be KeepLastColors or RestoreLightState");
+                    !string.Equals(PauseBehavior, PauseBehaviorRestoreLightState, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(PauseBehavior, PauseBehaviorDimToCinemaLevel, StringComparison.OrdinalIgnoreCase))
+                    errors.Add("Pause behavior must be KeepLastColors, RestoreLightState, or DimToCinemaLevel");
 
                 if (SamplingBreadthPercent < MinSamplingBreadthPercent ||
                     SamplingBreadthPercent > MaxSamplingBreadthPercent)
