@@ -756,6 +756,12 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioBeatPulsePercent">Audio Beat Pulse (%)</label>
+                            <input id="audioBeatPulsePercent" name="audioBeatPulsePercent" type="number" min="0" max="100" is="emby-input" />
+                            <div class="fieldDescription">Adds a transient brightness boost when audio energy rises (0-100%, default: 0%). Zero preserves the steady loudness response; higher values make beats and attacks flash more visibly.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="frameResolution">Frame Sampling Resolution</label>
                             <select id="frameResolution" name="frameResolution" is="emby-select">
                                 <option value="80x45">Low (80×45, lowest CPU)</option>
@@ -956,6 +962,12 @@
                                     <label class="inputLabel inputLabelUnfocused" for="mappingAudioBandSpreadPercentOverride">Audio Band Spread Override (%)</label>
                                     <input id="mappingAudioBandSpreadPercentOverride" type="number" min="0" max="100" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user spread (0-100%). Leave blank to inherit the global audio band spread.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioBeatPulsePercentOverride">Audio Beat Pulse Override (%)</label>
+                                    <input id="mappingAudioBeatPulsePercentOverride" type="number" min="0" max="100" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user beat pulse (0-100%). Leave blank to inherit the global audio beat pulse.</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -1413,6 +1425,7 @@
                         page.querySelector('#audioMidFrequencyHz').value = getConfigValue('AudioMidFrequencyHz', 420);
                         page.querySelector('#audioHighFrequencyHz').value = getConfigValue('AudioHighFrequencyHz', 1600);
                         page.querySelector('#audioBandSpreadPercent').value = getConfigValue('AudioBandSpreadPercent', 0);
+                        page.querySelector('#audioBeatPulsePercent').value = getConfigValue('AudioBeatPulsePercent', 0);
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#frameResolution').value = getConfigValue('FrameResolution', '160x90');
                         page.querySelector('#videoScalingMode').value = getConfigValue('VideoScalingMode', 'Stretch');
@@ -1472,6 +1485,7 @@
                         AudioMidFrequencyHz: parseNumberOrDefault('#audioMidFrequencyHz', 420),
                         AudioHighFrequencyHz: parseNumberOrDefault('#audioHighFrequencyHz', 1600),
                         AudioBandSpreadPercent: parseNumberOrDefault('#audioBandSpreadPercent', 0),
+                        AudioBeatPulsePercent: parseNumberOrDefault('#audioBeatPulsePercent', 0),
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         FrameResolution: page.querySelector('#frameResolution').value,
                         VideoScalingMode: page.querySelector('#videoScalingMode').value,
@@ -6441,6 +6455,7 @@
                         var audioMidFrequency = HueConfigurationPage.readStatusField(status, "ActiveAudioMidFrequencyHz", null);
                         var audioHighFrequency = HueConfigurationPage.readStatusField(status, "ActiveAudioHighFrequencyHz", null);
                         var audioBandSpread = HueConfigurationPage.readStatusField(status, "ActiveAudioBandSpreadPercent", null);
+                        var audioBeatPulse = HueConfigurationPage.readStatusField(status, "ActiveAudioBeatPulsePercent", null);
                         var samplingBreadth = HueConfigurationPage.readStatusField(status, "ActiveSamplingBreadthPercent", null);
                         var samplingMode = HueConfigurationPage.readStatusField(status, "ActiveSamplingMode", null);
                         var colorSmoothing = HueConfigurationPage.readStatusField(status, "ActiveColorSmoothingPercent", null);
@@ -6495,7 +6510,7 @@
                             : String(targetFps) + " FPS · " + (frameResolution || "—");
                         page.querySelector('#runtimeAudioProfile').textContent = audioSensitivity == null
                             ? "—"
-                            : String(audioSensitivity) + "% sensitivity · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz · spread " + String(audioBandSpread == null ? "—" : audioBandSpread) + "%";
+                            : String(audioSensitivity) + "% sensitivity · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz · spread " + String(audioBandSpread == null ? "—" : audioBandSpread) + "% · beat " + String(audioBeatPulse == null ? "—" : audioBeatPulse) + "%";
                         page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
                             ? "—"
                             : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
@@ -7422,7 +7437,8 @@
                                 getMappingValue('AudioLowFrequencyHzOverride', 'audioLowFrequencyHzOverride'),
                                 getMappingValue('AudioMidFrequencyHzOverride', 'audioMidFrequencyHzOverride'),
                                 getMappingValue('AudioHighFrequencyHzOverride', 'audioHighFrequencyHzOverride'),
-                                getMappingValue('AudioBandSpreadPercentOverride', 'audioBandSpreadPercentOverride')
+                                getMappingValue('AudioBandSpreadPercentOverride', 'audioBandSpreadPercentOverride'),
+                                getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride')
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
@@ -7622,6 +7638,7 @@
                         '#mappingAudioMidFrequencyHzOverride',
                         '#mappingAudioHighFrequencyHzOverride',
                         '#mappingAudioBandSpreadPercentOverride',
+                        '#mappingAudioBeatPulsePercentOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -8248,6 +8265,7 @@
                         AudioMidFrequencyHzOverride: readOptionalNumber('mappingAudioMidFrequencyHzOverride'),
                         AudioHighFrequencyHzOverride: readOptionalNumber('mappingAudioHighFrequencyHzOverride'),
                         AudioBandSpreadPercentOverride: readOptionalNumber('mappingAudioBandSpreadPercentOverride'),
+                        AudioBeatPulsePercentOverride: readOptionalNumber('mappingAudioBeatPulsePercentOverride'),
                         BrightnessDimLevelOverride: readOptionalNumber('mappingBrightnessDimLevelOverride'),
                         PauseBehaviorOverride: readOptionalString('mappingPauseBehaviorOverride'),
                         RestoreLightStateOverride: readOptionalBoolean('mappingRestoreLightStateOverride'),
@@ -8330,6 +8348,7 @@
                         '#mappingAudioMidFrequencyHzOverride',
                         '#mappingAudioHighFrequencyHzOverride',
                         '#mappingAudioBandSpreadPercentOverride',
+                        '#mappingAudioBeatPulsePercentOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -8414,6 +8433,7 @@
                         var audioMidFrequencyHzOverride = getMappingValue('AudioMidFrequencyHzOverride', 'audioMidFrequencyHzOverride');
                         var audioHighFrequencyHzOverride = getMappingValue('AudioHighFrequencyHzOverride', 'audioHighFrequencyHzOverride');
                         var audioBandSpreadPercentOverride = getMappingValue('AudioBandSpreadPercentOverride', 'audioBandSpreadPercentOverride');
+                        var audioBeatPulsePercentOverride = getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride');
                         var brightnessDimLevelOverride = getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride');
                         var pauseBehaviorOverride = getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride');
                         var restoreLightStateOverride = getMappingValue('RestoreLightStateOverride', 'restoreLightStateOverride');
@@ -8474,6 +8494,7 @@
                         page.querySelector('#mappingAudioMidFrequencyHzOverride').value = audioMidFrequencyHzOverride == null ? "" : audioMidFrequencyHzOverride;
                         page.querySelector('#mappingAudioHighFrequencyHzOverride').value = audioHighFrequencyHzOverride == null ? "" : audioHighFrequencyHzOverride;
                         page.querySelector('#mappingAudioBandSpreadPercentOverride').value = audioBandSpreadPercentOverride == null ? "" : audioBandSpreadPercentOverride;
+                        page.querySelector('#mappingAudioBeatPulsePercentOverride').value = audioBeatPulsePercentOverride == null ? "" : audioBeatPulsePercentOverride;
                         page.querySelector('#mappingBrightnessDimLevelOverride').value = brightnessDimLevelOverride == null ? "" : brightnessDimLevelOverride;
                         page.querySelector('#mappingPauseBehaviorOverride').value = pauseBehaviorOverride == null ? "" : pauseBehaviorOverride;
                         page.querySelector('#mappingRestoreLightStateOverride').value = restoreLightStateOverride == null ? "" : String(restoreLightStateOverride).toLowerCase();

@@ -48,6 +48,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? AudioMidFrequencyHzOverride { get; set; }
         public int? AudioHighFrequencyHzOverride { get; set; }
         public int? AudioBandSpreadPercentOverride { get; set; }
+        public int? AudioBeatPulsePercentOverride { get; set; }
         public int? TargetFpsOverride { get; set; }
         public string? FrameResolutionOverride { get; set; }
         public string? VideoScalingModeOverride { get; set; }
@@ -417,6 +418,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MinAudioBandSpreadPercent = 0;
         public const int MaxAudioBandSpreadPercent = 100;
         public const int DefaultAudioBandSpreadPercent = 0;
+        public const int MinAudioBeatPulsePercent = 0;
+        public const int MaxAudioBeatPulsePercent = 100;
+        public const int DefaultAudioBeatPulsePercent = 0;
         public const string ColorPresetEffectSolid = "Solid";
         public const string ColorPresetEffectPulse = "Pulse";
         public const string ColorPresetEffectRainbow = "Rainbow";
@@ -664,6 +668,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// so real-world content between configured centers remains reactive.
         /// </summary>
         public int AudioBandSpreadPercent { get; set; } = DefaultAudioBandSpreadPercent;
+        /// <summary>
+        /// Adds an opt-in transient brightness response to rising audio energy. Zero
+        /// preserves the steady loudness envelope used by existing installations.
+        /// </summary>
+        public int AudioBeatPulsePercent { get; set; } = DefaultAudioBeatPulsePercent;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = FrameResolutionStandard;
         public string VideoScalingMode { get; set; } = VideoScalingModeStretch;
@@ -752,6 +761,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 mapping?.AudioBandSpreadPercentOverride ?? AudioBandSpreadPercent,
                 MinAudioBandSpreadPercent,
                 MaxAudioBandSpreadPercent);
+        }
+
+        /// <summary>
+        /// Gets the effective audio beat-pulse response for a user. A missing override
+        /// inherits the global setting; invalid hand-edited values are clamped for
+        /// runtime continuity.
+        /// </summary>
+        public int GetAudioBeatPulsePercentForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return Math.Clamp(
+                mapping?.AudioBeatPulsePercentOverride ?? AudioBeatPulsePercent,
+                MinAudioBeatPulsePercent,
+                MaxAudioBeatPulsePercent);
         }
 
         /// <summary>
@@ -1089,6 +1113,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.AudioBandSpreadPercentOverride.Value > MaxAudioBandSpreadPercent))
             {
                 errors.Add($"{label} audio band spread override must be between {MinAudioBandSpreadPercent} and {MaxAudioBandSpreadPercent} percent");
+            }
+            if (mapping.AudioBeatPulsePercentOverride.HasValue &&
+                (mapping.AudioBeatPulsePercentOverride.Value < MinAudioBeatPulsePercent ||
+                 mapping.AudioBeatPulsePercentOverride.Value > MaxAudioBeatPulsePercent))
+            {
+                errors.Add($"{label} audio beat pulse override must be between {MinAudioBeatPulsePercent} and {MaxAudioBeatPulsePercent} percent");
             }
             if (mapping.AudioLowFrequencyHzOverride.HasValue &&
                 mapping.AudioMidFrequencyHzOverride.HasValue &&
@@ -2044,6 +2074,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (AudioBandSpreadPercent < MinAudioBandSpreadPercent || AudioBandSpreadPercent > MaxAudioBandSpreadPercent)
                     errors.Add($"Audio band spread must be between {MinAudioBandSpreadPercent} and {MaxAudioBandSpreadPercent} percent");
+
+                if (AudioBeatPulsePercent < MinAudioBeatPulsePercent || AudioBeatPulsePercent > MaxAudioBeatPulsePercent)
+                    errors.Add($"Audio beat pulse must be between {MinAudioBeatPulsePercent} and {MaxAudioBeatPulsePercent} percent");
 
                 if (!string.Equals(FrameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(FrameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&

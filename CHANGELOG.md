@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.164] - 2026-08-19
+
+### Added
+- **Audio Beat Pulse**: optionally add a bounded transient brightness response to rising low/mid/high audio energy, so attacks and beats create visible flashes without changing steady loudness behavior
+- **Per-user beat response**: inherit or override the global 0-100% pulse setting with clamped runtime resolution and validation
+- **Credential-safe telemetry and portability**: expose the active pulse profile and carry it through the configuration API, administrator UI, mapping summaries, backup/import documents, and regression coverage
+
 ## [1.5.163] - 2026-08-19
 
 ### Added

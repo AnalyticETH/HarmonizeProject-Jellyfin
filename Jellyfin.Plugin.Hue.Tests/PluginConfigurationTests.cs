@@ -1359,6 +1359,24 @@ public class PluginConfigurationTests
     }
 
     [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void Validate_WhenAudioBeatPulseOutOfRange_ReturnsError(int pulse)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            AudioBeatPulsePercent = pulse
+        };
+
+        Assert.Contains("Audio beat pulse must be between 0 and 100 percent", config.Validate());
+    }
+
+    [Theory]
     [InlineData(19, 420, 1600)]
     [InlineData(90, 420, 3901)]
     public void Validate_WhenAudioFrequencyOutOfRange_ReturnsError(int low, int mid, int high)
@@ -1694,6 +1712,7 @@ public class PluginConfigurationTests
         Assert.Equal(PluginConfiguration.DefaultAudioMidFrequencyHz, config.AudioMidFrequencyHz);
         Assert.Equal(PluginConfiguration.DefaultAudioHighFrequencyHz, config.AudioHighFrequencyHz);
         Assert.Equal(PluginConfiguration.DefaultAudioBandSpreadPercent, config.AudioBandSpreadPercent);
+        Assert.Equal(PluginConfiguration.DefaultAudioBeatPulsePercent, config.AudioBeatPulsePercent);
         Assert.Equal(PluginConfiguration.FrameResolutionStandard, config.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeStretch, config.VideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOff, config.VideoDeinterlaceMode);
@@ -2442,6 +2461,33 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetAudioBeatPulsePercentForUser_UsesOverrideAndClampsInvalidValues()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            AudioBeatPulsePercent = 20,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    AudioBeatPulsePercentOverride = 60
+                }
+            }
+        };
+
+        Assert.Equal(60, config.GetAudioBeatPulsePercentForUser(userId));
+        Assert.Equal(20, config.GetAudioBeatPulsePercentForUser(System.Guid.NewGuid()));
+
+        config.UserMappings[0].AudioBeatPulsePercentOverride = 999;
+        Assert.Equal(PluginConfiguration.MaxAudioBeatPulsePercent, config.GetAudioBeatPulsePercentForUser(userId));
+
+        config.UserMappings[0].AudioBeatPulsePercentOverride = -1;
+        Assert.Equal(PluginConfiguration.MinAudioBeatPulsePercent, config.GetAudioBeatPulsePercentForUser(userId));
+    }
+
+    [Fact]
     public void GetAudioFrequenciesForUser_UsesOverrideAndGlobalFallback()
     {
         var userId = System.Guid.NewGuid();
@@ -2702,6 +2748,7 @@ public class PluginConfigurationTests
                     AudioMidFrequencyHzOverride = 100,
                     AudioHighFrequencyHzOverride = 4000,
                     AudioBandSpreadPercentOverride = 101,
+                    AudioBeatPulsePercentOverride = 101,
                     FrameResolutionOverride = "640x360",
                     VideoScalingModeOverride = "InvalidScaling",
                     VideoDeinterlaceModeOverride = "InvalidDeinterlace",
@@ -2718,6 +2765,7 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 audio sensitivity override must be between 25 and 400 percent", errors);
         Assert.Contains("User mapping 1 audio high frequency override must be between 20 and 3900 Hz", errors);
         Assert.Contains("User mapping 1 audio band spread override must be between 0 and 100 percent", errors);
+        Assert.Contains("User mapping 1 audio beat pulse override must be between 0 and 100 percent", errors);
         Assert.Contains("User mapping 1 audio frequency overrides must be strictly ordered low < mid < high", errors);
         Assert.Contains("User mapping 1 frame resolution override must be 80x45, 160x90, or 320x180", errors);
         Assert.Contains("User mapping 1 video scaling override must be Stretch, Fit, or Crop", errors);

@@ -207,6 +207,24 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void CalculateAudioBeatPulse_RespondsOnlyToRisingEnergy()
+    {
+        var previous = (Rms: 0.2, Low: 0.1, Mid: 0.2, High: 0.3);
+        var current = (Rms: 0.3, Low: 0.2, Mid: 0.25, High: 0.35);
+
+        var pulse = HueSyncService.CalculateAudioBeatPulse(previous, current, 100);
+        Assert.InRange(pulse, 0.39, 0.41);
+        Assert.Equal(0, HueSyncService.CalculateAudioBeatPulse(previous, current, 0));
+        Assert.Equal(0, HueSyncService.CalculateAudioBeatPulse(current, previous, 100));
+        Assert.Equal(0, HueSyncService.CalculateAudioBeatPulse(null, current, 100));
+
+        var lights = new Dictionary<int, (double x, double z)> { [1] = (0, 0) };
+        var steady = HueSyncService.BuildAudioChannelColors(lights, current, frameIndex: 3);
+        var pulsed = HueSyncService.BuildAudioChannelColors(lights, current, frameIndex: 3, audioBeatPulse: pulse);
+        Assert.True(pulsed[1].Average(channel => channel) > steady[1].Average(channel => channel));
+    }
+
+    [Fact]
     public void BuildAudioChannelColors_UsesAudioSensitivityWithoutChangingSpatialMapping()
     {
         var lights = new Dictionary<int, (double x, double z)> { [1] = (0, 0) };
@@ -477,6 +495,34 @@ public sealed class HueSyncServiceTests
         Assert.Equal(
             PluginConfiguration.MinAudioBandSpreadPercent,
             HueSyncService.ResolveAudioBandSpreadPercent(configuration, userId));
+    }
+
+    [Fact]
+    public void ResolveAudioBeatPulsePercent_UsesPerUserOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioBeatPulsePercent = 10,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString(), AudioBeatPulsePercentOverride = 65 }
+            }
+        };
+
+        Assert.Equal(65, HueSyncService.ResolveAudioBeatPulsePercent(configuration, userId));
+        Assert.Equal(10, HueSyncService.ResolveAudioBeatPulsePercent(configuration, System.Guid.NewGuid()));
+
+        configuration.UserMappings[0].AudioBeatPulsePercentOverride = 999;
+        Assert.Equal(
+            PluginConfiguration.MaxAudioBeatPulsePercent,
+            HueSyncService.ResolveAudioBeatPulsePercent(configuration, userId));
+
+        configuration.UserMappings.Clear();
+        configuration.AudioBeatPulsePercent = -1;
+        Assert.Equal(
+            PluginConfiguration.MinAudioBeatPulsePercent,
+            HueSyncService.ResolveAudioBeatPulsePercent(configuration, userId));
     }
 
     [Fact]
