@@ -790,8 +790,16 @@ namespace Jellyfin.Plugin.Hue.Service
         /// </summary>
         public void RefreshSessionHistoryPersistence()
         {
-            if (_managesPlaybackEvents)
-                PersistSessionHistory();
+            if (!_managesPlaybackEvents)
+                return;
+
+            lock (_syncLock)
+            {
+                TrimSessionHistoryLocked();
+                _lastSessionSummary = _sessionHistory.FirstOrDefault();
+            }
+
+            PersistSessionHistory();
         }
 
         private void LoadPersistedSessionHistory()
@@ -814,7 +822,7 @@ namespace Jellyfin.Plugin.Hue.Service
 
             var persistedEntries = config.PersistedSessionHistory
                 .Where(entry => entry != null)
-                .Take(MaxSessionHistoryCount)
+                .Take(config.GetSessionHistoryRetentionCount())
                 .ToList();
             if (persistedEntries.Count != config.PersistedSessionHistory.Count)
             {
@@ -844,7 +852,7 @@ namespace Jellyfin.Plugin.Hue.Service
             lock (_syncLock)
             {
                 entries = _sessionHistory
-                    .Take(MaxSessionHistoryCount)
+                    .Take(config.GetSessionHistoryRetentionCount())
                     .Select(ToPersistedSessionSummary)
                     .ToArray();
             }
@@ -4511,8 +4519,15 @@ namespace Jellyfin.Plugin.Hue.Service
         private void AddSessionHistoryLocked(HueSessionSummary summary)
         {
             _sessionHistory.Insert(0, summary);
-            if (_sessionHistory.Count > MaxSessionHistoryCount)
-                _sessionHistory.RemoveRange(MaxSessionHistoryCount, _sessionHistory.Count - MaxSessionHistoryCount);
+            TrimSessionHistoryLocked();
+        }
+
+        private void TrimSessionHistoryLocked()
+        {
+            var retentionCount = Plugin.Instance?.Configuration?.GetSessionHistoryRetentionCount()
+                ?? PluginConfiguration.DefaultSessionHistoryRetentionCount;
+            if (_sessionHistory.Count > retentionCount)
+                _sessionHistory.RemoveRange(retentionCount, _sessionHistory.Count - retentionCount);
         }
 
         private void ReleasePlaybackLifecycleLease()

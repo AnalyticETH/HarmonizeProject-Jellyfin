@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.169] - 2026-08-20
+
+### Added
+- **Configurable history retention**: choose 1-25 completed playback sessions and 1-100 scheduled-cue runs to retain in memory and optionally across Jellyfin restarts, preserving the existing 25/100 defaults
+- **Immediate safe trimming**: reducing a retention window trims newest-first sanitized history when the configuration is saved without affecting active playback, credentials, or finite cue counters
+- **Portable administrator controls**: carry retention preferences through the settings API, credential-safe backup/import, validation, and the configuration page
+- **Regression coverage**: verify defaults, bounds, API round trips, persisted-history loading, and runtime trimming for both history types
+
 ## [1.5.168] - 2026-08-20
 
 ### Added

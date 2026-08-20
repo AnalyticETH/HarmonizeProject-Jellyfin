@@ -352,7 +352,8 @@ public sealed class HueSyncServiceLifecycleTests
         using var httpClient = new HttpClient(new BlockingHueHandler());
         var service = CreateService(httpClient, persistSessionHistory: true);
         var configuration = Plugin.Instance!.Configuration;
-        configuration.PersistedSessionHistory = Enumerable.Range(0, HueSyncService.MaxSessionHistoryCount + 5)
+        configuration.SessionHistoryRetentionCount = 7;
+        configuration.PersistedSessionHistory = Enumerable.Range(0, 12)
             .Select(index => new HueSessionHistoryEntry
             {
                 Outcome = index % 2 == 0 ? "Ended" : "Error",
@@ -364,9 +365,33 @@ public sealed class HueSyncServiceLifecycleTests
         await service.StartAsync(CancellationToken.None);
 
         var history = service.GetSessionHistory();
-        Assert.Equal(HueSyncService.MaxSessionHistoryCount, history.Count);
+        Assert.Equal(7, history.Count);
         Assert.Equal("Persisted item 0", history[0].Item);
-        Assert.Equal(HueSyncService.MaxSessionHistoryCount, configuration.PersistedSessionHistory.Count);
+        Assert.Equal(7, configuration.PersistedSessionHistory.Count);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RefreshSessionHistoryPersistence_TrimsInMemoryAndPersistedWindow()
+    {
+        using var httpClient = new HttpClient(new BlockingHueHandler());
+        var service = CreateService(httpClient, persistSessionHistory: true);
+        var configuration = Plugin.Instance!.Configuration;
+        configuration.SessionHistoryRetentionCount = 2;
+
+        var sessionHistory = Assert.IsType<List<HueSessionSummary>>(GetPrivateField(service, "_sessionHistory"));
+        sessionHistory.AddRange(Enumerable.Range(0, 4).Select(index => new HueSessionSummary
+        {
+            Item = "Session " + index,
+            Outcome = "Ended"
+        }));
+
+        service.RefreshSessionHistoryPersistence();
+
+        Assert.Equal(2, service.GetSessionHistory().Count);
+        Assert.Equal(new[] { "Session 0", "Session 1" }, service.GetSessionHistory().Select(summary => summary.Item));
+        Assert.Equal(2, configuration.PersistedSessionHistory.Count);
 
         await service.StopAsync(CancellationToken.None);
     }

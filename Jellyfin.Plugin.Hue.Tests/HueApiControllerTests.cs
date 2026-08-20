@@ -7096,6 +7096,8 @@ public sealed class HueApiControllerTests : IDisposable
             NetworkRetryAttempts = 6,
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
             PersistSessionHistory = true,
+            SessionHistoryRetentionCount = 12,
+            SceneScheduleHistoryRetentionCount = 73,
             SceneAutomationEnabled = false,
             SceneAutomationCatchUpMinutes = 37,
             UserMappings = new List<UserBridgeMapping>
@@ -7142,6 +7144,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(6, settings.NetworkRetryAttempts);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, settings.PauseBehavior);
         Assert.True(settings.PersistSessionHistory);
+        Assert.Equal(12, settings.SessionHistoryRetentionCount);
+        Assert.Equal(73, settings.SceneScheduleHistoryRetentionCount);
         Assert.Equal(false, settings.SceneAutomationEnabled);
         Assert.Equal(37, settings.SceneAutomationCatchUpMinutes);
         var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
@@ -8068,6 +8072,8 @@ public sealed class HueApiControllerTests : IDisposable
             PauseBehavior = PluginConfiguration.PauseBehaviorRestoreLightState,
             PersistSessionHistory = true,
             PersistSceneScheduleHistory = true,
+            SessionHistoryRetentionCount = 9,
+            SceneScheduleHistoryRetentionCount = 64,
             SceneAutomationEnabled = false,
             SceneAutomationCatchUpMinutes = 18
         });
@@ -8100,6 +8106,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, configuration.PauseBehavior);
         Assert.True(configuration.PersistSessionHistory);
         Assert.True(configuration.PersistSceneScheduleHistory);
+        Assert.Equal(9, configuration.SessionHistoryRetentionCount);
+        Assert.Equal(64, configuration.SceneScheduleHistoryRetentionCount);
         Assert.False(configuration.SceneAutomationEnabled);
         Assert.Equal(18, configuration.SceneAutomationCatchUpMinutes);
         var mapping = Assert.Single(configuration.UserMappings);
@@ -8235,6 +8243,27 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<BadRequestObjectResult>(action.Result);
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
         Assert.Equal(12, configuration.SceneAutomationCatchUpMinutes);
+    }
+
+    [Fact]
+    public void SaveConfiguration_InvalidHistoryRetentionReturnsBadRequestWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SessionHistoryRetentionCount = 12,
+            SceneScheduleHistoryRetentionCount = 73
+        });
+
+        var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            SessionHistoryRetentionCount = PluginConfiguration.MaxSessionHistoryRetentionCount + 1,
+            SceneScheduleHistoryRetentionCount = PluginConfiguration.MinSceneScheduleHistoryRetentionCount - 1
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Equal(12, configuration.SessionHistoryRetentionCount);
+        Assert.Equal(73, configuration.SceneScheduleHistoryRetentionCount);
     }
 
     [Fact]

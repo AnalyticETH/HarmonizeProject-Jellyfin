@@ -804,6 +804,11 @@ public sealed class HueSceneAutomationService : BackgroundService
     public void RefreshSceneScheduleHistoryPersistence()
     {
         EnsureHistoryLoaded();
+        lock (_historyLock)
+        {
+            TrimRunHistoryLocked();
+        }
+
         PersistSceneScheduleHistory();
     }
 
@@ -2778,8 +2783,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         lock (_historyLock)
         {
             _runHistory.Insert(0, CloneRunResult(result));
-            if (_runHistory.Count > MaxSceneScheduleHistoryCount)
-                _runHistory.RemoveRange(MaxSceneScheduleHistoryCount, _runHistory.Count - MaxSceneScheduleHistoryCount);
+            TrimRunHistoryLocked();
         }
 
         PersistSceneScheduleHistory();
@@ -3223,8 +3227,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             lock (_historyLock)
             {
                 _runHistory.Insert(0, CloneRunResult(result));
-                if (_runHistory.Count > MaxSceneScheduleHistoryCount)
-                    _runHistory.RemoveRange(MaxSceneScheduleHistoryCount, _runHistory.Count - MaxSceneScheduleHistoryCount);
+                TrimRunHistoryLocked();
             }
         }
 
@@ -3275,7 +3278,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 persistedEntries = config.PersistedSceneScheduleHistory
                     .Where(entry => entry != null)
-                    .Take(MaxSceneScheduleHistoryCount)
+                    .Take(config.GetSceneScheduleHistoryRetentionCount())
                     .Select(CloneHistoryEntry)
                     .ToList();
                 if (persistedEntries.Count != config.PersistedSceneScheduleHistory.Count)
@@ -3349,7 +3352,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         lock (_historyLock)
         {
             entries = _runHistory
-                .Take(MaxSceneScheduleHistoryCount)
+                .Take(config.GetSceneScheduleHistoryRetentionCount())
                 .Select(ToHistoryEntry)
                 .ToList();
         }
@@ -3368,6 +3371,14 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         SavePersistedSceneScheduleHistoryConfiguration();
+    }
+
+    private void TrimRunHistoryLocked()
+    {
+        var retentionCount = Plugin.Instance?.Configuration?.GetSceneScheduleHistoryRetentionCount()
+            ?? PluginConfiguration.DefaultSceneScheduleHistoryRetentionCount;
+        if (_runHistory.Count > retentionCount)
+            _runHistory.RemoveRange(retentionCount, _runHistory.Count - retentionCount);
     }
 
     private void SavePersistedSceneScheduleHistoryConfiguration()

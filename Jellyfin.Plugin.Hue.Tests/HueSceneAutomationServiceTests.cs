@@ -2798,6 +2798,41 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Null(runtime.LastSucceeded);
     }
 
+    [Fact]
+    public void PersistedHistory_UsesConfiguredRetentionAndRefreshTrimsLoadedEntries()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = true,
+            SceneScheduleHistoryRetentionCount = 3,
+            PersistedSceneScheduleHistory = Enumerable.Range(0, 5)
+                .Select(index => new HueSceneScheduleHistoryEntry
+                {
+                    ScheduleId = "cue-" + index,
+                    ScheduleName = "Cue " + index,
+                    Message = "Run " + index,
+                    RunAtUtc = DateTime.UtcNow.AddMinutes(-index)
+                })
+                .ToList()
+        });
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.Equal(3, service.GetHistory().Count);
+        Assert.Equal(3, Plugin.Instance!.Configuration.PersistedSceneScheduleHistory.Count);
+
+        Plugin.Instance.Configuration.SceneScheduleHistoryRetentionCount = 1;
+        service.RefreshSceneScheduleHistoryPersistence();
+
+        Assert.Single(service.GetHistory());
+        Assert.Single(Plugin.Instance.Configuration.PersistedSceneScheduleHistory);
+        Assert.Equal("cue-0", service.GetHistory()[0].ScheduleId);
+    }
+
     private static void InstallConfiguration(
         PluginConfiguration configuration,
         IXmlSerializer? xmlSerializer = null)
