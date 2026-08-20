@@ -51,6 +51,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? AudioLowGainPercentOverride { get; set; }
         public int? AudioMidGainPercentOverride { get; set; }
         public int? AudioHighGainPercentOverride { get; set; }
+        public int? AudioResponseSmoothingPercentOverride { get; set; }
         public int? AudioBandSpreadPercentOverride { get; set; }
         public int? AudioBeatPulsePercentOverride { get; set; }
         public int? AudioBeatPulseDecayPercentOverride { get; set; }
@@ -441,6 +442,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MinAudioBandGainPercent = 0;
         public const int MaxAudioBandGainPercent = 200;
         public const int DefaultAudioBandGainPercent = 100;
+        public const int MinAudioResponseSmoothingPercent = 0;
+        public const int MaxAudioResponseSmoothingPercent = 90;
+        public const int DefaultAudioResponseSmoothingPercent = 0;
         public const int MinAudioBandSpreadPercent = 0;
         public const int MaxAudioBandSpreadPercent = 100;
         public const int DefaultAudioBandSpreadPercent = 0;
@@ -867,6 +871,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int AudioMidGainPercent { get; set; } = DefaultAudioBandGainPercent;
         public int AudioHighGainPercent { get; set; } = DefaultAudioBandGainPercent;
         /// <summary>
+        /// Blends each decoded audio analysis window with the previous window before
+        /// palette rendering. Zero preserves the original immediate response; higher
+        /// values reduce spectral flicker while retaining a bounded, deterministic tail.
+        /// </summary>
+        public int AudioResponseSmoothingPercent { get; set; } = DefaultAudioResponseSmoothingPercent;
+        /// <summary>
         /// Expands each audio center into a bounded frequency band. Zero preserves the
         /// original single-center DFT behavior; higher values average nearby frequencies
         /// so real-world content between configured centers remains reactive.
@@ -1003,6 +1013,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 Math.Clamp(mapping?.AudioLowGainPercentOverride ?? AudioLowGainPercent, MinAudioBandGainPercent, MaxAudioBandGainPercent),
                 Math.Clamp(mapping?.AudioMidGainPercentOverride ?? AudioMidGainPercent, MinAudioBandGainPercent, MaxAudioBandGainPercent),
                 Math.Clamp(mapping?.AudioHighGainPercentOverride ?? AudioHighGainPercent, MinAudioBandGainPercent, MaxAudioBandGainPercent));
+        }
+
+        /// <summary>
+        /// Gets the effective temporal smoothing applied to audio analysis windows for a
+        /// user. Missing overrides inherit the global setting; invalid hand-edited values
+        /// are clamped for runtime continuity while validation reports the bad value.
+        /// </summary>
+        public int GetAudioResponseSmoothingPercentForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return Math.Clamp(
+                mapping?.AudioResponseSmoothingPercentOverride ?? AudioResponseSmoothingPercent,
+                MinAudioResponseSmoothingPercent,
+                MaxAudioResponseSmoothingPercent);
         }
 
         /// <summary>
@@ -1444,6 +1469,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             ValidateAudioBandGainOverride(mapping.AudioLowGainPercentOverride, $"{label} audio low gain override", errors);
             ValidateAudioBandGainOverride(mapping.AudioMidGainPercentOverride, $"{label} audio mid gain override", errors);
             ValidateAudioBandGainOverride(mapping.AudioHighGainPercentOverride, $"{label} audio high gain override", errors);
+            if (mapping.AudioResponseSmoothingPercentOverride.HasValue &&
+                (mapping.AudioResponseSmoothingPercentOverride.Value < MinAudioResponseSmoothingPercent ||
+                 mapping.AudioResponseSmoothingPercentOverride.Value > MaxAudioResponseSmoothingPercent))
+            {
+                errors.Add($"{label} audio response smoothing override must be between {MinAudioResponseSmoothingPercent} and {MaxAudioResponseSmoothingPercent} percent");
+            }
             if (mapping.AudioBandSpreadPercentOverride.HasValue &&
                 (mapping.AudioBandSpreadPercentOverride.Value < MinAudioBandSpreadPercent ||
                  mapping.AudioBandSpreadPercentOverride.Value > MaxAudioBandSpreadPercent))
@@ -2490,6 +2521,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     AudioHighGainPercent < MinAudioBandGainPercent || AudioHighGainPercent > MaxAudioBandGainPercent)
                 {
                     errors.Add($"Audio band gains must be between {MinAudioBandGainPercent} and {MaxAudioBandGainPercent} percent");
+                }
+
+                if (AudioResponseSmoothingPercent < MinAudioResponseSmoothingPercent ||
+                    AudioResponseSmoothingPercent > MaxAudioResponseSmoothingPercent)
+                {
+                    errors.Add($"Audio response smoothing must be between {MinAudioResponseSmoothingPercent} and {MaxAudioResponseSmoothingPercent} percent");
                 }
 
                 if (AudioBandSpreadPercent < MinAudioBandSpreadPercent || AudioBandSpreadPercent > MaxAudioBandSpreadPercent)
