@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.170] - 2026-08-20
+
+### Added
+- **Configurable beat-pulse release**: carry an enabled audio beat pulse into subsequent frames with a bounded 0-100% release tail; zero preserves the instantaneous transient behavior
+- **Per-user audio release profiles**: inherit or override the global beat-pulse release with clamped validation, live runtime telemetry, administrator controls, and credential-safe backup/import support
+- **Regression coverage**: verify release-tail math, defaults, bounds, inheritance, and runtime resolution
+
 ## [1.5.169] - 2026-08-20
 
 ### Added

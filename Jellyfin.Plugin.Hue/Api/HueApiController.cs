@@ -5240,6 +5240,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveAudioHighFrequencyHz = runtime?.ActiveAudioHighFrequencyHz,
                 ActiveAudioBandSpreadPercent = runtime?.ActiveAudioBandSpreadPercent,
                 ActiveAudioBeatPulsePercent = runtime?.ActiveAudioBeatPulsePercent,
+                ActiveAudioBeatPulseDecayPercent = runtime?.ActiveAudioBeatPulseDecayPercent,
                 ActiveAudioColorPalette = runtime?.ActiveAudioColorPalette,
                 ActiveAudioSpatialMode = runtime?.ActiveAudioSpatialMode,
                 ActiveAudioChannelMode = runtime?.ActiveAudioChannelMode,
@@ -6856,6 +6857,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AudioHighFrequencyHzOverride = source.AudioHighFrequencyHzOverride,
                 AudioBandSpreadPercentOverride = source.AudioBandSpreadPercentOverride,
                 AudioBeatPulsePercentOverride = source.AudioBeatPulsePercentOverride,
+                AudioBeatPulseDecayPercentOverride = source.AudioBeatPulseDecayPercentOverride,
                 AudioColorPaletteOverride = PluginConfiguration.NormalizeOptionalAudioColorPalette(source.AudioColorPaletteOverride),
                 AudioSpatialModeOverride = PluginConfiguration.NormalizeOptionalAudioSpatialMode(source.AudioSpatialModeOverride),
                 AudioChannelModeOverride = PluginConfiguration.NormalizeOptionalAudioChannelMode(source.AudioChannelModeOverride)
@@ -7658,6 +7660,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int AudioHighFrequencyHz { get; set; } = PluginConfiguration.DefaultAudioHighFrequencyHz;
         public int AudioBandSpreadPercent { get; set; } = PluginConfiguration.DefaultAudioBandSpreadPercent;
         public int AudioBeatPulsePercent { get; set; } = PluginConfiguration.DefaultAudioBeatPulsePercent;
+        public int AudioBeatPulseDecayPercent { get; set; } = PluginConfiguration.DefaultAudioBeatPulseDecayPercent;
         public string AudioColorPalette { get; set; } = PluginConfiguration.AudioColorPaletteSpectrum;
         public string AudioSpatialMode { get; set; } = PluginConfiguration.AudioSpatialModeSpatial;
         public string AudioChannelMode { get; set; } = PluginConfiguration.AudioChannelModeMono;
@@ -7711,6 +7714,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AudioHighFrequencyHz = config.AudioHighFrequencyHz,
                 AudioBandSpreadPercent = config.AudioBandSpreadPercent,
                 AudioBeatPulsePercent = config.AudioBeatPulsePercent,
+                AudioBeatPulseDecayPercent = config.AudioBeatPulseDecayPercent,
                 AudioColorPalette = config.AudioColorPalette,
                 AudioSpatialMode = config.AudioSpatialMode,
                 AudioChannelMode = config.AudioChannelMode,
@@ -7785,6 +7789,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.AudioHighFrequencyHz = AudioHighFrequencyHz;
             config.AudioBandSpreadPercent = AudioBandSpreadPercent;
             config.AudioBeatPulsePercent = AudioBeatPulsePercent;
+            config.AudioBeatPulseDecayPercent = AudioBeatPulseDecayPercent;
             config.AudioColorPalette = AudioColorPalette?.Trim() ?? PluginConfiguration.AudioColorPaletteSpectrum;
             config.AudioSpatialMode = AudioSpatialMode?.Trim() ?? PluginConfiguration.AudioSpatialModeSpatial;
             config.AudioChannelMode = AudioChannelMode?.Trim() ?? PluginConfiguration.AudioChannelModeMono;
@@ -7838,6 +7843,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? AudioHighFrequencyHzOverride { get; set; }
         public int? AudioBandSpreadPercentOverride { get; set; }
         public int? AudioBeatPulsePercentOverride { get; set; }
+        public int? AudioBeatPulseDecayPercentOverride { get; set; }
         public string? AudioColorPaletteOverride { get; set; }
         public string? AudioSpatialModeOverride { get; set; }
         public string? AudioChannelModeOverride { get; set; }
@@ -7887,6 +7893,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AudioHighFrequencyHzOverride = mapping.AudioHighFrequencyHzOverride,
                 AudioBandSpreadPercentOverride = mapping.AudioBandSpreadPercentOverride,
                 AudioBeatPulsePercentOverride = mapping.AudioBeatPulsePercentOverride,
+                AudioBeatPulseDecayPercentOverride = mapping.AudioBeatPulseDecayPercentOverride,
                 AudioColorPaletteOverride = mapping.AudioColorPaletteOverride,
                 AudioSpatialModeOverride = mapping.AudioSpatialModeOverride,
                 AudioChannelModeOverride = mapping.AudioChannelModeOverride,
@@ -9890,6 +9897,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ActiveAudioHighFrequencyHz { get; set; }
         public int? ActiveAudioBandSpreadPercent { get; set; }
         public int? ActiveAudioBeatPulsePercent { get; set; }
+        public int? ActiveAudioBeatPulseDecayPercent { get; set; }
         public string? ActiveAudioColorPalette { get; set; }
         public string? ActiveAudioSpatialMode { get; set; }
         public string? ActiveAudioChannelMode { get; set; }

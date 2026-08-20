@@ -373,6 +373,24 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void CalculateAudioBeatPulse_AppliesBoundedReleaseTail()
+    {
+        var energy = (Rms: 0.2, Low: 0.1, Mid: 0.2, High: 0.3);
+        var rising = (Rms: 0.3, Low: 0.2, Mid: 0.25, High: 0.35);
+        var attack = HueSyncService.CalculateAudioBeatPulse(energy, rising, 100);
+
+        var instant = HueSyncService.CalculateAudioBeatPulse(rising, rising, 100, attack, 0);
+        var halfRelease = HueSyncService.CalculateAudioBeatPulse(rising, rising, 100, attack, 50);
+        var longestRelease = HueSyncService.CalculateAudioBeatPulse(rising, rising, 100, attack, 100);
+
+        Assert.Equal(0, instant);
+        Assert.InRange(halfRelease, attack * 0.47, attack * 0.48);
+        Assert.InRange(longestRelease, attack * 0.94, attack * 0.96);
+        Assert.True(longestRelease > halfRelease);
+        Assert.True(longestRelease < attack);
+    }
+
+    [Fact]
     public void BuildAudioChannelColors_UsesAudioSensitivityWithoutChangingSpatialMapping()
     {
         var lights = new Dictionary<int, (double x, double z)> { [1] = (0, 0) };
@@ -743,6 +761,34 @@ public sealed class HueSyncServiceTests
         Assert.Equal(
             PluginConfiguration.MinAudioBeatPulsePercent,
             HueSyncService.ResolveAudioBeatPulsePercent(configuration, userId));
+    }
+
+    [Fact]
+    public void ResolveAudioBeatPulseDecayPercent_UsesPerUserOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioBeatPulseDecayPercent = 10,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString(), AudioBeatPulseDecayPercentOverride = 65 }
+            }
+        };
+
+        Assert.Equal(65, HueSyncService.ResolveAudioBeatPulseDecayPercent(configuration, userId));
+        Assert.Equal(10, HueSyncService.ResolveAudioBeatPulseDecayPercent(configuration, System.Guid.NewGuid()));
+
+        configuration.UserMappings[0].AudioBeatPulseDecayPercentOverride = 999;
+        Assert.Equal(
+            PluginConfiguration.MaxAudioBeatPulseDecayPercent,
+            HueSyncService.ResolveAudioBeatPulseDecayPercent(configuration, userId));
+
+        configuration.UserMappings.Clear();
+        configuration.AudioBeatPulseDecayPercent = -1;
+        Assert.Equal(
+            PluginConfiguration.MinAudioBeatPulseDecayPercent,
+            HueSyncService.ResolveAudioBeatPulseDecayPercent(configuration, userId));
     }
 
     [Fact]
