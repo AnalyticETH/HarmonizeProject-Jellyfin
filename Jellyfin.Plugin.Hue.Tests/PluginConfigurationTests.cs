@@ -577,6 +577,37 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsPerCuePlaybackPolicyAndRejectsUnknownValue()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "defer-cue",
+                    Name = "Defer cue",
+                    PresetName = "Evening",
+                    PlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+        Assert.True(PluginConfiguration.TryNormalizeSceneAutomationSchedulePlaybackPolicy(
+            " inherit ",
+            out var normalized));
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyInherit, normalized);
+
+        config.SceneSchedules[0].PlaybackPolicy = "Queue";
+        Assert.Contains(
+            "Scene schedule 1 playback policy must be Inherit, Skip, or Defer",
+            config.ValidateSceneSchedules());
+        Assert.False(PluginConfiguration.TryNormalizeSceneAutomationSchedulePlaybackPolicy("Queue", out _));
+    }
+
+    [Fact]
     public void Validate_RejectsSceneAutomationCatchUpWindowOutsideBounds()
     {
         var tooLarge = new PluginConfiguration

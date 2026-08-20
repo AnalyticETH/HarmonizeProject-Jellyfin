@@ -1297,6 +1297,123 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_PerCueDeferOverrideQueuesWhenGlobalPolicySkips()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicySkip,
+            SceneAutomationDeferMinutes = 10,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "per-cue-defer-app-secret",
+            HueClientKey = "per-cue-defer-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Per-cue deferred scene", Red = 70, Green = 80, Blue = 90, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "per-cue-defer",
+                    Name = "Per-cue defer",
+                    PresetName = "Per-cue deferred scene",
+                    PlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using (var playbackLease = lifecycleGate.TryEnterPlayback("per-cue-defer-target"))
+        {
+            Assert.NotNull(playbackLease);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+            Assert.Empty(streamTester.Reds);
+            var status = Assert.Single(service.GetStatus().Schedules);
+            Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, status.PlaybackPolicy);
+            Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, status.PlaybackPolicyOverride);
+            Assert.True(status.DeferredPending);
+        }
+
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Equal(new[] { 70 }, streamTester.Reds);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_PerCueSkipOverrideRunsWhenGlobalPolicyDefers()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "per-cue-skip-app-secret",
+            HueClientKey = "per-cue-skip-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Per-cue skipped scene", Red = 170, Green = 180, Blue = 190, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "per-cue-skip",
+                    Name = "Per-cue skip",
+                    PresetName = "Per-cue skipped scene",
+                    PlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicySkip,
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using var playbackLease = lifecycleGate.TryEnterPlayback("per-cue-skip-target");
+        Assert.NotNull(playbackLease);
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.Equal(new[] { 170 }, streamTester.Reds);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        var status = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicySkip, status.PlaybackPolicy);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicySkip, status.PlaybackPolicyOverride);
+        Assert.False(status.DeferredPending);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_RestoresPersistedDeferredCueAfterRestart()
     {
         var dueUtc = new DateTime(2026, 8, 18, 7, 5, 0, DateTimeKind.Utc);

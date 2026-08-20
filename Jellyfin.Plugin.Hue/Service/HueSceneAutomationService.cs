@@ -860,10 +860,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             .ThenBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray() ?? Array.Empty<HueSceneSchedule>();
 
-        PruneDeferredRuns(schedules, string.Equals(
-            playbackPolicy,
-            PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
-            StringComparison.OrdinalIgnoreCase));
+        PruneDeferredRuns(schedules, config);
 
         var configuredIds = schedules
             .Select(schedule => schedule.Id?.Trim() ?? string.Empty)
@@ -906,6 +903,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                 PlaylistName = schedule.PlaylistName?.Trim() ?? string.Empty,
                 Priority = schedule.Priority,
+                PlaybackPolicy = GetEffectivePlaybackPolicy(config, schedule),
+                PlaybackPolicyOverride = NormalizeSchedulePlaybackPolicy(schedule.PlaybackPolicy),
                 Effect = effect,
                 EffectSpeedPercent = isPlaylist || preset == null
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
@@ -1035,6 +1034,42 @@ public sealed class HueSceneAutomationService : BackgroundService
             duration,
             PluginConfiguration.MinPreviewDurationSeconds,
             PluginConfiguration.MaxPreviewDurationSeconds);
+    }
+
+    /// <summary>
+    /// Resolves the playback policy that applies to one cue. Blank and legacy values
+    /// inherit the global setting; malformed optional values safely fall back to the
+    /// global policy and are surfaced by configuration validation.
+    /// </summary>
+    internal static string GetEffectivePlaybackPolicy(
+        PluginConfiguration? config,
+        HueSceneSchedule? schedule)
+    {
+        var globalPolicy = PluginConfiguration.TryNormalizeSceneAutomationPlaybackPolicy(
+            config?.SceneAutomationPlaybackPolicy,
+            out var normalizedGlobal)
+            ? normalizedGlobal
+            : PluginConfiguration.SceneAutomationPlaybackPolicySkip;
+        var schedulePolicy = PluginConfiguration.TryNormalizeSceneAutomationSchedulePlaybackPolicy(
+            schedule?.PlaybackPolicy,
+            out var normalizedSchedule)
+            ? normalizedSchedule
+            : PluginConfiguration.SceneAutomationPlaybackPolicyInherit;
+        return string.Equals(
+            normalizedSchedule,
+            PluginConfiguration.SceneAutomationPlaybackPolicyInherit,
+            StringComparison.OrdinalIgnoreCase)
+            ? globalPolicy
+            : normalizedSchedule;
+    }
+
+    internal static string NormalizeSchedulePlaybackPolicy(string? value)
+    {
+        return PluginConfiguration.TryNormalizeSceneAutomationSchedulePlaybackPolicy(
+            value,
+            out var normalized)
+            ? normalized
+            : PluginConfiguration.SceneAutomationPlaybackPolicyInherit;
     }
 
     internal static int GetEffectiveTransitionSeconds(HueSceneSchedule schedule, HueColorPreset? preset)
@@ -2187,6 +2222,13 @@ public sealed class HueSceneAutomationService : BackgroundService
             return new HueSceneScheduleReadiness(false, "The cue duration override is invalid.");
         }
 
+        if (!PluginConfiguration.TryNormalizeSceneAutomationSchedulePlaybackPolicy(
+                schedule.PlaybackPolicy,
+                out _))
+        {
+            return new HueSceneScheduleReadiness(false, "The cue playback policy is invalid.");
+        }
+
         if (!PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.RunDate, out var normalizedRunDate))
             return new HueSceneScheduleReadiness(false, "The one-time run date is invalid.");
 
@@ -2703,18 +2745,15 @@ public sealed class HueSceneAutomationService : BackgroundService
             config.SceneAutomationDeferMinutes,
             PluginConfiguration.MinSceneAutomationDeferMinutes,
             PluginConfiguration.MaxSceneAutomationDeferMinutes);
-        var deferDuringPlayback = PluginConfiguration.TryNormalizeSceneAutomationPlaybackPolicy(
-            config.SceneAutomationPlaybackPolicy,
-            out var playbackPolicy) &&
-            string.Equals(
-                playbackPolicy,
-                PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
-                StringComparison.OrdinalIgnoreCase);
 
-        PruneDeferredRuns(schedules, deferDuringPlayback);
+        PruneDeferredRuns(schedules, config);
 
         foreach (var schedule in schedules)
         {
+            var deferDuringPlayback = string.Equals(
+                GetEffectivePlaybackPolicy(config, schedule),
+                PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+                StringComparison.OrdinalIgnoreCase);
             HueSceneDeferredRun? deferredRun = null;
             var deferredExpired = false;
             var hasDeferredRun = deferDuringPlayback && TryGetDeferredRun(
@@ -2841,10 +2880,14 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private void PruneDeferredRuns(
         IReadOnlyList<HueSceneSchedule> schedules,
-        bool deferDuringPlayback)
+        PluginConfiguration? config)
     {
         HashSet<string> configuredIds = schedules
-            .Where(schedule => schedule.Enabled)
+            .Where(schedule => schedule.Enabled &&
+                string.Equals(
+                    GetEffectivePlaybackPolicy(config, schedule),
+                    PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+                    StringComparison.OrdinalIgnoreCase))
             .Select(schedule => schedule.Id?.Trim() ?? string.Empty)
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -2852,7 +2895,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         lock (_deferredRunLock)
         {
             staleIds = _deferredRuns.Keys
-                .Where(id => !deferDuringPlayback || !configuredIds.Contains(id))
+                .Where(id => !configuredIds.Contains(id))
                 .ToArray();
         }
 
@@ -3816,7 +3859,11 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             config.PersistedSceneAutomationDeferredRuns ??= new List<HueSceneDeferredRunEntry>();
             var enabledScheduleIds = (config.SceneSchedules ?? new List<HueSceneSchedule>())
-                .Where(schedule => schedule != null && schedule.Enabled)
+                .Where(schedule => schedule != null && schedule.Enabled &&
+                    string.Equals(
+                        GetEffectivePlaybackPolicy(config, schedule),
+                        PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+                        StringComparison.OrdinalIgnoreCase))
                 .Select(schedule => schedule.Id?.Trim() ?? string.Empty)
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -4075,6 +4122,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PresetName = source.PresetName,
             PlaylistName = source.PlaylistName,
             Priority = source.Priority,
+            PlaybackPolicy = source.PlaybackPolicy,
             TargetUserId = source.TargetUserId,
             TargetAllEnabledMappings = source.TargetAllEnabledMappings,
             TimeOfDay = source.TimeOfDay,
@@ -4587,6 +4635,12 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("priority")]
     public int Priority { get; init; }
+
+    [JsonPropertyName("playbackPolicy")]
+    public string PlaybackPolicy { get; init; } = PluginConfiguration.SceneAutomationPlaybackPolicySkip;
+
+    [JsonPropertyName("playbackPolicyOverride")]
+    public string PlaybackPolicyOverride { get; init; } = PluginConfiguration.SceneAutomationPlaybackPolicyInherit;
 
     [JsonPropertyName("effect")]
     public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
