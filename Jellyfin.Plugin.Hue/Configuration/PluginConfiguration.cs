@@ -47,6 +47,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? AudioLowFrequencyHzOverride { get; set; }
         public int? AudioMidFrequencyHzOverride { get; set; }
         public int? AudioHighFrequencyHzOverride { get; set; }
+        public int? AudioBandSpreadPercentOverride { get; set; }
         public int? TargetFpsOverride { get; set; }
         public string? FrameResolutionOverride { get; set; }
         public string? VideoScalingModeOverride { get; set; }
@@ -413,6 +414,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int DefaultAudioLowFrequencyHz = 90;
         public const int DefaultAudioMidFrequencyHz = 420;
         public const int DefaultAudioHighFrequencyHz = 1600;
+        public const int MinAudioBandSpreadPercent = 0;
+        public const int MaxAudioBandSpreadPercent = 100;
+        public const int DefaultAudioBandSpreadPercent = 0;
         public const string ColorPresetEffectSolid = "Solid";
         public const string ColorPresetEffectPulse = "Pulse";
         public const string ColorPresetEffectRainbow = "Rainbow";
@@ -654,6 +658,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int AudioLowFrequencyHz { get; set; } = DefaultAudioLowFrequencyHz;
         public int AudioMidFrequencyHz { get; set; } = DefaultAudioMidFrequencyHz;
         public int AudioHighFrequencyHz { get; set; } = DefaultAudioHighFrequencyHz;
+        /// <summary>
+        /// Expands each audio center into a bounded frequency band. Zero preserves the
+        /// original single-center DFT behavior; higher values average nearby frequencies
+        /// so real-world content between configured centers remains reactive.
+        /// </summary>
+        public int AudioBandSpreadPercent { get; set; } = DefaultAudioBandSpreadPercent;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = FrameResolutionStandard;
         public string VideoScalingMode { get; set; } = VideoScalingModeStretch;
@@ -728,6 +738,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 mapping?.AudioSensitivityPercentOverride ?? AudioSensitivityPercent,
                 MinAudioSensitivityPercent,
                 MaxAudioSensitivityPercent);
+        }
+
+        /// <summary>
+        /// Gets the effective audio-band spread for a user. A missing override inherits the
+        /// global setting; invalid hand-edited values are clamped for runtime continuity.
+        /// </summary>
+        public int GetAudioBandSpreadPercentForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return Math.Clamp(
+                mapping?.AudioBandSpreadPercentOverride ?? AudioBandSpreadPercent,
+                MinAudioBandSpreadPercent,
+                MaxAudioBandSpreadPercent);
         }
 
         /// <summary>
@@ -1060,6 +1084,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             ValidateAudioFrequencyOverride(mapping.AudioLowFrequencyHzOverride, $"{label} audio low frequency override", errors);
             ValidateAudioFrequencyOverride(mapping.AudioMidFrequencyHzOverride, $"{label} audio mid frequency override", errors);
             ValidateAudioFrequencyOverride(mapping.AudioHighFrequencyHzOverride, $"{label} audio high frequency override", errors);
+            if (mapping.AudioBandSpreadPercentOverride.HasValue &&
+                (mapping.AudioBandSpreadPercentOverride.Value < MinAudioBandSpreadPercent ||
+                 mapping.AudioBandSpreadPercentOverride.Value > MaxAudioBandSpreadPercent))
+            {
+                errors.Add($"{label} audio band spread override must be between {MinAudioBandSpreadPercent} and {MaxAudioBandSpreadPercent} percent");
+            }
             if (mapping.AudioLowFrequencyHzOverride.HasValue &&
                 mapping.AudioMidFrequencyHzOverride.HasValue &&
                 mapping.AudioHighFrequencyHzOverride.HasValue &&
@@ -2011,6 +2041,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 {
                     errors.Add("Audio frequencies must be strictly ordered low < mid < high");
                 }
+
+                if (AudioBandSpreadPercent < MinAudioBandSpreadPercent || AudioBandSpreadPercent > MaxAudioBandSpreadPercent)
+                    errors.Add($"Audio band spread must be between {MinAudioBandSpreadPercent} and {MaxAudioBandSpreadPercent} percent");
 
                 if (!string.Equals(FrameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(FrameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&

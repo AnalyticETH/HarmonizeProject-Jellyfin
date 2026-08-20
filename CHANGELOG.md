@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.163] - 2026-08-19
+
+### Added
+- **Configurable audio-band spread**: average each low/mid/high center across a bounded 0-100% neighborhood so real-world frequencies between configured centers remain reactive while the default 0% preserves exact-center analysis
+- **Per-user spread profiles**: inherit or override the global spread setting with bounded validation and runtime clamping
+- **Live telemetry and portability**: expose the effective spread in runtime status and carry it through the configuration API, administrator UI, mapping summaries, backup/import documents, and regression coverage
+
 ## [1.5.162] - 2026-08-19
 
 ### Added

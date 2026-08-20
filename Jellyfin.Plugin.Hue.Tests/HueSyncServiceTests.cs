@@ -159,6 +159,54 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void AnalyzeAudioSamples_UsesConfiguredBandSpreadForBetweenCenterContent()
+    {
+        const int sampleRate = 8000;
+        const int sampleCount = 8000;
+        var pcm = new byte[sampleCount * 2 * 2];
+        for (var index = 0; index < sampleCount; index++)
+        {
+            var sample = (short)(Math.Sin(2 * Math.PI * 770 * index / sampleRate) * 16000);
+            var offset = index * 4;
+            pcm[offset] = (byte)(sample & 0xff);
+            pcm[offset + 1] = (byte)((sample >> 8) & 0xff);
+            pcm[offset + 2] = pcm[offset];
+            pcm[offset + 3] = pcm[offset + 1];
+        }
+
+        var narrowProfile = HueSyncService.AnalyzeAudioSamples(
+            pcm,
+            pcm.Length,
+            sampleRate,
+            channels: 2,
+            lowFrequencyHz: 70,
+            midFrequencyHz: 700,
+            highFrequencyHz: 1800,
+            audioBandSpreadPercent: 0);
+        var spreadProfile = HueSyncService.AnalyzeAudioSamples(
+            pcm,
+            pcm.Length,
+            sampleRate,
+            channels: 2,
+            lowFrequencyHz: 70,
+            midFrequencyHz: 700,
+            highFrequencyHz: 1800,
+            audioBandSpreadPercent: 10);
+
+        Assert.True(spreadProfile.Mid > 0.05);
+        Assert.True(spreadProfile.Mid > narrowProfile.Mid + 0.05);
+        Assert.Equal(spreadProfile, HueSyncService.AnalyzeAudioSamples(
+            pcm,
+            pcm.Length,
+            sampleRate,
+            channels: 2,
+            lowFrequencyHz: 70,
+            midFrequencyHz: 700,
+            highFrequencyHz: 1800,
+            audioBandSpreadPercent: 10));
+    }
+
+    [Fact]
     public void BuildAudioChannelColors_UsesAudioSensitivityWithoutChangingSpatialMapping()
     {
         var lights = new Dictionary<int, (double x, double z)> { [1] = (0, 0) };
@@ -401,6 +449,34 @@ public sealed class HueSyncServiceTests
                 PluginConfiguration.DefaultAudioMidFrequencyHz,
                 PluginConfiguration.DefaultAudioHighFrequencyHz),
             HueSyncService.ResolveAudioFrequencies(configuration, userId));
+    }
+
+    [Fact]
+    public void ResolveAudioBandSpreadPercent_UsesPerUserOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioBandSpreadPercent = 10,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString(), AudioBandSpreadPercentOverride = 35 }
+            }
+        };
+
+        Assert.Equal(35, HueSyncService.ResolveAudioBandSpreadPercent(configuration, userId));
+        Assert.Equal(10, HueSyncService.ResolveAudioBandSpreadPercent(configuration, System.Guid.NewGuid()));
+
+        configuration.UserMappings[0].AudioBandSpreadPercentOverride = 999;
+        Assert.Equal(
+            PluginConfiguration.MaxAudioBandSpreadPercent,
+            HueSyncService.ResolveAudioBandSpreadPercent(configuration, userId));
+
+        configuration.UserMappings.Clear();
+        configuration.AudioBandSpreadPercent = -1;
+        Assert.Equal(
+            PluginConfiguration.MinAudioBandSpreadPercent,
+            HueSyncService.ResolveAudioBandSpreadPercent(configuration, userId));
     }
 
     [Fact]
