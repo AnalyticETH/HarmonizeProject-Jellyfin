@@ -808,6 +808,12 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioBeatPulseThresholdPercent">Audio Beat Pulse Threshold (%)</label>
+                            <input id="audioBeatPulseThresholdPercent" name="audioBeatPulseThresholdPercent" type="number" min="0" max="100" is="emby-input" />
+                            <div class="fieldDescription">Requires this minimum normalized rise before a beat pulse attacks (0-100%, default: 0%). Zero reacts to every upward change; higher values suppress small fluctuations.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="audioColorPalette">Audio Visualizer Palette</label>
                             <select id="audioColorPalette" name="audioColorPalette" is="emby-select">
                                 <option value="Spectrum">Spectrum (drifting hues, default)</option>
@@ -1083,6 +1089,12 @@
                                     <label class="inputLabel inputLabelUnfocused" for="mappingAudioBeatPulseDecayPercentOverride">Audio Beat Pulse Release Override (%)</label>
                                     <input id="mappingAudioBeatPulseDecayPercentOverride" type="number" min="0" max="100" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user beat-pulse release (0-100%). Leave blank to inherit the global release setting.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioBeatPulseThresholdPercentOverride">Audio Beat Pulse Threshold Override (%)</label>
+                                    <input id="mappingAudioBeatPulseThresholdPercentOverride" type="number" min="0" max="100" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user onset threshold (0-100%). Leave blank to inherit the global beat-pulse threshold.</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -1583,6 +1595,7 @@
                         page.querySelector('#audioBandSpreadPercent').value = getConfigValue('AudioBandSpreadPercent', 0);
                         page.querySelector('#audioBeatPulsePercent').value = getConfigValue('AudioBeatPulsePercent', 0);
                         page.querySelector('#audioBeatPulseDecayPercent').value = getConfigValue('AudioBeatPulseDecayPercent', 0);
+                        page.querySelector('#audioBeatPulseThresholdPercent').value = getConfigValue('AudioBeatPulseThresholdPercent', 0);
                         page.querySelector('#audioColorPalette').value = getConfigValue('AudioColorPalette', 'Spectrum');
                         page.querySelector('#audioSpatialMode').value = getConfigValue('AudioSpatialMode', 'Spatial');
                         page.querySelector('#audioChannelMode').value = getConfigValue('AudioChannelMode', 'Mono');
@@ -1654,6 +1667,7 @@
                         AudioBandSpreadPercent: parseNumberOrDefault('#audioBandSpreadPercent', 0),
                         AudioBeatPulsePercent: parseNumberOrDefault('#audioBeatPulsePercent', 0),
                         AudioBeatPulseDecayPercent: parseNumberOrDefault('#audioBeatPulseDecayPercent', 0),
+                        AudioBeatPulseThresholdPercent: parseNumberOrDefault('#audioBeatPulseThresholdPercent', 0),
                         AudioColorPalette: page.querySelector('#audioColorPalette').value || 'Spectrum',
                         AudioSpatialMode: page.querySelector('#audioSpatialMode').value || 'Spatial',
                         AudioChannelMode: page.querySelector('#audioChannelMode').value || 'Mono',
@@ -6635,6 +6649,7 @@
                         var audioBandSpread = HueConfigurationPage.readStatusField(status, "ActiveAudioBandSpreadPercent", null);
                         var audioBeatPulse = HueConfigurationPage.readStatusField(status, "ActiveAudioBeatPulsePercent", null);
                         var audioBeatPulseDecay = HueConfigurationPage.readStatusField(status, "ActiveAudioBeatPulseDecayPercent", null);
+                        var audioBeatPulseThreshold = HueConfigurationPage.readStatusField(status, "ActiveAudioBeatPulseThresholdPercent", null);
                         var audioColorPalette = HueConfigurationPage.readStatusField(status, "ActiveAudioColorPalette", null);
                         var audioSpatialMode = HueConfigurationPage.readStatusField(status, "ActiveAudioSpatialMode", null);
                         var audioChannelMode = HueConfigurationPage.readStatusField(status, "ActiveAudioChannelMode", null);
@@ -6692,7 +6707,7 @@
                             : String(targetFps) + " FPS · " + (frameResolution || "—");
                         page.querySelector('#runtimeAudioProfile').textContent = audioSensitivity == null
                             ? "—"
-                            : String(audioSensitivity) + "% sensitivity · gate " + String(audioNoiseGate == null ? "—" : audioNoiseGate) + "% · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz · gain " + String(audioLowGain == null ? "—" : audioLowGain) + "/" + String(audioMidGain == null ? "—" : audioMidGain) + "/" + String(audioHighGain == null ? "—" : audioHighGain) + "% · response " + String(audioResponseSmoothing == null ? "—" : audioResponseSmoothing) + "% · spread " + String(audioBandSpread == null ? "—" : audioBandSpread) + "% · beat " + String(audioBeatPulse == null ? "—" : audioBeatPulse) + "% · release " + String(audioBeatPulseDecay == null ? "—" : audioBeatPulseDecay) + "% · palette " + String(audioColorPalette || "—") + " · routing " + String(audioSpatialMode || "—") + " · source " + String(audioChannelMode || "—");
+                            : String(audioSensitivity) + "% sensitivity · gate " + String(audioNoiseGate == null ? "—" : audioNoiseGate) + "% · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz · gain " + String(audioLowGain == null ? "—" : audioLowGain) + "/" + String(audioMidGain == null ? "—" : audioMidGain) + "/" + String(audioHighGain == null ? "—" : audioHighGain) + "% · response " + String(audioResponseSmoothing == null ? "—" : audioResponseSmoothing) + "% · spread " + String(audioBandSpread == null ? "—" : audioBandSpread) + "% · beat " + String(audioBeatPulse == null ? "—" : audioBeatPulse) + "% · release " + String(audioBeatPulseDecay == null ? "—" : audioBeatPulseDecay) + "% · threshold " + String(audioBeatPulseThreshold == null ? "—" : audioBeatPulseThreshold) + "% · palette " + String(audioColorPalette || "—") + " · routing " + String(audioSpatialMode || "—") + " · source " + String(audioChannelMode || "—");
                         page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
                             ? "—"
                             : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
@@ -7627,6 +7642,7 @@
                                 getMappingValue('AudioBandSpreadPercentOverride', 'audioBandSpreadPercentOverride'),
                                 getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride'),
                                 getMappingValue('AudioBeatPulseDecayPercentOverride', 'audioBeatPulseDecayPercentOverride'),
+                                getMappingValue('AudioBeatPulseThresholdPercentOverride', 'audioBeatPulseThresholdPercentOverride'),
                                 getMappingValue('AudioColorPaletteOverride', 'audioColorPaletteOverride'),
                                 getMappingValue('AudioSpatialModeOverride', 'audioSpatialModeOverride'),
                                 getMappingValue('AudioChannelModeOverride', 'audioChannelModeOverride')
@@ -7832,6 +7848,7 @@
                         '#mappingAudioBandSpreadPercentOverride',
                         '#mappingAudioBeatPulsePercentOverride',
                         '#mappingAudioBeatPulseDecayPercentOverride',
+                        '#mappingAudioBeatPulseThresholdPercentOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -8465,6 +8482,7 @@
                         AudioBandSpreadPercentOverride: readOptionalNumber('mappingAudioBandSpreadPercentOverride'),
                         AudioBeatPulsePercentOverride: readOptionalNumber('mappingAudioBeatPulsePercentOverride'),
                         AudioBeatPulseDecayPercentOverride: readOptionalNumber('mappingAudioBeatPulseDecayPercentOverride'),
+                        AudioBeatPulseThresholdPercentOverride: readOptionalNumber('mappingAudioBeatPulseThresholdPercentOverride'),
                         AudioColorPaletteOverride: readOptionalString('mappingAudioColorPaletteOverride'),
                         AudioSpatialModeOverride: readOptionalString('mappingAudioSpatialModeOverride'),
                         AudioChannelModeOverride: readOptionalString('mappingAudioChannelModeOverride'),
@@ -8557,6 +8575,7 @@
                         '#mappingAudioBandSpreadPercentOverride',
                         '#mappingAudioBeatPulsePercentOverride',
                         '#mappingAudioBeatPulseDecayPercentOverride',
+                        '#mappingAudioBeatPulseThresholdPercentOverride',
                         '#mappingAudioColorPaletteOverride',
                         '#mappingAudioSpatialModeOverride',
                         '#mappingAudioChannelModeOverride',
@@ -8651,6 +8670,7 @@
                         var audioBandSpreadPercentOverride = getMappingValue('AudioBandSpreadPercentOverride', 'audioBandSpreadPercentOverride');
                         var audioBeatPulsePercentOverride = getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride');
                         var audioBeatPulseDecayPercentOverride = getMappingValue('AudioBeatPulseDecayPercentOverride', 'audioBeatPulseDecayPercentOverride');
+                        var audioBeatPulseThresholdPercentOverride = getMappingValue('AudioBeatPulseThresholdPercentOverride', 'audioBeatPulseThresholdPercentOverride');
                         var audioColorPaletteOverride = getMappingValue('AudioColorPaletteOverride', 'audioColorPaletteOverride');
                         var audioSpatialModeOverride = getMappingValue('AudioSpatialModeOverride', 'audioSpatialModeOverride');
                         var audioChannelModeOverride = getMappingValue('AudioChannelModeOverride', 'audioChannelModeOverride');
@@ -8721,6 +8741,7 @@
                         page.querySelector('#mappingAudioBandSpreadPercentOverride').value = audioBandSpreadPercentOverride == null ? "" : audioBandSpreadPercentOverride;
                         page.querySelector('#mappingAudioBeatPulsePercentOverride').value = audioBeatPulsePercentOverride == null ? "" : audioBeatPulsePercentOverride;
                         page.querySelector('#mappingAudioBeatPulseDecayPercentOverride').value = audioBeatPulseDecayPercentOverride == null ? "" : audioBeatPulseDecayPercentOverride;
+                        page.querySelector('#mappingAudioBeatPulseThresholdPercentOverride').value = audioBeatPulseThresholdPercentOverride == null ? "" : audioBeatPulseThresholdPercentOverride;
                         page.querySelector('#mappingAudioColorPaletteOverride').value = audioColorPaletteOverride == null ? "" : audioColorPaletteOverride;
                         page.querySelector('#mappingAudioSpatialModeOverride').value = audioSpatialModeOverride == null ? "" : audioSpatialModeOverride;
                         page.querySelector('#mappingAudioChannelModeOverride').value = audioChannelModeOverride == null ? "" : audioChannelModeOverride;

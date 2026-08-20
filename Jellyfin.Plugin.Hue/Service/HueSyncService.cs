@@ -111,6 +111,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private int? _currentAudioBandSpreadPercent;
         private int? _currentAudioBeatPulsePercent;
         private int? _currentAudioBeatPulseDecayPercent;
+        private int? _currentAudioBeatPulseThresholdPercent;
         private string? _currentAudioColorPalette;
         private string? _currentAudioSpatialMode;
         private string? _currentAudioChannelMode;
@@ -421,6 +422,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioBandSpreadPercent = null;
                     _currentAudioBeatPulsePercent = null;
                     _currentAudioBeatPulseDecayPercent = null;
+                    _currentAudioBeatPulseThresholdPercent = null;
                     _currentAudioColorPalette = null;
                     _currentAudioSpatialMode = null;
                     _currentAudioChannelMode = null;
@@ -522,6 +524,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentAudioBandSpreadPercent = null;
                 _currentAudioBeatPulsePercent = null;
                 _currentAudioBeatPulseDecayPercent = null;
+                _currentAudioBeatPulseThresholdPercent = null;
                 _currentAudioColorPalette = null;
                 _currentAudioSpatialMode = null;
                 _currentAudioChannelMode = null;
@@ -566,6 +569,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int? currentAudioBandSpreadPercent;
             int? currentAudioBeatPulsePercent;
             int? currentAudioBeatPulseDecayPercent;
+            int? currentAudioBeatPulseThresholdPercent;
             string? currentAudioColorPalette;
             string? currentAudioSpatialMode;
             string? currentAudioChannelMode;
@@ -619,6 +623,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentAudioBandSpreadPercent = _currentAudioBandSpreadPercent;
                 currentAudioBeatPulsePercent = _currentAudioBeatPulsePercent;
                 currentAudioBeatPulseDecayPercent = _currentAudioBeatPulseDecayPercent;
+                currentAudioBeatPulseThresholdPercent = _currentAudioBeatPulseThresholdPercent;
                 currentAudioColorPalette = _currentAudioColorPalette;
                 currentAudioSpatialMode = _currentAudioSpatialMode;
                 currentAudioChannelMode = _currentAudioChannelMode;
@@ -682,6 +687,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveAudioBandSpreadPercent = isSyncing ? currentAudioBandSpreadPercent : null,
                 ActiveAudioBeatPulsePercent = isSyncing ? currentAudioBeatPulsePercent : null,
                 ActiveAudioBeatPulseDecayPercent = isSyncing ? currentAudioBeatPulseDecayPercent : null,
+                ActiveAudioBeatPulseThresholdPercent = isSyncing ? currentAudioBeatPulseThresholdPercent : null,
                 ActiveAudioColorPalette = isSyncing ? currentAudioColorPalette : null,
                 ActiveAudioSpatialMode = isSyncing ? currentAudioSpatialMode : null,
                 ActiveAudioChannelMode = isSyncing ? currentAudioChannelMode : null,
@@ -1711,6 +1717,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentAudioBandSpreadPercent = null;
             _currentAudioBeatPulsePercent = null;
             _currentAudioBeatPulseDecayPercent = null;
+            _currentAudioBeatPulseThresholdPercent = null;
             _currentAudioColorPalette = null;
             _currentAudioSpatialMode = null;
             _currentAudioChannelMode = null;
@@ -1966,6 +1973,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioBandSpreadPercent = null;
                     _currentAudioBeatPulsePercent = null;
                     _currentAudioBeatPulseDecayPercent = null;
+                    _currentAudioBeatPulseThresholdPercent = null;
                     _currentAudioColorPalette = null;
                     _currentAudioSpatialMode = null;
                     _currentAudioChannelMode = null;
@@ -2319,6 +2327,15 @@ namespace Jellyfin.Plugin.Hue.Service
                 config.GetAudioBeatPulseDecayPercentForUser(userId),
                 PluginConfiguration.MinAudioBeatPulseDecayPercent,
                 PluginConfiguration.MaxAudioBeatPulseDecayPercent);
+        }
+
+        internal static int ResolveAudioBeatPulseThresholdPercent(PluginConfiguration config, Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            return Math.Clamp(
+                config.GetAudioBeatPulseThresholdPercentForUser(userId),
+                PluginConfiguration.MinAudioBeatPulseThresholdPercent,
+                PluginConfiguration.MaxAudioBeatPulseThresholdPercent);
         }
 
         internal static string ResolveAudioColorPalette(PluginConfiguration config, Guid userId)
@@ -3288,14 +3305,17 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Converts a rising PCM envelope into a bounded transient pulse. The previous
         /// frame is required so steady loudness does not continually re-trigger the pulse;
-        /// the default response of zero preserves the original audio color envelope.
+        /// an optional onset threshold filters small rises before the attack is scaled.
+        /// The default response and threshold of zero preserve the original audio color
+        /// envelope and beat sensitivity.
         /// </summary>
         internal static double CalculateAudioBeatPulse(
             (double Rms, double Low, double Mid, double High)? previousEnergy,
             (double Rms, double Low, double Mid, double High) currentEnergy,
             int audioBeatPulsePercent = PluginConfiguration.DefaultAudioBeatPulsePercent,
             double previousPulse = 0,
-            int audioBeatPulseDecayPercent = PluginConfiguration.DefaultAudioBeatPulseDecayPercent)
+            int audioBeatPulseDecayPercent = PluginConfiguration.DefaultAudioBeatPulseDecayPercent,
+            int audioBeatPulseThresholdPercent = PluginConfiguration.DefaultAudioBeatPulseThresholdPercent)
         {
             var response = Math.Clamp(
                 audioBeatPulsePercent,
@@ -3308,6 +3328,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 audioBeatPulseDecayPercent,
                 PluginConfiguration.MinAudioBeatPulseDecayPercent,
                 PluginConfiguration.MaxAudioBeatPulseDecayPercent) / 100.0 * 0.95;
+            var onsetThreshold = Math.Clamp(
+                audioBeatPulseThresholdPercent,
+                PluginConfiguration.MinAudioBeatPulseThresholdPercent,
+                PluginConfiguration.MaxAudioBeatPulseThresholdPercent) / 100.0;
             var retainedPulse = Math.Clamp(previousPulse, 0, 1) * decayRetention;
 
             var previous = previousEnergy.Value;
@@ -3317,7 +3341,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 Math.Max(0, currentEnergy.Mid - previous.Mid) +
                 Math.Max(0, currentEnergy.High - previous.High)) / 3.0;
             var onset = Math.Max(risingRms, risingBands);
-            var attack = Math.Clamp(onset * 4.0 * response, 0, 1);
+            var attack = Math.Clamp(Math.Max(0, onset - onsetThreshold) * 4.0 * response, 0, 1);
             return Math.Max(attack, retainedPulse);
         }
 
@@ -3503,6 +3527,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int audioBandSpreadPercent,
             int audioBeatPulsePercent,
             int audioBeatPulseDecayPercent,
+            int audioBeatPulseThresholdPercent,
             string audioColorPalette,
             string audioSpatialMode,
             string audioChannelMode,
@@ -3593,7 +3618,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         energy,
                         audioBeatPulsePercent,
                         previousBeatPulse,
-                        audioBeatPulseDecayPercent);
+                        audioBeatPulseDecayPercent,
+                        audioBeatPulseThresholdPercent);
                     previousEnergy = energy;
                     previousBeatPulse = beatPulse;
                     var channelColors = BuildAudioChannelColors(
@@ -3790,6 +3816,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentAudioBandSpreadPercent = null;
                 _currentAudioBeatPulsePercent = null;
                 _currentAudioBeatPulseDecayPercent = null;
+                _currentAudioBeatPulseThresholdPercent = null;
                 _currentAudioColorPalette = null;
                 _currentAudioSpatialMode = null;
                 _currentAudioChannelMode = null;
@@ -4037,6 +4064,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var audioBandSpreadPercent = ResolveAudioBandSpreadPercent(config, userId);
             var audioBeatPulsePercent = ResolveAudioBeatPulsePercent(config, userId);
             var audioBeatPulseDecayPercent = ResolveAudioBeatPulseDecayPercent(config, userId);
+            var audioBeatPulseThresholdPercent = ResolveAudioBeatPulseThresholdPercent(config, userId);
             var audioColorPalette = ResolveAudioColorPalette(config, userId);
             var audioSpatialMode = ResolveAudioSpatialMode(config, userId);
             var audioChannelMode = ResolveAudioChannelMode(config, userId);
@@ -4148,6 +4176,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioBandSpreadPercent = isAudioPlayback ? audioBandSpreadPercent : null;
                     _currentAudioBeatPulsePercent = isAudioPlayback ? audioBeatPulsePercent : null;
                     _currentAudioBeatPulseDecayPercent = isAudioPlayback ? audioBeatPulseDecayPercent : null;
+                    _currentAudioBeatPulseThresholdPercent = isAudioPlayback ? audioBeatPulseThresholdPercent : null;
                     _currentAudioColorPalette = isAudioPlayback ? audioColorPalette : null;
                     _currentAudioSpatialMode = isAudioPlayback ? audioSpatialMode : null;
                     _currentAudioChannelMode = isAudioPlayback ? audioChannelMode : null;
@@ -4427,6 +4456,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         audioBandSpreadPercent,
                         audioBeatPulsePercent,
                         audioBeatPulseDecayPercent,
+                        audioBeatPulseThresholdPercent,
                         audioColorPalette,
                         audioSpatialMode,
                         audioChannelMode,
@@ -4803,6 +4833,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentAudioBandSpreadPercent = null;
             _currentAudioBeatPulsePercent = null;
             _currentAudioBeatPulseDecayPercent = null;
+            _currentAudioBeatPulseThresholdPercent = null;
             _currentAudioColorPalette = null;
             _currentAudioSpatialMode = null;
             _currentAudioChannelMode = null;
@@ -4966,6 +4997,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveAudioBandSpreadPercent { get; init; }
         public int? ActiveAudioBeatPulsePercent { get; init; }
         public int? ActiveAudioBeatPulseDecayPercent { get; init; }
+        public int? ActiveAudioBeatPulseThresholdPercent { get; init; }
         public string? ActiveAudioColorPalette { get; init; }
         public string? ActiveAudioSpatialMode { get; init; }
         public string? ActiveAudioChannelMode { get; init; }
