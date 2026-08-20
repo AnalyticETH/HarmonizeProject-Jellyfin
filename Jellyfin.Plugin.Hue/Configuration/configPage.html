@@ -784,6 +784,15 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioChannelMode">Audio Source Channels</label>
+                            <select id="audioChannelMode" name="audioChannelMode" is="emby-select">
+                                <option value="Mono">Mono mix (backward-compatible default)</option>
+                                <option value="Stereo">Stereo left/right source separation</option>
+                            </select>
+                            <div class="fieldDescription">Mono averages the captured PCM channels before analysis. Stereo preserves left/right energy and blends it across physical channel positions when Spatial routing is selected; Uniform and Mirror remain intentionally symmetric.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="frameResolution">Frame Sampling Resolution</label>
                             <select id="frameResolution" name="frameResolution" is="emby-select">
                                 <option value="80x45">Low (80×45, lowest CPU)</option>
@@ -1163,6 +1172,16 @@
                                     </select>
                                     <div class="fieldDescription">Optional per-user audio routing mode. Leave blank to inherit the global Audio Spatial Routing setting.</div>
                                 </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioChannelModeOverride">Audio Source Channels Override</label>
+                                    <select id="mappingAudioChannelModeOverride" is="emby-select">
+                                        <option value="">Inherit global source channels</option>
+                                        <option value="Mono">Mono mix</option>
+                                        <option value="Stereo">Stereo left/right separation</option>
+                                    </select>
+                                    <div class="fieldDescription">Optional per-user source-channel mode. Leave blank to inherit the global Audio Source Channels setting.</div>
+                                </div>
                             </fieldset>
 
                             <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
@@ -1474,6 +1493,7 @@
                         page.querySelector('#audioBeatPulsePercent').value = getConfigValue('AudioBeatPulsePercent', 0);
                         page.querySelector('#audioColorPalette').value = getConfigValue('AudioColorPalette', 'Spectrum');
                         page.querySelector('#audioSpatialMode').value = getConfigValue('AudioSpatialMode', 'Spatial');
+                        page.querySelector('#audioChannelMode').value = getConfigValue('AudioChannelMode', 'Mono');
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#frameResolution').value = getConfigValue('FrameResolution', '160x90');
                         page.querySelector('#videoScalingMode').value = getConfigValue('VideoScalingMode', 'Stretch');
@@ -1536,6 +1556,7 @@
                         AudioBeatPulsePercent: parseNumberOrDefault('#audioBeatPulsePercent', 0),
                         AudioColorPalette: page.querySelector('#audioColorPalette').value || 'Spectrum',
                         AudioSpatialMode: page.querySelector('#audioSpatialMode').value || 'Spatial',
+                        AudioChannelMode: page.querySelector('#audioChannelMode').value || 'Mono',
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         FrameResolution: page.querySelector('#frameResolution').value,
                         VideoScalingMode: page.querySelector('#videoScalingMode').value,
@@ -6508,6 +6529,7 @@
                         var audioBeatPulse = HueConfigurationPage.readStatusField(status, "ActiveAudioBeatPulsePercent", null);
                         var audioColorPalette = HueConfigurationPage.readStatusField(status, "ActiveAudioColorPalette", null);
                         var audioSpatialMode = HueConfigurationPage.readStatusField(status, "ActiveAudioSpatialMode", null);
+                        var audioChannelMode = HueConfigurationPage.readStatusField(status, "ActiveAudioChannelMode", null);
                         var samplingBreadth = HueConfigurationPage.readStatusField(status, "ActiveSamplingBreadthPercent", null);
                         var samplingMode = HueConfigurationPage.readStatusField(status, "ActiveSamplingMode", null);
                         var colorSmoothing = HueConfigurationPage.readStatusField(status, "ActiveColorSmoothingPercent", null);
@@ -6562,7 +6584,7 @@
                             : String(targetFps) + " FPS · " + (frameResolution || "—");
                         page.querySelector('#runtimeAudioProfile').textContent = audioSensitivity == null
                             ? "—"
-                            : String(audioSensitivity) + "% sensitivity · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz · spread " + String(audioBandSpread == null ? "—" : audioBandSpread) + "% · beat " + String(audioBeatPulse == null ? "—" : audioBeatPulse) + "% · palette " + String(audioColorPalette || "—") + " · routing " + String(audioSpatialMode || "—");
+                            : String(audioSensitivity) + "% sensitivity · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz · spread " + String(audioBandSpread == null ? "—" : audioBandSpread) + "% · beat " + String(audioBeatPulse == null ? "—" : audioBeatPulse) + "% · palette " + String(audioColorPalette || "—") + " · routing " + String(audioSpatialMode || "—") + " · source " + String(audioChannelMode || "—");
                         page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
                             ? "—"
                             : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
@@ -7492,7 +7514,8 @@
                                 getMappingValue('AudioBandSpreadPercentOverride', 'audioBandSpreadPercentOverride'),
                                 getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride'),
                                 getMappingValue('AudioColorPaletteOverride', 'audioColorPaletteOverride'),
-                                getMappingValue('AudioSpatialModeOverride', 'audioSpatialModeOverride')
+                                getMappingValue('AudioSpatialModeOverride', 'audioSpatialModeOverride'),
+                                getMappingValue('AudioChannelModeOverride', 'audioChannelModeOverride')
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
@@ -8322,6 +8345,7 @@
                         AudioBeatPulsePercentOverride: readOptionalNumber('mappingAudioBeatPulsePercentOverride'),
                         AudioColorPaletteOverride: readOptionalString('mappingAudioColorPaletteOverride'),
                         AudioSpatialModeOverride: readOptionalString('mappingAudioSpatialModeOverride'),
+                        AudioChannelModeOverride: readOptionalString('mappingAudioChannelModeOverride'),
                         BrightnessDimLevelOverride: readOptionalNumber('mappingBrightnessDimLevelOverride'),
                         PauseBehaviorOverride: readOptionalString('mappingPauseBehaviorOverride'),
                         RestoreLightStateOverride: readOptionalBoolean('mappingRestoreLightStateOverride'),
@@ -8407,6 +8431,7 @@
                         '#mappingAudioBeatPulsePercentOverride',
                         '#mappingAudioColorPaletteOverride',
                         '#mappingAudioSpatialModeOverride',
+                        '#mappingAudioChannelModeOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -8494,6 +8519,7 @@
                         var audioBeatPulsePercentOverride = getMappingValue('AudioBeatPulsePercentOverride', 'audioBeatPulsePercentOverride');
                         var audioColorPaletteOverride = getMappingValue('AudioColorPaletteOverride', 'audioColorPaletteOverride');
                         var audioSpatialModeOverride = getMappingValue('AudioSpatialModeOverride', 'audioSpatialModeOverride');
+                        var audioChannelModeOverride = getMappingValue('AudioChannelModeOverride', 'audioChannelModeOverride');
                         var brightnessDimLevelOverride = getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride');
                         var pauseBehaviorOverride = getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride');
                         var restoreLightStateOverride = getMappingValue('RestoreLightStateOverride', 'restoreLightStateOverride');
@@ -8557,6 +8583,7 @@
                         page.querySelector('#mappingAudioBeatPulsePercentOverride').value = audioBeatPulsePercentOverride == null ? "" : audioBeatPulsePercentOverride;
                         page.querySelector('#mappingAudioColorPaletteOverride').value = audioColorPaletteOverride == null ? "" : audioColorPaletteOverride;
                         page.querySelector('#mappingAudioSpatialModeOverride').value = audioSpatialModeOverride == null ? "" : audioSpatialModeOverride;
+                        page.querySelector('#mappingAudioChannelModeOverride').value = audioChannelModeOverride == null ? "" : audioChannelModeOverride;
                         page.querySelector('#mappingBrightnessDimLevelOverride').value = brightnessDimLevelOverride == null ? "" : brightnessDimLevelOverride;
                         page.querySelector('#mappingPauseBehaviorOverride').value = pauseBehaviorOverride == null ? "" : pauseBehaviorOverride;
                         page.querySelector('#mappingRestoreLightStateOverride').value = restoreLightStateOverride == null ? "" : String(restoreLightStateOverride).toLowerCase();

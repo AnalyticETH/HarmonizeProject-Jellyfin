@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.167] - 2026-08-20
+
+### Added
+- **Stereo audio source routing**: optionally preserve left/right PCM energy so Spatial audio playback blends the source channels across physical Hue positions, while Mono remains the backward-compatible default and Uniform/Mirror stay symmetric
+- **Per-user source-channel profiles**: inherit or override Mono/Stereo with validation, safe runtime fallback, active status telemetry, and credential-free backup/import support
+- **Portable and testable stereo analysis**: carry the source-channel mode through configuration save/load, mapping summaries, backup/export/import, administrator controls, and regression coverage
+
 ## [1.5.166] - 2026-08-19
 
 ### Added

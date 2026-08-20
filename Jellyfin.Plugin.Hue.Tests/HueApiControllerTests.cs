@@ -5821,6 +5821,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveAudioBeatPulsePercent);
         Assert.Null(status.ActiveAudioColorPalette);
         Assert.Null(status.ActiveAudioSpatialMode);
+        Assert.Null(status.ActiveAudioChannelMode);
         Assert.Null(status.ActiveFrameResolution);
         Assert.Null(status.ActiveVideoScalingMode);
         Assert.Null(status.ActiveVideoDeinterlaceMode);
@@ -7080,6 +7081,7 @@ public sealed class HueApiControllerTests : IDisposable
             AudioBeatPulsePercent = 42,
             AudioColorPalette = PluginConfiguration.AudioColorPaletteWarm,
             AudioSpatialMode = PluginConfiguration.AudioSpatialModeMirror,
+            AudioChannelMode = PluginConfiguration.AudioChannelModeStereo,
             FrameResolution = PluginConfiguration.FrameResolutionHigh,
             VideoScalingMode = PluginConfiguration.VideoScalingModeFit,
             VideoDeinterlaceMode = PluginConfiguration.VideoDeinterlaceModeAuto,
@@ -7125,6 +7127,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(42, settings.AudioBeatPulsePercent);
         Assert.Equal(PluginConfiguration.AudioColorPaletteWarm, settings.AudioColorPalette);
         Assert.Equal(PluginConfiguration.AudioSpatialModeMirror, settings.AudioSpatialMode);
+        Assert.Equal(PluginConfiguration.AudioChannelModeStereo, settings.AudioChannelMode);
         Assert.Equal(PluginConfiguration.FrameResolutionHigh, settings.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeFit, settings.VideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, settings.VideoDeinterlaceMode);
@@ -7185,6 +7188,7 @@ public sealed class HueApiControllerTests : IDisposable
                     AudioBeatPulsePercentOverride = 65,
                     AudioColorPaletteOverride = PluginConfiguration.AudioColorPaletteBand,
                     AudioSpatialModeOverride = PluginConfiguration.AudioSpatialModeUniform,
+                    AudioChannelModeOverride = PluginConfiguration.AudioChannelModeStereo,
                     BrightnessBoostOverride = 135
                 }
             },
@@ -7238,6 +7242,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(65, mapping.AudioBeatPulsePercentOverride);
         Assert.Equal(PluginConfiguration.AudioColorPaletteBand, mapping.AudioColorPaletteOverride);
         Assert.Equal(PluginConfiguration.AudioSpatialModeUniform, mapping.AudioSpatialModeOverride);
+        Assert.Equal(PluginConfiguration.AudioChannelModeStereo, mapping.AudioChannelModeOverride);
         Assert.Single(document.ColorPresets);
         Assert.Single(document.SceneSchedules);
         Assert.Equal("Morning cue", document.SceneSchedules[0].Name);
@@ -7878,6 +7883,7 @@ public sealed class HueApiControllerTests : IDisposable
                     AudioBeatPulsePercentOverride = 65,
                     AudioColorPaletteOverride = PluginConfiguration.AudioColorPaletteCool,
                     AudioSpatialModeOverride = PluginConfiguration.AudioSpatialModeMirror,
+                    AudioChannelModeOverride = PluginConfiguration.AudioChannelModeMono,
                     BrightnessBoostOverride = 150
                 })
                 .ToList(),
@@ -7924,6 +7930,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(65, mapping.AudioBeatPulsePercentOverride);
         Assert.Equal(PluginConfiguration.AudioColorPaletteCool, mapping.AudioColorPaletteOverride);
         Assert.Equal(PluginConfiguration.AudioSpatialModeMirror, mapping.AudioSpatialModeOverride);
+        Assert.Equal(PluginConfiguration.AudioChannelModeMono, mapping.AudioChannelModeOverride);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
         Assert.Equal(150, mapping.BrightnessBoostOverride);
         Assert.Equal("New Scene", Assert.Single(configuration.ColorPresets).Name);
@@ -8044,6 +8051,7 @@ public sealed class HueApiControllerTests : IDisposable
             AudioBeatPulsePercent = 42,
             AudioColorPalette = PluginConfiguration.AudioColorPaletteCool,
             AudioSpatialMode = PluginConfiguration.AudioSpatialModeUniform,
+            AudioChannelMode = PluginConfiguration.AudioChannelModeStereo,
             TargetFps = 30,
             FrameResolution = PluginConfiguration.FrameResolutionLow,
             VideoScalingMode = PluginConfiguration.VideoScalingModeCrop,
@@ -8075,6 +8083,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(42, configuration.AudioBeatPulsePercent);
         Assert.Equal(PluginConfiguration.AudioColorPaletteCool, configuration.AudioColorPalette);
         Assert.Equal(PluginConfiguration.AudioSpatialModeUniform, configuration.AudioSpatialMode);
+        Assert.Equal(PluginConfiguration.AudioChannelModeStereo, configuration.AudioChannelMode);
         Assert.Equal(30, configuration.TargetFps);
         Assert.Equal(PluginConfiguration.FrameResolutionLow, configuration.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeCrop, configuration.VideoScalingMode);
@@ -8319,6 +8328,7 @@ public sealed class HueApiControllerTests : IDisposable
             AudioBeatPulsePercentOverride = 65,
             AudioColorPaletteOverride = PluginConfiguration.AudioColorPaletteBand,
             AudioSpatialModeOverride = PluginConfiguration.AudioSpatialModeSpatial,
+            AudioChannelModeOverride = PluginConfiguration.AudioChannelModeStereo,
             BrightnessBoostOverride = 125,
             RedGainOverride = 115,
             GreenGainOverride = 95,
@@ -8361,6 +8371,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)65, mapping.AudioBeatPulsePercentOverride);
         Assert.Equal(PluginConfiguration.AudioColorPaletteBand, mapping.AudioColorPaletteOverride);
         Assert.Equal(PluginConfiguration.AudioSpatialModeSpatial, mapping.AudioSpatialModeOverride);
+        Assert.Equal(PluginConfiguration.AudioChannelModeStereo, mapping.AudioChannelModeOverride);
         Assert.Equal((int?)125, mapping.BrightnessBoostOverride);
         Assert.Equal((int?)115, mapping.RedGainOverride);
         Assert.Equal((int?)95, mapping.GreenGainOverride);

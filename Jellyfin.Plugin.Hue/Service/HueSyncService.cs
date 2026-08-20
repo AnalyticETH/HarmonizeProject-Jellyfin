@@ -109,6 +109,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private int? _currentAudioBeatPulsePercent;
         private string? _currentAudioColorPalette;
         private string? _currentAudioSpatialMode;
+        private string? _currentAudioChannelMode;
         private int? _currentSamplingBreadthPercent;
         private string? _currentSamplingMode;
         private int? _currentColorSmoothingPercent;
@@ -414,6 +415,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioBeatPulsePercent = null;
                     _currentAudioColorPalette = null;
                     _currentAudioSpatialMode = null;
+                    _currentAudioChannelMode = null;
                     _currentSamplingBreadthPercent = null;
                     _currentSamplingMode = null;
                     _currentColorSmoothingPercent = null;
@@ -510,6 +512,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentAudioBeatPulsePercent = null;
                 _currentAudioColorPalette = null;
                 _currentAudioSpatialMode = null;
+                _currentAudioChannelMode = null;
                 _currentSamplingBreadthPercent = null;
                 _currentSamplingMode = null;
                 _currentColorSmoothingPercent = null;
@@ -549,6 +552,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int? currentAudioBeatPulsePercent;
             string? currentAudioColorPalette;
             string? currentAudioSpatialMode;
+            string? currentAudioChannelMode;
             int? currentSamplingBreadthPercent;
             string? currentSamplingMode;
             int? currentColorSmoothingPercent;
@@ -597,6 +601,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentAudioBeatPulsePercent = _currentAudioBeatPulsePercent;
                 currentAudioColorPalette = _currentAudioColorPalette;
                 currentAudioSpatialMode = _currentAudioSpatialMode;
+                currentAudioChannelMode = _currentAudioChannelMode;
                 currentSamplingBreadthPercent = _currentSamplingBreadthPercent;
                 currentSamplingMode = _currentSamplingMode;
                 currentColorSmoothingPercent = _currentColorSmoothingPercent;
@@ -653,6 +658,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveAudioBeatPulsePercent = isSyncing ? currentAudioBeatPulsePercent : null,
                 ActiveAudioColorPalette = isSyncing ? currentAudioColorPalette : null,
                 ActiveAudioSpatialMode = isSyncing ? currentAudioSpatialMode : null,
+                ActiveAudioChannelMode = isSyncing ? currentAudioChannelMode : null,
                 ActiveSamplingBreadthPercent = isSyncing ? currentSamplingBreadthPercent : null,
                 ActiveSamplingMode = isSyncing ? currentSamplingMode : null,
                 ActiveColorSmoothingPercent = isSyncing ? currentColorSmoothingPercent : null,
@@ -1669,6 +1675,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentAudioBeatPulsePercent = null;
             _currentAudioColorPalette = null;
             _currentAudioSpatialMode = null;
+            _currentAudioChannelMode = null;
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
             _currentColorSmoothingPercent = null;
@@ -1919,6 +1926,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioBeatPulsePercent = null;
                     _currentAudioColorPalette = null;
                     _currentAudioSpatialMode = null;
+                    _currentAudioChannelMode = null;
                     _currentSamplingBreadthPercent = null;
                     _currentSamplingMode = null;
                     _currentColorSmoothingPercent = null;
@@ -2250,6 +2258,16 @@ namespace Jellyfin.Plugin.Hue.Service
                     out var normalized)
                 ? normalized
                 : PluginConfiguration.AudioSpatialModeSpatial;
+        }
+
+        internal static string ResolveAudioChannelMode(PluginConfiguration config, Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            return PluginConfiguration.TryNormalizeAudioChannelMode(
+                    config.GetAudioChannelModeForUser(userId),
+                    out var normalized)
+                ? normalized
+                : PluginConfiguration.AudioChannelModeMono;
         }
 
         internal static (
@@ -2909,11 +2927,41 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
-        /// Converts a raw PCM window into low, middle, and high-band energy. The small
-        /// direct DFT keeps the visualizer deterministic and avoids pulling a native DSP
-        /// package into the Jellyfin plugin.
+        /// Holds the mixed and source-channel energy calculated from one PCM window.
+        /// The legacy mixed values remain the default runtime path; the optional left and
+        /// right values allow stereo playback to preserve source panning without a native
+        /// DSP dependency.
         /// </summary>
-        internal static (double Rms, double Low, double Mid, double High) AnalyzeAudioSamples(
+        internal readonly record struct AudioChannelAnalysis(
+            double Rms,
+            double Low,
+            double Mid,
+            double High,
+            double LeftRms,
+            double LeftLow,
+            double LeftMid,
+            double LeftHigh,
+            double RightRms,
+            double RightLow,
+            double RightMid,
+            double RightHigh)
+        {
+            public (double Rms, double Low, double Mid, double High) MixedEnergy =>
+                (Rms, Low, Mid, High);
+
+            public (double Rms, double Low, double Mid, double High) LeftEnergy =>
+                (LeftRms, LeftLow, LeftMid, LeftHigh);
+
+            public (double Rms, double Low, double Mid, double High) RightEnergy =>
+                (RightRms, RightLow, RightMid, RightHigh);
+        }
+
+        /// <summary>
+        /// Converts a raw PCM window into mixed and source-channel low, middle, and
+        /// high-band energy. The small direct DFT keeps the visualizer deterministic and
+        /// avoids pulling a native DSP package into the Jellyfin plugin.
+        /// </summary>
+        internal static AudioChannelAnalysis AnalyzeAudioChannelSamples(
             byte[] buffer,
             int bytesRead,
             int sampleRate = AudioSampleRate,
@@ -2924,31 +2972,36 @@ namespace Jellyfin.Plugin.Hue.Service
             int audioBandSpreadPercent = PluginConfiguration.DefaultAudioBandSpreadPercent)
         {
             if (buffer == null || bytesRead < AudioBytesPerSample || sampleRate <= 0 || channels <= 0)
-                return (0, 0, 0, 0);
+                return new AudioChannelAnalysis();
 
-            var sampleCount = Math.Min(bytesRead, buffer.Length) / (AudioBytesPerSample * channels);
+            var frameBytes = AudioBytesPerSample * channels;
+            var sampleCount = Math.Min(bytesRead, buffer.Length) / frameBytes;
             if (sampleCount <= 0)
-                return (0, 0, 0, 0);
+                return new AudioChannelAnalysis();
 
+            var channelSamples = new double[channels][];
+            for (var channel = 0; channel < channels; channel++)
+                channelSamples[channel] = new double[sampleCount];
             var mono = new double[sampleCount];
             double sumSquares = 0;
             for (var index = 0; index < sampleCount; index++)
             {
-                var offset = index * AudioBytesPerSample * channels;
+                var offset = index * frameBytes;
                 var sum = 0.0;
                 for (var channel = 0; channel < channels; channel++)
                 {
                     var sampleOffset = offset + channel * AudioBytesPerSample;
                     var raw = (short)(buffer[sampleOffset] | (buffer[sampleOffset + 1] << 8));
-                    sum += raw / (double)short.MaxValue;
+                    var value = raw / (double)short.MaxValue;
+                    channelSamples[channel][index] = value;
+                    sum += value;
                 }
 
-                var value = Math.Clamp(sum / channels, -1.0, 1.0);
-                mono[index] = value;
-                sumSquares += value * value;
+                var mixed = Math.Clamp(sum / channels, -1.0, 1.0);
+                mono[index] = mixed;
+                sumSquares += mixed * mixed;
             }
 
-            var rms = Math.Sqrt(sumSquares / sampleCount);
             var maximumFrequency = Math.Max(2, sampleRate / 2 - 1);
             var normalizedLow = Math.Clamp(lowFrequencyHz, 1, maximumFrequency);
             var normalizedMid = Math.Clamp(midFrequencyHz, 1, maximumFrequency);
@@ -2960,10 +3013,46 @@ namespace Jellyfin.Plugin.Hue.Service
                 normalizedHigh = Math.Clamp(PluginConfiguration.DefaultAudioHighFrequencyHz, 1, maximumFrequency);
             }
 
-            var low = CalculateAudioBandEnergy(mono, sampleRate, normalizedLow, audioBandSpreadPercent);
-            var mid = CalculateAudioBandEnergy(mono, sampleRate, normalizedMid, audioBandSpreadPercent);
-            var high = CalculateAudioBandEnergy(mono, sampleRate, normalizedHigh, audioBandSpreadPercent);
-            return (rms, low, mid, high);
+            var left = channelSamples[0];
+            var right = channels > 1 ? channelSamples[1] : left;
+            return new AudioChannelAnalysis(
+                Math.Sqrt(sumSquares / sampleCount),
+                CalculateAudioBandEnergy(mono, sampleRate, normalizedLow, audioBandSpreadPercent),
+                CalculateAudioBandEnergy(mono, sampleRate, normalizedMid, audioBandSpreadPercent),
+                CalculateAudioBandEnergy(mono, sampleRate, normalizedHigh, audioBandSpreadPercent),
+                Math.Sqrt(left.Sum(sample => sample * sample) / sampleCount),
+                CalculateAudioBandEnergy(left, sampleRate, normalizedLow, audioBandSpreadPercent),
+                CalculateAudioBandEnergy(left, sampleRate, normalizedMid, audioBandSpreadPercent),
+                CalculateAudioBandEnergy(left, sampleRate, normalizedHigh, audioBandSpreadPercent),
+                Math.Sqrt(right.Sum(sample => sample * sample) / sampleCount),
+                CalculateAudioBandEnergy(right, sampleRate, normalizedLow, audioBandSpreadPercent),
+                CalculateAudioBandEnergy(right, sampleRate, normalizedMid, audioBandSpreadPercent),
+                CalculateAudioBandEnergy(right, sampleRate, normalizedHigh, audioBandSpreadPercent));
+        }
+
+        /// <summary>
+        /// Converts a raw PCM window into mixed low, middle, and high-band energy. This
+        /// compatibility wrapper preserves the original mono analyzer contract.
+        /// </summary>
+        internal static (double Rms, double Low, double Mid, double High) AnalyzeAudioSamples(
+            byte[] buffer,
+            int bytesRead,
+            int sampleRate = AudioSampleRate,
+            int channels = AudioChannels,
+            int lowFrequencyHz = PluginConfiguration.DefaultAudioLowFrequencyHz,
+            int midFrequencyHz = PluginConfiguration.DefaultAudioMidFrequencyHz,
+            int highFrequencyHz = PluginConfiguration.DefaultAudioHighFrequencyHz,
+            int audioBandSpreadPercent = PluginConfiguration.DefaultAudioBandSpreadPercent)
+        {
+            return AnalyzeAudioChannelSamples(
+                buffer,
+                bytesRead,
+                sampleRate,
+                channels,
+                lowFrequencyHz,
+                midFrequencyHz,
+                highFrequencyHz,
+                audioBandSpreadPercent).MixedEnergy;
         }
 
         private static double CalculateAudioBandEnergy(
@@ -3056,7 +3145,9 @@ namespace Jellyfin.Plugin.Hue.Service
             int audioSensitivityPercent = PluginConfiguration.DefaultAudioSensitivityPercent,
             double audioBeatPulse = 0,
             string? audioColorPalette = null,
-            string? audioSpatialMode = null)
+            string? audioSpatialMode = null,
+            string? audioChannelMode = null,
+            AudioChannelAnalysis? audioChannelAnalysis = null)
         {
             var colors = new Dictionary<int, byte[]>(lights.Count);
             var normalizedPalette = PluginConfiguration.TryNormalizeAudioColorPalette(
@@ -3069,18 +3160,11 @@ namespace Jellyfin.Plugin.Hue.Service
                     out var spatialMode)
                 ? spatialMode
                 : PluginConfiguration.AudioSpatialModeSpatial;
-            var loudness = Math.Clamp(
-                energy.Rms * 2.8 * Math.Clamp(
-                    audioSensitivityPercent,
-                    PluginConfiguration.MinAudioSensitivityPercent,
-                    PluginConfiguration.MaxAudioSensitivityPercent) / 100.0,
-                0,
-                1);
-            loudness = Math.Clamp(loudness + Math.Clamp(audioBeatPulse, 0, 1) * 0.55, 0, 1);
-            var totalBands = energy.Low + energy.Mid + energy.High;
-            var dominantHue = totalBands <= 0.0001
-                ? 0.58
-                : (energy.Low * 0.02 + energy.Mid * 0.34 + energy.High * 0.66) / totalBands;
+            var normalizedChannelMode = PluginConfiguration.TryNormalizeAudioChannelMode(
+                    audioChannelMode,
+                    out var channelMode)
+                ? channelMode
+                : PluginConfiguration.AudioChannelModeMono;
 
             foreach (var light in lights)
             {
@@ -3092,14 +3176,37 @@ namespace Jellyfin.Plugin.Hue.Service
                         ? Math.Abs(physicalX * 2 - 1)
                         : physicalX;
                 var z = normalizedSpatialMode == PluginConfiguration.AudioSpatialModeUniform ? 0.5 : physicalZ;
+                var lightEnergy = energy;
+                if (normalizedChannelMode == PluginConfiguration.AudioChannelModeStereo &&
+                    normalizedSpatialMode == PluginConfiguration.AudioSpatialModeSpatial &&
+                    audioChannelAnalysis.HasValue)
+                {
+                    lightEnergy = BlendAudioEnergy(
+                        audioChannelAnalysis.Value.LeftEnergy,
+                        audioChannelAnalysis.Value.RightEnergy,
+                        physicalX);
+                }
+
+                var loudness = Math.Clamp(
+                    lightEnergy.Rms * 2.8 * Math.Clamp(
+                        audioSensitivityPercent,
+                        PluginConfiguration.MinAudioSensitivityPercent,
+                        PluginConfiguration.MaxAudioSensitivityPercent) / 100.0,
+                    0,
+                    1);
+                loudness = Math.Clamp(loudness + Math.Clamp(audioBeatPulse, 0, 1) * 0.55, 0, 1);
+                var totalBands = lightEnergy.Low + lightEnergy.Mid + lightEnergy.High;
+                var dominantHue = totalBands <= 0.0001
+                    ? 0.58
+                    : (lightEnergy.Low * 0.02 + lightEnergy.Mid * 0.34 + lightEnergy.High * 0.66) / totalBands;
                 var spatialPulse = 0.58 + 0.42 * (0.5 + 0.5 * Math.Sin(frameIndex * 0.37 + x * Math.PI * 2 + z));
                 var value = Math.Clamp(0.025 + loudness * spatialPulse, 0, 1);
                 if (normalizedPalette == PluginConfiguration.AudioColorPaletteBand)
                 {
-                    var low = Math.Clamp(energy.Low * 2.8, 0, 1) * (0.65 + 0.35 * (1 - x));
-                    var mid = Math.Clamp(energy.Mid * 2.8, 0, 1) *
+                    var low = Math.Clamp(lightEnergy.Low * 2.8, 0, 1) * (0.65 + 0.35 * (1 - x));
+                    var mid = Math.Clamp(lightEnergy.Mid * 2.8, 0, 1) *
                         (0.55 + 0.45 * (1 - Math.Abs(x * 2 - 1)));
-                    var high = Math.Clamp(energy.High * 2.8, 0, 1) * (0.65 + 0.35 * x);
+                    var high = Math.Clamp(lightEnergy.High * 2.8, 0, 1) * (0.65 + 0.35 * x);
                     var bandPeak = Math.Max(low, Math.Max(mid, high));
                     if (bandPeak <= 0.0001)
                     {
@@ -3138,6 +3245,20 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             return colors;
+        }
+
+        private static (double Rms, double Low, double Mid, double High) BlendAudioEnergy(
+            (double Rms, double Low, double Mid, double High) left,
+            (double Rms, double Low, double Mid, double High) right,
+            double rightWeight)
+        {
+            var weight = Math.Clamp(rightWeight, 0, 1);
+            var leftWeight = 1 - weight;
+            return (
+                left.Rms * leftWeight + right.Rms * weight,
+                left.Low * leftWeight + right.Low * weight,
+                left.Mid * leftWeight + right.Mid * weight,
+                left.High * leftWeight + right.High * weight);
         }
 
         private static byte[] HsvToRgb(double hue, double saturation, double value)
@@ -3183,6 +3304,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int audioBeatPulsePercent,
             string audioColorPalette,
             string audioSpatialMode,
+            string audioChannelMode,
             int colorSmoothingPercent,
             (
                 int BrightnessBoost,
@@ -3239,7 +3361,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     }
 
                     _ffmpegStreamer?.MarkFrameRead();
-                    var energy = AnalyzeAudioSamples(
+                    var audioAnalysis = AnalyzeAudioChannelSamples(
                         buffer,
                         sampleRead.BytesRead,
                         AudioSampleRate,
@@ -3248,6 +3370,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         audioFrequencies.MidFrequencyHz,
                         audioFrequencies.HighFrequencyHz,
                         audioBandSpreadPercent);
+                    var energy = audioAnalysis.MixedEnergy;
                     var beatPulse = CalculateAudioBeatPulse(previousEnergy, energy, audioBeatPulsePercent);
                     previousEnergy = energy;
                     var channelColors = BuildAudioChannelColors(
@@ -3257,7 +3380,11 @@ namespace Jellyfin.Plugin.Hue.Service
                         audioSensitivityPercent,
                         beatPulse,
                         audioColorPalette,
-                        audioSpatialMode);
+                        audioSpatialMode,
+                        audioChannelMode,
+                        string.Equals(audioChannelMode, PluginConfiguration.AudioChannelModeStereo, StringComparison.Ordinal)
+                            ? audioAnalysis
+                            : null);
 
                     var isBlackout = colorProcessingSettings.BlackoutThreshold > 0 &&
                         channelColors.Count > 0 &&
@@ -3438,6 +3565,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentAudioBeatPulsePercent = null;
                 _currentAudioColorPalette = null;
                 _currentAudioSpatialMode = null;
+                _currentAudioChannelMode = null;
                 _currentSamplingBreadthPercent = null;
                 _currentSamplingMode = null;
                 _currentColorSmoothingPercent = null;
@@ -3680,6 +3808,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var audioBeatPulsePercent = ResolveAudioBeatPulsePercent(config, userId);
             var audioColorPalette = ResolveAudioColorPalette(config, userId);
             var audioSpatialMode = ResolveAudioSpatialMode(config, userId);
+            var audioChannelMode = ResolveAudioChannelMode(config, userId);
             var colorProcessingSettings = ResolveColorProcessingSettings(config, userId);
             var executionSettings = ResolveExecutionSettings(config, userId);
             var selectedChannelIds = ResolveChannelIds(config, userId);
@@ -3786,6 +3915,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioBeatPulsePercent = isAudioPlayback ? audioBeatPulsePercent : null;
                     _currentAudioColorPalette = isAudioPlayback ? audioColorPalette : null;
                     _currentAudioSpatialMode = isAudioPlayback ? audioSpatialMode : null;
+                    _currentAudioChannelMode = isAudioPlayback ? audioChannelMode : null;
                     _currentSamplingBreadthPercent = performanceSettings.SamplingBreadthPercent;
                     _currentSamplingMode = performanceSettings.SamplingMode;
                     _currentColorSmoothingPercent = performanceSettings.ColorSmoothingPercent;
@@ -4060,6 +4190,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         audioBeatPulsePercent,
                         audioColorPalette,
                         audioSpatialMode,
+                        audioChannelMode,
                         performanceSettings.ColorSmoothingPercent,
                         colorProcessingSettings));
                 }
@@ -4424,6 +4555,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentAudioBeatPulsePercent = null;
             _currentAudioColorPalette = null;
             _currentAudioSpatialMode = null;
+            _currentAudioChannelMode = null;
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
             _currentColorSmoothingPercent = null;
@@ -4580,6 +4712,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveAudioBeatPulsePercent { get; init; }
         public string? ActiveAudioColorPalette { get; init; }
         public string? ActiveAudioSpatialMode { get; init; }
+        public string? ActiveAudioChannelMode { get; init; }
         public int? ActiveSamplingBreadthPercent { get; init; }
         public string? ActiveSamplingMode { get; init; }
         public int? ActiveColorSmoothingPercent { get; init; }
