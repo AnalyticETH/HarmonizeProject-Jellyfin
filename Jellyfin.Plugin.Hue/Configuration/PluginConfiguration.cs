@@ -44,6 +44,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
         // Optional per-user playback-performance overrides. Null values inherit the global setting.
         public int? AudioSensitivityPercentOverride { get; set; }
+        public int? AudioNoiseGatePercentOverride { get; set; }
         public int? AudioLowFrequencyHzOverride { get; set; }
         public int? AudioMidFrequencyHzOverride { get; set; }
         public int? AudioHighFrequencyHzOverride { get; set; }
@@ -426,6 +427,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MinAudioSensitivityPercent = 25;
         public const int MaxAudioSensitivityPercent = 400;
         public const int DefaultAudioSensitivityPercent = 100;
+        public const int MinAudioNoiseGatePercent = 0;
+        public const int MaxAudioNoiseGatePercent = 100;
+        public const int DefaultAudioNoiseGatePercent = 0;
         public const int MinAudioFrequencyHz = 20;
         public const int MaxAudioFrequencyHz = 3900;
         public const int DefaultAudioLowFrequencyHz = 90;
@@ -836,6 +840,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int AudioSensitivityPercent { get; set; } = DefaultAudioSensitivityPercent;
         /// <summary>
+        /// Suppresses audio analysis windows whose mixed RMS level is below this
+        /// normalized full-scale threshold. Zero preserves the original behavior.
+        /// </summary>
+        public int AudioNoiseGatePercent { get; set; } = DefaultAudioNoiseGatePercent;
+        /// <summary>
         /// Center frequencies used by the dependency-free low/mid/high audio analyzer.
         /// The defaults preserve the original visualizer behavior; each value may be
         /// overridden per user while the effective profile remains strictly ordered.
@@ -951,6 +960,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 mapping?.AudioSensitivityPercentOverride ?? AudioSensitivityPercent,
                 MinAudioSensitivityPercent,
                 MaxAudioSensitivityPercent);
+        }
+
+        /// <summary>
+        /// Gets the effective audio noise gate for a user. A missing override inherits
+        /// the global setting; invalid hand-edited values are clamped for runtime safety.
+        /// </summary>
+        public int GetAudioNoiseGatePercentForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return Math.Clamp(
+                mapping?.AudioNoiseGatePercentOverride ?? AudioNoiseGatePercent,
+                MinAudioNoiseGatePercent,
+                MaxAudioNoiseGatePercent);
         }
 
         /// <summary>
@@ -1377,6 +1400,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.AudioSensitivityPercentOverride.Value > MaxAudioSensitivityPercent))
             {
                 errors.Add($"{label} audio sensitivity override must be between {MinAudioSensitivityPercent} and {MaxAudioSensitivityPercent} percent");
+            }
+
+            if (mapping.AudioNoiseGatePercentOverride.HasValue &&
+                (mapping.AudioNoiseGatePercentOverride.Value < MinAudioNoiseGatePercent ||
+                 mapping.AudioNoiseGatePercentOverride.Value > MaxAudioNoiseGatePercent))
+            {
+                errors.Add($"{label} audio noise gate override must be between {MinAudioNoiseGatePercent} and {MaxAudioNoiseGatePercent} percent");
             }
 
             ValidateAudioFrequencyOverride(mapping.AudioLowFrequencyHzOverride, $"{label} audio low frequency override", errors);
@@ -2402,6 +2432,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 if (AudioSensitivityPercent < MinAudioSensitivityPercent ||
                     AudioSensitivityPercent > MaxAudioSensitivityPercent)
                     errors.Add($"Audio sensitivity must be between {MinAudioSensitivityPercent} and {MaxAudioSensitivityPercent} percent");
+
+                if (AudioNoiseGatePercent < MinAudioNoiseGatePercent || AudioNoiseGatePercent > MaxAudioNoiseGatePercent)
+                    errors.Add($"Audio noise gate must be between {MinAudioNoiseGatePercent} and {MaxAudioNoiseGatePercent} percent");
 
                 if (AudioLowFrequencyHz < MinAudioFrequencyHz || AudioLowFrequencyHz > MaxAudioFrequencyHz ||
                     AudioMidFrequencyHz < MinAudioFrequencyHz || AudioMidFrequencyHz > MaxAudioFrequencyHz ||

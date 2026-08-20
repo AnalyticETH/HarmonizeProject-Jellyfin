@@ -6561,6 +6561,7 @@ public sealed class HueApiControllerTests : IDisposable
                     RestoreLightStateOverride = true,
                     PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterEpisodes,
                     AudioSensitivityPercentOverride = 275,
+                    AudioNoiseGatePercentOverride = 16,
                     AudioLowFrequencyHzOverride = 60,
                     AudioMidFrequencyHzOverride = 700,
                     AudioHighFrequencyHzOverride = 2400,
@@ -6606,6 +6607,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((bool?)true, mapping.RestoreLightStateOverride);
         Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, mapping.PlaybackMediaFilterOverride);
         Assert.Equal((int?)275, mapping.AudioSensitivityPercentOverride);
+        Assert.Equal((int?)16, mapping.AudioNoiseGatePercentOverride);
         Assert.Equal((int?)60, mapping.AudioLowFrequencyHzOverride);
         Assert.Equal((int?)700, mapping.AudioMidFrequencyHzOverride);
         Assert.Equal((int?)2400, mapping.AudioHighFrequencyHzOverride);
@@ -7076,6 +7078,7 @@ public sealed class HueApiControllerTests : IDisposable
             ChannelIds = "2, 9",
             PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterMovies,
             AudioSensitivityPercent = 180,
+            AudioNoiseGatePercent = 12,
             AudioLowFrequencyHz = 70,
             AudioMidFrequencyHz = 600,
             AudioHighFrequencyHz = 2200,
@@ -7125,6 +7128,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("2, 9", settings.ChannelIds);
         Assert.Equal(PluginConfiguration.PlaybackMediaFilterMovies, settings.PlaybackMediaFilter);
         Assert.Equal(180, settings.AudioSensitivityPercent);
+        Assert.Equal(12, settings.AudioNoiseGatePercent);
         Assert.Equal(70, settings.AudioLowFrequencyHz);
         Assert.Equal(600, settings.AudioMidFrequencyHz);
         Assert.Equal(2200, settings.AudioHighFrequencyHz);
@@ -7189,6 +7193,7 @@ public sealed class HueApiControllerTests : IDisposable
                     EntertainmentAreaId = "area-2",
                     PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterMovies,
                     AudioSensitivityPercentOverride = 245,
+                    AudioNoiseGatePercentOverride = 14,
                     AudioLowFrequencyHzOverride = 60,
                     AudioMidFrequencyHzOverride = 700,
                     AudioHighFrequencyHzOverride = 2400,
@@ -7244,6 +7249,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(135, mapping.BrightnessBoostOverride);
         Assert.Equal(PluginConfiguration.PlaybackMediaFilterMovies, mapping.PlaybackMediaFilterOverride);
         Assert.Equal(245, mapping.AudioSensitivityPercentOverride);
+        Assert.Equal(14, mapping.AudioNoiseGatePercentOverride);
         Assert.Equal(60, mapping.AudioLowFrequencyHzOverride);
         Assert.Equal(700, mapping.AudioMidFrequencyHzOverride);
         Assert.Equal(2400, mapping.AudioHighFrequencyHzOverride);

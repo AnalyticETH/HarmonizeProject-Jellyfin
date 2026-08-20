@@ -1385,6 +1385,24 @@ public class PluginConfigurationTests
     [Theory]
     [InlineData(-1)]
     [InlineData(101)]
+    public void Validate_WhenAudioNoiseGateOutOfRange_ReturnsError(int gate)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            AudioNoiseGatePercent = gate
+        };
+
+        Assert.Contains("Audio noise gate must be between 0 and 100 percent", config.Validate());
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
     public void Validate_WhenAudioBandSpreadOutOfRange_ReturnsError(int spread)
     {
         var config = new PluginConfiguration
@@ -1816,6 +1834,7 @@ public class PluginConfigurationTests
         Assert.Equal(30, config.BrightnessDimLevel);
         Assert.Equal(20, config.TargetFps);
         Assert.Equal(PluginConfiguration.DefaultAudioSensitivityPercent, config.AudioSensitivityPercent);
+        Assert.Equal(PluginConfiguration.DefaultAudioNoiseGatePercent, config.AudioNoiseGatePercent);
         Assert.Equal(PluginConfiguration.DefaultAudioLowFrequencyHz, config.AudioLowFrequencyHz);
         Assert.Equal(PluginConfiguration.DefaultAudioMidFrequencyHz, config.AudioMidFrequencyHz);
         Assert.Equal(PluginConfiguration.DefaultAudioHighFrequencyHz, config.AudioHighFrequencyHz);
@@ -2543,6 +2562,33 @@ public class PluginConfigurationTests
 
         Assert.Equal(325, config.GetAudioSensitivityPercentForUser(userId));
         Assert.Equal(175, config.GetAudioSensitivityPercentForUser(System.Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void GetAudioNoiseGatePercentForUser_UsesOverrideAndClampsInvalidValues()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            AudioNoiseGatePercent = 20,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    AudioNoiseGatePercentOverride = 60
+                }
+            }
+        };
+
+        Assert.Equal(60, config.GetAudioNoiseGatePercentForUser(userId));
+        Assert.Equal(20, config.GetAudioNoiseGatePercentForUser(System.Guid.NewGuid()));
+
+        config.UserMappings[0].AudioNoiseGatePercentOverride = 999;
+        Assert.Equal(PluginConfiguration.MaxAudioNoiseGatePercent, config.GetAudioNoiseGatePercentForUser(userId));
+
+        config.UserMappings[0].AudioNoiseGatePercentOverride = -1;
+        Assert.Equal(PluginConfiguration.MinAudioNoiseGatePercent, config.GetAudioNoiseGatePercentForUser(userId));
     }
 
     [Fact]

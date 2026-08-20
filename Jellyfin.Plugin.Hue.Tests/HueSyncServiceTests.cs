@@ -247,6 +247,29 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void ApplyAudioNoiseGate_SuppressesOnlySubThresholdWindows()
+    {
+        var analysis = new HueSyncService.AudioChannelAnalysis(
+            Rms: 0.25,
+            Low: 0.1,
+            Mid: 0.2,
+            High: 0.3,
+            LeftRms: 0.3,
+            LeftLow: 0.1,
+            LeftMid: 0.2,
+            LeftHigh: 0.3,
+            RightRms: 0.2,
+            RightLow: 0.1,
+            RightMid: 0.2,
+            RightHigh: 0.3);
+
+        Assert.Equal(analysis, HueSyncService.ApplyAudioNoiseGate(analysis, 0));
+        Assert.Equal(analysis, HueSyncService.ApplyAudioNoiseGate(analysis, 25));
+        Assert.Equal(new HueSyncService.AudioChannelAnalysis(), HueSyncService.ApplyAudioNoiseGate(analysis, 26));
+        Assert.Equal(new HueSyncService.AudioChannelAnalysis(), HueSyncService.ApplyAudioNoiseGate(analysis, 100));
+    }
+
+    [Fact]
     public void BuildAudioChannelColors_UsesStereoSourceOnlyForSpatialRouting()
     {
         const int sampleRate = 8000;
@@ -664,6 +687,34 @@ public sealed class HueSyncServiceTests
         configuration.AudioSensitivityPercent = 999;
         Assert.Equal(PluginConfiguration.MaxAudioSensitivityPercent,
             HueSyncService.ResolveAudioSensitivityPercent(configuration, System.Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void ResolveAudioNoiseGatePercent_UsesPerUserOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioNoiseGatePercent = 15,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString(), AudioNoiseGatePercentOverride = 45 }
+            }
+        };
+
+        Assert.Equal(45, HueSyncService.ResolveAudioNoiseGatePercent(configuration, userId));
+        Assert.Equal(15, HueSyncService.ResolveAudioNoiseGatePercent(configuration, System.Guid.NewGuid()));
+
+        configuration.UserMappings[0].AudioNoiseGatePercentOverride = 999;
+        Assert.Equal(
+            PluginConfiguration.MaxAudioNoiseGatePercent,
+            HueSyncService.ResolveAudioNoiseGatePercent(configuration, userId));
+
+        configuration.UserMappings.Clear();
+        configuration.AudioNoiseGatePercent = -1;
+        Assert.Equal(
+            PluginConfiguration.MinAudioNoiseGatePercent,
+            HueSyncService.ResolveAudioNoiseGatePercent(configuration, userId));
     }
 
     [Fact]
