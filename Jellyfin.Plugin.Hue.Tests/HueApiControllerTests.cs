@@ -7126,6 +7126,8 @@ public sealed class HueApiControllerTests : IDisposable
             SceneScheduleHistoryRetentionCount = 73,
             SceneAutomationEnabled = false,
             SceneAutomationCatchUpMinutes = 37,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 49,
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -7181,6 +7183,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(73, settings.SceneScheduleHistoryRetentionCount);
         Assert.Equal(false, settings.SceneAutomationEnabled);
         Assert.Equal(37, settings.SceneAutomationCatchUpMinutes);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, settings.SceneAutomationPlaybackPolicy);
+        Assert.Equal(49, settings.SceneAutomationDeferMinutes);
         var serialized = System.Text.Json.JsonSerializer.Serialize(settings);
         Assert.DoesNotContain("default-app-key", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("default-client-key", serialized, StringComparison.Ordinal);
@@ -8137,7 +8141,9 @@ public sealed class HueApiControllerTests : IDisposable
             SessionHistoryRetentionCount = 9,
             SceneScheduleHistoryRetentionCount = 64,
             SceneAutomationEnabled = false,
-            SceneAutomationCatchUpMinutes = 18
+            SceneAutomationCatchUpMinutes = 18,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 42
         });
 
         Assert.IsType<OkObjectResult>(action.Result);
@@ -8177,6 +8183,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(64, configuration.SceneScheduleHistoryRetentionCount);
         Assert.False(configuration.SceneAutomationEnabled);
         Assert.Equal(18, configuration.SceneAutomationCatchUpMinutes);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, configuration.SceneAutomationPlaybackPolicy);
+        Assert.Equal(42, configuration.SceneAutomationDeferMinutes);
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("mapping-client-secret", mapping.HueClientKey);
@@ -8310,6 +8318,27 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<BadRequestObjectResult>(action.Result);
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
         Assert.Equal(12, configuration.SceneAutomationCatchUpMinutes);
+    }
+
+    [Fact]
+    public void SaveConfiguration_InvalidPlaybackDeferSettingsReturnsBadRequestWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicySkip,
+            SceneAutomationDeferMinutes = 12
+        });
+
+        var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            SceneAutomationPlaybackPolicy = "Queue",
+            SceneAutomationDeferMinutes = PluginConfiguration.MaxSceneAutomationDeferMinutes + 1
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicySkip, configuration.SceneAutomationPlaybackPolicy);
+        Assert.Equal(12, configuration.SceneAutomationDeferMinutes);
     }
 
     [Fact]

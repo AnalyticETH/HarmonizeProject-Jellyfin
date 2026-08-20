@@ -1217,6 +1217,140 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_DeferPolicyQueuesCueUntilPlaybackEndsWithoutConsumingRun()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "defer-app-secret",
+            HueClientKey = "defer-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Deferred scene", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "deferred-cue",
+                    Name = "Deferred cue",
+                    PresetName = "Deferred scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using (var playbackLease = lifecycleGate.TryEnterPlayback("deferred-target"))
+        {
+            Assert.NotNull(playbackLease);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+            Assert.Empty(streamTester.Reds);
+            var pendingStatus = service.GetStatus();
+            Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, pendingStatus.PlaybackPolicy);
+            Assert.Equal(10, pendingStatus.DeferMinutes);
+            Assert.True(pendingStatus.PlaybackActive);
+            var pending = Assert.Single(pendingStatus.Schedules);
+            Assert.True(pending.DeferredPending);
+            Assert.Equal(0, pending.RunCount);
+            Assert.Contains("Waiting for active playback", pending.LastMessage, StringComparison.Ordinal);
+        }
+
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Equal(new[] { 10 }, streamTester.Reds);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        var status = Assert.Single(service.GetStatus().Schedules);
+        Assert.False(status.DeferredPending);
+        Assert.True(status.LastWasDeferred);
+        Assert.True(status.LastSucceeded);
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.WasDeferred);
+        Assert.True(history.Succeeded);
+        Assert.Single(service.GetHistory(outcome: "Deferred"));
+        Assert.Empty(service.GetHistory(outcome: "Failed"));
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_DeferredCueExpiresAsSkippedWhenPlaybackStaysActive()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 1,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "defer-expiry-app-secret",
+            HueClientKey = "defer-expiry-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Expiring scene", DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "expiring-cue",
+                    Name = "Expiring cue",
+                    PresetName = "Expiring scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using var playbackLease = lifecycleGate.TryEnterPlayback("expiry-target");
+        Assert.NotNull(playbackLease);
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(2), CancellationToken.None);
+
+        Assert.Empty(streamTester.Reds);
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.Skipped);
+        Assert.True(history.WasDeferred);
+        Assert.Contains("defer window", history.Message, StringComparison.OrdinalIgnoreCase);
+        var status = Assert.Single(service.GetStatus().Schedules);
+        Assert.False(status.DeferredPending);
+        Assert.True(status.LastSkipped);
+        Assert.Equal(0, status.RunCount);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_RecoversPendingSkipWithoutPlayingTheMissedCue()
     {
         var configuration = new PluginConfiguration

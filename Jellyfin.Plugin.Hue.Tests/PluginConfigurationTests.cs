@@ -593,6 +593,26 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void Validate_RejectsInvalidSceneAutomationPlaybackPolicyAndDeferWindow()
+    {
+        var invalid = new PluginConfiguration
+        {
+            SceneAutomationPlaybackPolicy = "Queue",
+            SceneAutomationDeferMinutes = PluginConfiguration.MaxSceneAutomationDeferMinutes + 1
+        };
+
+        var errors = invalid.Validate();
+
+        Assert.Contains("Scene automation playback policy must be Skip or Defer", errors);
+        Assert.Contains("Scene automation defer window must be between 1 and 120 minutes", errors);
+        Assert.True(PluginConfiguration.TryNormalizeSceneAutomationPlaybackPolicy(
+            " defer ",
+            out var normalized));
+        Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, normalized);
+        Assert.False(PluginConfiguration.TryNormalizeSceneAutomationPlaybackPolicy("Queue", out _));
+    }
+
+    [Fact]
     public void HistoryRetention_DefaultsToLegacyWindowsAndRejectsOutOfRangeValues()
     {
         var defaults = new PluginConfiguration();
