@@ -121,6 +121,44 @@ public sealed class HueSyncServiceTests
     }
 
     [Fact]
+    public void AnalyzeAudioSamples_UsesConfiguredFrequencyCenters()
+    {
+        const int sampleRate = 8000;
+        const int sampleCount = 8000;
+        var pcm = new byte[sampleCount * 2 * 2];
+        for (var index = 0; index < sampleCount; index++)
+        {
+            var sample = (short)(Math.Sin(2 * Math.PI * 700 * index / sampleRate) * 16000);
+            var offset = index * 4;
+            pcm[offset] = (byte)(sample & 0xff);
+            pcm[offset + 1] = (byte)((sample >> 8) & 0xff);
+            pcm[offset + 2] = pcm[offset];
+            pcm[offset + 3] = pcm[offset + 1];
+        }
+
+        var defaultProfile = HueSyncService.AnalyzeAudioSamples(pcm, pcm.Length);
+        var tunedProfile = HueSyncService.AnalyzeAudioSamples(
+            pcm,
+            pcm.Length,
+            sampleRate,
+            channels: 2,
+            lowFrequencyHz: 70,
+            midFrequencyHz: 700,
+            highFrequencyHz: 1800);
+
+        Assert.True(tunedProfile.Mid > 0.4);
+        Assert.True(tunedProfile.Mid > defaultProfile.Mid + 0.35);
+        Assert.Equal(tunedProfile, HueSyncService.AnalyzeAudioSamples(
+            pcm,
+            pcm.Length,
+            sampleRate,
+            channels: 2,
+            lowFrequencyHz: 70,
+            midFrequencyHz: 700,
+            highFrequencyHz: 1800));
+    }
+
+    [Fact]
     public void BuildAudioChannelColors_UsesAudioSensitivityWithoutChangingSpatialMapping()
     {
         var lights = new Dictionary<int, (double x, double z)> { [1] = (0, 0) };
@@ -322,6 +360,47 @@ public sealed class HueSyncServiceTests
         configuration.AudioSensitivityPercent = 999;
         Assert.Equal(PluginConfiguration.MaxAudioSensitivityPercent,
             HueSyncService.ResolveAudioSensitivityPercent(configuration, System.Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void ResolveAudioFrequencies_UsesPerUserOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            AudioLowFrequencyHz = 80,
+            AudioMidFrequencyHz = 500,
+            AudioHighFrequencyHz = 1800,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString(),
+                    AudioLowFrequencyHzOverride = 60,
+                    AudioMidFrequencyHzOverride = 700,
+                    AudioHighFrequencyHzOverride = 2400
+                }
+            }
+        };
+
+        Assert.Equal((60, 700, 2400), HueSyncService.ResolveAudioFrequencies(configuration, userId));
+        Assert.Equal((80, 500, 1800), HueSyncService.ResolveAudioFrequencies(configuration, System.Guid.NewGuid()));
+
+        configuration.UserMappings[0].AudioLowFrequencyHzOverride = 900;
+        configuration.UserMappings[0].AudioMidFrequencyHzOverride = 700;
+        Assert.Equal(
+            (PluginConfiguration.DefaultAudioLowFrequencyHz,
+                PluginConfiguration.DefaultAudioMidFrequencyHz,
+                PluginConfiguration.DefaultAudioHighFrequencyHz),
+            HueSyncService.ResolveAudioFrequencies(configuration, userId));
+
+        configuration.UserMappings.Clear();
+        configuration.AudioLowFrequencyHz = PluginConfiguration.MaxAudioFrequencyHz + 1;
+        Assert.Equal(
+            (PluginConfiguration.DefaultAudioLowFrequencyHz,
+                PluginConfiguration.DefaultAudioMidFrequencyHz,
+                PluginConfiguration.DefaultAudioHighFrequencyHz),
+            HueSyncService.ResolveAudioFrequencies(configuration, userId));
     }
 
     [Fact]

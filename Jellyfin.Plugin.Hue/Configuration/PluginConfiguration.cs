@@ -44,6 +44,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
         // Optional per-user playback-performance overrides. Null values inherit the global setting.
         public int? AudioSensitivityPercentOverride { get; set; }
+        public int? AudioLowFrequencyHzOverride { get; set; }
+        public int? AudioMidFrequencyHzOverride { get; set; }
+        public int? AudioHighFrequencyHzOverride { get; set; }
         public int? TargetFpsOverride { get; set; }
         public string? FrameResolutionOverride { get; set; }
         public string? VideoScalingModeOverride { get; set; }
@@ -405,6 +408,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MinAudioSensitivityPercent = 25;
         public const int MaxAudioSensitivityPercent = 400;
         public const int DefaultAudioSensitivityPercent = 100;
+        public const int MinAudioFrequencyHz = 20;
+        public const int MaxAudioFrequencyHz = 3900;
+        public const int DefaultAudioLowFrequencyHz = 90;
+        public const int DefaultAudioMidFrequencyHz = 420;
+        public const int DefaultAudioHighFrequencyHz = 1600;
         public const string ColorPresetEffectSolid = "Solid";
         public const string ColorPresetEffectPulse = "Pulse";
         public const string ColorPresetEffectRainbow = "Rainbow";
@@ -638,6 +646,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// brightness policy applied to video or audio colors.
         /// </summary>
         public int AudioSensitivityPercent { get; set; } = DefaultAudioSensitivityPercent;
+        /// <summary>
+        /// Center frequencies used by the dependency-free low/mid/high audio analyzer.
+        /// The defaults preserve the original visualizer behavior; each value may be
+        /// overridden per user while the effective profile remains strictly ordered.
+        /// </summary>
+        public int AudioLowFrequencyHz { get; set; } = DefaultAudioLowFrequencyHz;
+        public int AudioMidFrequencyHz { get; set; } = DefaultAudioMidFrequencyHz;
+        public int AudioHighFrequencyHz { get; set; } = DefaultAudioHighFrequencyHz;
         public int TargetFps { get; set; } = 20;
         public string FrameResolution { get; set; } = FrameResolutionStandard;
         public string VideoScalingMode { get; set; } = VideoScalingModeStretch;
@@ -712,6 +728,42 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 mapping?.AudioSensitivityPercentOverride ?? AudioSensitivityPercent,
                 MinAudioSensitivityPercent,
                 MaxAudioSensitivityPercent);
+        }
+
+        /// <summary>
+        /// Gets the effective low/mid/high audio analysis center frequencies for a user.
+        /// Missing overrides inherit the global profile; malformed persisted values fall
+        /// back to the safe default profile for runtime continuity.
+        /// </summary>
+        public (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz) GetAudioFrequenciesForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return NormalizeAudioFrequencyProfile(
+                mapping?.AudioLowFrequencyHzOverride ?? AudioLowFrequencyHz,
+                mapping?.AudioMidFrequencyHzOverride ?? AudioMidFrequencyHz,
+                mapping?.AudioHighFrequencyHzOverride ?? AudioHighFrequencyHz);
+        }
+
+        /// <summary>
+        /// Normalizes an audio frequency profile for runtime use. Configuration validation
+        /// reports invalid input, while this helper keeps a legacy or hand-edited file from
+        /// producing aliased or unordered spectral bands during playback.
+        /// </summary>
+        public static (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz) NormalizeAudioFrequencyProfile(
+            int lowFrequencyHz,
+            int midFrequencyHz,
+            int highFrequencyHz)
+        {
+            if (lowFrequencyHz < MinAudioFrequencyHz || lowFrequencyHz > MaxAudioFrequencyHz ||
+                midFrequencyHz < MinAudioFrequencyHz || midFrequencyHz > MaxAudioFrequencyHz ||
+                highFrequencyHz < MinAudioFrequencyHz || highFrequencyHz > MaxAudioFrequencyHz ||
+                lowFrequencyHz >= midFrequencyHz || midFrequencyHz >= highFrequencyHz)
+            {
+                return (DefaultAudioLowFrequencyHz, DefaultAudioMidFrequencyHz, DefaultAudioHighFrequencyHz);
+            }
+
+            return (lowFrequencyHz, midFrequencyHz, highFrequencyHz);
         }
 
         /// <summary>
@@ -1005,6 +1057,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.Add($"{label} audio sensitivity override must be between {MinAudioSensitivityPercent} and {MaxAudioSensitivityPercent} percent");
             }
 
+            ValidateAudioFrequencyOverride(mapping.AudioLowFrequencyHzOverride, $"{label} audio low frequency override", errors);
+            ValidateAudioFrequencyOverride(mapping.AudioMidFrequencyHzOverride, $"{label} audio mid frequency override", errors);
+            ValidateAudioFrequencyOverride(mapping.AudioHighFrequencyHzOverride, $"{label} audio high frequency override", errors);
+            if (mapping.AudioLowFrequencyHzOverride.HasValue &&
+                mapping.AudioMidFrequencyHzOverride.HasValue &&
+                mapping.AudioHighFrequencyHzOverride.HasValue &&
+                (mapping.AudioLowFrequencyHzOverride.Value >= mapping.AudioMidFrequencyHzOverride.Value ||
+                 mapping.AudioMidFrequencyHzOverride.Value >= mapping.AudioHighFrequencyHzOverride.Value))
+            {
+                errors.Add($"{label} audio frequency overrides must be strictly ordered low < mid < high");
+            }
+
             if (mapping.TargetFpsOverride.HasValue &&
                 (mapping.TargetFpsOverride.Value < MinTargetFps || mapping.TargetFpsOverride.Value > MaxTargetFps))
             {
@@ -1062,6 +1126,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             }
 
             return errors;
+        }
+
+        private static void ValidateAudioFrequencyOverride(int? value, string label, List<string> errors)
+        {
+            if (value.HasValue && (value.Value < MinAudioFrequencyHz || value.Value > MaxAudioFrequencyHz))
+                errors.Add($"{label} must be between {MinAudioFrequencyHz} and {MaxAudioFrequencyHz} Hz");
         }
 
         /// <summary>
@@ -1931,6 +2001,17 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     AudioSensitivityPercent > MaxAudioSensitivityPercent)
                     errors.Add($"Audio sensitivity must be between {MinAudioSensitivityPercent} and {MaxAudioSensitivityPercent} percent");
 
+                if (AudioLowFrequencyHz < MinAudioFrequencyHz || AudioLowFrequencyHz > MaxAudioFrequencyHz ||
+                    AudioMidFrequencyHz < MinAudioFrequencyHz || AudioMidFrequencyHz > MaxAudioFrequencyHz ||
+                    AudioHighFrequencyHz < MinAudioFrequencyHz || AudioHighFrequencyHz > MaxAudioFrequencyHz)
+                {
+                    errors.Add($"Audio frequencies must be between {MinAudioFrequencyHz} and {MaxAudioFrequencyHz} Hz");
+                }
+                else if (AudioLowFrequencyHz >= AudioMidFrequencyHz || AudioMidFrequencyHz >= AudioHighFrequencyHz)
+                {
+                    errors.Add("Audio frequencies must be strictly ordered low < mid < high");
+                }
+
                 if (!string.Equals(FrameResolution, FrameResolutionLow, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(FrameResolution, FrameResolutionStandard, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(FrameResolution, FrameResolutionHigh, StringComparison.OrdinalIgnoreCase))
@@ -2043,6 +2124,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.AddRange(ValidatePerformanceOverrides(mapping, label));
                 errors.AddRange(ValidateExecutionOverrides(mapping, label));
                 errors.AddRange(ValidateChannelOverrides(mapping, label));
+
+                var effectiveAudioFrequencies = NormalizeAudioFrequencyProfile(
+                    mapping.AudioLowFrequencyHzOverride ?? AudioLowFrequencyHz,
+                    mapping.AudioMidFrequencyHzOverride ?? AudioMidFrequencyHz,
+                    mapping.AudioHighFrequencyHzOverride ?? AudioHighFrequencyHz);
+                var requestedAudioFrequencies = (
+                    LowFrequencyHz: mapping.AudioLowFrequencyHzOverride ?? AudioLowFrequencyHz,
+                    MidFrequencyHz: mapping.AudioMidFrequencyHzOverride ?? AudioMidFrequencyHz,
+                    HighFrequencyHz: mapping.AudioHighFrequencyHzOverride ?? AudioHighFrequencyHz);
+                if (requestedAudioFrequencies != effectiveAudioFrequencies)
+                {
+                    errors.Add($"{label} effective audio frequencies must be strictly ordered low < mid < high and within {MinAudioFrequencyHz}-{MaxAudioFrequencyHz} Hz");
+                }
 
                 if (string.IsNullOrWhiteSpace(mapping.UserId))
                 {

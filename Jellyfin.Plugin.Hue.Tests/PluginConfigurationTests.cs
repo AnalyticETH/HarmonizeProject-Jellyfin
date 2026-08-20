@@ -1341,6 +1341,46 @@ public class PluginConfigurationTests
     }
 
     [Theory]
+    [InlineData(19, 420, 1600)]
+    [InlineData(90, 420, 3901)]
+    public void Validate_WhenAudioFrequencyOutOfRange_ReturnsError(int low, int mid, int high)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            AudioLowFrequencyHz = low,
+            AudioMidFrequencyHz = mid,
+            AudioHighFrequencyHz = high
+        };
+
+        Assert.Contains("Audio frequencies must be between 20 and 3900 Hz", config.Validate());
+    }
+
+    [Theory]
+    [InlineData(500, 400, 1600)]
+    [InlineData(90, 1600, 1500)]
+    public void Validate_WhenAudioFrequenciesAreNotOrdered_ReturnsError(int low, int mid, int high)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            AudioLowFrequencyHz = low,
+            AudioMidFrequencyHz = mid,
+            AudioHighFrequencyHz = high
+        };
+
+        Assert.Contains("Audio frequencies must be strictly ordered low < mid < high", config.Validate());
+    }
+
+    [Theory]
     [InlineData(-1)]
     [InlineData(101)]
     public void Validate_WhenBrightnessDimLevelOutOfRange_ReturnsError(int level)
@@ -1632,6 +1672,9 @@ public class PluginConfigurationTests
         Assert.Equal(30, config.BrightnessDimLevel);
         Assert.Equal(20, config.TargetFps);
         Assert.Equal(PluginConfiguration.DefaultAudioSensitivityPercent, config.AudioSensitivityPercent);
+        Assert.Equal(PluginConfiguration.DefaultAudioLowFrequencyHz, config.AudioLowFrequencyHz);
+        Assert.Equal(PluginConfiguration.DefaultAudioMidFrequencyHz, config.AudioMidFrequencyHz);
+        Assert.Equal(PluginConfiguration.DefaultAudioHighFrequencyHz, config.AudioHighFrequencyHz);
         Assert.Equal(PluginConfiguration.FrameResolutionStandard, config.FrameResolution);
         Assert.Equal(PluginConfiguration.VideoScalingModeStretch, config.VideoScalingMode);
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOff, config.VideoDeinterlaceMode);
@@ -2353,6 +2396,38 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetAudioFrequenciesForUser_UsesOverrideAndGlobalFallback()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            AudioLowFrequencyHz = 80,
+            AudioMidFrequencyHz = 500,
+            AudioHighFrequencyHz = 1800,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString().ToUpperInvariant(),
+                    AudioLowFrequencyHzOverride = 60,
+                    AudioMidFrequencyHzOverride = 700,
+                    AudioHighFrequencyHzOverride = 2400
+                }
+            }
+        };
+
+        Assert.Equal((60, 700, 2400), config.GetAudioFrequenciesForUser(userId));
+        Assert.Equal((80, 500, 1800), config.GetAudioFrequenciesForUser(System.Guid.NewGuid()));
+
+        config.UserMappings[0].AudioMidFrequencyHzOverride = 50;
+        Assert.Equal(
+            (PluginConfiguration.DefaultAudioLowFrequencyHz,
+                PluginConfiguration.DefaultAudioMidFrequencyHz,
+                PluginConfiguration.DefaultAudioHighFrequencyHz),
+            config.GetAudioFrequenciesForUser(userId));
+    }
+
+    [Fact]
     public void GetExecutionOverridesForUser_UsesMatchingMappingAndNormalizesOptionalValues()
     {
         var userId = System.Guid.NewGuid();
@@ -2577,6 +2652,9 @@ public class PluginConfigurationTests
                     UserId = "user-1",
                     TargetFpsOverride = 0,
                     AudioSensitivityPercentOverride = 401,
+                    AudioLowFrequencyHzOverride = 2000,
+                    AudioMidFrequencyHzOverride = 100,
+                    AudioHighFrequencyHzOverride = 4000,
                     FrameResolutionOverride = "640x360",
                     VideoScalingModeOverride = "InvalidScaling",
                     VideoDeinterlaceModeOverride = "InvalidDeinterlace",
@@ -2591,6 +2669,8 @@ public class PluginConfigurationTests
 
         Assert.Contains("User mapping 1 target FPS override must be between 1 and 60", errors);
         Assert.Contains("User mapping 1 audio sensitivity override must be between 25 and 400 percent", errors);
+        Assert.Contains("User mapping 1 audio high frequency override must be between 20 and 3900 Hz", errors);
+        Assert.Contains("User mapping 1 audio frequency overrides must be strictly ordered low < mid < high", errors);
         Assert.Contains("User mapping 1 frame resolution override must be 80x45, 160x90, or 320x180", errors);
         Assert.Contains("User mapping 1 video scaling override must be Stretch, Fit, or Crop", errors);
         Assert.Contains("User mapping 1 video deinterlace override must be Off, Auto, or On", errors);

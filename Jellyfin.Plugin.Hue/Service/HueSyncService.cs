@@ -104,6 +104,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _currentVideoDeinterlaceMode;
         private int? _currentTargetFps;
         private int? _currentAudioSensitivityPercent;
+        private (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz)? _currentAudioFrequencies;
         private int? _currentSamplingBreadthPercent;
         private string? _currentSamplingMode;
         private int? _currentColorSmoothingPercent;
@@ -404,6 +405,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentVideoDeinterlaceMode = null;
                     _currentTargetFps = null;
                     _currentAudioSensitivityPercent = null;
+                    _currentAudioFrequencies = null;
                     _currentSamplingBreadthPercent = null;
                     _currentSamplingMode = null;
                     _currentColorSmoothingPercent = null;
@@ -495,6 +497,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentVideoDeinterlaceMode = null;
                 _currentTargetFps = null;
                 _currentAudioSensitivityPercent = null;
+                _currentAudioFrequencies = null;
                 _currentSamplingBreadthPercent = null;
                 _currentSamplingMode = null;
                 _currentColorSmoothingPercent = null;
@@ -529,6 +532,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string? currentVideoDeinterlaceMode;
             int? currentTargetFps;
             int? currentAudioSensitivityPercent;
+            (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz)? currentAudioFrequencies;
             int? currentSamplingBreadthPercent;
             string? currentSamplingMode;
             int? currentColorSmoothingPercent;
@@ -572,6 +576,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentVideoDeinterlaceMode = _currentVideoDeinterlaceMode;
                 currentTargetFps = _currentTargetFps;
                 currentAudioSensitivityPercent = _currentAudioSensitivityPercent;
+                currentAudioFrequencies = _currentAudioFrequencies;
                 currentSamplingBreadthPercent = _currentSamplingBreadthPercent;
                 currentSamplingMode = _currentSamplingMode;
                 currentColorSmoothingPercent = _currentColorSmoothingPercent;
@@ -621,6 +626,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveVideoDeinterlaceMode = isSyncing ? currentVideoDeinterlaceMode : null,
                 ActiveTargetFps = isSyncing ? currentTargetFps : null,
                 ActiveAudioSensitivityPercent = isSyncing ? currentAudioSensitivityPercent : null,
+                ActiveAudioLowFrequencyHz = isSyncing ? currentAudioFrequencies?.LowFrequencyHz : null,
+                ActiveAudioMidFrequencyHz = isSyncing ? currentAudioFrequencies?.MidFrequencyHz : null,
+                ActiveAudioHighFrequencyHz = isSyncing ? currentAudioFrequencies?.HighFrequencyHz : null,
                 ActiveSamplingBreadthPercent = isSyncing ? currentSamplingBreadthPercent : null,
                 ActiveSamplingMode = isSyncing ? currentSamplingMode : null,
                 ActiveColorSmoothingPercent = isSyncing ? currentColorSmoothingPercent : null,
@@ -1632,6 +1640,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentVideoDeinterlaceMode = null;
             _currentTargetFps = null;
             _currentAudioSensitivityPercent = null;
+            _currentAudioFrequencies = null;
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
             _currentColorSmoothingPercent = null;
@@ -1877,6 +1886,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentVideoDeinterlaceMode = null;
                     _currentTargetFps = null;
                     _currentAudioSensitivityPercent = null;
+                    _currentAudioFrequencies = null;
                     _currentSamplingBreadthPercent = null;
                     _currentSamplingMode = null;
                     _currentColorSmoothingPercent = null;
@@ -2158,6 +2168,18 @@ namespace Jellyfin.Plugin.Hue.Service
                 config.GetAudioSensitivityPercentForUser(userId),
                 PluginConfiguration.MinAudioSensitivityPercent,
                 PluginConfiguration.MaxAudioSensitivityPercent);
+        }
+
+        internal static (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz) ResolveAudioFrequencies(
+            PluginConfiguration config,
+            Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            var frequencies = config.GetAudioFrequenciesForUser(userId);
+            return PluginConfiguration.NormalizeAudioFrequencyProfile(
+                frequencies.LowFrequencyHz,
+                frequencies.MidFrequencyHz,
+                frequencies.HighFrequencyHz);
         }
 
         internal static (
@@ -2825,7 +2847,10 @@ namespace Jellyfin.Plugin.Hue.Service
             byte[] buffer,
             int bytesRead,
             int sampleRate = AudioSampleRate,
-            int channels = AudioChannels)
+            int channels = AudioChannels,
+            int lowFrequencyHz = PluginConfiguration.DefaultAudioLowFrequencyHz,
+            int midFrequencyHz = PluginConfiguration.DefaultAudioMidFrequencyHz,
+            int highFrequencyHz = PluginConfiguration.DefaultAudioHighFrequencyHz)
         {
             if (buffer == null || bytesRead < AudioBytesPerSample || sampleRate <= 0 || channels <= 0)
                 return (0, 0, 0, 0);
@@ -2853,9 +2878,20 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             var rms = Math.Sqrt(sumSquares / sampleCount);
-            var low = CalculateAudioBandEnergy(mono, sampleRate, 90);
-            var mid = CalculateAudioBandEnergy(mono, sampleRate, 420);
-            var high = CalculateAudioBandEnergy(mono, sampleRate, 1600);
+            var maximumFrequency = Math.Max(2, sampleRate / 2 - 1);
+            var normalizedLow = Math.Clamp(lowFrequencyHz, 1, maximumFrequency);
+            var normalizedMid = Math.Clamp(midFrequencyHz, 1, maximumFrequency);
+            var normalizedHigh = Math.Clamp(highFrequencyHz, 1, maximumFrequency);
+            if (normalizedLow >= normalizedMid || normalizedMid >= normalizedHigh)
+            {
+                normalizedLow = Math.Clamp(PluginConfiguration.DefaultAudioLowFrequencyHz, 1, maximumFrequency);
+                normalizedMid = Math.Clamp(PluginConfiguration.DefaultAudioMidFrequencyHz, 1, maximumFrequency);
+                normalizedHigh = Math.Clamp(PluginConfiguration.DefaultAudioHighFrequencyHz, 1, maximumFrequency);
+            }
+
+            var low = CalculateAudioBandEnergy(mono, sampleRate, normalizedLow);
+            var mid = CalculateAudioBandEnergy(mono, sampleRate, normalizedMid);
+            var high = CalculateAudioBandEnergy(mono, sampleRate, normalizedHigh);
             return (rms, low, mid, high);
         }
 
@@ -2956,6 +2992,7 @@ namespace Jellyfin.Plugin.Hue.Service
             CancellationTokenSource expectedSyncCts,
             string playSessionId,
             int audioSensitivityPercent,
+            (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz) audioFrequencies,
             int colorSmoothingPercent,
             (
                 int BrightnessBoost,
@@ -3011,7 +3048,14 @@ namespace Jellyfin.Plugin.Hue.Service
                     }
 
                     _ffmpegStreamer?.MarkFrameRead();
-                    var energy = AnalyzeAudioSamples(buffer, sampleRead.BytesRead, AudioSampleRate, AudioChannels);
+                    var energy = AnalyzeAudioSamples(
+                        buffer,
+                        sampleRead.BytesRead,
+                        AudioSampleRate,
+                        AudioChannels,
+                        audioFrequencies.LowFrequencyHz,
+                        audioFrequencies.MidFrequencyHz,
+                        audioFrequencies.HighFrequencyHz);
                     var channelColors = BuildAudioChannelColors(
                         lights,
                         energy,
@@ -3192,6 +3236,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentVideoDeinterlaceMode = null;
                 _currentTargetFps = null;
                 _currentAudioSensitivityPercent = null;
+                _currentAudioFrequencies = null;
                 _currentSamplingBreadthPercent = null;
                 _currentSamplingMode = null;
                 _currentColorSmoothingPercent = null;
@@ -3429,6 +3474,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var pauseBehavior = ResolvePauseBehavior(config, userId);
             var performanceSettings = ResolvePerformanceSettings(config, userId);
             var audioSensitivityPercent = ResolveAudioSensitivityPercent(config, userId);
+            var audioFrequencies = ResolveAudioFrequencies(config, userId);
             var colorProcessingSettings = ResolveColorProcessingSettings(config, userId);
             var executionSettings = ResolveExecutionSettings(config, userId);
             var selectedChannelIds = ResolveChannelIds(config, userId);
@@ -3530,6 +3576,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentVideoDeinterlaceMode = isAudioPlayback ? null : videoDeinterlaceMode;
                     _currentTargetFps = targetFps;
                     _currentAudioSensitivityPercent = isAudioPlayback ? audioSensitivityPercent : null;
+                    _currentAudioFrequencies = isAudioPlayback ? audioFrequencies : null;
                     _currentSamplingBreadthPercent = performanceSettings.SamplingBreadthPercent;
                     _currentSamplingMode = performanceSettings.SamplingMode;
                     _currentColorSmoothingPercent = performanceSettings.ColorSmoothingPercent;
@@ -3799,6 +3846,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         syncCts,
                         e.PlaySessionId,
                         audioSensitivityPercent,
+                        audioFrequencies,
                         performanceSettings.ColorSmoothingPercent,
                         colorProcessingSettings));
                 }
@@ -4158,6 +4206,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentVideoDeinterlaceMode = null;
             _currentTargetFps = null;
             _currentAudioSensitivityPercent = null;
+            _currentAudioFrequencies = null;
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
             _currentColorSmoothingPercent = null;
@@ -4307,6 +4356,9 @@ namespace Jellyfin.Plugin.Hue.Service
         public string? ActiveVideoDeinterlaceMode { get; init; }
         public int? ActiveTargetFps { get; init; }
         public int? ActiveAudioSensitivityPercent { get; init; }
+        public int? ActiveAudioLowFrequencyHz { get; init; }
+        public int? ActiveAudioMidFrequencyHz { get; init; }
+        public int? ActiveAudioHighFrequencyHz { get; init; }
         public int? ActiveSamplingBreadthPercent { get; init; }
         public string? ActiveSamplingMode { get; init; }
         public int? ActiveColorSmoothingPercent { get; init; }

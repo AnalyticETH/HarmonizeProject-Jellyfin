@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.162] - 2026-08-19
+
+### Added
+- **Configurable audio band centers**: tune the low, mid, and high spectral-analysis frequencies from 20-3900 Hz while retaining the 90/420/1600 Hz defaults
+- **Per-user audio analysis profiles**: inherit or override band centers and expose the effective values in live status telemetry
+- **Portable validation**: carry frequency settings through the configuration API, mapping summaries, backup/import documents, and regression coverage
+
 ## [1.5.161] - 2026-08-19
 
 ### Added

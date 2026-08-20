@@ -732,6 +732,24 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioLowFrequencyHz">Audio Low Band Center (Hz)</label>
+                            <input id="audioLowFrequencyHz" name="audioLowFrequencyHz" type="number" min="20" max="3900" is="emby-input" />
+                            <div class="fieldDescription">Center frequency for the low/bass visualizer band (20-3900 Hz). It must remain below the mid and high centers; default: 90 Hz.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioMidFrequencyHz">Audio Mid Band Center (Hz)</label>
+                            <input id="audioMidFrequencyHz" name="audioMidFrequencyHz" type="number" min="20" max="3900" is="emby-input" />
+                            <div class="fieldDescription">Center frequency for the midrange visualizer band (20-3900 Hz). It must remain between the low and high centers; default: 420 Hz.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="audioHighFrequencyHz">Audio High Band Center (Hz)</label>
+                            <input id="audioHighFrequencyHz" name="audioHighFrequencyHz" type="number" min="20" max="3900" is="emby-input" />
+                            <div class="fieldDescription">Center frequency for the high/treble visualizer band (20-3900 Hz). It must remain above the low and mid centers; default: 1600 Hz.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="frameResolution">Frame Sampling Resolution</label>
                             <select id="frameResolution" name="frameResolution" is="emby-select">
                                 <option value="80x45">Low (80×45, lowest CPU)</option>
@@ -908,6 +926,24 @@
                                     <label class="inputLabel inputLabelUnfocused" for="mappingAudioSensitivityPercentOverride">Audio Visualizer Sensitivity Override (%)</label>
                                     <input id="mappingAudioSensitivityPercentOverride" type="number" min="25" max="400" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user audio visualizer sensitivity (25-400%). Leave blank to inherit the global setting.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioLowFrequencyHzOverride">Audio Low Band Center Override (Hz)</label>
+                                    <input id="mappingAudioLowFrequencyHzOverride" type="number" min="20" max="3900" is="emby-input" />
+                                    <div class="fieldDescription">Optional low/bass center (20-3900 Hz). Leave blank to inherit the global audio profile.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioMidFrequencyHzOverride">Audio Mid Band Center Override (Hz)</label>
+                                    <input id="mappingAudioMidFrequencyHzOverride" type="number" min="20" max="3900" is="emby-input" />
+                                    <div class="fieldDescription">Optional midrange center (20-3900 Hz). The effective low/mid/high centers must stay ordered.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingAudioHighFrequencyHzOverride">Audio High Band Center Override (Hz)</label>
+                                    <input id="mappingAudioHighFrequencyHzOverride" type="number" min="20" max="3900" is="emby-input" />
+                                    <div class="fieldDescription">Optional high/treble center (20-3900 Hz). Leave blank to inherit the global audio profile.</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -1361,6 +1397,9 @@
                         page.querySelector('#channelIds').value = getConfigValue('ChannelIds', '');
                         page.querySelector('#playbackMediaFilter').value = getConfigValue('PlaybackMediaFilter', 'AllVideo');
                         page.querySelector('#audioSensitivityPercent').value = getConfigValue('AudioSensitivityPercent', 100);
+                        page.querySelector('#audioLowFrequencyHz').value = getConfigValue('AudioLowFrequencyHz', 90);
+                        page.querySelector('#audioMidFrequencyHz').value = getConfigValue('AudioMidFrequencyHz', 420);
+                        page.querySelector('#audioHighFrequencyHz').value = getConfigValue('AudioHighFrequencyHz', 1600);
                         page.querySelector('#targetFps').value = getConfigValue('TargetFps', 20);
                         page.querySelector('#frameResolution').value = getConfigValue('FrameResolution', '160x90');
                         page.querySelector('#videoScalingMode').value = getConfigValue('VideoScalingMode', 'Stretch');
@@ -1416,6 +1455,9 @@
                         ChannelIds: page.querySelector('#channelIds').value,
                         PlaybackMediaFilter: page.querySelector('#playbackMediaFilter').value,
                         AudioSensitivityPercent: parseNumberOrDefault('#audioSensitivityPercent', 100),
+                        AudioLowFrequencyHz: parseNumberOrDefault('#audioLowFrequencyHz', 90),
+                        AudioMidFrequencyHz: parseNumberOrDefault('#audioMidFrequencyHz', 420),
+                        AudioHighFrequencyHz: parseNumberOrDefault('#audioHighFrequencyHz', 1600),
                         TargetFps: parseNumberOrDefault('#targetFps', 20),
                         FrameResolution: page.querySelector('#frameResolution').value,
                         VideoScalingMode: page.querySelector('#videoScalingMode').value,
@@ -6381,6 +6423,9 @@
                         var deinterlaceMode = HueConfigurationPage.readStatusField(status, "ActiveVideoDeinterlaceMode", "—");
                         var targetFps = HueConfigurationPage.readStatusField(status, "ActiveTargetFps", null);
                         var audioSensitivity = HueConfigurationPage.readStatusField(status, "ActiveAudioSensitivityPercent", null);
+                        var audioLowFrequency = HueConfigurationPage.readStatusField(status, "ActiveAudioLowFrequencyHz", null);
+                        var audioMidFrequency = HueConfigurationPage.readStatusField(status, "ActiveAudioMidFrequencyHz", null);
+                        var audioHighFrequency = HueConfigurationPage.readStatusField(status, "ActiveAudioHighFrequencyHz", null);
                         var samplingBreadth = HueConfigurationPage.readStatusField(status, "ActiveSamplingBreadthPercent", null);
                         var samplingMode = HueConfigurationPage.readStatusField(status, "ActiveSamplingMode", null);
                         var colorSmoothing = HueConfigurationPage.readStatusField(status, "ActiveColorSmoothingPercent", null);
@@ -6435,7 +6480,7 @@
                             : String(targetFps) + " FPS · " + (frameResolution || "—");
                         page.querySelector('#runtimeAudioProfile').textContent = audioSensitivity == null
                             ? "—"
-                            : String(audioSensitivity) + "% sensitivity";
+                            : String(audioSensitivity) + "% sensitivity · bands " + String(audioLowFrequency || "—") + "/" + String(audioMidFrequency || "—") + "/" + String(audioHighFrequency || "—") + " Hz";
                         page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
                             ? "—"
                             : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
@@ -7358,7 +7403,10 @@
                                 getMappingValue('VideoDeinterlaceModeOverride', 'videoDeinterlaceModeOverride'),
                                 getMappingValue('SamplingBreadthPercentOverride', 'samplingBreadthPercentOverride'),
                                 getMappingValue('SamplingModeOverride', 'samplingModeOverride'),
-                                getMappingValue('ColorSmoothingPercentOverride', 'colorSmoothingPercentOverride')
+                                getMappingValue('ColorSmoothingPercentOverride', 'colorSmoothingPercentOverride'),
+                                getMappingValue('AudioLowFrequencyHzOverride', 'audioLowFrequencyHzOverride'),
+                                getMappingValue('AudioMidFrequencyHzOverride', 'audioMidFrequencyHzOverride'),
+                                getMappingValue('AudioHighFrequencyHzOverride', 'audioHighFrequencyHzOverride')
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
                             });
@@ -7554,6 +7602,9 @@
                         '#mappingUseCinemaModeOverride',
                         '#mappingPlaybackMediaFilterOverride',
                         '#mappingAudioSensitivityPercentOverride',
+                        '#mappingAudioLowFrequencyHzOverride',
+                        '#mappingAudioMidFrequencyHzOverride',
+                        '#mappingAudioHighFrequencyHzOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -8176,6 +8227,9 @@
                         UseCinemaModeOverride: readOptionalBoolean('mappingUseCinemaModeOverride'),
                         PlaybackMediaFilterOverride: readOptionalString('mappingPlaybackMediaFilterOverride'),
                         AudioSensitivityPercentOverride: readOptionalNumber('mappingAudioSensitivityPercentOverride'),
+                        AudioLowFrequencyHzOverride: readOptionalNumber('mappingAudioLowFrequencyHzOverride'),
+                        AudioMidFrequencyHzOverride: readOptionalNumber('mappingAudioMidFrequencyHzOverride'),
+                        AudioHighFrequencyHzOverride: readOptionalNumber('mappingAudioHighFrequencyHzOverride'),
                         BrightnessDimLevelOverride: readOptionalNumber('mappingBrightnessDimLevelOverride'),
                         PauseBehaviorOverride: readOptionalString('mappingPauseBehaviorOverride'),
                         RestoreLightStateOverride: readOptionalBoolean('mappingRestoreLightStateOverride'),
@@ -8254,6 +8308,9 @@
                         '#mappingUseCinemaModeOverride',
                         '#mappingPlaybackMediaFilterOverride',
                         '#mappingAudioSensitivityPercentOverride',
+                        '#mappingAudioLowFrequencyHzOverride',
+                        '#mappingAudioMidFrequencyHzOverride',
+                        '#mappingAudioHighFrequencyHzOverride',
                         '#mappingBrightnessDimLevelOverride',
                         '#mappingPauseBehaviorOverride',
                         '#mappingRestoreLightStateOverride',
@@ -8334,6 +8391,9 @@
                         var useCinemaModeOverride = getMappingValue('UseCinemaModeOverride', 'useCinemaModeOverride');
                         var playbackMediaFilterOverride = getMappingValue('PlaybackMediaFilterOverride', 'playbackMediaFilterOverride');
                         var audioSensitivityPercentOverride = getMappingValue('AudioSensitivityPercentOverride', 'audioSensitivityPercentOverride');
+                        var audioLowFrequencyHzOverride = getMappingValue('AudioLowFrequencyHzOverride', 'audioLowFrequencyHzOverride');
+                        var audioMidFrequencyHzOverride = getMappingValue('AudioMidFrequencyHzOverride', 'audioMidFrequencyHzOverride');
+                        var audioHighFrequencyHzOverride = getMappingValue('AudioHighFrequencyHzOverride', 'audioHighFrequencyHzOverride');
                         var brightnessDimLevelOverride = getMappingValue('BrightnessDimLevelOverride', 'brightnessDimLevelOverride');
                         var pauseBehaviorOverride = getMappingValue('PauseBehaviorOverride', 'pauseBehaviorOverride');
                         var restoreLightStateOverride = getMappingValue('RestoreLightStateOverride', 'restoreLightStateOverride');
@@ -8390,6 +8450,9 @@
                         page.querySelector('#mappingUseCinemaModeOverride').value = useCinemaModeOverride == null ? "" : String(useCinemaModeOverride).toLowerCase();
                         page.querySelector('#mappingPlaybackMediaFilterOverride').value = playbackMediaFilterOverride == null ? "" : playbackMediaFilterOverride;
                         page.querySelector('#mappingAudioSensitivityPercentOverride').value = audioSensitivityPercentOverride == null ? "" : audioSensitivityPercentOverride;
+                        page.querySelector('#mappingAudioLowFrequencyHzOverride').value = audioLowFrequencyHzOverride == null ? "" : audioLowFrequencyHzOverride;
+                        page.querySelector('#mappingAudioMidFrequencyHzOverride').value = audioMidFrequencyHzOverride == null ? "" : audioMidFrequencyHzOverride;
+                        page.querySelector('#mappingAudioHighFrequencyHzOverride').value = audioHighFrequencyHzOverride == null ? "" : audioHighFrequencyHzOverride;
                         page.querySelector('#mappingBrightnessDimLevelOverride').value = brightnessDimLevelOverride == null ? "" : brightnessDimLevelOverride;
                         page.querySelector('#mappingPauseBehaviorOverride').value = pauseBehaviorOverride == null ? "" : pauseBehaviorOverride;
                         page.querySelector('#mappingRestoreLightStateOverride').value = restoreLightStateOverride == null ? "" : String(restoreLightStateOverride).toLowerCase();
