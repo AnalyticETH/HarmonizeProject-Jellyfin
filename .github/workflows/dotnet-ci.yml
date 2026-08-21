@@ -25,17 +25,17 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         fetch-depth: 0  # Shallow clones disabled for better analysis
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
     - name: Cache NuGet packages
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ~/.nuget/packages
         key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
@@ -55,7 +55,7 @@ jobs:
       run: node scripts/validate-config-page.mjs
 
     - name: Upload test results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       if: always()
       with:
         name: test-results
@@ -63,7 +63,7 @@ jobs:
         retention-days: 30
 
     - name: Upload code coverage artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       if: always()
       with:
         name: code-coverage
@@ -71,7 +71,7 @@ jobs:
         retention-days: 30
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f
       with:
         files: ./TestResults/**/coverage.cobertura.xml
         flags: unittests
@@ -85,7 +85,7 @@ jobs:
       run: dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj --configuration ${{ env.BUILD_CONFIGURATION }} --no-build --output ./publish
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: jellyfin-plugin-hue
         path: ./publish/
@@ -93,13 +93,18 @@ jobs:
 
     - name: Generate build summary
       if: always()
+      env:
+        BUILD_CONFIGURATION_VALUE: ${{ env.BUILD_CONFIGURATION }}
+        DOTNET_VERSION_VALUE: ${{ env.DOTNET_VERSION }}
+        COMMIT_SHA: ${{ github.sha }}
+        BRANCH_NAME: ${{ github.ref_name }}
       run: |
         echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "- **Configuration:** ${{ env.BUILD_CONFIGURATION }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **.NET Version:** ${{ env.DOTNET_VERSION }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Configuration:** $BUILD_CONFIGURATION_VALUE" >> $GITHUB_STEP_SUMMARY
+        echo "- **.NET Version:** $DOTNET_VERSION_VALUE" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** $COMMIT_SHA" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** $BRANCH_NAME" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         if [ -f "./TestResults/test-results.trx" ]; then
           echo "✅ Tests completed" >> $GITHUB_STEP_SUMMARY
@@ -114,10 +119,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -137,7 +142,7 @@ jobs:
         fi
 
     - name: Upload security scan results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       if: always()
       with:
         name: security-scan
@@ -152,10 +157,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -184,20 +189,23 @@ jobs:
         test "$(unzip -Z1 jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "Jellyfin.Plugin.Hue.dll meta.json "
 
     - name: Upload release package
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: release-package
         path: jellyfin-plugin-hue-release.zip
         retention-days: 90
 
     - name: Generate release notes
+      env:
+        COMMIT_SHA: ${{ github.sha }}
+        BRANCH_NAME: ${{ github.ref_name }}
       run: |
         echo "# Jellyfin Plugin Hue - Release Package" > release-notes.md
         echo "" >> release-notes.md
         echo "## Build Information" >> release-notes.md
-        echo "- **Commit:** ${{ github.sha }}" >> release-notes.md
+        echo "- **Commit:** $COMMIT_SHA" >> release-notes.md
         echo "- **Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> release-notes.md
-        echo "- **Branch:** ${{ github.ref_name }}" >> release-notes.md
+        echo "- **Branch:** $BRANCH_NAME" >> release-notes.md
         echo "" >> release-notes.md
         echo "## Installation" >> release-notes.md
         echo "1. Download the release package" >> release-notes.md
@@ -205,7 +213,7 @@ jobs:
         echo "3. Restart Jellyfin" >> release-notes.md
 
     - name: Upload release notes
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: release-notes
         path: release-notes.md
@@ -221,7 +229,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
     - name: Extract version from meta.json
       id: version
@@ -233,9 +241,11 @@ jobs:
 
     - name: Check whether release tag already exists
       id: release_tag
+      env:
+        RELEASE_TAG: ${{ steps.version.outputs.tag }}
       run: |
         set -euo pipefail
-        TAG="${{ steps.version.outputs.tag }}"
+        TAG="$RELEASE_TAG"
         if git ls-remote --exit-code --refs origin "refs/tags/${TAG}" >/dev/null 2>&1; then
           echo "exists=true" >> "$GITHUB_OUTPUT"
           echo "Release tag ${TAG} already exists; this push will not replace it."
@@ -246,20 +256,24 @@ jobs:
 
     - name: Record duplicate-release guard
       if: steps.release_tag.outputs.exists == 'true'
+      env:
+        RELEASE_TAG: ${{ steps.version.outputs.tag }}
       run: |
         echo "## Release guard" >> "$GITHUB_STEP_SUMMARY"
-        echo "Skipped GitHub Release creation because tag **${{ steps.version.outputs.tag }}** already exists." >> "$GITHUB_STEP_SUMMARY"
+        echo "Skipped GitHub Release creation because tag **$RELEASE_TAG** already exists." >> "$GITHUB_STEP_SUMMARY"
 
     - name: Download release package
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
       with:
         name: release-package
         path: ./
 
     - name: Extract changelog for current version
       id: changelog
+      env:
+        RELEASE_VERSION: ${{ steps.version.outputs.version }}
       run: |
-        VERSION="${{ steps.version.outputs.version }}"
+        VERSION="$RELEASE_VERSION"
         if [ -f CHANGELOG.md ]; then
           # Metadata uses four-part assembly versions while the changelog uses SemVer.
           CHANGELOG_VERSION="$VERSION"
@@ -279,7 +293,7 @@ jobs:
 
     - name: Create GitHub Release
       if: steps.release_tag.outputs.exists != 'true'
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
       with:
         tag_name: ${{ steps.version.outputs.tag }}
         name: Jellyfin Hue Sync v${{ steps.version.outputs.version }}

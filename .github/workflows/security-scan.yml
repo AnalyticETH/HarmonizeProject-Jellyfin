@@ -1,10 +1,9 @@
 name: Security Scan
 
-# Free OSS secret + code scanning (report-only variant for solo repos).
-# gitleaks (secrets) + semgrep (SAST). Findings appear in the job summary and
-# downloadable artifacts; neither job fails the build. Dependency scanning stays
-# with free Dependabot alerts. Flip gitleaks to blocking by changing exit-code
-# handling in the "Scan git history" step.
+# Blocking OSS secret + code scanning for every push and pull request.
+# gitleaks (secrets) + semgrep (SAST) publish redacted JSON artifacts and fail
+# the job on findings or scanner errors. Dependency scanning stays with the
+# free Dependabot alerts and the .NET vulnerability check in dotnet-ci.yml.
 
 on:
   push:
@@ -26,26 +25,37 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
       - name: Install gitleaks
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=$(curl -sSfL -H "Authorization: Bearer ${{ github.token }}" \
+          TAG=$(curl -sSfL -H "Authorization: Bearer $GH_TOKEN" \
             https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/${TAG}/gitleaks_${TAG#v}_linux_x64.tar.gz" \
             | tar -xz gitleaks
           sudo install gitleaks /usr/local/bin/
       - name: Scan git history
         run: |
-          gitleaks detect --source . --redact --exit-code 0 \
+          set -euo pipefail
+          set +e
+          gitleaks detect --source . --redact --exit-code 1 \
             --report-format json --report-path gitleaks.json
+          scan_status=$?
+          set -e
+          test -f gitleaks.json || {
+            echo "gitleaks did not produce a report" >&2
+            exit 1
+          }
           COUNT=$(jq 'length' gitleaks.json)
-          { echo "### Secret scan (gitleaks)"; echo "Leaks found: **$COUNT** (report-only)"; } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$COUNT" -gt 0 ]; then
-            echo "::warning::gitleaks found $COUNT potential secret(s); see the gitleaks-report artifact"
+          { echo "### Secret scan (gitleaks)"; echo "Leaks found: **$COUNT** (blocking)"; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$scan_status" -ne 0 ]; then
+            echo "gitleaks failed or found potential secrets; see the gitleaks-report artifact" >&2
+            exit "$scan_status"
           fi
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: gitleaks-report
@@ -56,7 +66,7 @@ jobs:
     name: Static analysis (semgrep)
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install semgrep
         run: |
           python3 -m venv "$RUNNER_TEMP/semgrep-venv"
@@ -65,10 +75,32 @@ jobs:
         env:
           SEMGREP_SEND_METRICS: 'off'
         run: |
-          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --config auto --metrics off --json --output semgrep.json . || true
-          COUNT=$(jq '.results | length' semgrep.json 2>/dev/null || echo 0)
-          { echo "### Static analysis (semgrep)"; echo "Findings: **$COUNT** (informational)"; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
+          set -euo pipefail
+          set +e
+          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
+            --config p/default --metrics off --timeout 30 --json --output semgrep.json .
+          scan_status=$?
+          set -e
+          test -f semgrep.json || {
+            echo "Semgrep did not produce a report" >&2
+            exit 1
+          }
+          COUNT=$(jq '.results | length' semgrep.json)
+          ERRORS=$(jq '.errors | length' semgrep.json)
+          {
+            echo "### Static analysis (semgrep)"
+            echo "Findings: **$COUNT** (blocking)"
+            echo "Scanner errors: **$ERRORS** (blocking)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$scan_status" -ne 0 ]; then
+            echo "Semgrep failed; see the semgrep-report artifact" >&2
+            exit "$scan_status"
+          fi
+          if [ "$COUNT" -gt 0 ] || [ "$ERRORS" -gt 0 ]; then
+            echo "Semgrep found security findings or scanner errors; see the semgrep-report artifact" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: semgrep-report
