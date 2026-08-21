@@ -407,7 +407,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.179 (Current)
+### Version 1.5.180 (Current)
+- **Blocking security checks**: Gitleaks and Semgrep now fail CI on detected secrets, static-analysis findings, missing reports, or scanner errors while retaining redacted JSON artifacts
+- **Reliable SAST configuration**: Semgrep uses the explicit `p/default` ruleset with metrics disabled, preventing the previous auto-configuration failure from being hidden
+- **Action supply-chain hardening**: all third-party workflow actions are pinned to immutable commit SHAs and every job uses the named self-hosted runner
+- **Dependency and action refresh**: update Microsoft.NET.Test.Sdk, coverlet.collector, setup-dotnet, and Codecov to current stable major versions
+
+### Version 1.5.179
 - **Pause-time dimming**: choose KeepLastColors, RestoreLightState, or DimToCinemaLevel so paused playback can dim captured lights to the effective cinema level without resetting their streamed colors
 - **Safe pause lifecycle**: capture the required light snapshot even when final restoration is disabled, apply brightness-only updates with retries, preserve resume ownership, and clear snapshots after playback cleanup
 - **Pause telemetry and coverage**: expose the effective pause policy and dim level in runtime status, add per-user override support, and cover brightness payloads, validation, and pause/resume lifecycle behavior

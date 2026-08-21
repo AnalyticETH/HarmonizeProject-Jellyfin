@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.180] - 2026-08-20
+
+### Security
+- **Blocking repository scans**: make Gitleaks secret scanning and Semgrep static analysis fail CI on findings or scanner errors, while preserving redacted JSON artifacts for review
+- **Reliable Semgrep configuration**: use the explicit `p/default` ruleset so disabling metrics cannot silently skip the scan
+- **Action supply-chain hardening**: pin every third-party GitHub Action to an immutable commit SHA and keep all jobs on the named self-hosted runner
+- **Security reporting**: add a private-vulnerability reporting policy covering plugin code, dependencies, and workflow changes
+- **Dependency hardening**: update the test SDK and coverage collector to current stable releases, and refresh setup-dotnet and Codecov actions to their current major versions
+
 ## [1.5.179] - 2026-08-20
 
 ### Added
