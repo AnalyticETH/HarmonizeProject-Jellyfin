@@ -450,15 +450,20 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Select(name => name?.Trim() ?? string.Empty)
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .ToArray();
-            var totalDuration = presetNames
-                .Select(name => config.ColorPresets?.FirstOrDefault(preset =>
-                    preset != null &&
-                    string.Equals(preset.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
-                .Where(preset => preset != null)
-                .Select(preset => Math.Clamp(
-                    preset!.DurationSeconds,
-                    PluginConfiguration.MinPreviewDurationSeconds,
-                    PluginConfiguration.MaxPreviewDurationSeconds))
+            var sourcePresetNames = playlist.PresetNames ?? new List<string>();
+            var totalDuration = sourcePresetNames
+                .Select((name, index) => new
+                {
+                    Index = index,
+                    Preset = config.ColorPresets?.FirstOrDefault(preset =>
+                        preset != null &&
+                        string.Equals(preset.Name?.Trim(), name?.Trim(), StringComparison.OrdinalIgnoreCase))
+                })
+                .Where(item => item.Preset != null)
+                .Select(item => PluginConfiguration.GetEffectiveScenePlaylistStepDurationSeconds(
+                    playlist,
+                    item.Index,
+                    item.Preset!))
                 .Sum() * Math.Clamp(
                     playlist.RepeatCount,
                     PluginConfiguration.MinScenePlaylistRepeatCount,
@@ -469,6 +474,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Id = playlist.Id?.Trim() ?? string.Empty,
                 Name = playlist.Name?.Trim() ?? string.Empty,
                 PresetNames = presetNames,
+                StepDurationSeconds = (playlist.StepDurationSeconds ?? new List<int>()).ToArray(),
                 RepeatCount = Math.Clamp(
                     playlist.RepeatCount,
                     PluginConfiguration.MinScenePlaylistRepeatCount,
@@ -514,6 +520,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Id = playlist.Id,
                 Name = playlist.Name,
                 PresetNames = (playlist.PresetNames ?? new List<string>()).ToList(),
+                StepDurationSeconds = (playlist.StepDurationSeconds ?? new List<int>()).ToList(),
                 RepeatCount = playlist.RepeatCount,
                 PlaybackOrder = playlist.PlaybackOrder,
                 TargetUserId = playlist.TargetUserId,
@@ -2426,9 +2433,9 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
-        /// Saves or updates an ordered saved-scene playlist. Only scene references, a
-        /// bounded repeat count, and target mode are persisted; credentials remain in the
-        /// server configuration.
+        /// Saves or updates an ordered saved-scene playlist. Only scene references, optional
+        /// bounded per-step duration overrides, repeat count, playback order, and target mode
+        /// are persisted; credentials remain in the server configuration.
         /// </summary>
         [HttpPost("ScenePlaylists")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -2452,6 +2459,11 @@ namespace Jellyfin.Plugin.Hue.Api
             var existingIndex = config.ScenePlaylists.FindIndex(existing =>
                 existing != null &&
                 string.Equals(existing.Id?.Trim(), playlist.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (existingIndex >= 0 && request.StepDurationSeconds == null)
+            {
+                playlist.StepDurationSeconds = config.ScenePlaylists[existingIndex]?.StepDurationSeconds?.ToList()
+                    ?? new List<int>();
+            }
             var previousPlaylistName = existingIndex >= 0
                 ? config.ScenePlaylists[existingIndex]?.Name?.Trim() ?? string.Empty
                 : string.Empty;
@@ -6634,6 +6646,11 @@ namespace Jellyfin.Plugin.Hue.Api
 
                 var existingPlaylist = existingPlaylists.FirstOrDefault(existing =>
                     string.Equals(existing.Id?.Trim(), playlist.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (playlistRequest?.StepDurationSeconds == null && existingPlaylist != null)
+                {
+                    playlist.StepDurationSeconds = existingPlaylist.StepDurationSeconds?.ToList()
+                        ?? new List<int>();
+                }
                 var existingPlaylistName = existingPlaylist?.Name?.Trim() ?? string.Empty;
                 var importedPlaylistName = playlist.Name?.Trim() ?? string.Empty;
                 if (!string.IsNullOrWhiteSpace(existingPlaylistName) &&
@@ -9176,7 +9193,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Credential-free saved-scene playlist metadata returned by administrator APIs,
-    /// including its bounded repeat count and selected target mode.
+    /// including its bounded per-step duration overrides, repeat count, and selected target mode.
     /// </summary>
     public sealed class HueScenePlaylistResult
     {
@@ -9188,6 +9205,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetNames")]
         public IReadOnlyList<string> PresetNames { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("stepDurationSeconds")]
+        public IReadOnlyList<int> StepDurationSeconds { get; set; } = Array.Empty<int>();
 
         [JsonPropertyName("repeatCount")]
         public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
@@ -9325,7 +9345,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Request shape for saving a credential-free scene playlist, its bounded repeat count,
-    /// playback order, and either a legacy target mode or a selected mapping subset.
+    /// playback order, optional per-step duration overrides, and either a legacy target
+    /// mode or a selected mapping subset.
     /// </summary>
     public sealed class HueScenePlaylistRequest
     {
@@ -9337,6 +9358,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("presetNames")]
         public List<string> PresetNames { get; set; } = new();
+
+        [JsonPropertyName("stepDurationSeconds")]
+        public List<int>? StepDurationSeconds { get; set; }
 
         [JsonPropertyName("repeatCount")]
         public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
@@ -9366,6 +9390,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetNames = (PresetNames ?? new List<string>())
                     .Select(name => name?.Trim() ?? string.Empty)
                     .ToList(),
+                StepDurationSeconds = (StepDurationSeconds ?? new List<int>()).ToList(),
                 RepeatCount = RepeatCount,
                 PlaybackOrder = normalizedPlaybackOrder,
                 TargetUserId = TargetAllEnabledMappings || IncludeDefaultTarget || (TargetUserIds?.Count ?? 0) > 0

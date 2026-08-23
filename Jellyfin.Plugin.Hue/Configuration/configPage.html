@@ -380,7 +380,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Saved Scene Playlists</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into a playlist. Each step uses the saved scene's effect, duration, brightness, and fade transitions; choose Saved order or a stable date-seeded Shuffle for each restorative preview pass. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, all enabled targets, or a deliberate subset of enabled mappings and optionally include the default bridge. Playlist definitions contain only scene names, repeat count, playback order, and credential-free target selection, never bridge credentials. Preview Targets can override one preview run without changing the saved playlist; Preview Playlist on All Targets remains an explicit broadcast override. Renaming a playlist automatically updates scheduled cues that use it; use View References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into a playlist. Each step uses the saved scene's effect, brightness, and fade transitions; its hold duration inherits the scene by default or can use a bounded per-step override from 1-30 seconds (0 means inherit). Choose Saved order or a stable date-seeded Shuffle for each restorative preview pass. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, all enabled targets, or a deliberate subset of enabled mappings and optionally include the default bridge. Playlist definitions contain only scene names, per-step duration overrides, repeat count, playback order, and credential-free target selection, never bridge credentials. Preview Targets can override one preview run without changing the saved playlist; Preview Playlist on All Targets remains an explicit broadcast override. Renaming a playlist automatically updates scheduled cues that use it; use View References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="scenePlaylistSelect">Saved Playlist</label>
@@ -459,12 +459,12 @@
                             <button is="emby-button" type="button" class="raised" id="saveScenePlaylistBtn"><span>Save / Update Playlist</span></button>
                         </div>
                         <div id="scenePlaylistItems" style="margin-top: 0.75em;"></div>
-                        <div id="scenePlaylistStatus" class="fieldDescription" style="margin-top: 0.5em;">Select saved scenes, choose Saved order or Stable daily shuffle, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge.</div>
+                        <div id="scenePlaylistStatus" class="fieldDescription" style="margin-top: 0.5em;">Select saved scenes, set optional per-step hold overrides (0 inherits each scene's duration), choose Saved order or Stable daily shuffle, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene or a saved-scene playlist automatically at a chosen wall-clock time and time zone. Playlist cues use the saved order or stable daily shuffle for each repeat pass and keep every scene's own duration and effect; their playback order, pass count, and total duration are shown in status, calendar, and history. The saved scene's effect and 25-400% animation speed are inherited by every single-scene cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) for the saved scene or playlist; a 1-30 second override is available only for single-scene cues. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Choose a playback policy per cue: <strong>Inherit global policy</strong> keeps the scheduler-wide setting, while Skip or Defer overrides it for this cue only. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, or multi-select a deliberate subset of enabled mappings and optionally the default bridge; each selected target is validated and reported without exposing credentials. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene or a saved-scene playlist automatically at a chosen wall-clock time and time zone. Playlist cues use the saved order or stable daily shuffle for each repeat pass and keep each scene's effect plus its optional per-step duration override (0 inherits the scene duration); their playback order, pass count, per-step durations, and total duration are shown in status, calendar, and history. The saved scene's effect and 25-400% animation speed are inherited by every single-scene cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) for the saved scene or playlist; a 1-30 second override is available only for single-scene cues because playlist steps have their own saved overrides. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Choose a playback policy per cue: <strong>Inherit global policy</strong> keeps the scheduler-wide setting, while Skip or Defer overrides it for this cue only. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, or multi-select a deliberate subset of enabled mappings and optionally the default bridge; each selected target is validated and reported without exposing credentials. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -3717,6 +3717,12 @@
                         return;
                     }
                     container.style.color = '';
+                    var durations = Array.isArray(page._hueScenePlaylistDurations)
+                        ? page._hueScenePlaylistDurations
+                        : [];
+                    while (durations.length < items.length) durations.push(0);
+                    if (durations.length > items.length) durations.length = items.length;
+                    page._hueScenePlaylistDurations = durations;
                     var list = document.createElement('ol');
                     list.style.margin = '0';
                     list.style.paddingLeft = '2em';
@@ -3727,6 +3733,28 @@
                         label.textContent = name;
                         label.style.marginRight = '0.75em';
                         row.appendChild(label);
+                        var durationLabel = document.createElement('label');
+                        durationLabel.textContent = 'Hold (s; 0 = scene):';
+                        durationLabel.style.marginRight = '0.35em';
+                        durationLabel.style.marginLeft = '0.35em';
+                        var durationInput = document.createElement('input');
+                        durationInput.type = 'number';
+                        durationInput.min = '0';
+                        durationInput.max = '30';
+                        durationInput.step = '1';
+                        durationInput.value = String(Number.isInteger(durations[index]) ? durations[index] : 0);
+                        durationInput.style.width = '5em';
+                        durationInput.setAttribute('aria-label', 'Hold duration for ' + name + ' in seconds; zero inherits the saved scene duration');
+                        durationInput.addEventListener('change', function () {
+                            var value = Number(durationInput.value);
+                            if (!Number.isInteger(value) || value < 0 || value > 30) {
+                                value = 0;
+                                durationInput.value = '0';
+                            }
+                            page._hueScenePlaylistDurations[index] = value;
+                        });
+                        row.appendChild(durationLabel);
+                        row.appendChild(durationInput);
                         var up = document.createElement('button');
                         up.type = 'button';
                         up.className = 'raised';
@@ -3749,6 +3777,7 @@
                         remove.textContent = 'Remove';
                         remove.addEventListener('click', function () {
                             page._hueScenePlaylistItems.splice(index, 1);
+                            page._hueScenePlaylistDurations.splice(index, 1);
                             HueConfigurationPage.renderScenePlaylistItems(page);
                             HueConfigurationPage.updateScenePlaylistButtons(page);
                         });
@@ -3923,8 +3952,15 @@
                     var targetUserIds = playlist.targetUserIds !== undefined ? playlist.targetUserIds : (playlist.TargetUserIds || []);
                     var includeDefaultTarget = playlist.includeDefaultTarget !== undefined ? playlist.includeDefaultTarget : playlist.IncludeDefaultTarget;
                     targetUserIds = Array.isArray(targetUserIds) ? targetUserIds : [];
+                    var stepDurations = playlist.stepDurationSeconds !== undefined ? playlist.stepDurationSeconds : (playlist.StepDurationSeconds || []);
+                    stepDurations = Array.isArray(stepDurations) ? stepDurations : [];
+                    stepDurations = presetNames.map(function (_, index) {
+                        var value = Number(stepDurations[index]);
+                        return Number.isInteger(value) && value >= 0 && value <= 30 ? value : 0;
+                    });
                     page._hueScenePlaylistId = id || '';
                     page._hueScenePlaylistItems = presetNames.slice();
+                    page._hueScenePlaylistDurations = stepDurations;
                     page.querySelector('#scenePlaylistName').value = playlistName || '';
                     page.querySelector('#scenePlaylistRepeatCount').value = repeatCount || 1;
                     var playbackOrderSelect = page.querySelector('#scenePlaylistPlaybackOrder');
@@ -3951,6 +3987,7 @@
                 clearScenePlaylist: function (page, clearSelect) {
                     page._hueScenePlaylistId = '';
                     page._hueScenePlaylistItems = [];
+                    page._hueScenePlaylistDurations = [];
                     var name = page.querySelector('#scenePlaylistName');
                     var repeatCount = page.querySelector('#scenePlaylistRepeatCount');
                     var playbackOrder = page.querySelector('#scenePlaylistPlaybackOrder');
@@ -3976,11 +4013,13 @@
                         return;
                     }
                     page._hueScenePlaylistItems = Array.isArray(page._hueScenePlaylistItems) ? page._hueScenePlaylistItems : [];
+                    page._hueScenePlaylistDurations = Array.isArray(page._hueScenePlaylistDurations) ? page._hueScenePlaylistDurations : [];
                     if (page._hueScenePlaylistItems.length >= 20) {
                         Dashboard.alert("A playlist can contain no more than 20 saved scenes.");
                         return;
                     }
                     page._hueScenePlaylistItems.push(name);
+                    page._hueScenePlaylistDurations.push(0);
                     source.value = '';
                     HueConfigurationPage.renderScenePlaylistItems(page);
                     HueConfigurationPage.updateScenePlaylistButtons(page);
@@ -3992,6 +4031,12 @@
                     var value = items[index];
                     items[index] = items[target];
                     items[target] = value;
+                    var durations = Array.isArray(page._hueScenePlaylistDurations) ? page._hueScenePlaylistDurations : [];
+                    while (durations.length < items.length) durations.push(0);
+                    var duration = durations[index];
+                    durations[index] = durations[target];
+                    durations[target] = duration;
+                    page._hueScenePlaylistDurations = durations;
                     HueConfigurationPage.renderScenePlaylistItems(page);
                 },
                 normalizeScenePlaylistTargetSelection: function (page) {
@@ -4262,6 +4307,11 @@
                     var repeatCount = repeatText ? Number(repeatText) : 1;
                     var playbackOrder = page.querySelector('#scenePlaylistPlaybackOrder').value || 'Sequential';
                     var items = Array.isArray(page._hueScenePlaylistItems) ? page._hueScenePlaylistItems : [];
+                    var durations = Array.isArray(page._hueScenePlaylistDurations) ? page._hueScenePlaylistDurations : [];
+                    durations = items.map(function (_, index) {
+                        var value = Number(durations[index]);
+                        return Number.isInteger(value) && value >= 0 && value <= 30 ? value : 0;
+                    });
                     var targetSelection = HueConfigurationPage.getScenePlaylistTargetSelection(page);
                     var status = page.querySelector('#scenePlaylistStatus');
                     var scheduleSelect = page.querySelector('#sceneScheduleSelect');
@@ -4293,6 +4343,7 @@
                             id: page._hueScenePlaylistId || '',
                             name: name,
                             presetNames: items,
+                            stepDurationSeconds: durations,
                             repeatCount: repeatCount,
                             playbackOrder: playbackOrder,
                             targetUserId: targetSelection.targetUserId,

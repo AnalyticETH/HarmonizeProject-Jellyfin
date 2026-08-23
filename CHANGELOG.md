@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.197] - 2026-08-23
+
+### Added
+- **Per-step playlist timing**: saved-scene playlists now accept credential-free `stepDurationSeconds` overrides in parallel with `presetNames`; `0` or an omitted legacy list inherits each referenced scene's duration, while explicit holds remain bounded to 1-30 seconds
+- **End-to-end duration parity**: carry effective step timing through previews, scheduled cues, repeat totals, runtime/history/status/occurrence telemetry, API/UI, duplication, and credential-safe backup/restore
+- **Regression coverage**: verify validation, inheritance, API/UI round trips, preview timing, scheduler totals, and legacy playlist compatibility
+
 ## [1.5.196] - 2026-08-23
 
 ### Added

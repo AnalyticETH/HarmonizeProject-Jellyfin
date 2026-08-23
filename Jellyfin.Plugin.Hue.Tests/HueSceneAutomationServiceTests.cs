@@ -1309,6 +1309,53 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunPlaylistPreview_UsesPerStepDurationOverridesAndReportsEffectiveTiming()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "playlist-duration-app-secret",
+            HueClientKey = "playlist-duration-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, DurationSeconds = 12, TransitionSeconds = 2, TransitionOutSeconds = 2 },
+                new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, DurationSeconds = 8 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-duration",
+                    Name = "Timed sequence",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    StepDurationSeconds = new List<int> { 3, 0 }
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(new[] { 3, 8 }, streamTester.Durations);
+        Assert.Equal(new[] { 3, 8 }, result.Steps.Select(step => step.DurationSeconds));
+        Assert.Equal(2, result.Steps[0].TransitionSeconds);
+        Assert.Equal(1, result.Steps[0].TransitionOutSeconds);
+        Assert.Equal(0, result.Steps[1].TransitionSeconds);
+        Assert.Equal(11, HueSceneAutomationService.GetPlaylistTotalDurationSeconds(
+            configuration,
+            configuration.ScenePlaylists[0]));
+    }
+
+    [Fact]
     public void BuildPlaylistPass_ShuffleIsStablePerPlaylistDateAndPass()
     {
         var presets = new[]
@@ -3832,6 +3879,7 @@ public sealed class HueSceneAutomationServiceTests
     private sealed class RecordingStreamTester : IHueStreamTester
     {
         public List<int> Reds { get; } = new();
+        public List<int> Durations { get; } = new();
 
         public Task<HueStreamProbeResult> TestAsync(
             string bridgeIp,
@@ -3866,6 +3914,7 @@ public sealed class HueSceneAutomationServiceTests
             int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
         {
             Reds.Add(red);
+            Durations.Add(durationSeconds);
             return Task.FromResult(new HueStreamProbeResult
             {
                 Succeeded = true,

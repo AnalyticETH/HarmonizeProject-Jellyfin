@@ -1157,8 +1157,9 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     /// <summary>
     /// Returns the total hold time represented by a saved-scene playlist, including each
-    /// configured repeat pass. Each scene keeps its own saved duration; the total is used
-    /// for schedule status, occurrence, and calendar metadata.
+    /// configured repeat pass. Each step inherits its scene duration unless the playlist
+    /// provides a bounded per-step override; the total is used for schedule status,
+    /// occurrence, and calendar metadata.
     /// </summary>
     internal static int GetPlaylistTotalDurationSeconds(
         PluginConfiguration? config,
@@ -1168,15 +1169,19 @@ public sealed class HueSceneAutomationService : BackgroundService
             return PluginConfiguration.MinPreviewDurationSeconds;
 
         var total = (playlist.PresetNames ?? new List<string>())
-            .Select(name => config?.ColorPresets?.FirstOrDefault(preset =>
-                preset != null &&
-                string.Equals(preset.Name?.Trim(), name?.Trim(), StringComparison.OrdinalIgnoreCase)))
-            .Select(preset => preset == null
+            .Select((name, index) => new
+            {
+                Index = index,
+                Preset = config?.ColorPresets?.FirstOrDefault(preset =>
+                    preset != null &&
+                    string.Equals(preset.Name?.Trim(), name?.Trim(), StringComparison.OrdinalIgnoreCase))
+            })
+            .Select(item => item.Preset == null
                 ? PluginConfiguration.MinPreviewDurationSeconds
-                : Math.Clamp(
-                    preset.DurationSeconds,
-                    PluginConfiguration.MinPreviewDurationSeconds,
-                    PluginConfiguration.MaxPreviewDurationSeconds))
+                : PluginConfiguration.GetEffectiveScenePlaylistStepDurationSeconds(
+                    playlist,
+                    item.Index,
+                    item.Preset))
             .Sum() * Math.Clamp(
                 playlist.RepeatCount,
                 PluginConfiguration.MinScenePlaylistRepeatCount,
@@ -1775,6 +1780,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                     Id = $"scene-playlist-preview-{repeatIndex}-{index + 1}",
                     Name = playlist.Name?.Trim() ?? string.Empty,
                     PresetName = preset.Name?.Trim() ?? string.Empty,
+                    DurationSeconds = PluginConfiguration.GetEffectiveScenePlaylistStepDurationSeconds(
+                        playlist,
+                        originalIndex - 1,
+                        preset),
                     TargetUserId = targetSchedule.TargetUserId,
                     TargetUserIds = targetSchedule.TargetUserIds.ToList(),
                     IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
@@ -2694,6 +2703,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     Id = playlist.Id,
                     Name = playlist.Name,
                     PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
+                    StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
                     RepeatCount = playlist.RepeatCount,
                     PlaybackOrder = playlist.PlaybackOrder
                 },
@@ -3476,6 +3486,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 Id = playlist.Id,
                 Name = playlist.Name,
                 PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
+                StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
                 RepeatCount = playlist.RepeatCount,
                 PlaybackOrder = playlist.PlaybackOrder,
                 TargetUserId = schedule.TargetAllEnabledMappings

@@ -317,6 +317,65 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsPerStepDurationOverridesAndPreservesLegacyInheritance()
+    {
+        var first = new HueColorPreset { Name = "Warm", DurationSeconds = 12 };
+        var second = new HueColorPreset { Name = "Cool", DurationSeconds = 8 };
+        var playlist = new HueScenePlaylist
+        {
+            Id = "playlist-durations",
+            Name = "Timed sequence",
+            PresetNames = new List<string> { "Warm", "Cool" },
+            StepDurationSeconds = new List<int> { 3, 0 },
+            RepeatCount = 2
+        };
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { first, second },
+            ScenePlaylists = new List<HueScenePlaylist> { playlist }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(3, PluginConfiguration.GetEffectiveScenePlaylistStepDurationSeconds(playlist, 0, first));
+        Assert.Equal(8, PluginConfiguration.GetEffectiveScenePlaylistStepDurationSeconds(playlist, 1, second));
+
+        playlist.StepDurationSeconds = new List<int>();
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(12, PluginConfiguration.GetEffectiveScenePlaylistStepDurationSeconds(playlist, 0, first));
+    }
+
+    [Fact]
+    public void ValidateScenePlaylists_RejectsMismatchedOrOutOfRangeStepDurations()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", DurationSeconds = 5 },
+                new() { Name = "Cool", DurationSeconds = 5 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-invalid-durations",
+                    Name = "Invalid durations",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    StepDurationSeconds = new List<int> { 31 }
+                }
+            }
+        };
+
+        var mismatchErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step duration overrides must contain one value per saved scene, or be omitted", mismatchErrors);
+
+        config.ScenePlaylists[0].StepDurationSeconds = new List<int> { -1, 31 };
+        var rangeErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step 1 duration must be between 0 (inherit) and 30 seconds", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 2 duration must be between 0 (inherit) and 30 seconds", rangeErrors);
+    }
+
+    [Fact]
     public void ValidateScenePlaylists_RejectsMissingScenesInvalidTargetAndDuplicateIdentity()
     {
         var config = new PluginConfiguration

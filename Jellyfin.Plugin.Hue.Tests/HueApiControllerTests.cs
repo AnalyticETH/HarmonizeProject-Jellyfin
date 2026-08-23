@@ -2263,13 +2263,15 @@ public sealed class HueApiControllerTests : IDisposable
         {
             Name = " Evening sequence ",
             PresetNames = new List<string> { "Warm", "Cool" },
+            StepDurationSeconds = new List<int> { 3, 0 },
             RepeatCount = 2
         });
         var savedResponse = Assert.IsType<OkObjectResult>(saved.Result);
         var savedResult = Assert.IsType<HueScenePlaylistResult>(savedResponse.Value);
         Assert.Equal("Evening sequence", savedResult.Name);
         Assert.Equal(2, savedResult.RepeatCount);
-        Assert.Equal(6, savedResult.TotalDurationSeconds);
+        Assert.Equal(10, savedResult.TotalDurationSeconds);
+        Assert.Equal(new[] { 3, 0 }, savedResult.StepDurationSeconds);
         Assert.Equal("Default bridge target", savedResult.TargetLabel);
         Assert.DoesNotContain("playlist-global-app-secret", JsonSerializer.Serialize(savedResult), StringComparison.Ordinal);
 
@@ -2325,6 +2327,10 @@ public sealed class HueApiControllerTests : IDisposable
             .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
             .Select(invocation => (int)invocation.Arguments[6]!)
             .ToArray());
+        Assert.Equal(new[] { 3, 2, 3, 2 }, streamTester.Invocations
+            .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
+            .Select(invocation => (int)invocation.Arguments[10]!)
+            .ToArray());
         var target = Assert.Single(result.TargetResults);
         Assert.True(target.Succeeded);
         Assert.Equal(4, target.CompletedStepCount);
@@ -2336,6 +2342,7 @@ public sealed class HueApiControllerTests : IDisposable
         var duplicateResponse = Assert.IsType<OkObjectResult>(duplicate.Result);
         var duplicateResult = Assert.IsType<HueScenePlaylistResult>(duplicateResponse.Value);
         Assert.Equal("Evening sequence (Copy)", duplicateResult.Name);
+        Assert.Equal(new[] { 3, 0 }, duplicateResult.StepDurationSeconds);
         Assert.Equal(2, configuration.ScenePlaylists.Count);
 
         var deleted = controller.DeleteScenePlaylist(duplicateResult.Name);
@@ -7883,6 +7890,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = "playlist-portable",
                     Name = "Portable sequence",
                     PresetNames = new List<string> { "Sunrise", "Midnight" },
+                    StepDurationSeconds = new List<int> { 2, 0 },
                     RepeatCount = 2,
                     PlaybackOrder = PluginConfiguration.ScenePlaylistOrderShuffle,
                     TargetUserIds = new List<string> { "user-1" },
@@ -7894,12 +7902,13 @@ public sealed class HueApiControllerTests : IDisposable
         var exportedPlaylist = Assert.Single(exported.ScenePlaylists);
         Assert.Equal("playlist-portable", exportedPlaylist.Id);
         Assert.Equal(new[] { "Sunrise", "Midnight" }, exportedPlaylist.PresetNames);
+        Assert.Equal(new[] { 2, 0 }, exportedPlaylist.StepDurationSeconds);
         Assert.Equal(2, exportedPlaylist.RepeatCount);
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, exportedPlaylist.PlaybackOrder);
         Assert.Equal(new[] { "user-1" }, exportedPlaylist.TargetUserIds);
         Assert.True(exportedPlaylist.IncludeDefaultTarget);
         Assert.False(exportedPlaylist.TargetAllEnabledMappings);
-        Assert.Equal(16, exportedPlaylist.TotalDurationSeconds);
+        Assert.Equal(14, exportedPlaylist.TotalDurationSeconds);
         var serialized = JsonSerializer.Serialize(exported);
         Assert.DoesNotContain("source-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("source-client-secret", serialized, StringComparison.Ordinal);
@@ -7932,6 +7941,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = exportedPlaylist.Id,
                     Name = exportedPlaylist.Name,
                     PresetNames = exportedPlaylist.PresetNames.ToList(),
+                    StepDurationSeconds = exportedPlaylist.StepDurationSeconds.ToList(),
                     RepeatCount = exportedPlaylist.RepeatCount,
                     PlaybackOrder = exportedPlaylist.PlaybackOrder,
                     TargetUserIds = exportedPlaylist.TargetUserIds.ToList(),
@@ -7949,6 +7959,7 @@ public sealed class HueApiControllerTests : IDisposable
         var imported = Assert.Single(destination.ScenePlaylists);
         Assert.Equal("playlist-portable", imported.Id);
         Assert.Equal(new[] { "Sunrise", "Midnight" }, imported.PresetNames);
+        Assert.Equal(new[] { 2, 0 }, imported.StepDurationSeconds);
         Assert.Equal(2, imported.RepeatCount);
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, imported.PlaybackOrder);
         Assert.Equal(new[] { "user-1" }, imported.TargetUserIds);

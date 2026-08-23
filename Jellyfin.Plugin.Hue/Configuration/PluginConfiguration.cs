@@ -126,8 +126,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
-    /// A credential-free saved-scene collection. Playlists retain only scene names, a
-    /// bounded repeat count, playback order, and an optional target mode; bridge credentials and
+    /// A credential-free saved-scene collection. Playlists retain only scene names, optional
+    /// bounded per-step duration overrides, a bounded repeat count, playback order, and an
+    /// optional target mode; bridge credentials and
     /// channel profiles are resolved from the current server configuration when the
     /// playlist is previewed. A selected-target playlist can fan out to a deliberate
     /// subset of enabled user mappings and optionally the global bridge without storing
@@ -138,6 +139,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
         public string Name { get; set; } = string.Empty;
         public List<string> PresetNames { get; set; } = new List<string>();
+        /// <summary>
+        /// Optional per-step hold durations in seconds, parallel to <see cref="PresetNames"/>.
+        /// A zero or missing list preserves each saved scene's duration; non-zero values
+        /// override only that playlist step and remain bounded to the preview duration.
+        /// </summary>
+        public List<int> StepDurationSeconds { get; set; } = new List<int>();
         /// <summary>
         /// Number of times the saved scene sequence is played. Missing values in
         /// legacy configurations preserve the original single-pass behavior.
@@ -576,6 +583,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxScenePlaylists = 50;
         public const int MaxScenePlaylistItems = 20;
         public const int MaxScenePlaylistTotalDurationSeconds = MaxScenePlaylistItems * MaxPreviewDurationSeconds;
+        public const int MinScenePlaylistStepDurationSeconds = 0;
+        public const int MaxScenePlaylistStepDurationSeconds = MaxPreviewDurationSeconds;
         public const int MinScenePlaylistRepeatCount = 1;
         public const int MaxScenePlaylistRepeatCount = 10;
         public const int DefaultScenePlaylistRepeatCount = MinScenePlaylistRepeatCount;
@@ -813,6 +822,31 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             normalized = match;
             return true;
+        }
+
+        /// <summary>
+        /// Resolves one playlist step's hold duration. A missing, zero, or malformed
+        /// override inherits the referenced scene duration; positive values are bounded
+        /// to the same 1-30 second preview range used by scenes.
+        /// </summary>
+        public static int GetEffectiveScenePlaylistStepDurationSeconds(
+            HueScenePlaylist playlist,
+            int stepIndex,
+            HueColorPreset preset)
+        {
+            ArgumentNullException.ThrowIfNull(playlist);
+            ArgumentNullException.ThrowIfNull(preset);
+            var overrideSeconds = playlist.StepDurationSeconds != null &&
+                stepIndex >= 0 &&
+                stepIndex < playlist.StepDurationSeconds.Count
+                ? playlist.StepDurationSeconds[stepIndex]
+                : MinScenePlaylistStepDurationSeconds;
+            return overrideSeconds <= MinScenePlaylistStepDurationSeconds
+                ? Math.Clamp(preset.DurationSeconds, MinPreviewDurationSeconds, MaxPreviewDurationSeconds)
+                : Math.Clamp(
+                    overrideSeconds,
+                    MinPreviewDurationSeconds,
+                    MaxScenePlaylistStepDurationSeconds);
         }
 
         /// <summary>
@@ -2306,6 +2340,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.Add($"{label} must contain between 1 and {MaxScenePlaylistItems} saved scenes");
             }
 
+            var stepDurations = playlist.StepDurationSeconds ?? new List<int>();
+            if (stepDurations.Count != 0 && stepDurations.Count != presetNames.Count)
+            {
+                errors.Add($"{label} step duration overrides must contain one value per saved scene, or be omitted");
+            }
+
+            for (var index = 0; index < stepDurations.Count; index++)
+            {
+                if (stepDurations[index] < MinScenePlaylistStepDurationSeconds ||
+                    stepDurations[index] > MaxScenePlaylistStepDurationSeconds)
+                {
+                    errors.Add($"{label} step {index + 1} duration must be between {MinScenePlaylistStepDurationSeconds} (inherit) and {MaxScenePlaylistStepDurationSeconds} seconds");
+                }
+            }
+
             if (playlist.RepeatCount < MinScenePlaylistRepeatCount ||
                 playlist.RepeatCount > MaxScenePlaylistRepeatCount)
             {
@@ -2348,10 +2397,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 if (presets.All(preset => preset != null))
                 {
                     var totalDuration = presets
-                        .Select(preset => Math.Clamp(
-                            preset!.DurationSeconds,
-                            MinPreviewDurationSeconds,
-                            MaxPreviewDurationSeconds))
+                        .Select((preset, index) => GetEffectiveScenePlaylistStepDurationSeconds(
+                            playlist,
+                            index,
+                            preset!))
                         .Sum() * playlist.RepeatCount;
                     if (totalDuration > MaxScenePlaylistTotalDurationSeconds)
                     {
