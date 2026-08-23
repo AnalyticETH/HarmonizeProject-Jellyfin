@@ -5721,6 +5721,7 @@
                                 row.appendChild(cell);
                             };
                             var occurrenceName = String(HueConfigurationPage.readStatusField(occurrence, "ScheduleName", "Unnamed cue"));
+                            var occurrencePlaylistName = String(HueConfigurationPage.readStatusField(occurrence, "PlaylistName", ""));
                             var occurrencePriority = Number(HueConfigurationPage.readStatusField(occurrence, "Priority", 0));
                             var occurrenceEffect = String(HueConfigurationPage.readStatusField(occurrence, "Effect", "Solid"));
                             var occurrenceSpeed = Number(HueConfigurationPage.readStatusField(occurrence, "EffectSpeedPercent", 100));
@@ -5728,7 +5729,20 @@
                             var occurrenceTransitionOut = Number(HueConfigurationPage.readStatusField(occurrence, "TransitionOutSeconds", 0));
                             var occurrenceTransitionCurve = String(HueConfigurationPage.readStatusField(occurrence, "TransitionCurve", "Linear"));
                             var occurrencePlaybackOrder = String(HueConfigurationPage.readStatusField(occurrence, "PlaylistPlaybackOrder", "Sequential"));
-                            addCell(occurrenceName + (String(HueConfigurationPage.readStatusField(occurrence, "PlaylistName", "")) ? " · " + (occurrencePlaybackOrder.toLowerCase() === "shuffle" ? "shuffle" : "saved order") : "") + " · " + occurrenceEffect + " · speed " + occurrenceSpeed + "%" + (occurrencePriority > 0 ? " · priority " + occurrencePriority : "") + ((occurrenceTransition > 0 || occurrenceTransitionOut > 0)
+                            var occurrenceSteps = HueConfigurationPage.readStatusField(occurrence, "PlaylistSteps", []);
+                            occurrenceSteps = Array.isArray(occurrenceSteps) ? occurrenceSteps : [];
+                            var occurrencePlan = occurrenceSteps.length
+                                ? " · plan " + occurrenceSteps.map(function (step) {
+                                    var stepIndex = Number(HueConfigurationPage.readStatusField(step, "Index", 0));
+                                    var stepName = String(HueConfigurationPage.readStatusField(step, "PresetName", "Scene"));
+                                    var stepBrightness = Number(HueConfigurationPage.readStatusField(step, "BrightnessPercent", 0));
+                                    var stepDuration = Number(HueConfigurationPage.readStatusField(step, "DurationSeconds", 0));
+                                    var stepRepeat = Number(HueConfigurationPage.readStatusField(step, "RepeatIndex", 1));
+                                    var stepOffset = Number(HueConfigurationPage.readStatusField(step, "StartOffsetSeconds", 0));
+                                    return "#" + stepIndex + " " + stepName + " " + stepBrightness + "%/" + stepDuration + "s @" + stepOffset + "s" + (stepRepeat > 1 ? " (pass " + stepRepeat + ")" : "");
+                                }).join(" → ")
+                                : "";
+                            addCell(occurrenceName + (occurrencePlaylistName ? " · " + (occurrencePlaybackOrder.toLowerCase() === "shuffle" ? "shuffle" : "saved order") : "") + " · " + occurrenceEffect + " · speed " + occurrenceSpeed + "%" + occurrencePlan + (occurrencePriority > 0 ? " · priority " + occurrencePriority : "") + ((occurrenceTransition > 0 || occurrenceTransitionOut > 0)
                                 ? " · " + occurrenceTransitionCurve + " fade " + occurrenceTransition + "s/" + occurrenceTransitionOut + "s"
                                 : ""));
                             addCell(String(HueConfigurationPage.readStatusField(occurrence, "TargetLabel", "Default bridge target")));

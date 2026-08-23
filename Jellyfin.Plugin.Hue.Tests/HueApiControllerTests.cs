@@ -6369,6 +6369,76 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetSceneScheduleOccurrences_ExpandsPlaylistStepPlanAndExportsIt()
+    {
+        var cueTime = DateTime.Now.AddMinutes(10).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "playlist-occurrence-app-secret",
+            HueClientKey = "playlist-occurrence-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", BrightnessPercent = 80, DurationSeconds = 12, TransitionSeconds = 4, TransitionOutSeconds = 3 },
+                new() { Name = "Cool", BrightnessPercent = 60, DurationSeconds = 8, TransitionSeconds = 2, TransitionOutSeconds = 2 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "occurrence-playlist",
+                    Name = "Occurrence sequence",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    StepDurationSeconds = new List<int> { 3, 0 },
+                    StepBrightnessPercent = new List<int?> { 25, null },
+                    RepeatCount = 2,
+                    PlaybackOrder = PluginConfiguration.ScenePlaylistOrderSequential
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "playlist-occurrence-cue",
+                    Name = "Playlist occurrence cue",
+                    PlaylistName = "Occurrence sequence",
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    DaysOfWeekMask = 127
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var action = controller.GetSceneScheduleOccurrences(limit: 1, days: 7);
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleOccurrencesResult>(response.Value);
+        var occurrence = Assert.Single(result.Occurrences);
+        Assert.Equal("playlist-occurrence-cue", occurrence.ScheduleId);
+        Assert.Equal(22, occurrence.PlaylistTotalDurationSeconds);
+        Assert.Equal(new[] { "Warm", "Cool", "Warm", "Cool" }, occurrence.PlaylistSteps.Select(step => step.PresetName));
+        Assert.Equal(new[] { 25, 60, 25, 60 }, occurrence.PlaylistSteps.Select(step => step.BrightnessPercent));
+        Assert.Equal(new[] { 3, 8, 3, 8 }, occurrence.PlaylistSteps.Select(step => step.DurationSeconds));
+        Assert.Equal(new[] { 0, 3, 11, 14 }, occurrence.PlaylistSteps.Select(step => step.StartOffsetSeconds));
+        Assert.DoesNotContain("playlist-occurrence-app-secret", JsonSerializer.Serialize(result), StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-occurrence-client-secret", JsonSerializer.Serialize(result), StringComparison.Ordinal);
+
+        var csv = Assert.IsType<FileContentResult>(controller.ExportSceneScheduleOccurrencesCsv(1, 7, "playlist-occurrence-cue"));
+        var csvText = Encoding.UTF8.GetString(csv.FileContents).TrimStart('\uFEFF');
+        Assert.Contains("\"playlistSteps\"", csvText, StringComparison.Ordinal);
+        Assert.Contains("Warm", csvText, StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-occurrence-app-secret", csvText, StringComparison.Ordinal);
+
+        var calendar = Assert.IsType<FileContentResult>(controller.GetSceneScheduleCalendar(1, 7, "playlist-occurrence-cue"));
+        var calendarText = Encoding.UTF8.GetString(calendar.FileContents);
+        Assert.Contains("X-HUE-PLAYLIST-STEP-PLAN:", calendarText, StringComparison.Ordinal);
+        Assert.Contains("Warm", calendarText, StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-occurrence-client-secret", calendarText, StringComparison.Ordinal);
+        Assert.Single(configuration.SceneSchedules);
+    }
+
+    [Fact]
     public void GetSceneScheduleConflicts_ReturnsBoundedDurationAwareReportWithoutSecrets()
     {
         var cueTime = DateTime.UtcNow.AddMinutes(10).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);

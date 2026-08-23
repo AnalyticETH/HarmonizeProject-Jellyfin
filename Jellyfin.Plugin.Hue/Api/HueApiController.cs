@@ -3484,6 +3484,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 "playlistRepeatCount",
                 "playlistPlaybackOrder",
                 "playlistTotalDurationSeconds",
+                "playlistSteps",
                 "priority",
                 "effect",
                 "effectSpeedPercent",
@@ -3515,6 +3516,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     occurrence.PlaylistRepeatCount,
                     occurrence.PlaylistPlaybackOrder,
                     occurrence.PlaylistTotalDurationSeconds,
+                    JsonSerializer.Serialize(occurrence.PlaylistSteps),
                     occurrence.Priority,
                     occurrence.Effect,
                     occurrence.EffectSpeedPercent,
@@ -3644,6 +3646,9 @@ namespace Jellyfin.Plugin.Hue.Api
                                 ? PluginConfiguration.ScenePlaylistOrderSequential
                                 : occurrencePlaybackOrder,
                             PlaylistTotalDurationSeconds = isPlaylist ? effectiveDuration : 0,
+                            PlaylistSteps = isPlaylist
+                                ? HueSceneAutomationService.BuildPlaylistScheduleSteps(config, playlist, occurrence.UtcTime)
+                                : Array.Empty<HueScenePlaylistScheduleStep>(),
                             Priority = occurrence.Priority,
                             Effect = effect,
                             EffectSpeedPercent = isPlaylist || preset == null
@@ -3732,6 +3737,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "X-HUE-PLAYLIST-STEPS", occurrence.PlaylistStepCount.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-PLAYLIST-REPEATS", occurrence.PlaylistRepeatCount.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-PLAYLIST-ORDER", occurrence.PlaylistPlaybackOrder);
+                AppendIcsLine(builder, "X-HUE-PLAYLIST-STEP-PLAN", JsonSerializer.Serialize(occurrence.PlaylistSteps));
                 AppendIcsLine(builder, "X-HUE-EFFECT-SPEED-PERCENT", occurrence.EffectSpeedPercent.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-SECONDS", occurrence.TransitionSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-OUT-SECONDS", occurrence.TransitionOutSeconds.ToString(CultureInfo.InvariantCulture));
@@ -10077,6 +10083,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("playlistTotalDurationSeconds")]
         public int PlaylistTotalDurationSeconds { get; set; }
+
+        [JsonPropertyName("playlistSteps")]
+        public IReadOnlyList<HueScenePlaylistScheduleStep> PlaylistSteps { get; set; } = Array.Empty<HueScenePlaylistScheduleStep>();
 
         [JsonPropertyName("priority")]
         public int Priority { get; set; }

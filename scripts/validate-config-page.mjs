@@ -263,6 +263,8 @@ const requiredScript = [
     "_hueScenePlaylistBrightness",
     "stepDurationSeconds: durations",
     "stepBrightnessPercent: brightnesses",
+    'readStatusField(occurrence, "PlaylistSteps", [])',
+    'readStatusField(step, "StartOffsetSeconds", 0)',
     "getScenePlaylistPreviewTargetSelection: function",
     "normalizeScenePlaylistBulkPreviewTargetSelection: function",
     "getScenePlaylistBulkPreviewTargetSelection: function",

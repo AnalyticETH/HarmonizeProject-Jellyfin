@@ -1193,6 +1193,79 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Expands a saved playlist into the exact credential-free step plan that a future
+    /// scheduled run will use. Shuffle ordering is seeded from the occurrence date and
+    /// repeat pass, matching preview and scheduler execution; offsets are cumulative hold
+    /// seconds from the cue start and do not include bridge cleanup time.
+    /// </summary>
+    internal static IReadOnlyList<HueScenePlaylistScheduleStep> BuildPlaylistScheduleSteps(
+        PluginConfiguration? config,
+        HueScenePlaylist? playlist,
+        DateTime runAtUtc)
+    {
+        if (config == null || playlist == null)
+            return Array.Empty<HueScenePlaylistScheduleStep>();
+
+        var presets = (playlist.PresetNames ?? new List<string>())
+            .Select(name => config.ColorPresets?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Name?.Trim(), name?.Trim(), StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        if (presets.Length == 0 || presets.Any(preset => preset == null))
+            return Array.Empty<HueScenePlaylistScheduleStep>();
+
+        PluginConfiguration.TryNormalizeScenePlaylistOrder(
+            playlist.PlaybackOrder,
+            out var playbackOrder);
+        var repeatCount = Math.Clamp(
+            playlist.RepeatCount,
+            PluginConfiguration.MinScenePlaylistRepeatCount,
+            PluginConfiguration.MaxScenePlaylistRepeatCount);
+        var steps = new List<HueScenePlaylistScheduleStep>(presets.Length * repeatCount);
+        var startOffsetSeconds = 0;
+        var normalizedRunAtUtc = DateTime.SpecifyKind(runAtUtc, DateTimeKind.Utc);
+        for (var repeatIndex = 1; repeatIndex <= repeatCount; repeatIndex++)
+        {
+            var pass = BuildPlaylistPass(
+                presets.Select(preset => preset!).ToArray(),
+                playbackOrder,
+                playlist.Id,
+                repeatIndex,
+                normalizedRunAtUtc);
+            foreach (var (preset, originalIndex) in pass)
+            {
+                var durationSeconds = PluginConfiguration.GetEffectiveScenePlaylistStepDurationSeconds(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
+                var stepSchedule = new HueSceneSchedule { DurationSeconds = durationSeconds };
+                PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
+                steps.Add(new HueScenePlaylistScheduleStep
+                {
+                    Index = steps.Count + 1,
+                    RepeatIndex = repeatIndex,
+                    OriginalIndex = originalIndex,
+                    PresetName = preset.Name?.Trim() ?? string.Empty,
+                    Effect = effect,
+                    EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                    TransitionCurve = GetEffectiveTransitionCurve(preset),
+                    BrightnessPercent = PluginConfiguration.GetEffectiveScenePlaylistStepBrightnessPercent(
+                        playlist,
+                        originalIndex - 1,
+                        preset),
+                    DurationSeconds = durationSeconds,
+                    TransitionSeconds = GetEffectiveTransitionSeconds(stepSchedule, preset),
+                    TransitionOutSeconds = GetEffectiveTransitionOutSeconds(stepSchedule, preset),
+                    StartOffsetSeconds = startOffsetSeconds
+                });
+                startOffsetSeconds += durationSeconds;
+            }
+        }
+
+        return steps;
+    }
+
+    /// <summary>
     /// Calculates a bounded preview of future cue occurrences. Calendar dates are
     /// evaluated in the cue's selected time zone, so one-time dates, date windows,
     /// exclusions, daily/weekly/monthly-day/monthly-weekday/yearly recurrence, bounded
@@ -1711,7 +1784,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         CancellationToken cancellationToken = default,
         IReadOnlyList<string>? targetUserIdsOverride = null,
         bool includeDefaultTargetOverride = false,
-        bool targetScopedPlayback = false)
+        bool targetScopedPlayback = false,
+        DateTime? runAtUtcOverride = null)
     {
         var config = Plugin.Instance?.Configuration;
         if (config == null)
@@ -1771,7 +1845,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         PluginConfiguration.TryNormalizeScenePlaylistOrder(
             playlist.PlaybackOrder,
             out var playbackOrder);
-        var runAtUtc = DateTime.UtcNow;
+        var executionStartedAtUtc = DateTime.UtcNow;
+        var runAtUtc = NormalizeRunAtUtc(runAtUtcOverride) ?? executionStartedAtUtc;
         var totalStepCount = resolvedPresets.Length * repeatCount;
         var steps = new List<HueScenePlaylistStepResult>();
         var canceled = false;
@@ -1891,7 +1966,20 @@ public sealed class HueSceneAutomationService : BackgroundService
             CleanupWarning = string.IsNullOrWhiteSpace(cleanupWarning) ? null : cleanupWarning,
             Steps = steps,
             TargetResults = targetResults,
-            RunAtUtc = runAtUtc
+            RunAtUtc = executionStartedAtUtc
+        };
+    }
+
+    private static DateTime? NormalizeRunAtUtc(DateTime? value)
+    {
+        if (!value.HasValue)
+            return null;
+
+        return value.Value.Kind switch
+        {
+            DateTimeKind.Utc => value.Value,
+            DateTimeKind.Local => value.Value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
         };
     }
 
@@ -3266,7 +3354,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 targetScopedPlayback: string.Equals(
                     playbackScope,
                     PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
-                    StringComparison.OrdinalIgnoreCase)).ConfigureAwait(false);
+                    StringComparison.OrdinalIgnoreCase),
+                runAtUtcOverride: slot).ConfigureAwait(false);
             if (result.Succeeded)
             {
                 DisableCompletedOneTimeSchedule(config, schedule);
@@ -3487,7 +3576,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         PluginConfiguration config,
         HueSceneSchedule schedule,
         CancellationToken cancellationToken,
-        bool targetScopedPlayback = false)
+        bool targetScopedPlayback = false,
+        DateTime? runAtUtcOverride = null)
     {
         if (!string.IsNullOrWhiteSpace(schedule.PlaylistName))
         {
@@ -3523,7 +3613,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 cancellationToken,
                 selectedTargetIds,
                 schedule.IncludeDefaultTarget,
-                targetScopedPlayback).ConfigureAwait(false);
+                targetScopedPlayback,
+                runAtUtcOverride).ConfigureAwait(false);
             return BuildPlaylistScheduleRunResult(config, schedule, playlistRun);
         }
 
@@ -3812,7 +3903,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         bool wasCatchUp = false,
         bool wasDeferred = false,
         bool wasDeferredRestored = false,
-        bool targetScopedPlayback = false)
+        bool targetScopedPlayback = false,
+        DateTime? runAtUtcOverride = null)
     {
         if (!TryBeginRun(schedule, out var currentRunCount, out var alreadyRunning))
         {
@@ -3833,7 +3925,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 config,
                 schedule,
                 cancellationToken,
-                targetScopedPlayback).ConfigureAwait(false);
+                targetScopedPlayback,
+                runAtUtcOverride).ConfigureAwait(false);
             result.WasCatchUp = wasCatchUp;
             result.WasDeferred = wasDeferred;
             result.WasDeferredRestored = wasDeferredRestored;
@@ -5165,6 +5258,48 @@ public sealed class HueScenePlaylistTargetResult
 
     [JsonPropertyName("selectedChannelCount")]
     public int SelectedChannelCount { get; init; }
+}
+
+/// <summary>
+/// Credential-free effective plan for one step in an upcoming scheduled playlist run.
+/// </summary>
+public sealed class HueScenePlaylistScheduleStep
+{
+    [JsonPropertyName("index")]
+    public int Index { get; init; }
+
+    [JsonPropertyName("repeatIndex")]
+    public int RepeatIndex { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+
+    [JsonPropertyName("originalIndex")]
+    public int OriginalIndex { get; init; }
+
+    [JsonPropertyName("presetName")]
+    public string PresetName { get; init; } = string.Empty;
+
+    [JsonPropertyName("effect")]
+    public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
+
+    [JsonPropertyName("effectSpeedPercent")]
+    public int EffectSpeedPercent { get; init; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
+    [JsonPropertyName("transitionCurve")]
+    public string TransitionCurve { get; init; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
+
+    [JsonPropertyName("brightnessPercent")]
+    public int BrightnessPercent { get; init; }
+
+    [JsonPropertyName("durationSeconds")]
+    public int DurationSeconds { get; init; }
+
+    [JsonPropertyName("transitionSeconds")]
+    public int TransitionSeconds { get; init; }
+
+    [JsonPropertyName("transitionOutSeconds")]
+    public int TransitionOutSeconds { get; init; }
+
+    [JsonPropertyName("startOffsetSeconds")]
+    public int StartOffsetSeconds { get; init; }
 }
 
 /// <summary>

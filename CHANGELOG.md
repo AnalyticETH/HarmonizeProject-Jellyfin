@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.199] - 2026-08-23
+
+### Added
+- **Expanded upcoming playlist plans**: scheduled occurrence JSON now exposes the exact credential-free expanded playlist steps for the occurrence date, including stable shuffle/repeat order, saved position, effective brightness, hold duration, transitions, and cumulative start offsets
+- **Export and administrator parity**: carry the step plan through occurrence CSV, iCalendar metadata, and the administrator upcoming-cue table without exposing credentials
+- **Regression coverage**: verify override inheritance, repeat offsets, shuffle stability, JSON/CSV/iCalendar exports, and configuration-page contracts
+
 ## [1.5.198] - 2026-08-23
 
 ### Added

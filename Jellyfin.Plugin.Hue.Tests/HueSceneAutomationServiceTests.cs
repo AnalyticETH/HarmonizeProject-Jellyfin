@@ -1356,6 +1356,70 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void BuildPlaylistScheduleSteps_ExpandsEffectiveOverridesAndOffsets()
+    {
+        var configuration = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new()
+                {
+                    Name = "Warm",
+                    BrightnessPercent = 80,
+                    DurationSeconds = 12,
+                    TransitionSeconds = 4,
+                    TransitionOutSeconds = 3
+                },
+                new()
+                {
+                    Name = "Cool",
+                    BrightnessPercent = 60,
+                    DurationSeconds = 8,
+                    TransitionSeconds = 2,
+                    TransitionOutSeconds = 2
+                }
+            }
+        };
+        var playlist = new HueScenePlaylist
+        {
+            Id = "scheduled-plan",
+            Name = "Scheduled plan",
+            PresetNames = new List<string> { "Warm", "Cool" },
+            StepDurationSeconds = new List<int> { 3, 0 },
+            StepBrightnessPercent = new List<int?> { 25, null },
+            RepeatCount = 2,
+            PlaybackOrder = PluginConfiguration.ScenePlaylistOrderSequential
+        };
+
+        var steps = HueSceneAutomationService.BuildPlaylistScheduleSteps(
+            configuration,
+            playlist,
+            new DateTime(2026, 8, 23, 20, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(new[] { "Warm", "Cool", "Warm", "Cool" }, steps.Select(step => step.PresetName));
+        Assert.Equal(new[] { 25, 60, 25, 60 }, steps.Select(step => step.BrightnessPercent));
+        Assert.Equal(new[] { 3, 8, 3, 8 }, steps.Select(step => step.DurationSeconds));
+        Assert.Equal(new[] { 0, 3, 11, 14 }, steps.Select(step => step.StartOffsetSeconds));
+        Assert.Equal(new[] { 1, 1, 2, 2 }, steps.Select(step => step.RepeatIndex));
+        Assert.Equal(new[] { 1, 2, 1, 2 }, steps.Select(step => step.OriginalIndex));
+        Assert.Equal(new[] { 3, 2, 3, 2 }, steps.Select(step => step.TransitionSeconds));
+        Assert.Equal(new[] { 0, 2, 0, 2 }, steps.Select(step => step.TransitionOutSeconds));
+
+        playlist.PlaybackOrder = PluginConfiguration.ScenePlaylistOrderShuffle;
+        var shuffled = HueSceneAutomationService.BuildPlaylistScheduleSteps(
+            configuration,
+            playlist,
+            new DateTime(2026, 8, 23, 20, 0, 0, DateTimeKind.Utc));
+        var shuffledRetry = HueSceneAutomationService.BuildPlaylistScheduleSteps(
+            configuration,
+            playlist,
+            new DateTime(2026, 8, 23, 23, 0, 0, DateTimeKind.Utc));
+        Assert.Equal(shuffled.Select(step => step.OriginalIndex), shuffledRetry.Select(step => step.OriginalIndex));
+        Assert.Equal(new[] { 1, 2 }, shuffled.Take(2).Select(step => step.OriginalIndex).OrderBy(index => index));
+        Assert.Equal(new[] { 1, 2 }, shuffled.Skip(2).Select(step => step.OriginalIndex).OrderBy(index => index));
+    }
+
+    [Fact]
     public void BuildPlaylistPass_ShuffleIsStablePerPlaylistDateAndPass()
     {
         var presets = new[]
@@ -1509,6 +1573,89 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(2, runtime.PlaylistRepeatCount);
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderSequential, runtime.PlaylistPlaybackOrder);
         Assert.Equal(6, runtime.PlaylistTotalDurationSeconds);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_UsesOccurrenceDateForScheduledPlaylistShuffle()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "scheduled-shuffle-app-secret",
+            HueClientKey = "scheduled-shuffle-client-secret",
+            EntertainmentAreaId = "area-1",
+            PersistSceneScheduleHistory = true,
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "One", Red = 10, Green = 20, Blue = 30, DurationSeconds = 1 },
+                new() { Name = "Two", Red = 40, Green = 50, Blue = 60, DurationSeconds = 1 },
+                new() { Name = "Three", Red = 70, Green = 80, Blue = 90, DurationSeconds = 1 },
+                new() { Name = "Four", Red = 100, Green = 110, Blue = 120, DurationSeconds = 1 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "scheduled-shuffle",
+                    Name = "Scheduled shuffle",
+                    PresetNames = new List<string> { "One", "Two", "Three", "Four" },
+                    PlaybackOrder = PluginConfiguration.ScenePlaylistOrderShuffle
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "scheduled-shuffle-cue",
+                    Name = "Scheduled shuffle cue",
+                    PlaylistName = "Scheduled shuffle",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        var playlist = configuration.ScenePlaylists[0];
+        var today = DateTime.UtcNow.Date;
+        var todayOrder = HueSceneAutomationService.BuildPlaylistScheduleSteps(
+                configuration,
+                playlist,
+                today)
+            .Select(step => step.OriginalIndex)
+            .ToArray();
+        var occurrenceDate = Enumerable.Range(1, 366)
+            .Select(daysAgo => today.AddDays(-daysAgo))
+            .First(date => !HueSceneAutomationService.BuildPlaylistScheduleSteps(
+                    configuration,
+                    playlist,
+                    date)
+                .Select(step => step.OriginalIndex)
+                .SequenceEqual(todayOrder));
+        var occurrenceUtc = occurrenceDate.AddHours(7).AddMinutes(5);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await service.RunDueSchedulesAsync(
+            occurrenceUtc.AddSeconds(30),
+            CancellationToken.None);
+
+        var history = Assert.Single(service.GetHistory());
+        var expected = HueSceneAutomationService.BuildPlaylistScheduleSteps(
+                configuration,
+                playlist,
+                occurrenceUtc)
+            .Select(step => step.OriginalIndex);
+        Assert.Equal(expected, history.PlaylistSteps.Select(step => step.OriginalIndex));
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
     }
 
     [Fact]
