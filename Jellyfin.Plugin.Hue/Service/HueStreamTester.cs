@@ -428,7 +428,7 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
         CancellationToken cancellationToken)
     {
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, or Lightning.");
+            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, or Starlight.");
 
         effect = normalizedEffect;
         if (cancellationToken.IsCancellationRequested)
@@ -919,7 +919,7 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
     {
         ArgumentNullException.ThrowIfNull(targetColors);
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, or Lightning.", nameof(effect));
+            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, or Starlight.", nameof(effect));
 
         var elapsed = Math.Max(0d, elapsedSeconds);
         var duration = Math.Max(1d, durationSeconds);
@@ -1120,6 +1120,36 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
                     ToRgb16Byte(lightningRed), ToRgb16Byte(lightningRed),
                     ToRgb16Byte(lightningGreen), ToRgb16Byte(lightningGreen),
                     ToRgb16Byte(lightningBlue), ToRgb16Byte(lightningBlue)
+                };
+                continue;
+            }
+
+            if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectStarlight, StringComparison.Ordinal))
+            {
+                // Starlight twinkles from deep blue to cool white. The seed frame
+                // controls intensity, while a sharp glint envelope and per-channel
+                // phase make each light shimmer independently without randomness.
+                var starlightPeriod = 7.5d / speedMultiplier;
+                var starlightPhase = ((elapsed + (channelId * 0.27d)) % starlightPeriod) / starlightPeriod;
+                var starWave = 0.5d + (0.5d * Math.Sin(starlightPhase * 2d * Math.PI));
+                var glint = Math.Pow(starWave, 6d);
+                var drift = 0.5d + (0.5d * Math.Sin((starlightPhase * 4d * Math.PI) + (channelId * 0.61d)));
+                var starlightHue = 205d + (25d * drift);
+                var starlightSaturation = 0.68d - (0.58d * glint);
+                var starlightSeedValue = Math.Clamp(
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    0d,
+                    1d);
+                var starlightValue = starlightSeedValue * (0.18d + (0.82d * glint));
+                var (starlightRed, starlightGreen, starlightBlue) = HsvToRgb(
+                    starlightHue,
+                    Math.Clamp(starlightSaturation, 0d, 1d),
+                    Math.Clamp(starlightValue, 0d, 1d));
+                colors[channelId] = new[]
+                {
+                    ToRgb16Byte(starlightRed), ToRgb16Byte(starlightRed),
+                    ToRgb16Byte(starlightGreen), ToRgb16Byte(starlightGreen),
+                    ToRgb16Byte(starlightBlue), ToRgb16Byte(starlightBlue)
                 };
                 continue;
             }

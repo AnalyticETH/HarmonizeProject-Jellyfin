@@ -106,6 +106,7 @@ public class PluginConfigurationTests
             PluginConfiguration.ColorPresetEffectFire,
             PluginConfiguration.ColorPresetEffectOcean,
             PluginConfiguration.ColorPresetEffectLightning,
+            PluginConfiguration.ColorPresetEffectStarlight,
             " rainbow "
         })
         {
@@ -150,7 +151,7 @@ public class PluginConfigurationTests
             Effect = "Strobe"
         });
 
-        Assert.Contains("Color preset effect must be one of Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning", errors);
+        Assert.Contains("Color preset effect must be one of Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight", errors);
     }
 
     [Fact]

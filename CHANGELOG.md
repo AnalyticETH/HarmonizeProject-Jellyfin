@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.194] - 2026-08-23
+
+### Added
+- **Starlight scene effect**: deterministic cool white/blue twinkles with sharp glints and independent channel phases for previews, saved scenes, playlists, and scheduled cues
+- **Portable effect support**: carry Starlight through validation, API/UI, backup/restore, occurrence metadata, and administrator controls
+- **Regression coverage**: verify deterministic bounded frames, seed intensity, channel phase, canonical API persistence, and configuration-page contracts
+
 ## [1.5.193] - 2026-08-23
 
 ### Added
