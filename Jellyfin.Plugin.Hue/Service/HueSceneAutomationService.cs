@@ -1900,8 +1900,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 return false;
             }
 
-            var dawn = string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeSunrise, StringComparison.Ordinal) ||
-                string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeCivilDawn, StringComparison.Ordinal);
+            var dawn = PluginConfiguration.IsSceneScheduleDawnTimeMode(timeMode);
             var offsetMinutes = Math.Clamp(
                 schedule.SolarOffsetMinutes,
                 PluginConfiguration.MinSceneScheduleSolarOffsetMinutes,
@@ -1910,6 +1909,34 @@ public sealed class HueSceneAutomationService : BackgroundService
                 string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeCivilDusk, StringComparison.Ordinal))
             {
                 return HueSolarCalculator.TryGetCivilTwilightLocal(
+                    scheduleDate,
+                    timeZone,
+                    schedule.SolarLatitude!.Value,
+                    schedule.SolarLongitude!.Value,
+                    dawn,
+                    offsetMinutes,
+                    out localTime,
+                    out utcTime);
+            }
+
+            if (string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeNauticalDawn, StringComparison.Ordinal) ||
+                string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeNauticalDusk, StringComparison.Ordinal))
+            {
+                return HueSolarCalculator.TryGetNauticalTwilightLocal(
+                    scheduleDate,
+                    timeZone,
+                    schedule.SolarLatitude!.Value,
+                    schedule.SolarLongitude!.Value,
+                    dawn,
+                    offsetMinutes,
+                    out localTime,
+                    out utcTime);
+            }
+
+            if (string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeAstronomicalDawn, StringComparison.Ordinal) ||
+                string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeAstronomicalDusk, StringComparison.Ordinal))
+            {
+                return HueSolarCalculator.TryGetAstronomicalTwilightLocal(
                     scheduleDate,
                     timeZone,
                     schedule.SolarLatitude!.Value,

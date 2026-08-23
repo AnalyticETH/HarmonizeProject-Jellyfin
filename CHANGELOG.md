@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.192] - 2026-08-23
+
+### Added
+- **Nautical twilight scheduled cues**: schedule scenes at NauticalDawn or NauticalDusk using the sun's 12°-below-horizon events
+- **Astronomical twilight scheduled cues**: schedule scenes at AstronomicalDawn or AstronomicalDusk using the sun's 18°-below-horizon events
+- **Complete solar portability**: carry all standard twilight bands through validation, scheduler recovery, API/status/CSV/iCalendar metadata, backup/restore, and administrator controls
+- **Regression coverage**: verify chronological twilight ordering, timezone-aware occurrences, canonical API persistence, and configuration-page contracts
+
 ## [1.5.191] - 2026-08-23
 
 ### Added

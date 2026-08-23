@@ -568,6 +568,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string SceneScheduleTimeModeSunset = "Sunset";
         public const string SceneScheduleTimeModeCivilDawn = "CivilDawn";
         public const string SceneScheduleTimeModeCivilDusk = "CivilDusk";
+        public const string SceneScheduleTimeModeNauticalDawn = "NauticalDawn";
+        public const string SceneScheduleTimeModeNauticalDusk = "NauticalDusk";
+        public const string SceneScheduleTimeModeAstronomicalDawn = "AstronomicalDawn";
+        public const string SceneScheduleTimeModeAstronomicalDusk = "AstronomicalDusk";
         public const int MinSceneScheduleSolarOffsetMinutes = -720;
         public const int MaxSceneScheduleSolarOffsetMinutes = 720;
         public const double MinSceneScheduleSolarLatitude = -90;
@@ -609,7 +613,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
             SceneScheduleTimeModeSunrise,
             SceneScheduleTimeModeSunset,
             SceneScheduleTimeModeCivilDawn,
-            SceneScheduleTimeModeCivilDusk
+            SceneScheduleTimeModeCivilDusk,
+            SceneScheduleTimeModeNauticalDawn,
+            SceneScheduleTimeModeNauticalDusk,
+            SceneScheduleTimeModeAstronomicalDawn,
+            SceneScheduleTimeModeAstronomicalDusk
         };
 
         private static readonly string[] ColorPresetEffects =
@@ -2430,7 +2438,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var normalizedTimeMode))
             {
-                errors.Add($"{label} time mode must be Fixed, Sunrise, Sunset, CivilDawn, or CivilDusk");
+                errors.Add($"{label} time mode must be Fixed, Sunrise, Sunset, CivilDawn, CivilDusk, NauticalDawn, NauticalDusk, AstronomicalDawn, or AstronomicalDusk");
                 normalizedTimeMode = SceneScheduleTimeModeFixed;
             }
 
@@ -2721,8 +2729,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
-        /// Validates finite solar coordinates for a sunrise, sunset, civil-dawn, or
-        /// civil-dusk cue.
+        /// Returns whether a normalized solar schedule mode describes a morning event.
+        /// </summary>
+        public static bool IsSceneScheduleDawnTimeMode(string? value)
+        {
+            return TryNormalizeSceneScheduleTimeMode(value, out var normalized) &&
+                   (string.Equals(normalized, SceneScheduleTimeModeSunrise, StringComparison.Ordinal) ||
+                    string.Equals(normalized, SceneScheduleTimeModeCivilDawn, StringComparison.Ordinal) ||
+                    string.Equals(normalized, SceneScheduleTimeModeNauticalDawn, StringComparison.Ordinal) ||
+                    string.Equals(normalized, SceneScheduleTimeModeAstronomicalDawn, StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// Validates finite solar coordinates for a sunrise/sunset or twilight cue.
         /// </summary>
         public static bool AreValidSceneScheduleSolarCoordinates(double? latitude, double? longitude)
         {

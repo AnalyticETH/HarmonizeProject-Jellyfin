@@ -3,9 +3,10 @@ using System;
 namespace Jellyfin.Plugin.Hue.Service;
 
 /// <summary>
-/// Calculates sunrise, sunset, and civil twilight without a network dependency. The
-/// implementation uses the NOAA low-precision solar-position equations with the official
-/// zenith used for apparent sunrise/sunset (90.833 degrees) and civil twilight (96 degrees).
+/// Calculates sunrise, sunset, and standard twilight bands without a network dependency.
+/// The implementation uses the NOAA low-precision solar-position equations with the
+/// official zenith used for apparent sunrise/sunset (90.833 degrees), civil twilight
+/// (96 degrees), nautical twilight (102 degrees), and astronomical twilight (108 degrees).
 /// The requested calendar date identifies the base solar event; a configured offset may
 /// intentionally move the returned local instant across midnight. The calculator returns
 /// false during polar day/night when the requested event does not occur.
@@ -14,6 +15,8 @@ internal static class HueSolarCalculator
 {
     private const double SunriseSunsetZenithDegrees = 90.833;
     private const double CivilTwilightZenithDegrees = 96.0;
+    private const double NauticalTwilightZenithDegrees = 102.0;
+    private const double AstronomicalTwilightZenithDegrees = 108.0;
 
     internal static bool TryGetEventUtc(
         DateTime utcCalculationDate,
@@ -44,6 +47,38 @@ internal static class HueSolarCalculator
             longitude,
             dawn,
             CivilTwilightZenithDegrees,
+            out eventUtc);
+    }
+
+    internal static bool TryGetNauticalTwilightUtc(
+        DateTime utcCalculationDate,
+        double latitude,
+        double longitude,
+        bool dawn,
+        out DateTime eventUtc)
+    {
+        return TryGetEventUtc(
+            utcCalculationDate,
+            latitude,
+            longitude,
+            dawn,
+            NauticalTwilightZenithDegrees,
+            out eventUtc);
+    }
+
+    internal static bool TryGetAstronomicalTwilightUtc(
+        DateTime utcCalculationDate,
+        double latitude,
+        double longitude,
+        bool dawn,
+        out DateTime eventUtc)
+    {
+        return TryGetEventUtc(
+            utcCalculationDate,
+            latitude,
+            longitude,
+            dawn,
+            AstronomicalTwilightZenithDegrees,
             out eventUtc);
     }
 
@@ -143,6 +178,50 @@ internal static class HueSolarCalculator
             dawn,
             offsetMinutes,
             CivilTwilightZenithDegrees,
+            out eventLocal,
+            out eventUtc);
+    }
+
+    internal static bool TryGetNauticalTwilightLocal(
+        DateTime localDate,
+        TimeZoneInfo timeZone,
+        double latitude,
+        double longitude,
+        bool dawn,
+        int offsetMinutes,
+        out DateTime eventLocal,
+        out DateTime eventUtc)
+    {
+        return TryGetEventLocal(
+            localDate,
+            timeZone,
+            latitude,
+            longitude,
+            dawn,
+            offsetMinutes,
+            NauticalTwilightZenithDegrees,
+            out eventLocal,
+            out eventUtc);
+    }
+
+    internal static bool TryGetAstronomicalTwilightLocal(
+        DateTime localDate,
+        TimeZoneInfo timeZone,
+        double latitude,
+        double longitude,
+        bool dawn,
+        int offsetMinutes,
+        out DateTime eventLocal,
+        out DateTime eventUtc)
+    {
+        return TryGetEventLocal(
+            localDate,
+            timeZone,
+            latitude,
+            longitude,
+            dawn,
+            offsetMinutes,
+            AstronomicalTwilightZenithDegrees,
             out eventLocal,
             out eventUtc);
     }
