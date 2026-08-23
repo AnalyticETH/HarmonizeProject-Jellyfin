@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.198] - 2026-08-23
+
+### Added
+- **Per-step playlist brightness**: saved-scene playlists now accept credential-free `stepBrightnessPercent` overrides in parallel with `presetNames`; `null` or an omitted legacy list inherits each referenced scene's brightness, while explicit values remain bounded to 0-100 percent
+- **End-to-end brightness/history parity**: carry effective per-step brightness through previews, scheduled cues, repeat passes, runtime/status/history telemetry, API/UI, duplication, and credential-safe backup/restore, including persisted credential-free playlist step results across restart
+- **Regression coverage**: verify brightness validation, inheritance, API/UI round trips, preview/scheduler payloads, persistence, duplication, and credential-safe portability
+
 ## [1.5.197] - 2026-08-23
 
 ### Added

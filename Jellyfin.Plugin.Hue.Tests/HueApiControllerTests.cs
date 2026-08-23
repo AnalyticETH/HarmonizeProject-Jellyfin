@@ -2253,8 +2253,8 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "global-area",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, DurationSeconds = 1 },
-                new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, DurationSeconds = 2 }
+                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, BrightnessPercent = 75, DurationSeconds = 1 },
+                new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, BrightnessPercent = 60, DurationSeconds = 2 }
             }
         });
         var controller = CreateController();
@@ -2264,6 +2264,7 @@ public sealed class HueApiControllerTests : IDisposable
             Name = " Evening sequence ",
             PresetNames = new List<string> { "Warm", "Cool" },
             StepDurationSeconds = new List<int> { 3, 0 },
+            StepBrightnessPercent = new List<int?> { 40, null },
             RepeatCount = 2
         });
         var savedResponse = Assert.IsType<OkObjectResult>(saved.Result);
@@ -2272,6 +2273,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(2, savedResult.RepeatCount);
         Assert.Equal(10, savedResult.TotalDurationSeconds);
         Assert.Equal(new[] { 3, 0 }, savedResult.StepDurationSeconds);
+        Assert.Equal(new int?[] { 40, null }, savedResult.StepBrightnessPercent);
         Assert.Equal("Default bridge target", savedResult.TargetLabel);
         Assert.DoesNotContain("playlist-global-app-secret", JsonSerializer.Serialize(savedResult), StringComparison.Ordinal);
 
@@ -2280,6 +2282,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Single(listed);
         Assert.Equal(new[] { "Warm", "Cool" }, listed[0].PresetNames);
         Assert.Equal(2, listed[0].RepeatCount);
+        Assert.Equal(new int?[] { 40, null }, listed[0].StepBrightnessPercent);
 
         SetupHttpResponse(
             HttpStatusCode.OK,
@@ -2327,6 +2330,10 @@ public sealed class HueApiControllerTests : IDisposable
             .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
             .Select(invocation => (int)invocation.Arguments[6]!)
             .ToArray());
+        Assert.Equal(new[] { 40, 60, 40, 60 }, streamTester.Invocations
+            .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
+            .Select(invocation => (int)invocation.Arguments[9]!)
+            .ToArray());
         Assert.Equal(new[] { 3, 2, 3, 2 }, streamTester.Invocations
             .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
             .Select(invocation => (int)invocation.Arguments[10]!)
@@ -2343,6 +2350,7 @@ public sealed class HueApiControllerTests : IDisposable
         var duplicateResult = Assert.IsType<HueScenePlaylistResult>(duplicateResponse.Value);
         Assert.Equal("Evening sequence (Copy)", duplicateResult.Name);
         Assert.Equal(new[] { 3, 0 }, duplicateResult.StepDurationSeconds);
+        Assert.Equal(new int?[] { 40, null }, duplicateResult.StepBrightnessPercent);
         Assert.Equal(2, configuration.ScenePlaylists.Count);
 
         var deleted = controller.DeleteScenePlaylist(duplicateResult.Name);
@@ -7891,6 +7899,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Name = "Portable sequence",
                     PresetNames = new List<string> { "Sunrise", "Midnight" },
                     StepDurationSeconds = new List<int> { 2, 0 },
+                    StepBrightnessPercent = new List<int?> { 35, null },
                     RepeatCount = 2,
                     PlaybackOrder = PluginConfiguration.ScenePlaylistOrderShuffle,
                     TargetUserIds = new List<string> { "user-1" },
@@ -7903,6 +7912,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("playlist-portable", exportedPlaylist.Id);
         Assert.Equal(new[] { "Sunrise", "Midnight" }, exportedPlaylist.PresetNames);
         Assert.Equal(new[] { 2, 0 }, exportedPlaylist.StepDurationSeconds);
+        Assert.Equal(new int?[] { 35, null }, exportedPlaylist.StepBrightnessPercent);
         Assert.Equal(2, exportedPlaylist.RepeatCount);
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, exportedPlaylist.PlaybackOrder);
         Assert.Equal(new[] { "user-1" }, exportedPlaylist.TargetUserIds);
@@ -7942,6 +7952,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Name = exportedPlaylist.Name,
                     PresetNames = exportedPlaylist.PresetNames.ToList(),
                     StepDurationSeconds = exportedPlaylist.StepDurationSeconds.ToList(),
+                    StepBrightnessPercent = exportedPlaylist.StepBrightnessPercent.ToList(),
                     RepeatCount = exportedPlaylist.RepeatCount,
                     PlaybackOrder = exportedPlaylist.PlaybackOrder,
                     TargetUserIds = exportedPlaylist.TargetUserIds.ToList(),
@@ -7960,6 +7971,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("playlist-portable", imported.Id);
         Assert.Equal(new[] { "Sunrise", "Midnight" }, imported.PresetNames);
         Assert.Equal(new[] { 2, 0 }, imported.StepDurationSeconds);
+        Assert.Equal(new int?[] { 35, null }, imported.StepBrightnessPercent);
         Assert.Equal(2, imported.RepeatCount);
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, imported.PlaybackOrder);
         Assert.Equal(new[] { "user-1" }, imported.TargetUserIds);

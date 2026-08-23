@@ -127,7 +127,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
     /// <summary>
     /// A credential-free saved-scene collection. Playlists retain only scene names, optional
-    /// bounded per-step duration overrides, a bounded repeat count, playback order, and an
+    /// bounded per-step duration and brightness overrides, a bounded repeat count, playback order, and an
     /// optional target mode; bridge credentials and
     /// channel profiles are resolved from the current server configuration when the
     /// playlist is previewed. A selected-target playlist can fan out to a deliberate
@@ -145,6 +145,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// override only that playlist step and remain bounded to the preview duration.
         /// </summary>
         public List<int> StepDurationSeconds { get; set; } = new List<int>();
+        /// <summary>
+        /// Optional per-step brightness values in percent, parallel to <see cref="PresetNames"/>.
+        /// A null or missing value preserves each saved scene's brightness; explicit values
+        /// from 0 through 100 override only that playlist step.
+        /// </summary>
+        public List<int?> StepBrightnessPercent { get; set; } = new List<int?>();
         /// <summary>
         /// Number of times the saved scene sequence is played. Missing values in
         /// legacy configurations preserve the original single-pass behavior.
@@ -382,6 +388,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
+        public int? BrightnessPercent { get; set; }
         public string? TargetLabel { get; set; }
         public List<string> TargetUserIds { get; set; } = new List<string>();
         public bool IncludeDefaultTarget { get; set; }
@@ -393,8 +400,31 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string Message { get; set; } = string.Empty;
         public string? CleanupWarning { get; set; }
         public List<HueSceneScheduleTargetResult> TargetResults { get; set; } = new List<HueSceneScheduleTargetResult>();
+        public List<HueScenePlaylistStepHistoryEntry> PlaylistSteps { get; set; } = new List<HueScenePlaylistStepHistoryEntry>();
         public DateTime RunAtUtc { get; set; }
         public int RunCount { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free persisted telemetry for one expanded saved-playlist step.
+    /// </summary>
+    public sealed class HueScenePlaylistStepHistoryEntry
+    {
+        public int Index { get; set; }
+        public int RepeatIndex { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+        public int OriginalIndex { get; set; }
+        public string PresetName { get; set; } = string.Empty;
+        public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
+        public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+        public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
+        public int? BrightnessPercent { get; set; }
+        public int DurationSeconds { get; set; }
+        public int TransitionSeconds { get; set; }
+        public int TransitionOutSeconds { get; set; }
+        public bool Succeeded { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string? CleanupWarning { get; set; }
+        public List<HueSceneScheduleTargetResult> TargetResults { get; set; } = new List<HueSceneScheduleTargetResult>();
     }
 
     /// <summary>
@@ -585,6 +615,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxScenePlaylistTotalDurationSeconds = MaxScenePlaylistItems * MaxPreviewDurationSeconds;
         public const int MinScenePlaylistStepDurationSeconds = 0;
         public const int MaxScenePlaylistStepDurationSeconds = MaxPreviewDurationSeconds;
+        public const int MinScenePlaylistStepBrightnessPercent = MinOutputBrightnessPercent;
+        public const int MaxScenePlaylistStepBrightnessPercent = MaxOutputBrightnessPercent;
         public const int MinScenePlaylistRepeatCount = 1;
         public const int MaxScenePlaylistRepeatCount = 10;
         public const int DefaultScenePlaylistRepeatCount = MinScenePlaylistRepeatCount;
@@ -847,6 +879,29 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     overrideSeconds,
                     MinPreviewDurationSeconds,
                     MaxScenePlaylistStepDurationSeconds);
+        }
+
+        /// <summary>
+        /// Resolves one playlist step's brightness. A missing, null, or malformed override
+        /// inherits the referenced scene brightness; explicit values are bounded to 0-100.
+        /// </summary>
+        public static int GetEffectiveScenePlaylistStepBrightnessPercent(
+            HueScenePlaylist playlist,
+            int stepIndex,
+            HueColorPreset preset)
+        {
+            ArgumentNullException.ThrowIfNull(playlist);
+            ArgumentNullException.ThrowIfNull(preset);
+            var overridePercent = playlist.StepBrightnessPercent != null &&
+                stepIndex >= 0 &&
+                stepIndex < playlist.StepBrightnessPercent.Count
+                ? playlist.StepBrightnessPercent[stepIndex]
+                : null;
+            return !overridePercent.HasValue ||
+                overridePercent.Value < MinScenePlaylistStepBrightnessPercent ||
+                overridePercent.Value > MaxScenePlaylistStepBrightnessPercent
+                ? Math.Clamp(preset.BrightnessPercent, MinOutputBrightnessPercent, MaxOutputBrightnessPercent)
+                : overridePercent.Value;
         }
 
         /// <summary>
@@ -2352,6 +2407,22 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     stepDurations[index] > MaxScenePlaylistStepDurationSeconds)
                 {
                     errors.Add($"{label} step {index + 1} duration must be between {MinScenePlaylistStepDurationSeconds} (inherit) and {MaxScenePlaylistStepDurationSeconds} seconds");
+                }
+            }
+
+            var stepBrightness = playlist.StepBrightnessPercent ?? new List<int?>();
+            if (stepBrightness.Count != 0 && stepBrightness.Count != presetNames.Count)
+            {
+                errors.Add($"{label} step brightness overrides must contain one value per saved scene, or be omitted");
+            }
+
+            for (var index = 0; index < stepBrightness.Count; index++)
+            {
+                if (stepBrightness[index].HasValue &&
+                    (stepBrightness[index]!.Value < MinScenePlaylistStepBrightnessPercent ||
+                     stepBrightness[index]!.Value > MaxScenePlaylistStepBrightnessPercent))
+                {
+                    errors.Add($"{label} step {index + 1} brightness must be between {MinScenePlaylistStepBrightnessPercent} and {MaxScenePlaylistStepBrightnessPercent} percent, or null (inherit)");
                 }
             }
 

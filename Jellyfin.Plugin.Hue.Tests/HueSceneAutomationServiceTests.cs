@@ -1455,9 +1455,17 @@ public sealed class HueSceneAutomationServiceTests
                 new() { Name = "First", Red = 11, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 },
                 new() { Name = "Second", Red = 222, Green = 180, Blue = 140, BrightnessPercent = 70, DurationSeconds = 2 }
             },
+            PersistSceneScheduleHistory = true,
             ScenePlaylists = new List<HueScenePlaylist>
             {
-                new() { Id = "scheduled-playlist", Name = "Scheduled sequence", PresetNames = new List<string> { "First", "Second" }, RepeatCount = 2 }
+                new()
+                {
+                    Id = "scheduled-playlist",
+                    Name = "Scheduled sequence",
+                    PresetNames = new List<string> { "First", "Second" },
+                    StepBrightnessPercent = new List<int?> { 30, null },
+                    RepeatCount = 2
+                }
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
@@ -1489,8 +1497,12 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(2, result.PlaylistRepeatCount);
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderSequential, result.PlaylistPlaybackOrder);
         Assert.Equal(new[] { "First", "Second", "First", "Second" }, result.PlaylistSteps.Select(step => step.PresetName));
+        Assert.Equal(new[] { 30, 70, 30, 70 }, result.PlaylistSteps.Select(step => step.BrightnessPercent));
         Assert.Equal(new[] { 11, 222, 11, 222 }, streamTester.Reds);
+        Assert.Equal(new[] { 30, 70, 30, 70 }, streamTester.Brightnesses);
         Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        var history = Assert.Single(service.GetHistory());
+        Assert.Equal(new[] { 30, 70, 30, 70 }, history.PlaylistSteps.Select(step => step.BrightnessPercent));
         var runtime = Assert.Single(service.GetStatus().Schedules);
         Assert.Equal("Scheduled sequence", runtime.PlaylistName);
         Assert.Equal(2, runtime.PlaylistStepCount);
@@ -3713,6 +3725,21 @@ public sealed class HueSceneAutomationServiceTests
                     WasCatchUp = true,
                     Message = "The bridge was unavailable.",
                     CleanupWarning = "Cleanup warning",
+                    BrightnessPercent = 42,
+                    PlaylistSteps = new List<HueScenePlaylistStepHistoryEntry>
+                    {
+                        new()
+                        {
+                            Index = 1,
+                            RepeatIndex = 2,
+                            OriginalIndex = 2,
+                            PresetName = "Accent",
+                            BrightnessPercent = 37,
+                            DurationSeconds = 4,
+                            Succeeded = true,
+                            Message = "Restored step telemetry."
+                        }
+                    },
                     RunAtUtc = DateTime.UtcNow.AddMinutes(-5),
                     RunCount = 7
                 }
@@ -3734,6 +3761,10 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("Living Room", history.TargetLabel);
         Assert.Equal(7, history.RunCount);
         Assert.True(history.WasCatchUp);
+        Assert.Equal(42, history.BrightnessPercent);
+        var restoredStep = Assert.Single(history.PlaylistSteps);
+        Assert.Equal(37, restoredStep.BrightnessPercent);
+        Assert.Equal("Accent", restoredStep.PresetName);
         Assert.True(runtime.LastWasCatchUp);
         var serialized = JsonSerializer.Serialize(history);
         Assert.DoesNotContain("AppKey", serialized, StringComparison.OrdinalIgnoreCase);
@@ -3879,6 +3910,7 @@ public sealed class HueSceneAutomationServiceTests
     private sealed class RecordingStreamTester : IHueStreamTester
     {
         public List<int> Reds { get; } = new();
+        public List<int> Brightnesses { get; } = new();
         public List<int> Durations { get; } = new();
 
         public Task<HueStreamProbeResult> TestAsync(
@@ -3914,6 +3946,7 @@ public sealed class HueSceneAutomationServiceTests
             int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
         {
             Reds.Add(red);
+            Brightnesses.Add(brightnessPercent);
             Durations.Add(durationSeconds);
             return Task.FromResult(new HueStreamProbeResult
             {

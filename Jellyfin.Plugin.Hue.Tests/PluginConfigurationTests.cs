@@ -345,6 +345,64 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsPerStepBrightnessOverridesAndPreservesLegacyInheritance()
+    {
+        var first = new HueColorPreset { Name = "Warm", BrightnessPercent = 80 };
+        var second = new HueColorPreset { Name = "Cool", BrightnessPercent = 60 };
+        var playlist = new HueScenePlaylist
+        {
+            Id = "playlist-brightness",
+            Name = "Bright sequence",
+            PresetNames = new List<string> { "Warm", "Cool" },
+            StepBrightnessPercent = new List<int?> { 25, null }
+        };
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { first, second },
+            ScenePlaylists = new List<HueScenePlaylist> { playlist }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(25, PluginConfiguration.GetEffectiveScenePlaylistStepBrightnessPercent(playlist, 0, first));
+        Assert.Equal(60, PluginConfiguration.GetEffectiveScenePlaylistStepBrightnessPercent(playlist, 1, second));
+
+        playlist.StepBrightnessPercent = new List<int?>();
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(80, PluginConfiguration.GetEffectiveScenePlaylistStepBrightnessPercent(playlist, 0, first));
+    }
+
+    [Fact]
+    public void ValidateScenePlaylists_RejectsMismatchedOrOutOfRangeStepBrightness()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm" },
+                new() { Name = "Cool" }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-invalid-brightness",
+                    Name = "Invalid brightness",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    StepBrightnessPercent = new List<int?> { 50 }
+                }
+            }
+        };
+
+        var mismatchErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step brightness overrides must contain one value per saved scene, or be omitted", mismatchErrors);
+
+        config.ScenePlaylists[0].StepBrightnessPercent = new List<int?> { -1, 101 };
+        var rangeErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step 1 brightness must be between 0 and 100 percent, or null (inherit)", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 2 brightness must be between 0 and 100 percent, or null (inherit)", rangeErrors);
+    }
+
+    [Fact]
     public void ValidateScenePlaylists_RejectsMismatchedOrOutOfRangeStepDurations()
     {
         var config = new PluginConfiguration

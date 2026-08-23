@@ -475,6 +475,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Name = playlist.Name?.Trim() ?? string.Empty,
                 PresetNames = presetNames,
                 StepDurationSeconds = (playlist.StepDurationSeconds ?? new List<int>()).ToArray(),
+                StepBrightnessPercent = (playlist.StepBrightnessPercent ?? new List<int?>()).ToArray(),
                 RepeatCount = Math.Clamp(
                     playlist.RepeatCount,
                     PluginConfiguration.MinScenePlaylistRepeatCount,
@@ -521,6 +522,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Name = playlist.Name,
                 PresetNames = (playlist.PresetNames ?? new List<string>()).ToList(),
                 StepDurationSeconds = (playlist.StepDurationSeconds ?? new List<int>()).ToList(),
+                StepBrightnessPercent = (playlist.StepBrightnessPercent ?? new List<int?>()).ToList(),
                 RepeatCount = playlist.RepeatCount,
                 PlaybackOrder = playlist.PlaybackOrder,
                 TargetUserId = playlist.TargetUserId,
@@ -2463,6 +2465,11 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 playlist.StepDurationSeconds = config.ScenePlaylists[existingIndex]?.StepDurationSeconds?.ToList()
                     ?? new List<int>();
+            }
+            if (existingIndex >= 0 && request.StepBrightnessPercent == null)
+            {
+                playlist.StepBrightnessPercent = config.ScenePlaylists[existingIndex]?.StepBrightnessPercent?.ToList()
+                    ?? new List<int?>();
             }
             var previousPlaylistName = existingIndex >= 0
                 ? config.ScenePlaylists[existingIndex]?.Name?.Trim() ?? string.Empty
@@ -6651,6 +6658,11 @@ namespace Jellyfin.Plugin.Hue.Api
                     playlist.StepDurationSeconds = existingPlaylist.StepDurationSeconds?.ToList()
                         ?? new List<int>();
                 }
+                if (playlistRequest?.StepBrightnessPercent == null && existingPlaylist != null)
+                {
+                    playlist.StepBrightnessPercent = existingPlaylist.StepBrightnessPercent?.ToList()
+                        ?? new List<int?>();
+                }
                 var existingPlaylistName = existingPlaylist?.Name?.Trim() ?? string.Empty;
                 var importedPlaylistName = playlist.Name?.Trim() ?? string.Empty;
                 if (!string.IsNullOrWhiteSpace(existingPlaylistName) &&
@@ -9193,7 +9205,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Credential-free saved-scene playlist metadata returned by administrator APIs,
-    /// including its bounded per-step duration overrides, repeat count, and selected target mode.
+    /// including its bounded per-step duration and brightness overrides, repeat count, and selected target mode.
     /// </summary>
     public sealed class HueScenePlaylistResult
     {
@@ -9208,6 +9220,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("stepDurationSeconds")]
         public IReadOnlyList<int> StepDurationSeconds { get; set; } = Array.Empty<int>();
+
+        [JsonPropertyName("stepBrightnessPercent")]
+        public IReadOnlyList<int?> StepBrightnessPercent { get; set; } = Array.Empty<int?>();
 
         [JsonPropertyName("repeatCount")]
         public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
@@ -9345,7 +9360,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Request shape for saving a credential-free scene playlist, its bounded repeat count,
-    /// playback order, optional per-step duration overrides, and either a legacy target
+    /// playback order, optional per-step duration and brightness overrides, and either a legacy target
     /// mode or a selected mapping subset.
     /// </summary>
     public sealed class HueScenePlaylistRequest
@@ -9361,6 +9376,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("stepDurationSeconds")]
         public List<int>? StepDurationSeconds { get; set; }
+
+        [JsonPropertyName("stepBrightnessPercent")]
+        public List<int?>? StepBrightnessPercent { get; set; }
 
         [JsonPropertyName("repeatCount")]
         public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
@@ -9391,6 +9409,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     .Select(name => name?.Trim() ?? string.Empty)
                     .ToList(),
                 StepDurationSeconds = (StepDurationSeconds ?? new List<int>()).ToList(),
+                StepBrightnessPercent = (StepBrightnessPercent ?? new List<int?>()).ToList(),
                 RepeatCount = RepeatCount,
                 PlaybackOrder = normalizedPlaybackOrder,
                 TargetUserId = TargetAllEnabledMappings || IncludeDefaultTarget || (TargetUserIds?.Count ?? 0) > 0

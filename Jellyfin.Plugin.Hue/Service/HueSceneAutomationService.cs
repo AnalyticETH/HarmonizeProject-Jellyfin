@@ -1631,7 +1631,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneSchedule schedule,
         HueColorPreset preset,
         CancellationToken cancellationToken = default,
-        bool targetScopedPlayback = false)
+        bool targetScopedPlayback = false,
+        int? brightnessPercentOverride = null)
     {
         var config = Plugin.Instance?.Configuration;
         if (config == null)
@@ -1652,7 +1653,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 preset,
                 target,
                 cancellationToken,
-                targetScopedPlayback).ConfigureAwait(false);
+                targetScopedPlayback,
+                brightnessPercentOverride).ConfigureAwait(false);
             targetResults.Add(targetResult);
             if (!targetResult.Succeeded &&
                 targetResult.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
@@ -1674,6 +1676,15 @@ public sealed class HueSceneAutomationService : BackgroundService
             PresetName = preset.Name?.Trim() ?? string.Empty,
             Effect = effect,
             EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+            BrightnessPercent = brightnessPercentOverride.HasValue
+                ? Math.Clamp(
+                    brightnessPercentOverride.Value,
+                    PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                    PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
+                : Math.Clamp(
+                    preset.BrightnessPercent,
+                    PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                    PluginConfiguration.MaxScenePlaylistStepBrightnessPercent),
             TransitionCurve = GetEffectiveTransitionCurve(preset),
             TargetLabel = ResolveTargetLabel(config, schedule),
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
@@ -1775,6 +1786,10 @@ public sealed class HueSceneAutomationService : BackgroundService
             for (var index = 0; index < pass.Count; index++)
             {
                 var (preset, originalIndex) = pass[index];
+                var effectiveBrightnessPercent = PluginConfiguration.GetEffectiveScenePlaylistStepBrightnessPercent(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
                 var schedule = new HueSceneSchedule
                 {
                     Id = $"scene-playlist-preview-{repeatIndex}-{index + 1}",
@@ -1793,7 +1808,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     schedule,
                     preset,
                     cancellationToken,
-                    targetScopedPlayback).ConfigureAwait(false);
+                    targetScopedPlayback,
+                    effectiveBrightnessPercent).ConfigureAwait(false);
                 PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
                 steps.Add(new HueScenePlaylistStepResult
                 {
@@ -1804,6 +1820,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     Effect = effect,
                     EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                     TransitionCurve = GetEffectiveTransitionCurve(preset),
+                    BrightnessPercent = effectiveBrightnessPercent,
                     DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset),
                     TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset),
                     TransitionOutSeconds = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset),
@@ -2704,6 +2721,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     Name = playlist.Name,
                     PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                     StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
+                    StepBrightnessPercent = playlist.StepBrightnessPercent?.ToList() ?? new List<int?>(),
                     RepeatCount = playlist.RepeatCount,
                     PlaybackOrder = playlist.PlaybackOrder
                 },
@@ -3487,6 +3505,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 Name = playlist.Name,
                 PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                 StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
+                StepBrightnessPercent = playlist.StepBrightnessPercent?.ToList() ?? new List<int?>(),
                 RepeatCount = playlist.RepeatCount,
                 PlaybackOrder = playlist.PlaybackOrder,
                 TargetUserId = schedule.TargetAllEnabledMappings
@@ -3547,6 +3566,10 @@ public sealed class HueSceneAutomationService : BackgroundService
             PresetName = preset.Name?.Trim() ?? string.Empty,
             Effect = effect,
             EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+            BrightnessPercent = Math.Clamp(
+                preset.BrightnessPercent,
+                PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                PluginConfiguration.MaxScenePlaylistStepBrightnessPercent),
             TargetLabel = ResolveTargetLabel(config, schedule),
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -3584,6 +3607,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistPlaybackOrder = playlistRun.PlaybackOrder,
             Effect = PluginConfiguration.SceneScheduleEffectPlaylist,
             EffectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+            BrightnessPercent = null,
             TargetLabel = string.IsNullOrWhiteSpace(playlistRun.TargetLabel)
                 ? ResolveTargetLabel(config, schedule)
                 : playlistRun.TargetLabel,
@@ -3605,7 +3629,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueColorPreset preset,
         HueSceneAutomationTargetDescription target,
         CancellationToken cancellationToken,
-        bool targetScopedPlayback = false)
+        bool targetScopedPlayback = false,
+        int? brightnessPercentOverride = null)
     {
         try
         {
@@ -3651,6 +3676,15 @@ public sealed class HueSceneAutomationService : BackgroundService
                 : null;
             var curveTester = _streamTester as IHueTransitionCurveStreamTester;
             var transitionCurve = GetEffectiveTransitionCurve(preset);
+            var brightnessPercent = brightnessPercentOverride.HasValue
+                ? Math.Clamp(
+                    brightnessPercentOverride.Value,
+                    PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                    PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
+                : Math.Clamp(
+                    preset.BrightnessPercent,
+                    PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                    PluginConfiguration.MaxScenePlaylistStepBrightnessPercent);
             var preview = scopedTester != null && curveTester != null
                 ? await curveTester.PreviewAsyncForTargetWithTransitionCurve(
                     target.BridgeIp,
@@ -3662,7 +3696,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     preset.Red,
                     preset.Green,
                     preset.Blue,
-                    preset.BrightnessPercent,
+                    brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
                     GetEffectiveTransitionSeconds(schedule, preset),
@@ -3681,7 +3715,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     preset.Red,
                     preset.Green,
                     preset.Blue,
-                    preset.BrightnessPercent,
+                    brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
                     GetEffectiveTransitionSeconds(schedule, preset),
@@ -3699,7 +3733,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     preset.Red,
                     preset.Green,
                     preset.Blue,
-                    preset.BrightnessPercent,
+                    brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
                     GetEffectiveTransitionSeconds(schedule, preset),
@@ -3717,7 +3751,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     preset.Red,
                     preset.Green,
                     preset.Blue,
-                    preset.BrightnessPercent,
+                    brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
                     GetEffectiveTransitionSeconds(schedule, preset),
@@ -4116,6 +4150,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Effect = result.Effect,
             EffectSpeedPercent = result.EffectSpeedPercent,
             TransitionCurve = result.TransitionCurve,
+            BrightnessPercent = result.BrightnessPercent,
             TargetLabel = result.TargetLabel,
             TargetUserIds = result.TargetUserIds?.ToList() ?? new List<string>(),
             IncludeDefaultTarget = result.IncludeDefaultTarget,
@@ -4128,8 +4163,120 @@ public sealed class HueSceneAutomationService : BackgroundService
             CleanupWarning = result.CleanupWarning,
             TargetResults = result.TargetResults?.Select(CloneTargetResult).ToList()
                 ?? new List<HueSceneScheduleTargetResult>(),
+            PlaylistSteps = result.PlaylistSteps?.Select(ToHistoryPlaylistStep).ToList()
+                ?? new List<HueScenePlaylistStepHistoryEntry>(),
             RunAtUtc = result.RunAtUtc,
             RunCount = result.RunCount
+        };
+    }
+
+    private static HueScenePlaylistStepHistoryEntry ToHistoryPlaylistStep(HueScenePlaylistStepResult source)
+    {
+        return new HueScenePlaylistStepHistoryEntry
+        {
+            Index = source.Index,
+            RepeatIndex = source.RepeatIndex,
+            OriginalIndex = source.OriginalIndex,
+            PresetName = source.PresetName,
+            Effect = source.Effect,
+            EffectSpeedPercent = source.EffectSpeedPercent,
+            TransitionCurve = source.TransitionCurve,
+            BrightnessPercent = source.BrightnessPercent,
+            DurationSeconds = source.DurationSeconds,
+            TransitionSeconds = source.TransitionSeconds,
+            TransitionOutSeconds = source.TransitionOutSeconds,
+            Succeeded = source.Succeeded,
+            Message = source.Message,
+            CleanupWarning = source.CleanupWarning,
+            TargetResults = source.TargetResults?.Select(CloneTargetResult).ToList()
+                ?? new List<HueSceneScheduleTargetResult>()
+        };
+    }
+
+    private static HueScenePlaylistStepHistoryEntry CloneHistoryPlaylistStep(HueScenePlaylistStepHistoryEntry source)
+    {
+        return new HueScenePlaylistStepHistoryEntry
+        {
+            Index = Math.Max(0, source.Index),
+            RepeatIndex = Math.Max(PluginConfiguration.MinScenePlaylistRepeatCount, source.RepeatIndex),
+            OriginalIndex = Math.Max(0, source.OriginalIndex),
+            PresetName = source.PresetName?.Trim() ?? string.Empty,
+            Effect = PluginConfiguration.TryNormalizeColorPresetEffect(source.Effect, out var effect)
+                ? effect
+                : PluginConfiguration.ColorPresetEffectSolid,
+            EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(source.EffectSpeedPercent),
+            TransitionCurve = PluginConfiguration.TryNormalizeColorPresetTransitionCurve(
+                source.TransitionCurve,
+                out var transitionCurve)
+                ? transitionCurve
+                : PluginConfiguration.ColorPresetTransitionCurveLinear,
+            BrightnessPercent = source.BrightnessPercent.HasValue
+                ? Math.Clamp(
+                    source.BrightnessPercent.Value,
+                    PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                    PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
+                : null,
+            DurationSeconds = Math.Clamp(
+                source.DurationSeconds,
+                PluginConfiguration.MinPreviewDurationSeconds,
+                PluginConfiguration.MaxPreviewDurationSeconds),
+            TransitionSeconds = Math.Clamp(
+                source.TransitionSeconds,
+                PluginConfiguration.MinColorPresetTransitionSeconds,
+                PluginConfiguration.MaxColorPresetTransitionSeconds),
+            TransitionOutSeconds = Math.Clamp(
+                source.TransitionOutSeconds,
+                PluginConfiguration.MinColorPresetTransitionOutSeconds,
+                PluginConfiguration.MaxColorPresetTransitionOutSeconds),
+            Succeeded = source.Succeeded,
+            Message = source.Message?.Trim() ?? string.Empty,
+            CleanupWarning = source.CleanupWarning?.Trim(),
+            TargetResults = source.TargetResults?.Where(target => target != null)
+                .Select(CloneTargetResult)
+                .ToList() ?? new List<HueSceneScheduleTargetResult>()
+        };
+    }
+
+    private static HueScenePlaylistStepResult ToPlaylistStepResult(HueScenePlaylistStepHistoryEntry source)
+    {
+        return new HueScenePlaylistStepResult
+        {
+            Index = source.Index,
+            RepeatIndex = source.RepeatIndex,
+            OriginalIndex = source.OriginalIndex,
+            PresetName = source.PresetName?.Trim() ?? string.Empty,
+            Effect = PluginConfiguration.TryNormalizeColorPresetEffect(source.Effect, out var effect)
+                ? effect
+                : PluginConfiguration.ColorPresetEffectSolid,
+            EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(source.EffectSpeedPercent),
+            TransitionCurve = PluginConfiguration.TryNormalizeColorPresetTransitionCurve(
+                source.TransitionCurve,
+                out var transitionCurve)
+                ? transitionCurve
+                : PluginConfiguration.ColorPresetTransitionCurveLinear,
+            BrightnessPercent = source.BrightnessPercent.HasValue
+                ? Math.Clamp(
+                    source.BrightnessPercent.Value,
+                    PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                    PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
+                : 0,
+            DurationSeconds = Math.Clamp(
+                source.DurationSeconds,
+                PluginConfiguration.MinPreviewDurationSeconds,
+                PluginConfiguration.MaxPreviewDurationSeconds),
+            TransitionSeconds = Math.Clamp(
+                source.TransitionSeconds,
+                PluginConfiguration.MinColorPresetTransitionSeconds,
+                PluginConfiguration.MaxColorPresetTransitionSeconds),
+            TransitionOutSeconds = Math.Clamp(
+                source.TransitionOutSeconds,
+                PluginConfiguration.MinColorPresetTransitionOutSeconds,
+                PluginConfiguration.MaxColorPresetTransitionOutSeconds),
+            Succeeded = source.Succeeded,
+            Message = source.Message?.Trim() ?? string.Empty,
+            CleanupWarning = source.CleanupWarning?.Trim(),
+            TargetResults = source.TargetResults?.Where(target => target != null)
+                .Select(CloneTargetResult).ToArray() ?? Array.Empty<HueSceneScheduleTargetResult>()
         };
     }
 
@@ -4155,6 +4302,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                     ? PluginConfiguration.SceneScheduleEffectPlaylist
                 : PluginConfiguration.ColorPresetEffectSolid,
             EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(source.EffectSpeedPercent),
+            BrightnessPercent = source.BrightnessPercent.HasValue
+                ? Math.Clamp(
+                    source.BrightnessPercent.Value,
+                    PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                    PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
+                : null,
             TransitionCurve = PluginConfiguration.TryNormalizeColorPresetTransitionCurve(
                 source.TransitionCurve,
                 out var sourceTransitionCurve)
@@ -4175,6 +4328,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetResults = source.TargetResults?.Where(target => target != null)
                 .Select(CloneTargetResult)
                 .ToList() ?? new List<HueSceneScheduleTargetResult>(),
+            PlaylistSteps = source.PlaylistSteps?.Where(step => step != null)
+                .Select(CloneHistoryPlaylistStep)
+                .ToList() ?? new List<HueScenePlaylistStepHistoryEntry>(),
             RunAtUtc = source.RunAtUtc,
             RunCount = Math.Max(0, source.RunCount)
         };
@@ -4202,6 +4358,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                     ? effect
                     : PluginConfiguration.ColorPresetEffectSolid,
             EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(entry.EffectSpeedPercent),
+            BrightnessPercent = entry.BrightnessPercent.HasValue
+                ? Math.Clamp(
+                    entry.BrightnessPercent.Value,
+                    PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                    PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
+                : null,
             TransitionCurve = PluginConfiguration.TryNormalizeColorPresetTransitionCurve(
                 entry.TransitionCurve,
                 out var entryTransitionCurve)
@@ -4222,6 +4384,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetResults = entry.TargetResults?.Where(target => target != null)
                 .Select(CloneTargetResult)
                 .ToArray() ?? Array.Empty<HueSceneScheduleTargetResult>(),
+            PlaylistSteps = entry.PlaylistSteps?.Where(step => step != null)
+                .Select(ToPlaylistStepResult)
+                .ToArray() ?? Array.Empty<HueScenePlaylistStepResult>(),
             RunAtUtc = entry.RunAtUtc,
             RunCount = Math.Max(0, entry.RunCount)
         };
@@ -4239,6 +4404,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistPlaybackOrder = source.PlaylistPlaybackOrder,
             Effect = source.Effect,
             EffectSpeedPercent = source.EffectSpeedPercent,
+            BrightnessPercent = source.BrightnessPercent,
             TransitionCurve = source.TransitionCurve,
             TargetLabel = source.TargetLabel,
             TargetUserIds = source.TargetUserIds?.ToArray() ?? Array.Empty<string>(),
@@ -4663,6 +4829,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Effect = source.Effect,
             EffectSpeedPercent = source.EffectSpeedPercent,
             TransitionCurve = source.TransitionCurve,
+            BrightnessPercent = source.BrightnessPercent,
             DurationSeconds = source.DurationSeconds,
             TransitionSeconds = source.TransitionSeconds,
             TransitionOutSeconds = source.TransitionOutSeconds,
@@ -4819,6 +4986,9 @@ public sealed class HueSceneAutomationRunResult
     [JsonPropertyName("effectSpeedPercent")]
     public int EffectSpeedPercent { get; init; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
+    [JsonPropertyName("brightnessPercent")]
+    public int? BrightnessPercent { get; init; }
+
     [JsonPropertyName("transitionCurve")]
     public string TransitionCurve { get; init; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
 
@@ -4941,6 +5111,9 @@ public sealed class HueScenePlaylistStepResult
 
     [JsonPropertyName("transitionCurve")]
     public string TransitionCurve { get; init; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
+
+    [JsonPropertyName("brightnessPercent")]
+    public int BrightnessPercent { get; init; }
 
     [JsonPropertyName("durationSeconds")]
     public int DurationSeconds { get; init; }
