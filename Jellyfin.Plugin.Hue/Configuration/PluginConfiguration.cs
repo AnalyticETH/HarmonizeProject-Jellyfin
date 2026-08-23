@@ -120,8 +120,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
-    /// A credential-free ordered collection of saved scenes. Playlists retain only scene
-    /// names, a bounded repeat count, and an optional target mode; bridge credentials and
+    /// A credential-free saved-scene collection. Playlists retain only scene names, a
+    /// bounded repeat count, playback order, and an optional target mode; bridge credentials and
     /// channel profiles are resolved from the current server configuration when the
     /// playlist is previewed. A selected-target playlist can fan out to a deliberate
     /// subset of enabled user mappings and optionally the global bridge without storing
@@ -133,10 +133,16 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string Name { get; set; } = string.Empty;
         public List<string> PresetNames { get; set; } = new List<string>();
         /// <summary>
-        /// Number of times the ordered scene sequence is played. Missing values in
+        /// Number of times the saved scene sequence is played. Missing values in
         /// legacy configurations preserve the original single-pass behavior.
         /// </summary>
         public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+        /// <summary>
+        /// Controls whether each repeat pass follows the saved order or uses a stable
+        /// date-seeded shuffle. Missing values in legacy configurations preserve the
+        /// original sequential behavior.
+        /// </summary>
+        public string PlaybackOrder { get; set; } = PluginConfiguration.ScenePlaylistOrderSequential;
         public string TargetUserId { get; set; } = string.Empty;
         /// <summary>
         /// Optional explicit user-mapping targets for a selected-target playlist. When
@@ -359,6 +365,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string PresetName { get; set; } = string.Empty;
         public string PlaylistName { get; set; } = string.Empty;
         public int PlaylistRepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+        public string PlaylistPlaybackOrder { get; set; } = PluginConfiguration.ScenePlaylistOrderSequential;
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public string? TargetLabel { get; set; }
@@ -539,6 +546,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string SceneAutomationPlaybackPolicyInherit = "Inherit";
         public const string SceneAutomationPlaybackScopeAnyTarget = "AnyTarget";
         public const string SceneAutomationPlaybackScopeMatchingTarget = "MatchingTarget";
+        public const string ScenePlaylistOrderSequential = "Sequential";
+        public const string ScenePlaylistOrderShuffle = "Shuffle";
         public const int MinPreviewDurationSeconds = 1;
         public const int MaxPreviewDurationSeconds = 30;
         public const int MinColorPresetTransitionSeconds = 0;
@@ -637,6 +646,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             ColorPresetEffectStarlight
         };
 
+        private static readonly string[] ScenePlaylistOrders =
+        {
+            ScenePlaylistOrderSequential,
+            ScenePlaylistOrderShuffle
+        };
+
         private static readonly string[] PlaybackMediaFilters =
         {
             PlaybackMediaFilterAllVideo,
@@ -723,6 +738,30 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (match == null)
             {
                 normalized = ColorPresetEffectSolid;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the canonical playback order for a saved-scene playlist. Blank values
+        /// preserve the original sequential behavior for older configurations.
+        /// </summary>
+        public static bool TryNormalizeScenePlaylistOrder(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = ScenePlaylistOrderSequential;
+                return true;
+            }
+
+            var match = ScenePlaylistOrders.FirstOrDefault(order =>
+                string.Equals(order, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = ScenePlaylistOrderSequential;
                 return false;
             }
 
@@ -1077,8 +1116,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public List<HueColorPreset> ColorPresets { get; set; } = new List<HueColorPreset>();
 
         /// <summary>
-        /// Ordered, credential-free collections of saved scenes that can be previewed
-        /// sequentially against the default target, one mapping, or all enabled targets.
+        /// Credential-free collections of saved scenes that can be previewed in saved or
+        /// stable shuffled order against the default target, one mapping, or all enabled targets.
         /// </summary>
         public List<HueScenePlaylist> ScenePlaylists { get; set; } = new List<HueScenePlaylist>();
 
@@ -2183,8 +2222,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
-        /// Validates one ordered saved-scene playlist. Playlist items reference existing
-        /// color presets by name so a playlist remains credential-free and portable.
+        /// Validates one saved-scene playlist and its playback order. Playlist items
+        /// reference existing color presets by name so the playlist remains credential-free
+        /// and portable.
         /// </summary>
         public static List<string> ValidateScenePlaylist(
             HueScenePlaylist? playlist,
@@ -2221,6 +2261,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 playlist.RepeatCount > MaxScenePlaylistRepeatCount)
             {
                 errors.Add($"{label} repeat count must be between {MinScenePlaylistRepeatCount} and {MaxScenePlaylistRepeatCount}");
+            }
+
+            if (!TryNormalizeScenePlaylistOrder(playlist.PlaybackOrder, out _))
+            {
+                errors.Add($"{label} playback order must be one of {ScenePlaylistOrderSequential}, {ScenePlaylistOrderShuffle}");
             }
 
             for (var index = 0; index < presetNames.Count; index++)

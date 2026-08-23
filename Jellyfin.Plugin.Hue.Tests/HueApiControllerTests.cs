@@ -2344,6 +2344,46 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ScenePlaylists_ShufflePlaybackOrderRoundTripsThroughApiResults()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "shuffle-global-app-secret",
+            HueClientKey = "shuffle-global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "One", DurationSeconds = 1 },
+                new() { Name = "Two", DurationSeconds = 1 },
+                new() { Name = "Three", DurationSeconds = 1 }
+            }
+        });
+        var controller = CreateController();
+
+        var saved = controller.SaveScenePlaylist(new HueScenePlaylistRequest
+        {
+            Name = " Stable shuffle ",
+            PresetNames = new List<string> { "One", "Two", "Three" },
+            PlaybackOrder = "shuffle"
+        });
+
+        var savedResponse = Assert.IsType<OkObjectResult>(saved.Result);
+        var savedResult = Assert.IsType<HueScenePlaylistResult>(savedResponse.Value);
+        Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, savedResult.PlaybackOrder);
+        Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, configuration.ScenePlaylists[0].PlaybackOrder);
+
+        var listedResponse = Assert.IsType<OkObjectResult>(controller.GetScenePlaylists().Result);
+        var listedResult = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueScenePlaylistResult>>(listedResponse.Value));
+        Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, listedResult.PlaybackOrder);
+
+        var serialized = JsonSerializer.Serialize(listedResult);
+        Assert.Contains("\"playbackOrder\":\"Shuffle\"", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("shuffle-global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("shuffle-global-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ScenePlaylists_SelectedTargetsRoundTripAndPreviewOnlyRequestedMappings()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -7822,6 +7862,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Name = "Portable sequence",
                     PresetNames = new List<string> { "Sunrise", "Midnight" },
                     RepeatCount = 2,
+                    PlaybackOrder = PluginConfiguration.ScenePlaylistOrderShuffle,
                     TargetUserIds = new List<string> { "user-1" },
                     IncludeDefaultTarget = true
                 }
@@ -7832,6 +7873,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("playlist-portable", exportedPlaylist.Id);
         Assert.Equal(new[] { "Sunrise", "Midnight" }, exportedPlaylist.PresetNames);
         Assert.Equal(2, exportedPlaylist.RepeatCount);
+        Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, exportedPlaylist.PlaybackOrder);
         Assert.Equal(new[] { "user-1" }, exportedPlaylist.TargetUserIds);
         Assert.True(exportedPlaylist.IncludeDefaultTarget);
         Assert.False(exportedPlaylist.TargetAllEnabledMappings);
@@ -7869,6 +7911,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Name = exportedPlaylist.Name,
                     PresetNames = exportedPlaylist.PresetNames.ToList(),
                     RepeatCount = exportedPlaylist.RepeatCount,
+                    PlaybackOrder = exportedPlaylist.PlaybackOrder,
                     TargetUserIds = exportedPlaylist.TargetUserIds.ToList(),
                     IncludeDefaultTarget = exportedPlaylist.IncludeDefaultTarget
                 }
@@ -7885,6 +7928,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("playlist-portable", imported.Id);
         Assert.Equal(new[] { "Sunrise", "Midnight" }, imported.PresetNames);
         Assert.Equal(2, imported.RepeatCount);
+        Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, imported.PlaybackOrder);
         Assert.Equal(new[] { "user-1" }, imported.TargetUserIds);
         Assert.True(imported.IncludeDefaultTarget);
         Assert.False(imported.TargetAllEnabledMappings);

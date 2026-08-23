@@ -917,6 +917,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                         playlist.RepeatCount,
                         PluginConfiguration.MinScenePlaylistRepeatCount,
                         PluginConfiguration.MaxScenePlaylistRepeatCount),
+                PlaylistPlaybackOrder = playlist == null || !PluginConfiguration.TryNormalizeScenePlaylistOrder(
+                    playlist.PlaybackOrder,
+                    out var runtimePlaybackOrder)
+                    ? PluginConfiguration.ScenePlaylistOrderSequential
+                    : runtimePlaybackOrder,
                 PlaylistTotalDurationSeconds = isPlaylist
                     ? GetPlaylistTotalDurationSeconds(config, playlist)
                     : 0,
@@ -1661,10 +1666,11 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
-    /// Runs an ordered saved-scene playlist through the same restorative preview lifecycle
-    /// as an individual scene. All playlist references and targets are preflighted before
-    /// the first bridge call; each repeated pass remains independently observable and
-    /// cancellable.
+    /// Runs a saved-scene playlist through the same restorative preview lifecycle as an
+    /// individual scene. All playlist references and targets are preflighted before the
+    /// first bridge call; each repeated pass remains independently observable and
+    /// cancellable. Shuffle order is stable for a playlist/date/pass so retries do not
+    /// silently produce a different sequence within the same day.
     /// </summary>
     public async Task<HueScenePlaylistRunResult> RunPlaylistPreviewAsync(
         HueScenePlaylist playlist,
@@ -1691,6 +1697,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             .ToList();
         if (presets.Any(preset => preset == null))
             return PlaylistFailure(playlist, "The scene playlist references a saved scene that no longer exists.");
+        var resolvedPresets = presets.Select(preset => preset!).ToArray();
 
         var normalizedTargetUserIdsOverride = targetUserIdsOverride?
             .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -1710,7 +1717,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             Id = "scene-playlist-preview",
             Name = playlist.Name?.Trim() ?? string.Empty,
-            PresetName = presets[0]!.Name?.Trim() ?? string.Empty,
+            PresetName = resolvedPresets[0].Name?.Trim() ?? string.Empty,
             TargetUserId = hasTargetOverride || effectiveIncludeDefaultTarget || effectiveTargetUserIds.Count > 0
                 ? string.Empty
                 : playlist.TargetAllEnabledMappings ? string.Empty : playlist.TargetUserId?.Trim() ?? string.Empty,
@@ -1727,14 +1734,24 @@ public sealed class HueSceneAutomationService : BackgroundService
             playlist.RepeatCount,
             PluginConfiguration.MinScenePlaylistRepeatCount,
             PluginConfiguration.MaxScenePlaylistRepeatCount);
-        var totalStepCount = presets.Count * repeatCount;
+        PluginConfiguration.TryNormalizeScenePlaylistOrder(
+            playlist.PlaybackOrder,
+            out var playbackOrder);
+        var runAtUtc = DateTime.UtcNow;
+        var totalStepCount = resolvedPresets.Length * repeatCount;
         var steps = new List<HueScenePlaylistStepResult>();
         var canceled = false;
         for (var repeatIndex = 1; repeatIndex <= repeatCount && !canceled; repeatIndex++)
         {
-            for (var index = 0; index < presets.Count; index++)
+            var pass = BuildPlaylistPass(
+                resolvedPresets,
+                playbackOrder,
+                playlist.Id,
+                repeatIndex,
+                runAtUtc);
+            for (var index = 0; index < pass.Count; index++)
             {
-                var preset = presets[index]!;
+                var (preset, originalIndex) = pass[index];
                 var schedule = new HueSceneSchedule
                 {
                     Id = $"scene-playlist-preview-{repeatIndex}-{index + 1}",
@@ -1755,6 +1772,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 {
                     Index = steps.Count + 1,
                     RepeatIndex = repeatIndex,
+                    OriginalIndex = originalIndex,
                     PresetName = preset.Name?.Trim() ?? string.Empty,
                     Effect = effect,
                     EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
@@ -1816,6 +1834,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistId = playlist.Id?.Trim() ?? string.Empty,
             PlaylistName = playlist.Name?.Trim() ?? string.Empty,
             RepeatCount = repeatCount,
+            PlaybackOrder = playbackOrder,
             TargetLabel = ResolveTargetLabel(config, targetSchedule),
             TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
@@ -1827,8 +1846,53 @@ public sealed class HueSceneAutomationService : BackgroundService
             CleanupWarning = string.IsNullOrWhiteSpace(cleanupWarning) ? null : cleanupWarning,
             Steps = steps,
             TargetResults = targetResults,
-            RunAtUtc = DateTime.UtcNow
+            RunAtUtc = runAtUtc
         };
+    }
+
+    /// <summary>
+    /// Builds one playlist pass while retaining each scene's configured position for
+    /// credential-free telemetry. Shuffle uses a stable FNV-1a-derived seed from the
+    /// playlist identity, UTC date, and pass number, avoiding nondeterministic retries.
+    /// </summary>
+    internal static IReadOnlyList<(HueColorPreset Preset, int OriginalIndex)> BuildPlaylistPass(
+        IReadOnlyList<HueColorPreset> presets,
+        string? playbackOrder,
+        string? playlistId,
+        int repeatIndex,
+        DateTime runAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(presets);
+        var pass = presets
+            .Select((preset, index) => (Preset: preset, OriginalIndex: index + 1))
+            .ToList();
+        if (!PluginConfiguration.TryNormalizeScenePlaylistOrder(playbackOrder, out var normalizedOrder) ||
+            !string.Equals(normalizedOrder, PluginConfiguration.ScenePlaylistOrderShuffle, StringComparison.Ordinal) ||
+            pass.Count < 2)
+        {
+            return pass;
+        }
+
+        var hash = 2166136261u;
+        foreach (var character in playlistId?.Trim() ?? string.Empty)
+        {
+            hash ^= character;
+            hash *= 16777619u;
+        }
+
+        hash ^= unchecked((uint)repeatIndex);
+        hash *= 16777619u;
+        hash ^= unchecked((uint)runAtUtc.Date.Ticks);
+        hash *= 16777619u;
+        hash ^= unchecked((uint)(runAtUtc.Date.Ticks >> 32));
+        var random = new Random(unchecked((int)(hash & 0x7fffffff)));
+        for (var index = pass.Count - 1; index > 0; index--)
+        {
+            var swapIndex = random.Next(index + 1);
+            (pass[index], pass[swapIndex]) = (pass[swapIndex], pass[index]);
+        }
+
+        return pass;
     }
 
     private static HueScenePlaylistRunResult PlaylistFailure(
@@ -1845,6 +1909,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                     playlist.RepeatCount,
                     PluginConfiguration.MinScenePlaylistRepeatCount,
                     PluginConfiguration.MaxScenePlaylistRepeatCount),
+            PlaybackOrder = playlist != null && PluginConfiguration.TryNormalizeScenePlaylistOrder(
+                playlist.PlaybackOrder,
+                out var playbackOrder)
+                ? playbackOrder
+                : PluginConfiguration.ScenePlaylistOrderSequential,
             TargetAllEnabledMappings = playlist?.TargetAllEnabledMappings == true,
             TargetUserIds = playlist?.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -2606,7 +2675,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     Id = playlist.Id,
                     Name = playlist.Name,
                     PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
-                    RepeatCount = playlist.RepeatCount
+                    RepeatCount = playlist.RepeatCount,
+                    PlaybackOrder = playlist.PlaybackOrder
                 },
                 config,
                 "Saved playlist");
@@ -3388,6 +3458,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 Name = playlist.Name,
                 PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                 RepeatCount = playlist.RepeatCount,
+                PlaybackOrder = playlist.PlaybackOrder,
                 TargetUserId = schedule.TargetAllEnabledMappings
                     || schedule.IncludeDefaultTarget
                     || (schedule.TargetUserIds?.Count ?? 0) > 0
@@ -3480,6 +3551,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PresetName = string.Empty,
             PlaylistName = schedule.PlaylistName?.Trim() ?? playlistRun.PlaylistName?.Trim() ?? string.Empty,
             PlaylistRepeatCount = playlistRun.RepeatCount,
+            PlaylistPlaybackOrder = playlistRun.PlaybackOrder,
             Effect = PluginConfiguration.SceneScheduleEffectPlaylist,
             EffectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
             TargetLabel = string.IsNullOrWhiteSpace(playlistRun.TargetLabel)
@@ -3970,6 +4042,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PresetName = result.PresetName,
             PlaylistName = result.PlaylistName,
             PlaylistRepeatCount = result.PlaylistRepeatCount,
+            PlaylistPlaybackOrder = result.PlaylistPlaybackOrder,
             Effect = result.Effect,
             EffectSpeedPercent = result.EffectSpeedPercent,
             TargetLabel = result.TargetLabel,
@@ -4000,6 +4073,11 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistRepeatCount = Math.Max(
                 PluginConfiguration.MinScenePlaylistRepeatCount,
                 source.PlaylistRepeatCount),
+            PlaylistPlaybackOrder = PluginConfiguration.TryNormalizeScenePlaylistOrder(
+                source.PlaylistPlaybackOrder,
+                out var sourcePlaybackOrder)
+                ? sourcePlaybackOrder
+                : PluginConfiguration.ScenePlaylistOrderSequential,
             Effect = PluginConfiguration.TryNormalizeColorPresetEffect(source.Effect, out var effect)
                 ? effect
                 : string.Equals(source.Effect?.Trim(), PluginConfiguration.SceneScheduleEffectPlaylist, StringComparison.OrdinalIgnoreCase)
@@ -4037,6 +4115,11 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistRepeatCount = Math.Max(
                 PluginConfiguration.MinScenePlaylistRepeatCount,
                 entry.PlaylistRepeatCount),
+            PlaylistPlaybackOrder = PluginConfiguration.TryNormalizeScenePlaylistOrder(
+                entry.PlaylistPlaybackOrder,
+                out var entryPlaybackOrder)
+                ? entryPlaybackOrder
+                : PluginConfiguration.ScenePlaylistOrderSequential,
             Effect = string.Equals(entry.Effect?.Trim(), PluginConfiguration.SceneScheduleEffectPlaylist, StringComparison.OrdinalIgnoreCase)
                 ? PluginConfiguration.SceneScheduleEffectPlaylist
                 : PluginConfiguration.TryNormalizeColorPresetEffect(entry.Effect, out var effect)
@@ -4072,6 +4155,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PresetName = source.PresetName,
             PlaylistName = source.PlaylistName,
             PlaylistRepeatCount = source.PlaylistRepeatCount,
+            PlaylistPlaybackOrder = source.PlaylistPlaybackOrder,
             Effect = source.Effect,
             EffectSpeedPercent = source.EffectSpeedPercent,
             TargetLabel = source.TargetLabel,
@@ -4492,6 +4576,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             Index = source.Index,
             RepeatIndex = source.RepeatIndex,
+            OriginalIndex = source.OriginalIndex,
             PresetName = source.PresetName,
             Effect = source.Effect,
             EffectSpeedPercent = source.EffectSpeedPercent,
@@ -4642,6 +4727,9 @@ public sealed class HueSceneAutomationRunResult
     [JsonPropertyName("playlistRepeatCount")]
     public int PlaylistRepeatCount { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
+    [JsonPropertyName("playlistPlaybackOrder")]
+    public string PlaylistPlaybackOrder { get; init; } = PluginConfiguration.ScenePlaylistOrderSequential;
+
     [JsonPropertyName("effect")]
     public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
 
@@ -4708,6 +4796,9 @@ public sealed class HueScenePlaylistRunResult
     [JsonPropertyName("repeatCount")]
     public int RepeatCount { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
+    [JsonPropertyName("playbackOrder")]
+    public string PlaybackOrder { get; init; } = PluginConfiguration.ScenePlaylistOrderSequential;
+
     [JsonPropertyName("targetLabel")]
     public string? TargetLabel { get; init; }
 
@@ -4749,6 +4840,9 @@ public sealed class HueScenePlaylistStepResult
 
     [JsonPropertyName("repeatIndex")]
     public int RepeatIndex { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+
+    [JsonPropertyName("originalIndex")]
+    public int OriginalIndex { get; init; }
 
     [JsonPropertyName("presetName")]
     public string PresetName { get; init; } = string.Empty;
@@ -4830,6 +4924,9 @@ public sealed class HueSceneScheduleOccurrence
 
     [JsonPropertyName("playlistRepeatCount")]
     public int PlaylistRepeatCount { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+
+    [JsonPropertyName("playlistPlaybackOrder")]
+    public string PlaylistPlaybackOrder { get; init; } = PluginConfiguration.ScenePlaylistOrderSequential;
 
     [JsonPropertyName("priority")]
     public int Priority { get; init; }
@@ -4995,6 +5092,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("playlistRepeatCount")]
     public int PlaylistRepeatCount { get; init; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+
+    [JsonPropertyName("playlistPlaybackOrder")]
+    public string PlaylistPlaybackOrder { get; init; } = PluginConfiguration.ScenePlaylistOrderSequential;
 
     [JsonPropertyName("playlistTotalDurationSeconds")]
     public int PlaylistTotalDurationSeconds { get; init; }

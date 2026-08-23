@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.195] - 2026-08-23
+
+### Added
+- **Deterministic playlist shuffle**: saved playlists now support canonical `Sequential` or date-seeded `Shuffle` playback per repeat pass, with stable retry behavior and original saved-position telemetry
+- **End-to-end playlist parity**: carry playback order through previews, scheduled cues, runtime/history/status/occurrence metadata, duplication, backup/restore, API contracts, and the administrator editor
+- **Regression coverage**: verify legacy sequential defaults, canonical shuffle normalization, stable pass ordering, saved-position reporting, API round trips, and configuration-page contracts
+
 ## [1.5.194] - 2026-08-23
 
 ### Added

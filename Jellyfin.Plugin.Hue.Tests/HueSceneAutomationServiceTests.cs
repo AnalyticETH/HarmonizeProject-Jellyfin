@@ -1293,8 +1293,10 @@ public sealed class HueSceneAutomationServiceTests
         Assert.True(result.Succeeded);
         Assert.Equal("playlist-1", result.PlaylistId);
         Assert.Equal("Evening sequence", result.PlaylistName);
+        Assert.Equal(PluginConfiguration.ScenePlaylistOrderSequential, result.PlaybackOrder);
         Assert.Equal(new[] { 25, 220 }, streamTester.Reds);
         Assert.Equal(new[] { "Warm", "Cool" }, result.Steps.Select(step => step.PresetName));
+        Assert.Equal(new[] { 1, 2 }, result.Steps.Select(step => step.OriginalIndex));
         Assert.All(result.Steps, step => Assert.True(step.Succeeded));
         var target = Assert.Single(result.TargetResults);
         Assert.Equal("Default bridge target", target.TargetLabel);
@@ -1304,6 +1306,44 @@ public sealed class HueSceneAutomationServiceTests
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("playlist-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("playlist-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildPlaylistPass_ShuffleIsStablePerPlaylistDateAndPass()
+    {
+        var presets = new[]
+        {
+            new HueColorPreset { Name = "One" },
+            new HueColorPreset { Name = "Two" },
+            new HueColorPreset { Name = "Three" },
+            new HueColorPreset { Name = "Four" }
+        };
+        var runAtUtc = new DateTime(2026, 8, 23, 14, 30, 0, DateTimeKind.Utc);
+
+        var first = HueSceneAutomationService.BuildPlaylistPass(
+            presets,
+            PluginConfiguration.ScenePlaylistOrderShuffle,
+            "stable-playlist",
+            1,
+            runAtUtc);
+        var retry = HueSceneAutomationService.BuildPlaylistPass(
+            presets,
+            "shuffle",
+            "stable-playlist",
+            1,
+            runAtUtc.AddHours(4));
+
+        Assert.Equal(first.Select(step => step.OriginalIndex), retry.Select(step => step.OriginalIndex));
+        Assert.Equal(new[] { 1, 2, 3, 4 }, first.Select(step => step.OriginalIndex).OrderBy(index => index));
+        Assert.False(first.Select(step => step.OriginalIndex).SequenceEqual(new[] { 1, 2, 3, 4 }));
+
+        var nextPass = HueSceneAutomationService.BuildPlaylistPass(
+            presets,
+            PluginConfiguration.ScenePlaylistOrderShuffle,
+            "stable-playlist",
+            2,
+            runAtUtc);
+        Assert.Equal(new[] { 1, 2, 3, 4 }, nextPass.Select(step => step.OriginalIndex).OrderBy(index => index));
     }
 
     [Fact]
@@ -1344,6 +1384,7 @@ public sealed class HueSceneAutomationServiceTests
 
         Assert.True(result.Succeeded);
         Assert.Equal(2, result.RepeatCount);
+        Assert.Equal(PluginConfiguration.ScenePlaylistOrderSequential, result.PlaybackOrder);
         Assert.Equal(new[] { 25, 220, 25, 220 }, streamTester.Reds);
         Assert.Equal(new[] { 1, 1, 2, 2 }, result.Steps.Select(step => step.RepeatIndex));
         Assert.Equal(new[] { "Warm", "Cool", "Warm", "Cool" }, result.Steps.Select(step => step.PresetName));
@@ -1399,6 +1440,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(PluginConfiguration.SceneScheduleEffectPlaylist, result.Effect);
         Assert.Equal("Scheduled sequence", result.PlaylistName);
         Assert.Equal(2, result.PlaylistRepeatCount);
+        Assert.Equal(PluginConfiguration.ScenePlaylistOrderSequential, result.PlaylistPlaybackOrder);
         Assert.Equal(new[] { "First", "Second", "First", "Second" }, result.PlaylistSteps.Select(step => step.PresetName));
         Assert.Equal(new[] { 11, 222, 11, 222 }, streamTester.Reds);
         Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
@@ -1406,6 +1448,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("Scheduled sequence", runtime.PlaylistName);
         Assert.Equal(2, runtime.PlaylistStepCount);
         Assert.Equal(2, runtime.PlaylistRepeatCount);
+        Assert.Equal(PluginConfiguration.ScenePlaylistOrderSequential, runtime.PlaylistPlaybackOrder);
         Assert.Equal(6, runtime.PlaylistTotalDurationSeconds);
     }
 

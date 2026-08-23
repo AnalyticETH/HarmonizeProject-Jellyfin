@@ -472,6 +472,11 @@ namespace Jellyfin.Plugin.Hue.Api
                     playlist.RepeatCount,
                     PluginConfiguration.MinScenePlaylistRepeatCount,
                     PluginConfiguration.MaxScenePlaylistRepeatCount),
+                PlaybackOrder = PluginConfiguration.TryNormalizeScenePlaylistOrder(
+                    playlist.PlaybackOrder,
+                    out var normalizedPlaybackOrder)
+                    ? normalizedPlaybackOrder
+                    : PluginConfiguration.ScenePlaylistOrderSequential,
                 TargetUserId = playlist.TargetAllEnabledMappings || playlist.IncludeDefaultTarget || targetUserIds.Length > 0
                     ? string.Empty
                     : targetUserId,
@@ -508,6 +513,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Name = playlist.Name,
                 PresetNames = (playlist.PresetNames ?? new List<string>()).ToList(),
                 RepeatCount = playlist.RepeatCount,
+                PlaybackOrder = playlist.PlaybackOrder,
                 TargetUserId = playlist.TargetUserId,
                 TargetUserIds = (playlist.TargetUserIds ?? new List<string>()).ToList(),
                 IncludeDefaultTarget = playlist.IncludeDefaultTarget,
@@ -628,6 +634,11 @@ namespace Jellyfin.Plugin.Hue.Api
                         playlist.RepeatCount,
                         PluginConfiguration.MinScenePlaylistRepeatCount,
                         PluginConfiguration.MaxScenePlaylistRepeatCount),
+                PlaylistPlaybackOrder = playlist == null || !PluginConfiguration.TryNormalizeScenePlaylistOrder(
+                    playlist.PlaybackOrder,
+                    out var playlistPlaybackOrder)
+                    ? PluginConfiguration.ScenePlaylistOrderSequential
+                    : playlistPlaybackOrder,
                 PlaylistTotalDurationSeconds = playlistTotalDuration,
                 TargetUserId = targetUserId,
                 TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
@@ -2779,6 +2790,11 @@ namespace Jellyfin.Plugin.Hue.Api
                             playlist.RepeatCount,
                             PluginConfiguration.MinScenePlaylistRepeatCount,
                             PluginConfiguration.MaxScenePlaylistRepeatCount),
+                        PlaybackOrder = PluginConfiguration.TryNormalizeScenePlaylistOrder(
+                            playlist.PlaybackOrder,
+                            out var failedPlaybackOrder)
+                            ? failedPlaybackOrder
+                            : PluginConfiguration.ScenePlaylistOrderSequential,
                         TargetAllEnabledMappings = playlist.TargetAllEnabledMappings,
                         Succeeded = false,
                         Message = "The scene playlist preview failed unexpectedly.",
@@ -3414,6 +3430,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 "playlistName",
                 "playlistStepCount",
                 "playlistRepeatCount",
+                "playlistPlaybackOrder",
                 "playlistTotalDurationSeconds",
                 "priority",
                 "effect",
@@ -3443,6 +3460,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     occurrence.PlaylistName,
                     occurrence.PlaylistStepCount,
                     occurrence.PlaylistRepeatCount,
+                    occurrence.PlaylistPlaybackOrder,
                     occurrence.PlaylistTotalDurationSeconds,
                     occurrence.Priority,
                     occurrence.Effect,
@@ -3563,6 +3581,11 @@ namespace Jellyfin.Plugin.Hue.Api
                                     playlist.RepeatCount,
                                     PluginConfiguration.MinScenePlaylistRepeatCount,
                                     PluginConfiguration.MaxScenePlaylistRepeatCount),
+                            PlaylistPlaybackOrder = playlist == null || !PluginConfiguration.TryNormalizeScenePlaylistOrder(
+                                playlist.PlaybackOrder,
+                                out var occurrencePlaybackOrder)
+                                ? PluginConfiguration.ScenePlaylistOrderSequential
+                                : occurrencePlaybackOrder,
                             PlaylistTotalDurationSeconds = isPlaylist ? effectiveDuration : 0,
                             Priority = occurrence.Priority,
                             Effect = effect,
@@ -3648,6 +3671,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "X-HUE-EFFECT", occurrence.Effect);
                 AppendIcsLine(builder, "X-HUE-PLAYLIST-STEPS", occurrence.PlaylistStepCount.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-PLAYLIST-REPEATS", occurrence.PlaylistRepeatCount.ToString(CultureInfo.InvariantCulture));
+                AppendIcsLine(builder, "X-HUE-PLAYLIST-ORDER", occurrence.PlaylistPlaybackOrder);
                 AppendIcsLine(builder, "X-HUE-EFFECT-SPEED-PERCENT", occurrence.EffectSpeedPercent.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-SECONDS", occurrence.TransitionSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-OUT-SECONDS", occurrence.TransitionOutSeconds.ToString(CultureInfo.InvariantCulture));
@@ -3823,6 +3847,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 "presetName",
                 "playlistName",
                 "playlistRepeatCount",
+                "playlistPlaybackOrder",
                 "effect",
                 "effectSpeedPercent",
                 "targetLabel",
@@ -3846,6 +3871,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     run.PresetName,
                     run.PlaylistName,
                     run.PlaylistRepeatCount,
+                    run.PlaylistPlaybackOrder,
                     run.Effect,
                     run.EffectSpeedPercent,
                     run.TargetLabel,
@@ -9108,6 +9134,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("repeatCount")]
         public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
+        [JsonPropertyName("playbackOrder")]
+        public string PlaybackOrder { get; set; } = PluginConfiguration.ScenePlaylistOrderSequential;
+
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
 
@@ -9237,8 +9266,8 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
-    /// Request shape for saving an ordered credential-free scene playlist, its bounded
-    /// repeat count, and either a legacy target mode or a selected mapping subset.
+    /// Request shape for saving a credential-free scene playlist, its bounded repeat count,
+    /// playback order, and either a legacy target mode or a selected mapping subset.
     /// </summary>
     public sealed class HueScenePlaylistRequest
     {
@@ -9254,6 +9283,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("repeatCount")]
         public int RepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
+        [JsonPropertyName("playbackOrder")]
+        public string PlaybackOrder { get; set; } = PluginConfiguration.ScenePlaylistOrderSequential;
+
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
 
@@ -9268,6 +9300,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         public HueScenePlaylist ToConfigurationPlaylist()
         {
+            PluginConfiguration.TryNormalizeScenePlaylistOrder(PlaybackOrder, out var normalizedPlaybackOrder);
             return new HueScenePlaylist
             {
                 Id = Id?.Trim() ?? string.Empty,
@@ -9276,6 +9309,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     .Select(name => name?.Trim() ?? string.Empty)
                     .ToList(),
                 RepeatCount = RepeatCount,
+                PlaybackOrder = normalizedPlaybackOrder,
                 TargetUserId = TargetAllEnabledMappings || IncludeDefaultTarget || (TargetUserIds?.Count ?? 0) > 0
                     ? string.Empty
                     : TargetUserId?.Trim() ?? string.Empty,
@@ -9801,6 +9835,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("playlistRepeatCount")]
         public int PlaylistRepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
 
+        [JsonPropertyName("playlistPlaybackOrder")]
+        public string PlaylistPlaybackOrder { get; set; } = PluginConfiguration.ScenePlaylistOrderSequential;
+
         [JsonPropertyName("playlistTotalDurationSeconds")]
         public int PlaylistTotalDurationSeconds { get; set; }
 
@@ -9929,6 +9966,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("playlistRepeatCount")]
         public int PlaylistRepeatCount { get; set; } = PluginConfiguration.DefaultScenePlaylistRepeatCount;
+
+        [JsonPropertyName("playlistPlaybackOrder")]
+        public string PlaylistPlaybackOrder { get; set; } = PluginConfiguration.ScenePlaylistOrderSequential;
 
         [JsonPropertyName("playlistTotalDurationSeconds")]
         public int PlaylistTotalDurationSeconds { get; set; }

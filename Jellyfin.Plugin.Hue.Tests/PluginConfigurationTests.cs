@@ -232,6 +232,36 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsShuffleAndRejectsUnknownPlaybackOrder()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-shuffle",
+                    Name = "Shuffled arrival",
+                    PresetNames = new List<string> { "Welcome" },
+                    PlaybackOrder = "shuffle"
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.True(PluginConfiguration.TryNormalizeScenePlaylistOrder(
+            config.ScenePlaylists[0].PlaybackOrder,
+            out var normalized));
+        Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, normalized);
+
+        config.ScenePlaylists[0].PlaybackOrder = "Random";
+        Assert.Contains(
+            "Scene playlist 1 playback order must be one of Sequential, Shuffle",
+            config.ValidateScenePlaylists());
+    }
+
+    [Fact]
     public void ValidateScenePlaylists_AllowsBoundedRepeatsAndRejectsUnsafeTotals()
     {
         var config = new PluginConfiguration
