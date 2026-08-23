@@ -68,6 +68,7 @@ public sealed class HueSyncServiceLifecycleTests
                 HueShiftDegrees: -30,
                 OutputBrightnessPercent: 75,
                 BlackoutThreshold: 30,
+                BlackoutBehavior: PluginConfiguration.BlackoutBehaviorKeepLastColors,
                 ColorChangeThreshold: 5));
         SetPrivateField(
             service,
@@ -125,6 +126,7 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal(-30, status.ActiveHueShiftDegrees);
         Assert.Equal(75, status.ActiveOutputBrightnessPercent);
         Assert.Equal(30, status.ActiveBlackoutThreshold);
+        Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, status.ActiveBlackoutBehavior);
         Assert.Equal(5, status.ActiveColorChangeThreshold);
         Assert.Equal((bool?)false, status.ActiveUseGpu);
         Assert.Equal((bool?)true, status.ActiveCustomFfmpegFlagsConfigured);

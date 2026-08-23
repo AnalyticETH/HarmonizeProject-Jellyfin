@@ -5846,6 +5846,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveHueShiftDegrees);
         Assert.Null(status.ActiveOutputBrightnessPercent);
         Assert.Null(status.ActiveBlackoutThreshold);
+        Assert.Null(status.ActiveBlackoutBehavior);
         Assert.Null(status.ActiveColorChangeThreshold);
         Assert.Null(status.ActiveUseGpu);
         Assert.Null(status.ActiveCustomFfmpegFlagsConfigured);
@@ -6591,6 +6592,7 @@ public sealed class HueApiControllerTests : IDisposable
                     HueShiftDegreesOverride = -45,
                     OutputBrightnessPercentOverride = 75,
                     BlackoutThresholdOverride = 30,
+                    BlackoutBehaviorOverride = PluginConfiguration.BlackoutBehaviorKeepLastColors,
                     ColorChangeThresholdOverride = 5,
                     UseGpuOverride = false,
                     CustomFfmpegFlagsOverride = "-hwaccel vaapi",
@@ -6642,6 +6644,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)-45, mapping.HueShiftDegreesOverride);
         Assert.Equal((int?)75, mapping.OutputBrightnessPercentOverride);
         Assert.Equal((int?)30, mapping.BlackoutThresholdOverride);
+        Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, mapping.BlackoutBehaviorOverride);
         Assert.Equal((int?)5, mapping.ColorChangeThresholdOverride);
         Assert.Equal((bool?)false, mapping.UseGpuOverride);
         Assert.Equal("-hwaccel vaapi", mapping.CustomFfmpegFlagsOverride);
@@ -7121,6 +7124,7 @@ public sealed class HueApiControllerTests : IDisposable
             ColorSmoothingPercent = 65,
             HueShiftDegrees = 45,
             OutputBrightnessPercent = 75,
+            BlackoutBehavior = PluginConfiguration.BlackoutBehaviorKeepLastColors,
             RedGain = 120,
             GreenGain = 90,
             BlueGain = 110,
@@ -7179,6 +7183,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(65, settings.ColorSmoothingPercent);
         Assert.Equal(45, settings.HueShiftDegrees);
         Assert.Equal(75, settings.OutputBrightnessPercent);
+        Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, settings.BlackoutBehavior);
         Assert.Equal(120, settings.RedGain);
         Assert.Equal(90, settings.GreenGain);
         Assert.Equal(110, settings.BlueGain);
@@ -8479,6 +8484,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueShiftDegreesOverride = 30,
             OutputBrightnessPercentOverride = 65,
             BlackoutThresholdOverride = 20,
+            BlackoutBehaviorOverride = " keeplastcolors ",
             ColorChangeThresholdOverride = 3,
             UseGpuOverride = true,
             CustomFfmpegFlagsOverride = "-threads 2",
@@ -8523,6 +8529,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)30, mapping.HueShiftDegreesOverride);
         Assert.Equal((int?)65, mapping.OutputBrightnessPercentOverride);
         Assert.Equal((int?)20, mapping.BlackoutThresholdOverride);
+        Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, mapping.BlackoutBehaviorOverride);
         Assert.Equal((int?)3, mapping.ColorChangeThresholdOverride);
         Assert.Equal((bool?)true, mapping.UseGpuOverride);
         Assert.Equal("-threads 2", mapping.CustomFfmpegFlagsOverride);

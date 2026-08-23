@@ -1211,6 +1211,16 @@
                                 </div>
 
                                 <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingBlackoutBehaviorOverride">Dark Scene Behavior Override</label>
+                                    <select id="mappingBlackoutBehaviorOverride" is="emby-select">
+                                        <option value="">Inherit global behavior</option>
+                                        <option value="Blackout">Blackout lights</option>
+                                        <option value="KeepLastColors">Keep last streamed colors</option>
+                                    </select>
+                                    <div class="fieldDescription">Optional per-user policy when a frame is below the blackout threshold.</div>
+                                </div>
+
+                                <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="mappingColorChangeThresholdOverride">Color Change Threshold Override</label>
                                     <input id="mappingColorChangeThresholdOverride" type="number" min="0" max="255" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user minimum RGB16 change (0-255) required before sending a new Hue packet.</div>
@@ -1497,6 +1507,15 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="blackoutBehavior">Dark Scene Behavior</label>
+                            <select id="blackoutBehavior" name="blackoutBehavior" is="emby-select">
+                                <option value="Blackout">Blackout lights</option>
+                                <option value="KeepLastColors">Keep last streamed colors</option>
+                            </select>
+                            <div class="fieldDescription">When a sampled frame is below the blackout threshold, either send black to the room or preserve the last streamed colors (default: Blackout).</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="colorChangeThreshold">Color Change Threshold</label>
                             <input id="colorChangeThreshold" name="colorChangeThreshold" type="number" min="0" max="255" is="emby-input" />
                             <div class="fieldDescription">Minimum color change to trigger update (0-255, 0=disabled, default: 10).</div>
@@ -1656,6 +1675,7 @@
                         page.querySelector('#hueShiftDegrees').value = getConfigValue('HueShiftDegrees', 0);
                         page.querySelector('#outputBrightnessPercent').value = getConfigValue('OutputBrightnessPercent', 100);
                         page.querySelector('#blackoutThreshold').value = getConfigValue('BlackoutThreshold', 15);
+                        page.querySelector('#blackoutBehavior').value = getConfigValue('BlackoutBehavior', 'Blackout');
                         page.querySelector('#colorChangeThreshold').value = getConfigValue('ColorChangeThreshold', 10);
                         page.querySelector('#networkRetryAttempts').value = getConfigValue('NetworkRetryAttempts', 3);
                         page.querySelector('#persistSessionHistory').checked = !!getConfigValue('PersistSessionHistory', false);
@@ -1731,6 +1751,7 @@
                         HueShiftDegrees: parseNumberOrDefault('#hueShiftDegrees', 0),
                         OutputBrightnessPercent: parseNumberOrDefault('#outputBrightnessPercent', 100),
                         BlackoutThreshold: parseNumberOrDefault('#blackoutThreshold', 15),
+                        BlackoutBehavior: page.querySelector('#blackoutBehavior').value,
                         ColorChangeThreshold: parseNumberOrDefault('#colorChangeThreshold', 10),
                         NetworkRetryAttempts: parseNumberOrDefault('#networkRetryAttempts', 3),
                         PersistSessionHistory: page.querySelector('#persistSessionHistory').checked,
@@ -6738,6 +6759,7 @@
                         var hueShiftDegrees = HueConfigurationPage.readStatusField(status, "ActiveHueShiftDegrees", null);
                         var outputBrightness = HueConfigurationPage.readStatusField(status, "ActiveOutputBrightnessPercent", null);
                         var blackoutThreshold = HueConfigurationPage.readStatusField(status, "ActiveBlackoutThreshold", null);
+                        var blackoutBehavior = HueConfigurationPage.readStatusField(status, "ActiveBlackoutBehavior", null);
                         var colorChangeThreshold = HueConfigurationPage.readStatusField(status, "ActiveColorChangeThreshold", null);
                         var useGpu = HueConfigurationPage.readStatusField(status, "ActiveUseGpu", null);
                         var customFfmpegFlagsConfigured = HueConfigurationPage.readStatusField(status, "ActiveCustomFfmpegFlagsConfigured", null);
@@ -6791,7 +6813,7 @@
                             ? "—"
                             : String(brightnessBoost) + "% boost · RGB " + String(redGain) + "/" + String(greenGain) + "/" + String(blueGain) +
                                 " · sat " + String(colorSaturation) + "% · hue " + String(hueShiftDegrees) + "° · output " + String(outputBrightness) +
-                                "% · blackout < " + String(blackoutThreshold) + " · change ≥ " + String(colorChangeThreshold);
+                                "% · blackout < " + String(blackoutThreshold) + " · dark scene " + String(blackoutBehavior || "Blackout") + " · change ≥ " + String(colorChangeThreshold);
                         page.querySelector('#runtimeExecutionProfile').textContent = useGpu == null
                             ? "—"
                             : "GPU " + (useGpu ? "on" : "off") + " · stall " + String(ffmpegStallTimeout) + "s · retries " + String(networkRetryAttempts) +
@@ -7690,6 +7712,7 @@
                                 getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride'),
                                 getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride'),
                                 getMappingValue('BlackoutThresholdOverride', 'blackoutThresholdOverride'),
+                                getMappingValue('BlackoutBehaviorOverride', 'blackoutBehaviorOverride'),
                                 getMappingValue('ColorChangeThresholdOverride', 'colorChangeThresholdOverride')
                             ].some(function (value) {
                                 return value !== null && typeof value !== 'undefined' && value !== '';
@@ -7941,6 +7964,7 @@
                         '#mappingHueShiftDegreesOverride',
                         '#mappingOutputBrightnessPercentOverride',
                         '#mappingBlackoutThresholdOverride',
+                        '#mappingBlackoutBehaviorOverride',
                         '#mappingColorChangeThresholdOverride',
                         '#mappingTargetFpsOverride',
                         '#mappingFrameResolutionOverride',
@@ -8578,6 +8602,7 @@
                         HueShiftDegreesOverride: readOptionalNumber('mappingHueShiftDegreesOverride'),
                         OutputBrightnessPercentOverride: readOptionalNumber('mappingOutputBrightnessPercentOverride'),
                         BlackoutThresholdOverride: readOptionalNumber('mappingBlackoutThresholdOverride'),
+                        BlackoutBehaviorOverride: readOptionalString('mappingBlackoutBehaviorOverride'),
                         ColorChangeThresholdOverride: readOptionalNumber('mappingColorChangeThresholdOverride'),
                         TargetFpsOverride: readOptionalNumber('mappingTargetFpsOverride'),
                         FrameResolutionOverride: readOptionalString('mappingFrameResolutionOverride'),
@@ -8671,6 +8696,7 @@
                         '#mappingHueShiftDegreesOverride',
                         '#mappingOutputBrightnessPercentOverride',
                         '#mappingBlackoutThresholdOverride',
+                        '#mappingBlackoutBehaviorOverride',
                         '#mappingColorChangeThresholdOverride',
                         '#mappingTargetFpsOverride',
                         '#mappingFrameResolutionOverride',
@@ -8766,6 +8792,7 @@
                         var hueShiftDegreesOverride = getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride');
                         var outputBrightnessPercentOverride = getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride');
                         var blackoutThresholdOverride = getMappingValue('BlackoutThresholdOverride', 'blackoutThresholdOverride');
+                        var blackoutBehaviorOverride = getMappingValue('BlackoutBehaviorOverride', 'blackoutBehaviorOverride');
                         var colorChangeThresholdOverride = getMappingValue('ColorChangeThresholdOverride', 'colorChangeThresholdOverride');
                         var targetFpsOverride = getMappingValue('TargetFpsOverride', 'targetFpsOverride');
                         var frameResolutionOverride = getMappingValue('FrameResolutionOverride', 'frameResolutionOverride');
@@ -8837,6 +8864,7 @@
                         page.querySelector('#mappingHueShiftDegreesOverride').value = hueShiftDegreesOverride == null ? "" : hueShiftDegreesOverride;
                         page.querySelector('#mappingOutputBrightnessPercentOverride').value = outputBrightnessPercentOverride == null ? "" : outputBrightnessPercentOverride;
                         page.querySelector('#mappingBlackoutThresholdOverride').value = blackoutThresholdOverride == null ? "" : blackoutThresholdOverride;
+                        page.querySelector('#mappingBlackoutBehaviorOverride').value = blackoutBehaviorOverride == null ? "" : blackoutBehaviorOverride;
                         page.querySelector('#mappingColorChangeThresholdOverride').value = colorChangeThresholdOverride == null ? "" : colorChangeThresholdOverride;
                         page.querySelector('#mappingTargetFpsOverride').value = targetFpsOverride == null ? "" : targetFpsOverride;
                         page.querySelector('#mappingFrameResolutionOverride').value = frameResolutionOverride == null ? "" : frameResolutionOverride;

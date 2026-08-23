@@ -127,6 +127,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int HueShiftDegrees,
             int OutputBrightnessPercent,
             int BlackoutThreshold,
+            string BlackoutBehavior,
             int ColorChangeThreshold)? _activeColorProcessingSettings;
         private (
             bool UseGpu,
@@ -587,6 +588,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 int HueShiftDegrees,
                 int OutputBrightnessPercent,
                 int BlackoutThreshold,
+                string BlackoutBehavior,
                 int ColorChangeThreshold)? activeColorProcessingSettings;
             (
                 bool UseGpu,
@@ -708,6 +710,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveHueShiftDegrees = isSyncing ? activeColorProcessingSettings?.HueShiftDegrees : null,
                 ActiveOutputBrightnessPercent = isSyncing ? activeColorProcessingSettings?.OutputBrightnessPercent : null,
                 ActiveBlackoutThreshold = isSyncing ? activeColorProcessingSettings?.BlackoutThreshold : null,
+                ActiveBlackoutBehavior = isSyncing ? activeColorProcessingSettings?.BlackoutBehavior : null,
                 ActiveColorChangeThreshold = isSyncing ? activeColorProcessingSettings?.ColorChangeThreshold : null,
                 ActiveUseGpu = isSyncing ? activeExecutionSettings?.UseGpu : null,
                 ActiveCustomFfmpegFlagsConfigured = isSyncing
@@ -2457,6 +2460,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int HueShiftDegrees,
             int OutputBrightnessPercent,
             int BlackoutThreshold,
+            string BlackoutBehavior,
             int ColorChangeThreshold) ResolveColorProcessingSettings(
             PluginConfiguration config,
             Guid userId)
@@ -2474,8 +2478,15 @@ namespace Jellyfin.Plugin.Hue.Service
                 Math.Clamp(processingOverrides.HueShiftDegrees ?? config.HueShiftDegrees, -180, 180),
                 Math.Clamp(processingOverrides.OutputBrightnessPercent ?? config.OutputBrightnessPercent, 0, 100),
                 Math.Clamp(thresholdOverrides.BlackoutThreshold ?? config.BlackoutThreshold, 0, 255),
+                config.GetBlackoutBehaviorForUser(userId),
                 Math.Clamp(thresholdOverrides.ColorChangeThreshold ?? config.ColorChangeThreshold, 0, 255));
         }
+
+        internal static bool ShouldPreserveBlackoutColors(string? behavior)
+            => string.Equals(
+                behavior,
+                PluginConfiguration.BlackoutBehaviorKeepLastColors,
+                StringComparison.OrdinalIgnoreCase);
 
         internal static (
             bool UseGpu,
@@ -2820,6 +2831,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     HueShiftDegrees: 0,
                     OutputBrightnessPercent: 100,
                     BlackoutThreshold: 15,
+                    BlackoutBehavior: PluginConfiguration.BlackoutBehaviorBlackout,
                     ColorChangeThreshold: 10));
         }
 
@@ -2843,6 +2855,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 int HueShiftDegrees,
                 int OutputBrightnessPercent,
                 int BlackoutThreshold,
+                string BlackoutBehavior,
                 int ColorChangeThreshold) colorProcessingSettings)
         {
             var (frameWidth, frameHeight) = PluginConfiguration.GetFrameDimensions(frameResolution);
@@ -2923,9 +2936,16 @@ namespace Jellyfin.Plugin.Hue.Service
                         channelColors.Count > 0 &&
                         channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0) < colorProcessingSettings.BlackoutThreshold;
 
-                    // Check blackout threshold - send dark colors if frame is mostly black.
+                    // Check blackout threshold. Preserve the last streamed colors when
+                    // configured; otherwise send black to every channel as before.
                     if (isBlackout)
                     {
+                        if (ShouldPreserveBlackoutColors(colorProcessingSettings.BlackoutBehavior))
+                        {
+                            await DelayForLoopAsync(loopTimer, targetFrameDurationMs, token).ConfigureAwait(false);
+                            continue;
+                        }
+
                         // Send black to all channels so lights actually dim during dark scenes.
                         // Clear temporal history so a later bright scene starts immediately
                         // instead of blending with a stale pre-blackout frame.
@@ -3593,6 +3613,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 int HueShiftDegrees,
                 int OutputBrightnessPercent,
                 int BlackoutThreshold,
+                string BlackoutBehavior,
                 int ColorChangeThreshold) colorProcessingSettings)
         {
             var samplesPerChunk = Math.Max(80, AudioSampleRate / Math.Clamp(targetFps, MinFps, MaxFps));
@@ -3692,6 +3713,12 @@ namespace Jellyfin.Plugin.Hue.Service
                         channelColors.Values.Average(c => (c[0] + c[1] + c[2]) / 3.0) < colorProcessingSettings.BlackoutThreshold;
                     if (isBlackout)
                     {
+                        if (ShouldPreserveBlackoutColors(colorProcessingSettings.BlackoutBehavior))
+                        {
+                            await DelayForLoopAsync(loopTimer, targetFrameDurationMs, token).ConfigureAwait(false);
+                            continue;
+                        }
+
                         previousChannelColors.Clear();
                         var blackColors = channelColors.Keys.ToDictionary(
                             key => key,
@@ -5076,6 +5103,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveHueShiftDegrees { get; init; }
         public int? ActiveOutputBrightnessPercent { get; init; }
         public int? ActiveBlackoutThreshold { get; init; }
+        public string? ActiveBlackoutBehavior { get; init; }
         public int? ActiveColorChangeThreshold { get; init; }
         public bool? ActiveUseGpu { get; init; }
         public bool? ActiveCustomFfmpegFlagsConfigured { get; init; }

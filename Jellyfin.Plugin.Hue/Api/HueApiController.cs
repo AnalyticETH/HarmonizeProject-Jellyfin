@@ -5274,6 +5274,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveHueShiftDegrees = runtime?.ActiveHueShiftDegrees,
                 ActiveOutputBrightnessPercent = runtime?.ActiveOutputBrightnessPercent,
                 ActiveBlackoutThreshold = runtime?.ActiveBlackoutThreshold,
+                ActiveBlackoutBehavior = runtime?.ActiveBlackoutBehavior,
                 ActiveColorChangeThreshold = runtime?.ActiveColorChangeThreshold,
                 ActiveUseGpu = runtime?.ActiveUseGpu,
                 ActiveCustomFfmpegFlagsConfigured = runtime?.ActiveCustomFfmpegFlagsConfigured,
@@ -6856,6 +6857,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 HueShiftDegreesOverride = source.HueShiftDegreesOverride,
                 OutputBrightnessPercentOverride = source.OutputBrightnessPercentOverride,
                 BlackoutThresholdOverride = source.BlackoutThresholdOverride,
+                BlackoutBehaviorOverride = PluginConfiguration.NormalizeOptionalBlackoutBehavior(source.BlackoutBehaviorOverride),
                 ColorChangeThresholdOverride = source.ColorChangeThresholdOverride,
                 UseGpuOverride = source.UseGpuOverride,
                 CustomFfmpegFlagsOverride = source.CustomFfmpegFlagsOverride,
@@ -7193,6 +7195,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             mapping.PlaybackMediaFilterOverride = PluginConfiguration.NormalizeOptionalPlaybackMediaFilter(mapping.PlaybackMediaFilterOverride);
+            mapping.BlackoutBehaviorOverride = PluginConfiguration.NormalizeOptionalBlackoutBehavior(mapping.BlackoutBehaviorOverride);
 
             var plugin = Plugin.Instance;
             var config = plugin?.Configuration;
@@ -7716,6 +7719,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int HueShiftDegrees { get; set; } = 0;
         public int OutputBrightnessPercent { get; set; } = 100;
         public int BlackoutThreshold { get; set; } = 15;
+        public string BlackoutBehavior { get; set; } = PluginConfiguration.BlackoutBehaviorBlackout;
         public int ColorChangeThreshold { get; set; } = 10;
         public int NetworkRetryAttempts { get; set; } = 3;
 
@@ -7790,6 +7794,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 HueShiftDegrees = config.HueShiftDegrees,
                 OutputBrightnessPercent = config.OutputBrightnessPercent,
                 BlackoutThreshold = config.BlackoutThreshold,
+                BlackoutBehavior = PluginConfiguration.TryNormalizeBlackoutBehavior(config.BlackoutBehavior, out var normalizedBlackoutBehavior)
+                    ? normalizedBlackoutBehavior
+                    : PluginConfiguration.BlackoutBehaviorBlackout,
                 ColorChangeThreshold = config.ColorChangeThreshold,
                 NetworkRetryAttempts = config.NetworkRetryAttempts
             };
@@ -7877,6 +7884,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.HueShiftDegrees = HueShiftDegrees;
             config.OutputBrightnessPercent = OutputBrightnessPercent;
             config.BlackoutThreshold = BlackoutThreshold;
+            config.BlackoutBehavior = BlackoutBehavior?.Trim() ?? PluginConfiguration.BlackoutBehaviorBlackout;
             config.ColorChangeThreshold = ColorChangeThreshold;
             config.NetworkRetryAttempts = NetworkRetryAttempts;
         }
@@ -7926,6 +7934,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? HueShiftDegreesOverride { get; set; }
         public int? OutputBrightnessPercentOverride { get; set; }
         public int? BlackoutThresholdOverride { get; set; }
+        public string? BlackoutBehaviorOverride { get; set; }
         public int? ColorChangeThresholdOverride { get; set; }
         public bool? UseGpuOverride { get; set; }
         public string? CustomFfmpegFlagsOverride { get; set; }
@@ -7982,6 +7991,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 HueShiftDegreesOverride = mapping.HueShiftDegreesOverride,
                 OutputBrightnessPercentOverride = mapping.OutputBrightnessPercentOverride,
                 BlackoutThresholdOverride = mapping.BlackoutThresholdOverride,
+                BlackoutBehaviorOverride = mapping.BlackoutBehaviorOverride,
                 ColorChangeThresholdOverride = mapping.ColorChangeThresholdOverride,
                 UseGpuOverride = mapping.UseGpuOverride,
                 CustomFfmpegFlagsOverride = mapping.CustomFfmpegFlagsOverride,
@@ -10010,6 +10020,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ActiveHueShiftDegrees { get; set; }
         public int? ActiveOutputBrightnessPercent { get; set; }
         public int? ActiveBlackoutThreshold { get; set; }
+        public string? ActiveBlackoutBehavior { get; set; }
         public int? ActiveColorChangeThreshold { get; set; }
         public bool? ActiveUseGpu { get; set; }
         public bool? ActiveCustomFfmpegFlagsConfigured { get; set; }

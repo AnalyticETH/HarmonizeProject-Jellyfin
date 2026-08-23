@@ -81,6 +81,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **RGB Channel Gains** | Independently scale red, green, and blue channels from 50-200% (default: 100%) for room-specific white-balance correction before saturation and hue processing. |
 | **Output Brightness** | Final 0-100% brightness scale applied after boost, saturation, and hue shift (default: 100%). Use it to cap room brightness without changing color balance. |
 | **Blackout Threshold** | Set all channels to black when the sampled frame's average brightness falls below 0-255 (default: 15). Set to 0 to disable blackout handling. |
+| **Dark Scene Behavior** | When a frame is below the blackout threshold, either **Blackout** lights (legacy default) or **KeepLastColors** to preserve the last streamed colors and avoid redundant writes. |
 | **Color Change Threshold** | Suppress Hue packets until the RGB16 color delta reaches 0-255 (default: 10). Lower values follow subtle changes; higher values reduce network traffic. |
 | **When Playback Is Paused** | Keep the last synced colors (default), restore the original light state captured at playback start, or dim each captured light to the configured cinema level while paused. Sync resumes automatically; final restoration still follows **Restore Light State After Sync**. |
 | **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). Values may use quoted groups and escaped quotes/backslashes; the configuration save validates the same tokenization used by FFmpeg playback and reports malformed quotes before a session starts. |
@@ -131,7 +132,7 @@ enter replacement keys to rotate them. The mapping list reports credential prese
 revealing the key values.
 
 Each mapping can also define optional per-user color, performance, execution, channel, and restoration profiles. Audio Visualizer Sensitivity covers the low/mid/high reactive envelope (25-400%) independently from final Brightness Boost, while Audio Low/Mid/High Band Gains (0-200%, default inherited) rebalance each band before palette rendering without changing shared RMS loudness, Audio Response Smoothing (0-90%, default inherited) blends adjacent analysis windows to reduce spectral flicker, Audio Band Spread (0-100%, default inherited) averages nearby frequencies around each configured center, Audio Beat Pulse (0-100%, default inherited) adds a transient brightness response to rising energy, Audio Beat Pulse Release (0-100%, default inherited) controls the bounded tail, and Audio Beat Pulse Threshold (0-100%, default inherited) filters small energy rises before the attack. Audio Visualizer Palette (Spectrum, Band, Warm, Cool, or Monochrome; default inherited) controls the color presentation, Audio Spatial Routing (Spatial, Uniform, or Mirror; default inherited) controls whether the bands follow physical positions, share one mix, or mirror around the room center, and Audio Source Channels (Mono, Stereo, Left, or Right; default inherited) controls whether captured energy is mixed, preserved across Spatial placement, or isolated to one source channel. Color fields cover
-Brightness Boost, RGB Channel Gains, Color Saturation, Hue Shift, Output Brightness, Blackout Threshold, and
+Brightness Boost, RGB Channel Gains, Color Saturation, Hue Shift, Output Brightness, Blackout Threshold, Dark Scene Behavior, and
 Color Change Threshold. Performance
 fields cover Target FPS, Frame Resolution, Video Fit, Deinterlacing, Sampling Breadth/Mode, and
 Temporal Color Smoothing. Execution fields cover GPU acceleration, additional FFmpeg flags, the FFmpeg
@@ -407,7 +408,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.180 (Current)
+### Version 1.5.181 (Current)
+- **Configurable dark-scene behavior**: choose Blackout or KeepLastColors when sampled frames fall below the blackout threshold, with consistent video/audio handling and no redundant Hue writes for preserved colors
+- **Per-user dark-scene profiles**: inherit the global policy or override it per mapped user; effective policy is visible in runtime status and credential-safe mapping summaries
+- **Portable administrator controls**: carry the policy through configuration save/load, backup/import, and the administrator page with validation and regression coverage
+
+### Version 1.5.180
 - **Blocking security checks**: Gitleaks and Semgrep now fail CI on detected secrets, static-analysis findings, missing reports, or scanner errors while retaining redacted JSON artifacts
 - **Reliable SAST configuration**: Semgrep uses the explicit `p/default` ruleset with metrics disabled, preventing the previous auto-configuration failure from being hidden
 - **Action supply-chain hardening**: all third-party workflow actions are pinned to immutable commit SHAs and every job uses the named self-hosted runner

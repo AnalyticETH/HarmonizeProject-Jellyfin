@@ -37,6 +37,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? HueShiftDegreesOverride { get; set; }
         public int? OutputBrightnessPercentOverride { get; set; }
         public int? BlackoutThresholdOverride { get; set; }
+        public string? BlackoutBehaviorOverride { get; set; }
         public int? ColorChangeThresholdOverride { get; set; }
         public int? RedGainOverride { get; set; }
         public int? GreenGainOverride { get; set; }
@@ -395,6 +396,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string PauseBehaviorKeepLastColors = "KeepLastColors";
         public const string PauseBehaviorRestoreLightState = "RestoreLightState";
         public const string PauseBehaviorDimToCinemaLevel = "DimToCinemaLevel";
+        public const string BlackoutBehaviorBlackout = "Blackout";
+        public const string BlackoutBehaviorKeepLastColors = "KeepLastColors";
         public const string SamplingModeAverage = "Average";
         public const string SamplingModeCenterWeighted = "CenterWeighted";
         public const string SamplingModeCenterPixel = "CenterPixel";
@@ -608,6 +611,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             AudioChannelModeRight
         };
 
+        private static readonly string[] BlackoutBehaviors =
+        {
+            BlackoutBehaviorBlackout,
+            BlackoutBehaviorKeepLastColors
+        };
+
         /// <summary>
         /// Returns the canonical spelling for a supported saved-scene effect. Blank
         /// values are treated as the legacy solid-color behavior.
@@ -654,6 +663,44 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             normalized = match;
             return true;
+        }
+
+        /// <summary>
+        /// Returns the canonical dark-scene policy. Blank values preserve the historical
+        /// behavior of sending black to every entertainment channel.
+        /// </summary>
+        public static bool TryNormalizeBlackoutBehavior(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = BlackoutBehaviorBlackout;
+                return true;
+            }
+
+            var match = BlackoutBehaviors.FirstOrDefault(behavior =>
+                string.Equals(behavior, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = BlackoutBehaviorBlackout;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
+        /// Normalizes an optional per-user dark-scene policy while preserving invalid text
+        /// for configuration validation feedback.
+        /// </summary>
+        public static string? NormalizeOptionalBlackoutBehavior(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            return TryNormalizeBlackoutBehavior(value, out var normalized)
+                ? normalized
+                : value.Trim();
         }
 
         /// <summary>
@@ -1090,6 +1137,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int HueShiftDegrees { get; set; } = 0; // Global hue rotation (-180 to 180 degrees)
         public int OutputBrightnessPercent { get; set; } = 100; // Final output brightness ceiling (0-100%)
         public int BlackoutThreshold { get; set; } = 15; // Average brightness below which lights are set to black (0-255)
+        public string BlackoutBehavior { get; set; } = BlackoutBehaviorBlackout; // Dark-scene policy: blackout or preserve the last streamed colors
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
         public int NetworkRetryAttempts { get; set; } = 3; // Number of retry attempts for Hue REST and DTLS recovery
 
@@ -1428,6 +1476,32 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Gets the optional per-user dark-scene policy override. Null means the global
+        /// policy should be used.
+        /// </summary>
+        public string? GetBlackoutBehaviorOverrideForUser(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return NormalizeOptionalBlackoutBehavior(mapping?.BlackoutBehaviorOverride);
+        }
+
+        /// <summary>
+        /// Gets the effective dark-scene policy for a user, falling back safely to the
+        /// legacy blackout behavior when persisted configuration is malformed.
+        /// </summary>
+        public string GetBlackoutBehaviorForUser(Guid userId)
+        {
+            var overrideValue = GetBlackoutBehaviorOverrideForUser(userId);
+            if (overrideValue != null && TryNormalizeBlackoutBehavior(overrideValue, out var normalizedOverride))
+                return normalizedOverride;
+
+            return TryNormalizeBlackoutBehavior(BlackoutBehavior, out var normalizedGlobal)
+                ? normalizedGlobal
+                : BlackoutBehaviorBlackout;
+        }
+
+        /// <summary>
         /// Gets optional per-user playback-performance overrides. Null values mean the global
         /// capture or processing setting should be used for that component.
         /// </summary>
@@ -1551,6 +1625,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.BlackoutThresholdOverride.Value > MaxByteSetting))
             {
                 errors.Add($"{label} blackout threshold override must be between 0 and 255");
+            }
+
+            var blackoutBehaviorOverride = mapping.BlackoutBehaviorOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(blackoutBehaviorOverride) &&
+                !TryNormalizeBlackoutBehavior(blackoutBehaviorOverride, out _))
+            {
+                errors.Add($"{label} blackout behavior override must be Blackout or KeepLastColors");
             }
 
             if (mapping.ColorChangeThresholdOverride.HasValue &&
@@ -2807,6 +2888,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (BlackoutThreshold < MinByteSetting || BlackoutThreshold > MaxByteSetting)
                     errors.Add("Blackout threshold must be between 0 and 255");
+
+                if (!TryNormalizeBlackoutBehavior(BlackoutBehavior, out _))
+                    errors.Add("Blackout behavior must be Blackout or KeepLastColors");
 
                 if (ColorChangeThreshold < MinByteSetting || ColorChangeThreshold > MaxByteSetting)
                     errors.Add("Color change threshold must be between 0 and 255");

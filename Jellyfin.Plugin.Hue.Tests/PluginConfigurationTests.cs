@@ -1810,6 +1810,50 @@ public class PluginConfigurationTests
     }
 
     [Theory]
+    [InlineData("Unsupported")]
+    [InlineData(" ")]
+    public void Validate_WhenBlackoutBehaviorIsInvalid_ReturnsError(string behavior)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            BlackoutBehavior = behavior
+        };
+
+        var errors = config.Validate();
+
+        if (string.IsNullOrWhiteSpace(behavior))
+            Assert.DoesNotContain("Blackout behavior must be Blackout or KeepLastColors", errors);
+        else
+            Assert.Contains("Blackout behavior must be Blackout or KeepLastColors", errors);
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.BlackoutBehaviorBlackout)]
+    [InlineData(PluginConfiguration.BlackoutBehaviorKeepLastColors)]
+    [InlineData("keeplastcolors")]
+    public void Validate_WhenBlackoutBehaviorIsValid_ReturnsNoError(string behavior)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            BlackoutBehavior = behavior
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("Blackout behavior must be Blackout or KeepLastColors", errors);
+    }
+
+    [Theory]
     [InlineData(-1)]
     [InlineData(11)]
     public void Validate_WhenNetworkRetryAttemptsOutOfRange_ReturnsError(int attempts)
@@ -1976,6 +2020,7 @@ public class PluginConfigurationTests
         Assert.Equal(0, config.HueShiftDegrees);
         Assert.Equal(100, config.OutputBrightnessPercent);
         Assert.Equal(15, config.BlackoutThreshold);
+        Assert.Equal(PluginConfiguration.BlackoutBehaviorBlackout, config.BlackoutBehavior);
         Assert.Equal(10, config.ColorChangeThreshold);
         Assert.Equal(3, config.NetworkRetryAttempts);
         Assert.Equal(5, config.FfmpegStallTimeoutSeconds);
@@ -2588,6 +2633,7 @@ public class PluginConfigurationTests
                     HueShiftDegreesOverride = -45,
                     OutputBrightnessPercentOverride = 75,
                     BlackoutThresholdOverride = 0,
+                    BlackoutBehaviorOverride = PluginConfiguration.BlackoutBehaviorKeepLastColors,
                     ColorChangeThresholdOverride = 255
                 }
             }
@@ -2612,6 +2658,9 @@ public class PluginConfigurationTests
         var unmappedThresholdOverrides = config.GetColorThresholdOverridesForUser(System.Guid.NewGuid());
         Assert.Equal((int?)0, thresholdOverrides.BlackoutThreshold);
         Assert.Equal((int?)255, thresholdOverrides.ColorChangeThreshold);
+        Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, config.GetBlackoutBehaviorOverrideForUser(userId));
+        Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, config.GetBlackoutBehaviorForUser(userId));
+        Assert.Equal(PluginConfiguration.BlackoutBehaviorBlackout, config.GetBlackoutBehaviorForUser(System.Guid.NewGuid()));
         Assert.Null(unmappedThresholdOverrides.BlackoutThreshold);
         Assert.Null(unmappedThresholdOverrides.ColorChangeThreshold);
         Assert.Null(unmappedOverrides.BrightnessBoost);
@@ -3239,6 +3288,7 @@ public class PluginConfigurationTests
                     HueShiftDegreesOverride = 181,
                     OutputBrightnessPercentOverride = -1,
                     BlackoutThresholdOverride = -1,
+                    BlackoutBehaviorOverride = "InvalidBlackoutBehavior",
                     ColorChangeThresholdOverride = 256
                 }
             }
@@ -3254,6 +3304,7 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 hue shift override must be between -180 and 180 degrees", errors);
         Assert.Contains("User mapping 1 output brightness override must be between 0 and 100 percent", errors);
         Assert.Contains("User mapping 1 blackout threshold override must be between 0 and 255", errors);
+        Assert.Contains("User mapping 1 blackout behavior override must be Blackout or KeepLastColors", errors);
         Assert.Contains("User mapping 1 color change threshold override must be between 0 and 255", errors);
     }
 

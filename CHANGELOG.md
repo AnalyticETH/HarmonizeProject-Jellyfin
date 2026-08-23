@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.181] - 2026-08-22
+
+### Added
+- **Configurable dark-scene behavior**: choose whether frames below the blackout threshold turn every channel black or preserve the last streamed colors
+- **Per-user dark-scene overrides**: inherit the global policy or choose a different policy for each mapped user
+- **Operational visibility and portability**: expose the effective policy in runtime status, configuration backup/import, mapping summaries, and administrator controls
+
+### Reliability
+- **Consistent video/audio handling**: preserve temporal color history and avoid redundant Hue writes when KeepLastColors is active
+- **Regression coverage**: validate policy values, inheritance, runtime resolution, status reporting, and API/UI round trips
+
 ## [1.5.180] - 2026-08-20
 
 ### Security
