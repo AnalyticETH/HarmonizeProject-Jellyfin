@@ -127,6 +127,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int HueShiftDegrees,
             int OutputBrightnessPercent,
             double GammaCorrection,
+            int ContrastPercent,
             int BlackoutThreshold,
             string BlackoutBehavior,
             int ColorChangeThreshold)? _activeColorProcessingSettings;
@@ -589,6 +590,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 int HueShiftDegrees,
                 int OutputBrightnessPercent,
                 double GammaCorrection,
+                int ContrastPercent,
                 int BlackoutThreshold,
                 string BlackoutBehavior,
                 int ColorChangeThreshold)? activeColorProcessingSettings;
@@ -712,6 +714,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveHueShiftDegrees = isSyncing ? activeColorProcessingSettings?.HueShiftDegrees : null,
                 ActiveOutputBrightnessPercent = isSyncing ? activeColorProcessingSettings?.OutputBrightnessPercent : null,
                 ActiveGammaCorrection = isSyncing ? activeColorProcessingSettings?.GammaCorrection : null,
+                ActiveContrastPercent = isSyncing ? activeColorProcessingSettings?.ContrastPercent : null,
                 ActiveBlackoutThreshold = isSyncing ? activeColorProcessingSettings?.BlackoutThreshold : null,
                 ActiveBlackoutBehavior = isSyncing ? activeColorProcessingSettings?.BlackoutBehavior : null,
                 ActiveColorChangeThreshold = isSyncing ? activeColorProcessingSettings?.ColorChangeThreshold : null,
@@ -2463,6 +2466,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int HueShiftDegrees,
             int OutputBrightnessPercent,
             double GammaCorrection,
+            int ContrastPercent,
             int BlackoutThreshold,
             string BlackoutBehavior,
             int ColorChangeThreshold) ResolveColorProcessingSettings(
@@ -2482,6 +2486,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 Math.Clamp(processingOverrides.HueShiftDegrees ?? config.HueShiftDegrees, -180, 180),
                 Math.Clamp(processingOverrides.OutputBrightnessPercent ?? config.OutputBrightnessPercent, 0, 100),
                 NormalizeGammaCorrection(processingOverrides.GammaCorrection ?? config.GammaCorrection),
+                NormalizeContrastPercent(processingOverrides.ContrastPercent ?? config.ContrastPercent),
                 Math.Clamp(thresholdOverrides.BlackoutThreshold ?? config.BlackoutThreshold, 0, 255),
                 config.GetBlackoutBehaviorForUser(userId),
                 Math.Clamp(thresholdOverrides.ColorChangeThreshold ?? config.ColorChangeThreshold, 0, 255));
@@ -2759,6 +2764,33 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
+        /// Normalizes the contrast profile around mid-gray. Invalid persisted values are
+        /// clamped to the supported range so they cannot produce out-of-range stream data.
+        /// </summary>
+        internal static int NormalizeContrastPercent(int contrastPercent)
+            => Math.Clamp(
+                contrastPercent,
+                PluginConfiguration.MinContrastPercent,
+                PluginConfiguration.MaxContrastPercent);
+
+        /// <summary>
+        /// Applies contrast around the 127.5 mid-gray pivot. A value of 100 percent is
+        /// neutral; higher values expand the range and lower values compress it.
+        /// </summary>
+        internal static double ApplyContrastCorrection(double channel, int contrastPercent)
+        {
+            var normalizedContrast = NormalizeContrastPercent(contrastPercent);
+            var clampedChannel = Math.Clamp(channel, 0, 255);
+            if (normalizedContrast == PluginConfiguration.DefaultContrastPercent)
+                return clampedChannel;
+
+            return Math.Clamp(
+                ((clampedChannel - 127.5) * (normalizedContrast / 100.0)) + 127.5,
+                0,
+                255);
+        }
+
+        /// <summary>
         /// Applies independent RGB channel gains for room-specific white-balance correction.
         /// Gains are clamped to the supported 50-200% range and output remains byte-safe.
         /// </summary>
@@ -2865,6 +2897,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     HueShiftDegrees: 0,
                     OutputBrightnessPercent: 100,
                     GammaCorrection: PluginConfiguration.DefaultGammaCorrection,
+                    ContrastPercent: PluginConfiguration.DefaultContrastPercent,
                     BlackoutThreshold: 15,
                     BlackoutBehavior: PluginConfiguration.BlackoutBehaviorBlackout,
                     ColorChangeThreshold: 10));
@@ -2890,6 +2923,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 int HueShiftDegrees,
                 int OutputBrightnessPercent,
                 double GammaCorrection,
+                int ContrastPercent,
                 int BlackoutThreshold,
                 string BlackoutBehavior,
                 int ColorChangeThreshold) colorProcessingSettings)
@@ -3063,6 +3097,13 @@ namespace Jellyfin.Plugin.Hue.Service
                             r = ApplyGammaCorrection(r, colorProcessingSettings.GammaCorrection);
                             g = ApplyGammaCorrection(g, colorProcessingSettings.GammaCorrection);
                             b = ApplyGammaCorrection(b, colorProcessingSettings.GammaCorrection);
+                        }
+
+                        if (colorProcessingSettings.ContrastPercent != PluginConfiguration.DefaultContrastPercent)
+                        {
+                            r = ApplyContrastCorrection(r, colorProcessingSettings.ContrastPercent);
+                            g = ApplyContrastCorrection(g, colorProcessingSettings.ContrastPercent);
+                            b = ApplyContrastCorrection(b, colorProcessingSettings.ContrastPercent);
                         }
 
                         if (colorProcessingSettings.ColorSaturation != 100 ||
@@ -3656,6 +3697,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 int HueShiftDegrees,
                 int OutputBrightnessPercent,
                 double GammaCorrection,
+                int ContrastPercent,
                 int BlackoutThreshold,
                 string BlackoutBehavior,
                 int ColorChangeThreshold) colorProcessingSettings)
@@ -3831,6 +3873,13 @@ namespace Jellyfin.Plugin.Hue.Service
                             r = ApplyGammaCorrection(r, colorProcessingSettings.GammaCorrection);
                             g = ApplyGammaCorrection(g, colorProcessingSettings.GammaCorrection);
                             b = ApplyGammaCorrection(b, colorProcessingSettings.GammaCorrection);
+                        }
+
+                        if (colorProcessingSettings.ContrastPercent != PluginConfiguration.DefaultContrastPercent)
+                        {
+                            r = ApplyContrastCorrection(r, colorProcessingSettings.ContrastPercent);
+                            g = ApplyContrastCorrection(g, colorProcessingSettings.ContrastPercent);
+                            b = ApplyContrastCorrection(b, colorProcessingSettings.ContrastPercent);
                         }
 
                         if (colorProcessingSettings.ColorSaturation != 100 ||
@@ -5154,6 +5203,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveHueShiftDegrees { get; init; }
         public int? ActiveOutputBrightnessPercent { get; init; }
         public double? ActiveGammaCorrection { get; init; }
+        public int? ActiveContrastPercent { get; init; }
         public int? ActiveBlackoutThreshold { get; init; }
         public string? ActiveBlackoutBehavior { get; init; }
         public int? ActiveColorChangeThreshold { get; init; }

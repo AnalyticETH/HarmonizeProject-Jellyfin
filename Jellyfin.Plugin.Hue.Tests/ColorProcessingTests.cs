@@ -148,6 +148,26 @@ public class ColorProcessingTests : IDisposable
         Assert.Equal(expected, HueSyncService.ApplyGammaCorrection(channel, gamma), precision: 6);
     }
 
+    [Fact]
+    public void ContrastCorrection_IsNeutralAtOneHundredAndExpandsOrCompressesMidGray()
+    {
+        Assert.Equal(128, HueSyncService.ApplyContrastCorrection(128, 100), precision: 6);
+        Assert.True(HueSyncService.ApplyContrastCorrection(64, 150) < 64);
+        Assert.True(HueSyncService.ApplyContrastCorrection(192, 150) > 192);
+        Assert.True(HueSyncService.ApplyContrastCorrection(64, 50) > 64);
+        Assert.True(HueSyncService.ApplyContrastCorrection(192, 50) < 192);
+    }
+
+    [Theory]
+    [InlineData(-100, 100, 0)]
+    [InlineData(400, 100, 255)]
+    [InlineData(0, 0, 63.75)]
+    [InlineData(255, 300, 255)]
+    public void ContrastCorrection_ClampsChannelsAndProfiles(double channel, int contrastPercent, double expected)
+    {
+        Assert.Equal(expected, HueSyncService.ApplyContrastCorrection(channel, contrastPercent), precision: 6);
+    }
+
     [Theory]
     [InlineData(0.2, 0.8, 0.1, 0.56)] // t < 1/6: p + (q-p)*6*t = 0.2 + 0.6*0.6 = 0.56
     [InlineData(0.2, 0.8, 0.4, 0.8)] // t < 1/2: returns q

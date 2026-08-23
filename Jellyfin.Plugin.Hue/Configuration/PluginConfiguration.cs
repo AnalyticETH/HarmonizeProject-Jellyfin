@@ -37,6 +37,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? HueShiftDegreesOverride { get; set; }
         public int? OutputBrightnessPercentOverride { get; set; }
         public double? GammaCorrectionOverride { get; set; }
+        public int? ContrastPercentOverride { get; set; }
         public int? BlackoutThresholdOverride { get; set; }
         public string? BlackoutBehaviorOverride { get; set; }
         public int? ColorChangeThresholdOverride { get; set; }
@@ -447,6 +448,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const double MinGammaCorrection = 0.5;
         public const double MaxGammaCorrection = 2.5;
         public const double DefaultGammaCorrection = 1.0;
+        public const int MinContrastPercent = 50;
+        public const int MaxContrastPercent = 200;
+        public const int DefaultContrastPercent = 100;
         private const int MinByteSetting = 0;
         private const int MaxByteSetting = 255;
         private const int MinNetworkRetryAttempts = 0;
@@ -1141,6 +1145,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int HueShiftDegrees { get; set; } = 0; // Global hue rotation (-180 to 180 degrees)
         public int OutputBrightnessPercent { get; set; } = 100; // Final output brightness ceiling (0-100%)
         public double GammaCorrection { get; set; } = DefaultGammaCorrection; // Mid-tone correction exponent (0.5-2.5, 1.0 is neutral)
+        public int ContrastPercent { get; set; } = DefaultContrastPercent; // Contrast around mid-gray (50-200%, 100% is neutral)
         public int BlackoutThreshold { get; set; } = 15; // Average brightness below which lights are set to black (0-255)
         public string BlackoutBehavior { get; set; } = BlackoutBehaviorBlackout; // Dark-scene policy: blackout or preserve the last streamed colors
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
@@ -1440,19 +1445,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// Gets optional per-user color-processing overrides. Null values mean the global
         /// plugin setting should be used for that component.
         /// </summary>
-        public (int? BrightnessBoost, int? ColorSaturation, int? HueShiftDegrees, int? OutputBrightnessPercent, double? GammaCorrection)
+        public (int? BrightnessBoost, int? ColorSaturation, int? HueShiftDegrees, int? OutputBrightnessPercent, double? GammaCorrection, int? ContrastPercent)
             GetColorProcessingOverridesForUser(Guid userId)
         {
             var userIdText = userId.ToString();
             var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
             return mapping == null
-                ? (null, null, null, null, null)
+                ? (null, null, null, null, null, null)
                 : (
                     mapping.BrightnessBoostOverride,
                     mapping.ColorSaturationOverride,
                     mapping.HueShiftDegreesOverride,
                     mapping.OutputBrightnessPercentOverride,
-                    mapping.GammaCorrectionOverride);
+                    mapping.GammaCorrectionOverride,
+                    mapping.ContrastPercentOverride);
         }
 
         /// <summary>
@@ -1632,6 +1638,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.GammaCorrectionOverride.Value > MaxGammaCorrection))
             {
                 errors.Add($"{label} gamma correction override must be between {MinGammaCorrection:0.0} and {MaxGammaCorrection:0.0}");
+            }
+
+            if (mapping.ContrastPercentOverride.HasValue &&
+                (mapping.ContrastPercentOverride.Value < MinContrastPercent ||
+                 mapping.ContrastPercentOverride.Value > MaxContrastPercent))
+            {
+                errors.Add($"{label} contrast override must be between {MinContrastPercent} and {MaxContrastPercent} percent");
             }
 
             if (mapping.BlackoutThresholdOverride.HasValue &&
@@ -2903,6 +2916,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 if (!double.IsFinite(GammaCorrection) ||
                     GammaCorrection < MinGammaCorrection || GammaCorrection > MaxGammaCorrection)
                     errors.Add($"Gamma correction must be between {MinGammaCorrection:0.0} and {MaxGammaCorrection:0.0}");
+
+                if (ContrastPercent < MinContrastPercent || ContrastPercent > MaxContrastPercent)
+                    errors.Add($"Contrast must be between {MinContrastPercent} and {MaxContrastPercent} percent");
 
                 if (BlackoutThreshold < MinByteSetting || BlackoutThreshold > MaxByteSetting)
                     errors.Add("Blackout threshold must be between 0 and 255");

@@ -1787,6 +1787,47 @@ public class PluginConfigurationTests
     }
 
     [Theory]
+    [InlineData(49)]
+    [InlineData(201)]
+    public void Validate_WhenContrastIsOutOfRange_ReturnsError(int contrastPercent)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            ContrastPercent = contrastPercent
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Contrast must be between 50 and 200 percent", errors);
+    }
+
+    [Theory]
+    [InlineData(50)]
+    [InlineData(100)]
+    [InlineData(200)]
+    public void Validate_WhenContrastIsValid_ReturnsNoError(int contrastPercent)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            ContrastPercent = contrastPercent
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("Contrast must be between 50 and 200 percent", errors);
+    }
+
+    [Theory]
     [InlineData(-181)]
     [InlineData(181)]
     public void Validate_WhenHueShiftIsOutOfRange_ReturnsError(int hueShiftDegrees)
@@ -2063,6 +2104,7 @@ public class PluginConfigurationTests
         Assert.Equal(0, config.HueShiftDegrees);
         Assert.Equal(100, config.OutputBrightnessPercent);
         Assert.Equal(PluginConfiguration.DefaultGammaCorrection, config.GammaCorrection);
+        Assert.Equal(PluginConfiguration.DefaultContrastPercent, config.ContrastPercent);
         Assert.Equal(15, config.BlackoutThreshold);
         Assert.Equal(PluginConfiguration.BlackoutBehaviorBlackout, config.BlackoutBehavior);
         Assert.Equal(10, config.ColorChangeThreshold);
@@ -2677,6 +2719,7 @@ public class PluginConfigurationTests
                     HueShiftDegreesOverride = -45,
                     OutputBrightnessPercentOverride = 75,
                     GammaCorrectionOverride = 1.35,
+                    ContrastPercentOverride = 135,
                     BlackoutThresholdOverride = 0,
                     BlackoutBehaviorOverride = PluginConfiguration.BlackoutBehaviorKeepLastColors,
                     ColorChangeThresholdOverride = 255
@@ -2700,6 +2743,7 @@ public class PluginConfigurationTests
         Assert.Equal((int?)-45, overrides.HueShiftDegrees);
         Assert.Equal((int?)75, overrides.OutputBrightnessPercent);
         Assert.Equal((double?)1.35, overrides.GammaCorrection);
+        Assert.Equal((int?)135, overrides.ContrastPercent);
         var thresholdOverrides = config.GetColorThresholdOverridesForUser(userId);
         var unmappedThresholdOverrides = config.GetColorThresholdOverridesForUser(System.Guid.NewGuid());
         Assert.Equal((int?)0, thresholdOverrides.BlackoutThreshold);
@@ -2714,6 +2758,7 @@ public class PluginConfigurationTests
         Assert.Null(unmappedOverrides.HueShiftDegrees);
         Assert.Null(unmappedOverrides.OutputBrightnessPercent);
         Assert.Null(unmappedOverrides.GammaCorrection);
+        Assert.Null(unmappedOverrides.ContrastPercent);
     }
 
     [Fact]
@@ -3335,6 +3380,7 @@ public class PluginConfigurationTests
                     HueShiftDegreesOverride = 181,
                     OutputBrightnessPercentOverride = -1,
                     GammaCorrectionOverride = 2.51,
+                    ContrastPercentOverride = 201,
                     BlackoutThresholdOverride = -1,
                     BlackoutBehaviorOverride = "InvalidBlackoutBehavior",
                     ColorChangeThresholdOverride = 256
@@ -3352,6 +3398,7 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 hue shift override must be between -180 and 180 degrees", errors);
         Assert.Contains("User mapping 1 output brightness override must be between 0 and 100 percent", errors);
         Assert.Contains("User mapping 1 gamma correction override must be between 0.5 and 2.5", errors);
+        Assert.Contains("User mapping 1 contrast override must be between 50 and 200 percent", errors);
         Assert.Contains("User mapping 1 blackout threshold override must be between 0 and 255", errors);
         Assert.Contains("User mapping 1 blackout behavior override must be Blackout or KeepLastColors", errors);
         Assert.Contains("User mapping 1 color change threshold override must be between 0 and 255", errors);
