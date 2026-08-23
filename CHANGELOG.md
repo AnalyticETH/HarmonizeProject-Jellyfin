@@ -5,9 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.183] - 2026-08-23
+## [1.5.184] - 2026-08-23
 
 ### Added
+- **Color temperature correction**: tune global or per-user white balance from 1000 K to 20000 K with a neutral 6500 K daylight default
+- **Consistent runtime profiles**: apply color temperature after channel gains to both video and audio color streams and expose the effective value in status, backup/import, and mapping summaries
+- **Administrator controls and coverage**: add validated color-temperature controls to the global and per-user profiles with API/UI round-trip and color-math regression tests
 - **Contrast correction**: tune global or per-user contrast around mid-gray from 50% to 200% with the neutral 100% default
 - **Consistent runtime profiles**: apply contrast correction after gamma to both video and audio color streams and expose the effective value in status, backup/import, and mapping summaries
 - **Administrator controls and coverage**: add validated contrast controls to the global and per-user profiles with API/UI round-trip and color-math regression tests

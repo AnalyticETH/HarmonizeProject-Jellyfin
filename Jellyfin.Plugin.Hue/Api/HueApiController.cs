@@ -5275,6 +5275,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveOutputBrightnessPercent = runtime?.ActiveOutputBrightnessPercent,
                 ActiveGammaCorrection = runtime?.ActiveGammaCorrection,
                 ActiveContrastPercent = runtime?.ActiveContrastPercent,
+                ActiveColorTemperatureKelvin = runtime?.ActiveColorTemperatureKelvin,
                 ActiveBlackoutThreshold = runtime?.ActiveBlackoutThreshold,
                 ActiveBlackoutBehavior = runtime?.ActiveBlackoutBehavior,
                 ActiveColorChangeThreshold = runtime?.ActiveColorChangeThreshold,
@@ -6860,6 +6861,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 OutputBrightnessPercentOverride = source.OutputBrightnessPercentOverride,
                 GammaCorrectionOverride = source.GammaCorrectionOverride,
                 ContrastPercentOverride = source.ContrastPercentOverride,
+                ColorTemperatureKelvinOverride = source.ColorTemperatureKelvinOverride,
                 BlackoutThresholdOverride = source.BlackoutThresholdOverride,
                 BlackoutBehaviorOverride = PluginConfiguration.NormalizeOptionalBlackoutBehavior(source.BlackoutBehaviorOverride),
                 ColorChangeThresholdOverride = source.ColorChangeThresholdOverride,
@@ -7724,6 +7726,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int OutputBrightnessPercent { get; set; } = 100;
         public double GammaCorrection { get; set; } = PluginConfiguration.DefaultGammaCorrection;
         public int ContrastPercent { get; set; } = PluginConfiguration.DefaultContrastPercent;
+        public int ColorTemperatureKelvin { get; set; } = PluginConfiguration.DefaultColorTemperatureKelvin;
         public int BlackoutThreshold { get; set; } = 15;
         public string BlackoutBehavior { get; set; } = PluginConfiguration.BlackoutBehaviorBlackout;
         public int ColorChangeThreshold { get; set; } = 10;
@@ -7808,6 +7811,10 @@ namespace Jellyfin.Plugin.Hue.Api
                     config.ContrastPercent,
                     PluginConfiguration.MinContrastPercent,
                     PluginConfiguration.MaxContrastPercent),
+                ColorTemperatureKelvin = Math.Clamp(
+                    config.ColorTemperatureKelvin,
+                    PluginConfiguration.MinColorTemperatureKelvin,
+                    PluginConfiguration.MaxColorTemperatureKelvin),
                 BlackoutThreshold = config.BlackoutThreshold,
                 BlackoutBehavior = PluginConfiguration.TryNormalizeBlackoutBehavior(config.BlackoutBehavior, out var normalizedBlackoutBehavior)
                     ? normalizedBlackoutBehavior
@@ -7900,6 +7907,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.OutputBrightnessPercent = OutputBrightnessPercent;
             config.GammaCorrection = GammaCorrection;
             config.ContrastPercent = ContrastPercent;
+            config.ColorTemperatureKelvin = ColorTemperatureKelvin;
             config.BlackoutThreshold = BlackoutThreshold;
             config.BlackoutBehavior = BlackoutBehavior?.Trim() ?? PluginConfiguration.BlackoutBehaviorBlackout;
             config.ColorChangeThreshold = ColorChangeThreshold;
@@ -7952,6 +7960,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? OutputBrightnessPercentOverride { get; set; }
         public double? GammaCorrectionOverride { get; set; }
         public int? ContrastPercentOverride { get; set; }
+        public int? ColorTemperatureKelvinOverride { get; set; }
         public int? BlackoutThresholdOverride { get; set; }
         public string? BlackoutBehaviorOverride { get; set; }
         public int? ColorChangeThresholdOverride { get; set; }
@@ -8011,6 +8020,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 OutputBrightnessPercentOverride = mapping.OutputBrightnessPercentOverride,
                 GammaCorrectionOverride = mapping.GammaCorrectionOverride,
                 ContrastPercentOverride = mapping.ContrastPercentOverride,
+                ColorTemperatureKelvinOverride = mapping.ColorTemperatureKelvinOverride,
                 BlackoutThresholdOverride = mapping.BlackoutThresholdOverride,
                 BlackoutBehaviorOverride = mapping.BlackoutBehaviorOverride,
                 ColorChangeThresholdOverride = mapping.ColorChangeThresholdOverride,
@@ -10042,6 +10052,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ActiveOutputBrightnessPercent { get; set; }
         public double? ActiveGammaCorrection { get; set; }
         public int? ActiveContrastPercent { get; set; }
+        public int? ActiveColorTemperatureKelvin { get; set; }
         public int? ActiveBlackoutThreshold { get; set; }
         public string? ActiveBlackoutBehavior { get; set; }
         public int? ActiveColorChangeThreshold { get; set; }

@@ -79,9 +79,10 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Restore Light State After Sync** | Save and restore each light's original state after playback. Per-user mappings can override this policy while blank fields inherit the global setting. |
 | **Hue Shift** | Rotate synced colors around the hue wheel (-180° to 180°, default: 0°) to correct a room's color bias or create a creative palette. |
 | **RGB Channel Gains** | Independently scale red, green, and blue channels from 50-200% (default: 100%) for room-specific white-balance correction before saturation and hue processing. |
-| **Output Brightness** | Final 0-100% brightness scale applied after boost, gains, gamma, contrast, saturation, and hue shift (default: 100%). Use it to cap room brightness without changing color balance. |
+| **Output Brightness** | Final 0-100% brightness scale applied after boost, gains, temperature, gamma, contrast, saturation, and hue shift (default: 100%). Use it to cap room brightness without changing color balance. |
 | **Gamma Correction** | Adjust mid-tone brightness after channel gains from 0.5-2.5 (default: 1.0). Values above 1.0 lift mid-tones; values below 1.0 deepen them. |
 | **Contrast** | Expand or compress contrast around mid-gray from 50-200% (default: 100%) after gamma. Higher values deepen shadows and brighten highlights; lower values compress the range. |
+| **Color Temperature** | Shift white balance from 1000-20000 K after channel gains (default: 6500 K neutral daylight). Lower values warm the room; higher values cool it. |
 | **Blackout Threshold** | Set all channels to black when the sampled frame's average brightness falls below 0-255 (default: 15). Set to 0 to disable blackout handling. |
 | **Dark Scene Behavior** | When a frame is below the blackout threshold, either **Blackout** lights (legacy default) or **KeepLastColors** to preserve the last streamed colors and avoid redundant writes. |
 | **Color Change Threshold** | Suppress Hue packets until the RGB16 color delta reaches 0-255 (default: 10). Lower values follow subtle changes; higher values reduce network traffic. |
@@ -134,7 +135,7 @@ enter replacement keys to rotate them. The mapping list reports credential prese
 revealing the key values.
 
 Each mapping can also define optional per-user color, performance, execution, channel, and restoration profiles. Audio Visualizer Sensitivity covers the low/mid/high reactive envelope (25-400%) independently from final Brightness Boost, while Audio Low/Mid/High Band Gains (0-200%, default inherited) rebalance each band before palette rendering without changing shared RMS loudness, Audio Response Smoothing (0-90%, default inherited) blends adjacent analysis windows to reduce spectral flicker, Audio Band Spread (0-100%, default inherited) averages nearby frequencies around each configured center, Audio Beat Pulse (0-100%, default inherited) adds a transient brightness response to rising energy, Audio Beat Pulse Release (0-100%, default inherited) controls the bounded tail, and Audio Beat Pulse Threshold (0-100%, default inherited) filters small energy rises before the attack. Audio Visualizer Palette (Spectrum, Band, Warm, Cool, or Monochrome; default inherited) controls the color presentation, Audio Spatial Routing (Spatial, Uniform, or Mirror; default inherited) controls whether the bands follow physical positions, share one mix, or mirror around the room center, and Audio Source Channels (Mono, Stereo, Left, or Right; default inherited) controls whether captured energy is mixed, preserved across Spatial placement, or isolated to one source channel. Color fields cover
-Brightness Boost, RGB Channel Gains, Color Saturation, Hue Shift, Output Brightness, Gamma Correction, Contrast, Blackout Threshold, Dark Scene Behavior, and
+Brightness Boost, RGB Channel Gains, Color Saturation, Hue Shift, Output Brightness, Gamma Correction, Contrast, Color Temperature, Blackout Threshold, Dark Scene Behavior, and
 Color Change Threshold. Performance
 fields cover Target FPS, Frame Resolution, Video Fit, Deinterlacing, Sampling Breadth/Mode, and
 Temporal Color Smoothing. Execution fields cover GPU acceleration, additional FFmpeg flags, the FFmpeg
@@ -410,7 +411,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.183 (Current)
+### Version 1.5.184 (Current)
+- **Color temperature correction**: tune global or per-user white balance from 1000-20000 K with a neutral 6500 K daylight default, applied consistently to video and audio streams
+- **Portable profiles and telemetry**: carry color temperature through configuration save/load, backup/import, mapping summaries, runtime status, and administrator controls
+- **Validation and regression coverage**: normalize warm/cool profiles safely and cover color-temperature math, bounds, inheritance, and API/UI round trips
+
+### Version 1.5.183
 - **Contrast correction**: tune global or per-user contrast around mid-gray from 50-200% with the neutral 100% default, applied consistently to video and audio streams
 - **Portable profiles and telemetry**: carry contrast through configuration save/load, backup/import, mapping summaries, runtime status, and administrator controls
 - **Validation and regression coverage**: clamp runtime values safely and cover contrast math, bounds, inheritance, and API/UI round trips

@@ -69,6 +69,7 @@ public sealed class HueSyncServiceLifecycleTests
                 OutputBrightnessPercent: 75,
                 GammaCorrection: 1.25,
                 ContrastPercent: 125,
+                ColorTemperatureKelvin: 4200,
                 BlackoutThreshold: 30,
                 BlackoutBehavior: PluginConfiguration.BlackoutBehaviorKeepLastColors,
                 ColorChangeThreshold: 5));
@@ -129,6 +130,7 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal(75, status.ActiveOutputBrightnessPercent);
         Assert.Equal(1.25, status.ActiveGammaCorrection);
         Assert.Equal(125, status.ActiveContrastPercent);
+        Assert.Equal(4200, status.ActiveColorTemperatureKelvin);
         Assert.Equal(30, status.ActiveBlackoutThreshold);
         Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, status.ActiveBlackoutBehavior);
         Assert.Equal(5, status.ActiveColorChangeThreshold);

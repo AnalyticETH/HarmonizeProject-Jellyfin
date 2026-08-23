@@ -1217,6 +1217,12 @@
                                 </div>
 
                                 <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingColorTemperatureKelvinOverride">Color Temperature Override (K)</label>
+                                    <input id="mappingColorTemperatureKelvinOverride" type="number" min="1000" max="20000" step="100" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user white-balance temperature (1000-20000 K; 6500 K is neutral); blank inherits the global value.</div>
+                                </div>
+
+                                <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="mappingBlackoutThresholdOverride">Blackout Threshold Override</label>
                                     <input id="mappingBlackoutThresholdOverride" type="number" min="0" max="255" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user average brightness threshold (0-255) below which all channels are sent black. Use 0 to disable blackout handling.</div>
@@ -1509,7 +1515,7 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="outputBrightnessPercent">Output Brightness (%)</label>
                             <input id="outputBrightnessPercent" name="outputBrightnessPercent" type="number" min="0" max="100" is="emby-input" />
-                            <div class="fieldDescription">Final brightness scale applied to synced colors after boost, gains, gamma, contrast, saturation, and hue shift (0-100%, default: 100). Use this to cap the room brightness without changing color balance.</div>
+                            <div class="fieldDescription">Final brightness scale applied to synced colors after boost, gains, temperature, gamma, contrast, saturation, and hue shift (0-100%, default: 100). Use this to cap the room brightness without changing color balance.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -1522,6 +1528,12 @@
                             <label class="inputLabel inputLabelUnfocused" for="contrastPercent">Contrast (%)</label>
                             <input id="contrastPercent" name="contrastPercent" type="number" min="50" max="200" is="emby-input" />
                             <div class="fieldDescription">Expand or compress contrast around mid-gray after gamma (50-200%, default: 100%). Higher values deepen shadows and brighten highlights.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="colorTemperatureKelvin">Color Temperature (K)</label>
+                            <input id="colorTemperatureKelvin" name="colorTemperatureKelvin" type="number" min="1000" max="20000" step="100" is="emby-input" />
+                            <div class="fieldDescription">Warm or cool synced colors from 1000-20000 K after channel gains (default: 6500 K neutral daylight). Lower values warm the room; higher values cool it.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -1700,6 +1712,7 @@
                         page.querySelector('#outputBrightnessPercent').value = getConfigValue('OutputBrightnessPercent', 100);
                         page.querySelector('#gammaCorrection').value = getConfigValue('GammaCorrection', 1.0);
                         page.querySelector('#contrastPercent').value = getConfigValue('ContrastPercent', 100);
+                        page.querySelector('#colorTemperatureKelvin').value = getConfigValue('ColorTemperatureKelvin', 6500);
                         page.querySelector('#blackoutThreshold').value = getConfigValue('BlackoutThreshold', 15);
                         page.querySelector('#blackoutBehavior').value = getConfigValue('BlackoutBehavior', 'Blackout');
                         page.querySelector('#colorChangeThreshold').value = getConfigValue('ColorChangeThreshold', 10);
@@ -1782,6 +1795,7 @@
                         OutputBrightnessPercent: parseNumberOrDefault('#outputBrightnessPercent', 100),
                         GammaCorrection: parseDecimalOrDefault('#gammaCorrection', 1.0),
                         ContrastPercent: parseNumberOrDefault('#contrastPercent', 100),
+                        ColorTemperatureKelvin: parseNumberOrDefault('#colorTemperatureKelvin', 6500),
                         BlackoutThreshold: parseNumberOrDefault('#blackoutThreshold', 15),
                         BlackoutBehavior: page.querySelector('#blackoutBehavior').value,
                         ColorChangeThreshold: parseNumberOrDefault('#colorChangeThreshold', 10),
@@ -6792,6 +6806,7 @@
                         var outputBrightness = HueConfigurationPage.readStatusField(status, "ActiveOutputBrightnessPercent", null);
                         var gammaCorrection = HueConfigurationPage.readStatusField(status, "ActiveGammaCorrection", null);
                         var contrastPercent = HueConfigurationPage.readStatusField(status, "ActiveContrastPercent", null);
+                        var colorTemperatureKelvin = HueConfigurationPage.readStatusField(status, "ActiveColorTemperatureKelvin", null);
                         var blackoutThreshold = HueConfigurationPage.readStatusField(status, "ActiveBlackoutThreshold", null);
                         var blackoutBehavior = HueConfigurationPage.readStatusField(status, "ActiveBlackoutBehavior", null);
                         var colorChangeThreshold = HueConfigurationPage.readStatusField(status, "ActiveColorChangeThreshold", null);
@@ -6849,6 +6864,7 @@
                                 " · sat " + String(colorSaturation) + "% · hue " + String(hueShiftDegrees) + "° · output " + String(outputBrightness) +
                                 "% · gamma " + String(gammaCorrection == null ? "—" : Number(gammaCorrection).toFixed(2)) +
                                 " · contrast " + String(contrastPercent == null ? "—" : contrastPercent) + "%" +
+                                " · temp " + String(colorTemperatureKelvin == null ? "—" : colorTemperatureKelvin) + " K" +
                                 " · blackout < " + String(blackoutThreshold) + " · dark scene " + String(blackoutBehavior || "Blackout") + " · change ≥ " + String(colorChangeThreshold);
                         page.querySelector('#runtimeExecutionProfile').textContent = useGpu == null
                             ? "—"
@@ -7749,6 +7765,7 @@
                                 getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride'),
                                 getMappingValue('GammaCorrectionOverride', 'gammaCorrectionOverride'),
                                 getMappingValue('ContrastPercentOverride', 'contrastPercentOverride'),
+                                getMappingValue('ColorTemperatureKelvinOverride', 'colorTemperatureKelvinOverride'),
                                 getMappingValue('BlackoutThresholdOverride', 'blackoutThresholdOverride'),
                                 getMappingValue('BlackoutBehaviorOverride', 'blackoutBehaviorOverride'),
                                 getMappingValue('ColorChangeThresholdOverride', 'colorChangeThresholdOverride')
@@ -8003,6 +8020,7 @@
                         '#mappingOutputBrightnessPercentOverride',
                         '#mappingGammaCorrectionOverride',
                         '#mappingContrastPercentOverride',
+                        '#mappingColorTemperatureKelvinOverride',
                         '#mappingBlackoutThresholdOverride',
                         '#mappingBlackoutBehaviorOverride',
                         '#mappingColorChangeThresholdOverride',
@@ -8649,6 +8667,7 @@
                         OutputBrightnessPercentOverride: readOptionalNumber('mappingOutputBrightnessPercentOverride'),
                         GammaCorrectionOverride: readOptionalDecimal('mappingGammaCorrectionOverride'),
                         ContrastPercentOverride: readOptionalNumber('mappingContrastPercentOverride'),
+                        ColorTemperatureKelvinOverride: readOptionalNumber('mappingColorTemperatureKelvinOverride'),
                         BlackoutThresholdOverride: readOptionalNumber('mappingBlackoutThresholdOverride'),
                         BlackoutBehaviorOverride: readOptionalString('mappingBlackoutBehaviorOverride'),
                         ColorChangeThresholdOverride: readOptionalNumber('mappingColorChangeThresholdOverride'),
@@ -8745,6 +8764,7 @@
                         '#mappingOutputBrightnessPercentOverride',
                         '#mappingGammaCorrectionOverride',
                         '#mappingContrastPercentOverride',
+                        '#mappingColorTemperatureKelvinOverride',
                         '#mappingBlackoutThresholdOverride',
                         '#mappingBlackoutBehaviorOverride',
                         '#mappingColorChangeThresholdOverride',
@@ -8843,6 +8863,7 @@
                         var outputBrightnessPercentOverride = getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride');
                         var gammaCorrectionOverride = getMappingValue('GammaCorrectionOverride', 'gammaCorrectionOverride');
                         var contrastPercentOverride = getMappingValue('ContrastPercentOverride', 'contrastPercentOverride');
+                        var colorTemperatureKelvinOverride = getMappingValue('ColorTemperatureKelvinOverride', 'colorTemperatureKelvinOverride');
                         var blackoutThresholdOverride = getMappingValue('BlackoutThresholdOverride', 'blackoutThresholdOverride');
                         var blackoutBehaviorOverride = getMappingValue('BlackoutBehaviorOverride', 'blackoutBehaviorOverride');
                         var colorChangeThresholdOverride = getMappingValue('ColorChangeThresholdOverride', 'colorChangeThresholdOverride');
@@ -8917,6 +8938,7 @@
                         page.querySelector('#mappingOutputBrightnessPercentOverride').value = outputBrightnessPercentOverride == null ? "" : outputBrightnessPercentOverride;
                         page.querySelector('#mappingGammaCorrectionOverride').value = gammaCorrectionOverride == null ? "" : gammaCorrectionOverride;
                         page.querySelector('#mappingContrastPercentOverride').value = contrastPercentOverride == null ? "" : contrastPercentOverride;
+                        page.querySelector('#mappingColorTemperatureKelvinOverride').value = colorTemperatureKelvinOverride == null ? "" : colorTemperatureKelvinOverride;
                         page.querySelector('#mappingBlackoutThresholdOverride').value = blackoutThresholdOverride == null ? "" : blackoutThresholdOverride;
                         page.querySelector('#mappingBlackoutBehaviorOverride').value = blackoutBehaviorOverride == null ? "" : blackoutBehaviorOverride;
                         page.querySelector('#mappingColorChangeThresholdOverride').value = colorChangeThresholdOverride == null ? "" : colorChangeThresholdOverride;

@@ -38,6 +38,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? OutputBrightnessPercentOverride { get; set; }
         public double? GammaCorrectionOverride { get; set; }
         public int? ContrastPercentOverride { get; set; }
+        public int? ColorTemperatureKelvinOverride { get; set; }
         public int? BlackoutThresholdOverride { get; set; }
         public string? BlackoutBehaviorOverride { get; set; }
         public int? ColorChangeThresholdOverride { get; set; }
@@ -451,6 +452,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MinContrastPercent = 50;
         public const int MaxContrastPercent = 200;
         public const int DefaultContrastPercent = 100;
+        public const int MinColorTemperatureKelvin = 1000;
+        public const int MaxColorTemperatureKelvin = 20000;
+        public const int DefaultColorTemperatureKelvin = 6500;
         private const int MinByteSetting = 0;
         private const int MaxByteSetting = 255;
         private const int MinNetworkRetryAttempts = 0;
@@ -1146,6 +1150,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int OutputBrightnessPercent { get; set; } = 100; // Final output brightness ceiling (0-100%)
         public double GammaCorrection { get; set; } = DefaultGammaCorrection; // Mid-tone correction exponent (0.5-2.5, 1.0 is neutral)
         public int ContrastPercent { get; set; } = DefaultContrastPercent; // Contrast around mid-gray (50-200%, 100% is neutral)
+        public int ColorTemperatureKelvin { get; set; } = DefaultColorTemperatureKelvin; // White-balance temperature (1000-20000K, 6500K is neutral)
         public int BlackoutThreshold { get; set; } = 15; // Average brightness below which lights are set to black (0-255)
         public string BlackoutBehavior { get; set; } = BlackoutBehaviorBlackout; // Dark-scene policy: blackout or preserve the last streamed colors
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
@@ -1445,20 +1450,21 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// Gets optional per-user color-processing overrides. Null values mean the global
         /// plugin setting should be used for that component.
         /// </summary>
-        public (int? BrightnessBoost, int? ColorSaturation, int? HueShiftDegrees, int? OutputBrightnessPercent, double? GammaCorrection, int? ContrastPercent)
+        public (int? BrightnessBoost, int? ColorSaturation, int? HueShiftDegrees, int? OutputBrightnessPercent, double? GammaCorrection, int? ContrastPercent, int? ColorTemperatureKelvin)
             GetColorProcessingOverridesForUser(Guid userId)
         {
             var userIdText = userId.ToString();
             var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
             return mapping == null
-                ? (null, null, null, null, null, null)
+                ? (null, null, null, null, null, null, null)
                 : (
                     mapping.BrightnessBoostOverride,
                     mapping.ColorSaturationOverride,
                     mapping.HueShiftDegreesOverride,
                     mapping.OutputBrightnessPercentOverride,
                     mapping.GammaCorrectionOverride,
-                    mapping.ContrastPercentOverride);
+                    mapping.ContrastPercentOverride,
+                    mapping.ColorTemperatureKelvinOverride);
         }
 
         /// <summary>
@@ -1645,6 +1651,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.ContrastPercentOverride.Value > MaxContrastPercent))
             {
                 errors.Add($"{label} contrast override must be between {MinContrastPercent} and {MaxContrastPercent} percent");
+            }
+
+            if (mapping.ColorTemperatureKelvinOverride.HasValue &&
+                (mapping.ColorTemperatureKelvinOverride.Value < MinColorTemperatureKelvin ||
+                 mapping.ColorTemperatureKelvinOverride.Value > MaxColorTemperatureKelvin))
+            {
+                errors.Add($"{label} color temperature override must be between {MinColorTemperatureKelvin} and {MaxColorTemperatureKelvin} K");
             }
 
             if (mapping.BlackoutThresholdOverride.HasValue &&
@@ -2919,6 +2932,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (ContrastPercent < MinContrastPercent || ContrastPercent > MaxContrastPercent)
                     errors.Add($"Contrast must be between {MinContrastPercent} and {MaxContrastPercent} percent");
+
+                if (ColorTemperatureKelvin < MinColorTemperatureKelvin || ColorTemperatureKelvin > MaxColorTemperatureKelvin)
+                    errors.Add($"Color temperature must be between {MinColorTemperatureKelvin} and {MaxColorTemperatureKelvin} K");
 
                 if (BlackoutThreshold < MinByteSetting || BlackoutThreshold > MaxByteSetting)
                     errors.Add("Blackout threshold must be between 0 and 255");

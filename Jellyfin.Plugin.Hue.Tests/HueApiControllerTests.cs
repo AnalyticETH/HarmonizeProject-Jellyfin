@@ -5847,6 +5847,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveOutputBrightnessPercent);
         Assert.Null(status.ActiveGammaCorrection);
         Assert.Null(status.ActiveContrastPercent);
+        Assert.Null(status.ActiveColorTemperatureKelvin);
         Assert.Null(status.ActiveBlackoutThreshold);
         Assert.Null(status.ActiveBlackoutBehavior);
         Assert.Null(status.ActiveColorChangeThreshold);
@@ -6595,6 +6596,7 @@ public sealed class HueApiControllerTests : IDisposable
                     OutputBrightnessPercentOverride = 75,
                     GammaCorrectionOverride = 1.35,
                     ContrastPercentOverride = 135,
+                    ColorTemperatureKelvinOverride = 4200,
                     BlackoutThresholdOverride = 30,
                     BlackoutBehaviorOverride = PluginConfiguration.BlackoutBehaviorKeepLastColors,
                     ColorChangeThresholdOverride = 5,
@@ -6649,6 +6651,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)75, mapping.OutputBrightnessPercentOverride);
         Assert.Equal((double?)1.35, mapping.GammaCorrectionOverride);
         Assert.Equal((int?)135, mapping.ContrastPercentOverride);
+        Assert.Equal((int?)4200, mapping.ColorTemperatureKelvinOverride);
         Assert.Equal((int?)30, mapping.BlackoutThresholdOverride);
         Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, mapping.BlackoutBehaviorOverride);
         Assert.Equal((int?)5, mapping.ColorChangeThresholdOverride);
@@ -7132,6 +7135,7 @@ public sealed class HueApiControllerTests : IDisposable
             OutputBrightnessPercent = 75,
             GammaCorrection = 1.2,
             ContrastPercent = 120,
+            ColorTemperatureKelvin = 5600,
             BlackoutBehavior = PluginConfiguration.BlackoutBehaviorKeepLastColors,
             RedGain = 120,
             GreenGain = 90,
@@ -7193,6 +7197,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(75, settings.OutputBrightnessPercent);
         Assert.Equal(1.2, settings.GammaCorrection);
         Assert.Equal(120, settings.ContrastPercent);
+        Assert.Equal(5600, settings.ColorTemperatureKelvin);
         Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, settings.BlackoutBehavior);
         Assert.Equal(120, settings.RedGain);
         Assert.Equal(90, settings.GreenGain);
@@ -8158,6 +8163,9 @@ public sealed class HueApiControllerTests : IDisposable
             ColorSmoothingPercent = 40,
             HueShiftDegrees = -30,
             OutputBrightnessPercent = 60,
+            GammaCorrection = 1.15,
+            ContrastPercent = 115,
+            ColorTemperatureKelvin = 3200,
             RedGain = 115,
             GreenGain = 95,
             BlueGain = 105,
@@ -8200,6 +8208,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(40, configuration.ColorSmoothingPercent);
         Assert.Equal(-30, configuration.HueShiftDegrees);
         Assert.Equal(60, configuration.OutputBrightnessPercent);
+        Assert.Equal(1.15, configuration.GammaCorrection);
+        Assert.Equal(115, configuration.ContrastPercent);
+        Assert.Equal(3200, configuration.ColorTemperatureKelvin);
         Assert.Equal(115, configuration.RedGain);
         Assert.Equal(95, configuration.GreenGain);
         Assert.Equal(105, configuration.BlueGain);
@@ -8495,6 +8506,7 @@ public sealed class HueApiControllerTests : IDisposable
             OutputBrightnessPercentOverride = 65,
             GammaCorrectionOverride = 0.85,
             ContrastPercentOverride = 85,
+            ColorTemperatureKelvinOverride = 7200,
             BlackoutThresholdOverride = 20,
             BlackoutBehaviorOverride = " keeplastcolors ",
             ColorChangeThresholdOverride = 3,
@@ -8542,6 +8554,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int?)65, mapping.OutputBrightnessPercentOverride);
         Assert.Equal((double?)0.85, mapping.GammaCorrectionOverride);
         Assert.Equal((int?)85, mapping.ContrastPercentOverride);
+        Assert.Equal((int?)7200, mapping.ColorTemperatureKelvinOverride);
         Assert.Equal((int?)20, mapping.BlackoutThresholdOverride);
         Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, mapping.BlackoutBehaviorOverride);
         Assert.Equal((int?)3, mapping.ColorChangeThresholdOverride);

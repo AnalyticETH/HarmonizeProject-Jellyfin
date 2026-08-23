@@ -168,6 +168,38 @@ public class ColorProcessingTests : IDisposable
         Assert.Equal(expected, HueSyncService.ApplyContrastCorrection(channel, contrastPercent), precision: 6);
     }
 
+    [Fact]
+    public void ColorTemperatureCorrection_IsNeutralAtDaylightAndMovesWarmOrCool()
+    {
+        var neutral = HueSyncService.ApplyColorTemperatureCorrection(128, 128, 128, 6500);
+        var warm = HueSyncService.ApplyColorTemperatureCorrection(128, 128, 128, 3000);
+        var cool = HueSyncService.ApplyColorTemperatureCorrection(128, 128, 128, 10000);
+
+        Assert.Equal(128, neutral.Red, precision: 6);
+        Assert.Equal(128, neutral.Green, precision: 6);
+        Assert.Equal(128, neutral.Blue, precision: 6);
+        Assert.True(warm.Red > warm.Green);
+        Assert.True(warm.Green > warm.Blue);
+        Assert.True(cool.Blue > cool.Green);
+        Assert.True(cool.Green > cool.Red);
+    }
+
+    [Theory]
+    [InlineData(-100, 400, 500, 0)]
+    [InlineData(400, -100, 400, 30000)]
+    public void ColorTemperatureCorrection_ClampsChannelsAndTemperature(
+        double red,
+        double green,
+        double blue,
+        int colorTemperatureKelvin)
+    {
+        var result = HueSyncService.ApplyColorTemperatureCorrection(red, green, blue, colorTemperatureKelvin);
+
+        Assert.InRange(result.Red, 0, 255);
+        Assert.InRange(result.Green, 0, 255);
+        Assert.InRange(result.Blue, 0, 255);
+    }
+
     [Theory]
     [InlineData(0.2, 0.8, 0.1, 0.56)] // t < 1/6: p + (q-p)*6*t = 0.2 + 0.6*0.6 = 0.56
     [InlineData(0.2, 0.8, 0.4, 0.8)] // t < 1/2: returns q

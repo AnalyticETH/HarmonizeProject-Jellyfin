@@ -128,6 +128,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int OutputBrightnessPercent,
             double GammaCorrection,
             int ContrastPercent,
+            int ColorTemperatureKelvin,
             int BlackoutThreshold,
             string BlackoutBehavior,
             int ColorChangeThreshold)? _activeColorProcessingSettings;
@@ -591,6 +592,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 int OutputBrightnessPercent,
                 double GammaCorrection,
                 int ContrastPercent,
+                int ColorTemperatureKelvin,
                 int BlackoutThreshold,
                 string BlackoutBehavior,
                 int ColorChangeThreshold)? activeColorProcessingSettings;
@@ -715,6 +717,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveOutputBrightnessPercent = isSyncing ? activeColorProcessingSettings?.OutputBrightnessPercent : null,
                 ActiveGammaCorrection = isSyncing ? activeColorProcessingSettings?.GammaCorrection : null,
                 ActiveContrastPercent = isSyncing ? activeColorProcessingSettings?.ContrastPercent : null,
+                ActiveColorTemperatureKelvin = isSyncing ? activeColorProcessingSettings?.ColorTemperatureKelvin : null,
                 ActiveBlackoutThreshold = isSyncing ? activeColorProcessingSettings?.BlackoutThreshold : null,
                 ActiveBlackoutBehavior = isSyncing ? activeColorProcessingSettings?.BlackoutBehavior : null,
                 ActiveColorChangeThreshold = isSyncing ? activeColorProcessingSettings?.ColorChangeThreshold : null,
@@ -2467,6 +2470,7 @@ namespace Jellyfin.Plugin.Hue.Service
             int OutputBrightnessPercent,
             double GammaCorrection,
             int ContrastPercent,
+            int ColorTemperatureKelvin,
             int BlackoutThreshold,
             string BlackoutBehavior,
             int ColorChangeThreshold) ResolveColorProcessingSettings(
@@ -2487,6 +2491,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 Math.Clamp(processingOverrides.OutputBrightnessPercent ?? config.OutputBrightnessPercent, 0, 100),
                 NormalizeGammaCorrection(processingOverrides.GammaCorrection ?? config.GammaCorrection),
                 NormalizeContrastPercent(processingOverrides.ContrastPercent ?? config.ContrastPercent),
+                NormalizeColorTemperatureKelvin(processingOverrides.ColorTemperatureKelvin ?? config.ColorTemperatureKelvin),
                 Math.Clamp(thresholdOverrides.BlackoutThreshold ?? config.BlackoutThreshold, 0, 255),
                 config.GetBlackoutBehaviorForUser(userId),
                 Math.Clamp(thresholdOverrides.ColorChangeThreshold ?? config.ColorChangeThreshold, 0, 255));
@@ -2791,6 +2796,63 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         /// <summary>
+        /// Normalizes a display white-balance temperature. Invalid persisted values are
+        /// clamped to the supported warm-to-cool range before stream processing.
+        /// </summary>
+        internal static int NormalizeColorTemperatureKelvin(int colorTemperatureKelvin)
+            => Math.Clamp(
+                colorTemperatureKelvin,
+                PluginConfiguration.MinColorTemperatureKelvin,
+                PluginConfiguration.MaxColorTemperatureKelvin);
+
+        /// <summary>
+        /// Applies a black-body white-balance correction. The 6500 K daylight point is
+        /// neutral; lower values warm the stream and higher values cool it. Gains are
+        /// normalized against the neutral point so the setting changes hue without an
+        /// avoidable global brightness jump.
+        /// </summary>
+        internal static (double Red, double Green, double Blue) ApplyColorTemperatureCorrection(
+            double red,
+            double green,
+            double blue,
+            int colorTemperatureKelvin)
+        {
+            var normalizedTemperature = NormalizeColorTemperatureKelvin(colorTemperatureKelvin);
+            var clampedRed = Math.Clamp(red, 0, 255);
+            var clampedGreen = Math.Clamp(green, 0, 255);
+            var clampedBlue = Math.Clamp(blue, 0, 255);
+            if (normalizedTemperature == PluginConfiguration.DefaultColorTemperatureKelvin)
+                return (clampedRed, clampedGreen, clampedBlue);
+
+            var target = GetColorTemperatureRgb(normalizedTemperature);
+            var neutral = GetColorTemperatureRgb(PluginConfiguration.DefaultColorTemperatureKelvin);
+            return (
+                Math.Clamp(clampedRed * target.Red / Math.Max(neutral.Red, 0.000001), 0, 255),
+                Math.Clamp(clampedGreen * target.Green / Math.Max(neutral.Green, 0.000001), 0, 255),
+                Math.Clamp(clampedBlue * target.Blue / Math.Max(neutral.Blue, 0.000001), 0, 255));
+        }
+
+        private static (double Red, double Green, double Blue) GetColorTemperatureRgb(int colorTemperatureKelvin)
+        {
+            var temperature = NormalizeColorTemperatureKelvin(colorTemperatureKelvin) / 100.0;
+            var red = temperature <= 66
+                ? 255
+                : 329.698727446 * Math.Pow(temperature - 60, -0.1332047592);
+            var green = temperature <= 66
+                ? (99.4708025861 * Math.Log(temperature)) - 161.1195681661
+                : 288.1221695283 * Math.Pow(temperature - 60, -0.0755148492);
+            var blue = temperature <= 19
+                ? 0
+                : temperature <= 66
+                    ? (138.5177312231 * Math.Log(temperature - 10)) - 305.0447927307
+                    : 255;
+            return (
+                Math.Clamp(red, 0, 255),
+                Math.Clamp(green, 0, 255),
+                Math.Clamp(blue, 0, 255));
+        }
+
+        /// <summary>
         /// Applies independent RGB channel gains for room-specific white-balance correction.
         /// Gains are clamped to the supported 50-200% range and output remains byte-safe.
         /// </summary>
@@ -2898,6 +2960,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     OutputBrightnessPercent: 100,
                     GammaCorrection: PluginConfiguration.DefaultGammaCorrection,
                     ContrastPercent: PluginConfiguration.DefaultContrastPercent,
+                    ColorTemperatureKelvin: PluginConfiguration.DefaultColorTemperatureKelvin,
                     BlackoutThreshold: 15,
                     BlackoutBehavior: PluginConfiguration.BlackoutBehaviorBlackout,
                     ColorChangeThreshold: 10));
@@ -2924,6 +2987,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 int OutputBrightnessPercent,
                 double GammaCorrection,
                 int ContrastPercent,
+                int ColorTemperatureKelvin,
                 int BlackoutThreshold,
                 string BlackoutBehavior,
                 int ColorChangeThreshold) colorProcessingSettings)
@@ -3090,6 +3154,18 @@ namespace Jellyfin.Plugin.Hue.Service
                             r = gainedRgb.Red;
                             g = gainedRgb.Green;
                             b = gainedRgb.Blue;
+                        }
+
+                        if (colorProcessingSettings.ColorTemperatureKelvin != PluginConfiguration.DefaultColorTemperatureKelvin)
+                        {
+                            var temperatureAdjusted = ApplyColorTemperatureCorrection(
+                                r,
+                                g,
+                                b,
+                                colorProcessingSettings.ColorTemperatureKelvin);
+                            r = temperatureAdjusted.Red;
+                            g = temperatureAdjusted.Green;
+                            b = temperatureAdjusted.Blue;
                         }
 
                         if (Math.Abs(colorProcessingSettings.GammaCorrection - PluginConfiguration.DefaultGammaCorrection) > 0.000001)
@@ -3698,6 +3774,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 int OutputBrightnessPercent,
                 double GammaCorrection,
                 int ContrastPercent,
+                int ColorTemperatureKelvin,
                 int BlackoutThreshold,
                 string BlackoutBehavior,
                 int ColorChangeThreshold) colorProcessingSettings)
@@ -3866,6 +3943,18 @@ namespace Jellyfin.Plugin.Hue.Service
                             r = gained.Red;
                             g = gained.Green;
                             b = gained.Blue;
+                        }
+
+                        if (colorProcessingSettings.ColorTemperatureKelvin != PluginConfiguration.DefaultColorTemperatureKelvin)
+                        {
+                            var temperatureAdjusted = ApplyColorTemperatureCorrection(
+                                r,
+                                g,
+                                b,
+                                colorProcessingSettings.ColorTemperatureKelvin);
+                            r = temperatureAdjusted.Red;
+                            g = temperatureAdjusted.Green;
+                            b = temperatureAdjusted.Blue;
                         }
 
                         if (Math.Abs(colorProcessingSettings.GammaCorrection - PluginConfiguration.DefaultGammaCorrection) > 0.000001)
@@ -5204,6 +5293,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public int? ActiveOutputBrightnessPercent { get; init; }
         public double? ActiveGammaCorrection { get; init; }
         public int? ActiveContrastPercent { get; init; }
+        public int? ActiveColorTemperatureKelvin { get; init; }
         public int? ActiveBlackoutThreshold { get; init; }
         public string? ActiveBlackoutBehavior { get; init; }
         public int? ActiveColorChangeThreshold { get; init; }
