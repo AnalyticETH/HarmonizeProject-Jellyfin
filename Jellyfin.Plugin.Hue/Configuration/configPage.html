@@ -1205,6 +1205,12 @@
                                 </div>
 
                                 <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingGammaCorrectionOverride">Gamma Correction Override</label>
+                                    <input id="mappingGammaCorrectionOverride" type="number" min="0.5" max="2.5" step="0.05" is="emby-input" />
+                                    <div class="fieldDescription">Optional per-user mid-tone correction (0.5-2.5); blank inherits the global value.</div>
+                                </div>
+
+                                <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="mappingBlackoutThresholdOverride">Blackout Threshold Override</label>
                                     <input id="mappingBlackoutThresholdOverride" type="number" min="0" max="255" is="emby-input" />
                                     <div class="fieldDescription">Optional per-user average brightness threshold (0-255) below which all channels are sent black. Use 0 to disable blackout handling.</div>
@@ -1501,6 +1507,12 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="gammaCorrection">Gamma Correction</label>
+                            <input id="gammaCorrection" name="gammaCorrection" type="number" min="0.5" max="2.5" step="0.05" is="emby-input" />
+                            <div class="fieldDescription">Adjust mid-tone brightness after gains (0.5-2.5, default: 1.0). Values above 1.0 lift mid-tones; values below 1.0 deepen them.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="blackoutThreshold">Blackout Threshold</label>
                             <input id="blackoutThreshold" name="blackoutThreshold" type="number" min="0" max="255" is="emby-input" />
                             <div class="fieldDescription">Set lights to black when average brightness is below this value (0-255, default: 15).</div>
@@ -1674,6 +1686,7 @@
                         page.querySelector('#colorSaturation').value = getConfigValue('ColorSaturation', 100);
                         page.querySelector('#hueShiftDegrees').value = getConfigValue('HueShiftDegrees', 0);
                         page.querySelector('#outputBrightnessPercent').value = getConfigValue('OutputBrightnessPercent', 100);
+                        page.querySelector('#gammaCorrection').value = getConfigValue('GammaCorrection', 1.0);
                         page.querySelector('#blackoutThreshold').value = getConfigValue('BlackoutThreshold', 15);
                         page.querySelector('#blackoutBehavior').value = getConfigValue('BlackoutBehavior', 'Blackout');
                         page.querySelector('#colorChangeThreshold').value = getConfigValue('ColorChangeThreshold', 10);
@@ -1702,6 +1715,10 @@
                     Dashboard.showLoadingMsg();
                     var parseNumberOrDefault = function (selector, fallback) {
                         var value = parseInt(page.querySelector(selector).value, 10);
+                        return isNaN(value) ? fallback : value;
+                    };
+                    var parseDecimalOrDefault = function (selector, fallback) {
+                        var value = parseFloat(page.querySelector(selector).value);
                         return isNaN(value) ? fallback : value;
                     };
 
@@ -1750,6 +1767,7 @@
                         ColorSaturation: parseNumberOrDefault('#colorSaturation', 100),
                         HueShiftDegrees: parseNumberOrDefault('#hueShiftDegrees', 0),
                         OutputBrightnessPercent: parseNumberOrDefault('#outputBrightnessPercent', 100),
+                        GammaCorrection: parseDecimalOrDefault('#gammaCorrection', 1.0),
                         BlackoutThreshold: parseNumberOrDefault('#blackoutThreshold', 15),
                         BlackoutBehavior: page.querySelector('#blackoutBehavior').value,
                         ColorChangeThreshold: parseNumberOrDefault('#colorChangeThreshold', 10),
@@ -6758,6 +6776,7 @@
                         var colorSaturation = HueConfigurationPage.readStatusField(status, "ActiveColorSaturation", null);
                         var hueShiftDegrees = HueConfigurationPage.readStatusField(status, "ActiveHueShiftDegrees", null);
                         var outputBrightness = HueConfigurationPage.readStatusField(status, "ActiveOutputBrightnessPercent", null);
+                        var gammaCorrection = HueConfigurationPage.readStatusField(status, "ActiveGammaCorrection", null);
                         var blackoutThreshold = HueConfigurationPage.readStatusField(status, "ActiveBlackoutThreshold", null);
                         var blackoutBehavior = HueConfigurationPage.readStatusField(status, "ActiveBlackoutBehavior", null);
                         var colorChangeThreshold = HueConfigurationPage.readStatusField(status, "ActiveColorChangeThreshold", null);
@@ -6813,7 +6832,8 @@
                             ? "—"
                             : String(brightnessBoost) + "% boost · RGB " + String(redGain) + "/" + String(greenGain) + "/" + String(blueGain) +
                                 " · sat " + String(colorSaturation) + "% · hue " + String(hueShiftDegrees) + "° · output " + String(outputBrightness) +
-                                "% · blackout < " + String(blackoutThreshold) + " · dark scene " + String(blackoutBehavior || "Blackout") + " · change ≥ " + String(colorChangeThreshold);
+                                "% · gamma " + String(gammaCorrection == null ? "—" : Number(gammaCorrection).toFixed(2)) +
+                                " · blackout < " + String(blackoutThreshold) + " · dark scene " + String(blackoutBehavior || "Blackout") + " · change ≥ " + String(colorChangeThreshold);
                         page.querySelector('#runtimeExecutionProfile').textContent = useGpu == null
                             ? "—"
                             : "GPU " + (useGpu ? "on" : "off") + " · stall " + String(ffmpegStallTimeout) + "s · retries " + String(networkRetryAttempts) +
@@ -7711,6 +7731,7 @@
                                 getMappingValue('ColorSaturationOverride', 'colorSaturationOverride'),
                                 getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride'),
                                 getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride'),
+                                getMappingValue('GammaCorrectionOverride', 'gammaCorrectionOverride'),
                                 getMappingValue('BlackoutThresholdOverride', 'blackoutThresholdOverride'),
                                 getMappingValue('BlackoutBehaviorOverride', 'blackoutBehaviorOverride'),
                                 getMappingValue('ColorChangeThresholdOverride', 'colorChangeThresholdOverride')
@@ -7963,6 +7984,7 @@
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
                         '#mappingOutputBrightnessPercentOverride',
+                        '#mappingGammaCorrectionOverride',
                         '#mappingBlackoutThresholdOverride',
                         '#mappingBlackoutBehaviorOverride',
                         '#mappingColorChangeThresholdOverride',
@@ -8503,6 +8525,12 @@
                         var value = parseInt(element.value, 10);
                         return isNaN(value) ? null : value;
                     };
+                    var readOptionalDecimal = function (selector) {
+                        var element = document.getElementById(selector);
+                        if (!element || element.value.trim() === '') return null;
+                        var value = parseFloat(element.value);
+                        return isNaN(value) ? null : value;
+                    };
                     var readOptionalBoolean = function (selector) {
                         var element = document.getElementById(selector);
                         if (!element || element.value === '') return null;
@@ -8601,6 +8629,7 @@
                         ColorSaturationOverride: readOptionalNumber('mappingColorSaturationOverride'),
                         HueShiftDegreesOverride: readOptionalNumber('mappingHueShiftDegreesOverride'),
                         OutputBrightnessPercentOverride: readOptionalNumber('mappingOutputBrightnessPercentOverride'),
+                        GammaCorrectionOverride: readOptionalDecimal('mappingGammaCorrectionOverride'),
                         BlackoutThresholdOverride: readOptionalNumber('mappingBlackoutThresholdOverride'),
                         BlackoutBehaviorOverride: readOptionalString('mappingBlackoutBehaviorOverride'),
                         ColorChangeThresholdOverride: readOptionalNumber('mappingColorChangeThresholdOverride'),
@@ -8695,6 +8724,7 @@
                         '#mappingColorSaturationOverride',
                         '#mappingHueShiftDegreesOverride',
                         '#mappingOutputBrightnessPercentOverride',
+                        '#mappingGammaCorrectionOverride',
                         '#mappingBlackoutThresholdOverride',
                         '#mappingBlackoutBehaviorOverride',
                         '#mappingColorChangeThresholdOverride',
@@ -8791,6 +8821,7 @@
                         var colorSaturationOverride = getMappingValue('ColorSaturationOverride', 'colorSaturationOverride');
                         var hueShiftDegreesOverride = getMappingValue('HueShiftDegreesOverride', 'hueShiftDegreesOverride');
                         var outputBrightnessPercentOverride = getMappingValue('OutputBrightnessPercentOverride', 'outputBrightnessPercentOverride');
+                        var gammaCorrectionOverride = getMappingValue('GammaCorrectionOverride', 'gammaCorrectionOverride');
                         var blackoutThresholdOverride = getMappingValue('BlackoutThresholdOverride', 'blackoutThresholdOverride');
                         var blackoutBehaviorOverride = getMappingValue('BlackoutBehaviorOverride', 'blackoutBehaviorOverride');
                         var colorChangeThresholdOverride = getMappingValue('ColorChangeThresholdOverride', 'colorChangeThresholdOverride');
@@ -8863,6 +8894,7 @@
                         page.querySelector('#mappingColorSaturationOverride').value = colorSaturationOverride == null ? "" : colorSaturationOverride;
                         page.querySelector('#mappingHueShiftDegreesOverride').value = hueShiftDegreesOverride == null ? "" : hueShiftDegreesOverride;
                         page.querySelector('#mappingOutputBrightnessPercentOverride').value = outputBrightnessPercentOverride == null ? "" : outputBrightnessPercentOverride;
+                        page.querySelector('#mappingGammaCorrectionOverride').value = gammaCorrectionOverride == null ? "" : gammaCorrectionOverride;
                         page.querySelector('#mappingBlackoutThresholdOverride').value = blackoutThresholdOverride == null ? "" : blackoutThresholdOverride;
                         page.querySelector('#mappingBlackoutBehaviorOverride').value = blackoutBehaviorOverride == null ? "" : blackoutBehaviorOverride;
                         page.querySelector('#mappingColorChangeThresholdOverride').value = colorChangeThresholdOverride == null ? "" : colorChangeThresholdOverride;

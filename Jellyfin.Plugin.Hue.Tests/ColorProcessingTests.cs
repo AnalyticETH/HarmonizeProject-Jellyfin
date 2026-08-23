@@ -130,6 +130,24 @@ public class ColorProcessingTests : IDisposable
         Assert.Equal(255, blue);
     }
 
+    [Fact]
+    public void GammaCorrection_IsNeutralAtOneAndLiftsOrDeepensMidTones()
+    {
+        Assert.Equal(128, HueSyncService.ApplyGammaCorrection(128, 1.0), precision: 6);
+        Assert.True(HueSyncService.ApplyGammaCorrection(128, 2.0) > 128);
+        Assert.True(HueSyncService.ApplyGammaCorrection(128, 0.5) < 128);
+    }
+
+    [Theory]
+    [InlineData(-100, 1.0, 0)]
+    [InlineData(400, 1.0, 255)]
+    [InlineData(128, double.NaN, 128)]
+    [InlineData(128, double.PositiveInfinity, 128)]
+    public void GammaCorrection_ClampsChannelsAndInvalidProfiles(double channel, double gamma, double expected)
+    {
+        Assert.Equal(expected, HueSyncService.ApplyGammaCorrection(channel, gamma), precision: 6);
+    }
+
     [Theory]
     [InlineData(0.2, 0.8, 0.1, 0.56)] // t < 1/6: p + (q-p)*6*t = 0.2 + 0.6*0.6 = 0.56
     [InlineData(0.2, 0.8, 0.4, 0.8)] // t < 1/2: returns q

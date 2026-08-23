@@ -36,6 +36,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? ColorSaturationOverride { get; set; }
         public int? HueShiftDegreesOverride { get; set; }
         public int? OutputBrightnessPercentOverride { get; set; }
+        public double? GammaCorrectionOverride { get; set; }
         public int? BlackoutThresholdOverride { get; set; }
         public string? BlackoutBehaviorOverride { get; set; }
         public int? ColorChangeThresholdOverride { get; set; }
@@ -443,6 +444,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private const int MaxHueShiftDegrees = 180;
         private const int MinOutputBrightnessPercent = 0;
         private const int MaxOutputBrightnessPercent = 100;
+        public const double MinGammaCorrection = 0.5;
+        public const double MaxGammaCorrection = 2.5;
+        public const double DefaultGammaCorrection = 1.0;
         private const int MinByteSetting = 0;
         private const int MaxByteSetting = 255;
         private const int MinNetworkRetryAttempts = 0;
@@ -1136,6 +1140,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int ColorSaturation { get; set; } = 100; // Color saturation adjustment (0-200%)
         public int HueShiftDegrees { get; set; } = 0; // Global hue rotation (-180 to 180 degrees)
         public int OutputBrightnessPercent { get; set; } = 100; // Final output brightness ceiling (0-100%)
+        public double GammaCorrection { get; set; } = DefaultGammaCorrection; // Mid-tone correction exponent (0.5-2.5, 1.0 is neutral)
         public int BlackoutThreshold { get; set; } = 15; // Average brightness below which lights are set to black (0-255)
         public string BlackoutBehavior { get; set; } = BlackoutBehaviorBlackout; // Dark-scene policy: blackout or preserve the last streamed colors
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
@@ -1435,18 +1440,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// Gets optional per-user color-processing overrides. Null values mean the global
         /// plugin setting should be used for that component.
         /// </summary>
-        public (int? BrightnessBoost, int? ColorSaturation, int? HueShiftDegrees, int? OutputBrightnessPercent)
+        public (int? BrightnessBoost, int? ColorSaturation, int? HueShiftDegrees, int? OutputBrightnessPercent, double? GammaCorrection)
             GetColorProcessingOverridesForUser(Guid userId)
         {
             var userIdText = userId.ToString();
             var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
             return mapping == null
-                ? (null, null, null, null)
+                ? (null, null, null, null, null)
                 : (
                     mapping.BrightnessBoostOverride,
                     mapping.ColorSaturationOverride,
                     mapping.HueShiftDegreesOverride,
-                    mapping.OutputBrightnessPercentOverride);
+                    mapping.OutputBrightnessPercentOverride,
+                    mapping.GammaCorrectionOverride);
         }
 
         /// <summary>
@@ -1618,6 +1624,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
                  mapping.OutputBrightnessPercentOverride.Value > MaxOutputBrightnessPercent))
             {
                 errors.Add($"{label} output brightness override must be between 0 and 100 percent");
+            }
+
+            if (mapping.GammaCorrectionOverride.HasValue &&
+                (!double.IsFinite(mapping.GammaCorrectionOverride.Value) ||
+                 mapping.GammaCorrectionOverride.Value < MinGammaCorrection ||
+                 mapping.GammaCorrectionOverride.Value > MaxGammaCorrection))
+            {
+                errors.Add($"{label} gamma correction override must be between {MinGammaCorrection:0.0} and {MaxGammaCorrection:0.0}");
             }
 
             if (mapping.BlackoutThresholdOverride.HasValue &&
@@ -2885,6 +2899,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 if (OutputBrightnessPercent < MinOutputBrightnessPercent ||
                     OutputBrightnessPercent > MaxOutputBrightnessPercent)
                     errors.Add("Output brightness must be between 0 and 100 percent");
+
+                if (!double.IsFinite(GammaCorrection) ||
+                    GammaCorrection < MinGammaCorrection || GammaCorrection > MaxGammaCorrection)
+                    errors.Add($"Gamma correction must be between {MinGammaCorrection:0.0} and {MaxGammaCorrection:0.0}");
 
                 if (BlackoutThreshold < MinByteSetting || BlackoutThreshold > MaxByteSetting)
                     errors.Add("Blackout threshold must be between 0 and 255");

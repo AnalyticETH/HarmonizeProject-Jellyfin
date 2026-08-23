@@ -1122,6 +1122,7 @@ public sealed class HueSyncServiceTests
             ColorSaturation = 90,
             HueShiftDegrees = 20,
             OutputBrightnessPercent = 80,
+            GammaCorrection = 1.1,
             BlackoutThreshold = 15,
             BlackoutBehavior = PluginConfiguration.BlackoutBehaviorBlackout,
             ColorChangeThreshold = 10,
@@ -1137,6 +1138,7 @@ public sealed class HueSyncServiceTests
                     ColorSaturationOverride = 125,
                     HueShiftDegreesOverride = -45,
                     OutputBrightnessPercentOverride = 70,
+                    GammaCorrectionOverride = 1.35,
                     BlackoutThresholdOverride = 35,
                     BlackoutBehaviorOverride = PluginConfiguration.BlackoutBehaviorKeepLastColors,
                     ColorChangeThresholdOverride = 4
@@ -1154,6 +1156,7 @@ public sealed class HueSyncServiceTests
         Assert.Equal(125, effective.ColorSaturation);
         Assert.Equal(-45, effective.HueShiftDegrees);
         Assert.Equal(70, effective.OutputBrightnessPercent);
+        Assert.Equal(1.35, effective.GammaCorrection, precision: 6);
         Assert.Equal(35, effective.BlackoutThreshold);
         Assert.Equal(PluginConfiguration.BlackoutBehaviorKeepLastColors, effective.BlackoutBehavior);
         Assert.Equal(4, effective.ColorChangeThreshold);
@@ -1164,6 +1167,7 @@ public sealed class HueSyncServiceTests
         Assert.Equal(90, fallback.ColorSaturation);
         Assert.Equal(20, fallback.HueShiftDegrees);
         Assert.Equal(80, fallback.OutputBrightnessPercent);
+        Assert.Equal(1.1, fallback.GammaCorrection, precision: 6);
         Assert.Equal(15, fallback.BlackoutThreshold);
         Assert.Equal(PluginConfiguration.BlackoutBehaviorBlackout, fallback.BlackoutBehavior);
         Assert.Equal(10, fallback.ColorChangeThreshold);
