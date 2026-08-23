@@ -205,6 +205,8 @@ public class ColorProcessingTests : IDisposable
     [InlineData(0.25, -0.5, "MirrorHorizontal", -0.25, -0.5)]
     [InlineData(0.25, -0.5, "MirrorVertical", 0.25, 0.5)]
     [InlineData(0.25, -0.5, "Rotate180", -0.25, 0.5)]
+    [InlineData(0.25, -0.5, "Rotate90Clockwise", -0.5, -0.25)]
+    [InlineData(0.25, -0.5, "Rotate90Counterclockwise", 0.5, 0.25)]
     [InlineData(0.25, -0.5, "invalid", 0.25, -0.5)]
     public void SpatialOrientation_TransformsNormalizedRoomCoordinates(
         double x,

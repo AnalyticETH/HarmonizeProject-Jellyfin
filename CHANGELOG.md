@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.186] - 2026-08-23
+
+### Added
+- **Quarter-turn orientation calibration**: support Rotate90Clockwise and Rotate90Counterclockwise for entertainment areas mounted sideways, alongside the existing mirror and 180-degree modes
+- **Consistent spatial transforms**: apply quarter-turn transforms to video sampling and audio spatial/stereo routing with global and per-user inheritance
+- **Portable controls and coverage**: expose both quarter-turn modes through validation, configuration portability, administrator selectors, and coordinate-transform regression tests
+
 ## [1.5.185] - 2026-08-23
 
 ### Added

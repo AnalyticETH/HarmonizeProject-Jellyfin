@@ -409,6 +409,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string SpatialOrientationMirrorHorizontal = "MirrorHorizontal";
         public const string SpatialOrientationMirrorVertical = "MirrorVertical";
         public const string SpatialOrientationRotate180 = "Rotate180";
+        public const string SpatialOrientationRotate90Clockwise = "Rotate90Clockwise";
+        public const string SpatialOrientationRotate90Counterclockwise = "Rotate90Counterclockwise";
         public const string FrameResolutionLow = "80x45";
         public const string FrameResolutionStandard = "160x90";
         public const string FrameResolutionHigh = "320x180";
@@ -633,7 +635,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
             SpatialOrientationNormal,
             SpatialOrientationMirrorHorizontal,
             SpatialOrientationMirrorVertical,
-            SpatialOrientationRotate180
+            SpatialOrientationRotate180,
+            SpatialOrientationRotate90Clockwise,
+            SpatialOrientationRotate90Counterclockwise
         };
 
         private static readonly string[] BlackoutBehaviors =
@@ -939,7 +943,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// Returns the canonical orientation used to map Hue entertainment-area
         /// coordinates to the sampled screen and audio spatial field. Normal preserves
         /// the bridge's coordinate system; mirror and rotate modes compensate for an
-        /// area mounted in the opposite physical orientation.
+        /// area mounted in the opposite physical orientation. Rotations use the
+        /// entertainment area's right-handed x/z coordinate system.
         /// </summary>
         public static bool TryNormalizeSpatialOrientation(string? value, out string normalized)
         {
@@ -1931,7 +1936,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (!string.IsNullOrWhiteSpace(spatialOrientation) &&
                 !TryNormalizeSpatialOrientation(spatialOrientation, out _))
             {
-                errors.Add($"{label} spatial orientation override must be Normal, MirrorHorizontal, MirrorVertical, or Rotate180");
+                errors.Add($"{label} spatial orientation override must be Normal, MirrorHorizontal, MirrorVertical, Rotate180, Rotate90Clockwise, or Rotate90Counterclockwise");
             }
 
             if (mapping.ColorSmoothingPercentOverride.HasValue &&
@@ -2961,7 +2966,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     errors.Add("Sampling mode must be Average, CenterWeighted, or CenterPixel");
 
                 if (!TryNormalizeSpatialOrientation(SpatialOrientation, out _))
-                    errors.Add("Spatial orientation must be Normal, MirrorHorizontal, MirrorVertical, or Rotate180");
+                    errors.Add("Spatial orientation must be Normal, MirrorHorizontal, MirrorVertical, Rotate180, Rotate90Clockwise, or Rotate90Counterclockwise");
 
                 if (ColorSmoothingPercent < MinColorSmoothingPercent ||
                     ColorSmoothingPercent > MaxColorSmoothingPercent)

@@ -68,7 +68,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Video Deinterlacing** | Off (default), Auto for frames flagged as interlaced, or On to deinterlace every frame. Useful for television and DVD sources. |
 | **Color Sampling Breadth** | Size of the neighborhood sampled around each Hue channel's screen position (1-50%, default: 15%). Smaller values follow fine detail; larger values reduce noise. |
 | **Color Sampling Mode** | Average (default), center-weighted, or center-pixel sampling for balancing ambient stability against detail. |
-| **Screen / Room Orientation** | Normal (default), MirrorHorizontal, MirrorVertical, or Rotate180 to correct a physically mirrored or rotated entertainment-area layout; the effective orientation applies to video sampling and audio spatial routing and can be overridden per user. |
+| **Screen / Room Orientation** | Normal (default), MirrorHorizontal, MirrorVertical, Rotate180, Rotate90Clockwise, or Rotate90Counterclockwise to correct a physically mirrored, flipped, or rotated entertainment-area layout; the effective orientation applies to video sampling and audio spatial routing and can be overridden per user. |
 | **Temporal Color Smoothing** | Blend the previous frame into new colors to reduce flicker (0-90%, default: 0%). Higher values create smoother but slower transitions. |
 | **Performance Profile** | Target FPS, frame resolution, video fit, deinterlacing, sampling breadth/mode, Screen / Room Orientation, color smoothing, audio sensitivity/noise gate, low/mid/high band centers and gains, audio response smoothing, Audio Band Spread, Audio Beat Pulse, Release, and Threshold, Audio Visualizer Palette, Audio Spatial Routing, and Audio Source Channels can be overridden per user while blank fields inherit global settings. |
 | **Execution Profile** | GPU acceleration, additional FFmpeg flags, FFmpeg stall timeout, and Hue REST/DTLS retry attempts can be overridden per user while blank fields inherit global settings; the effective policy is captured when playback starts. |
@@ -413,7 +413,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.185 (Current)
+### Version 1.5.186 (Current)
+- **Quarter-turn orientation calibration**: correct sideways-mounted entertainment-area layouts with clockwise or counterclockwise 90-degree transforms
+- **Video and audio consistency**: apply quarter-turn orientation to video sampling coordinates and audio spatial/stereo routing, including per-user inheritance
+- **Portable controls and telemetry**: expose both modes through validation, configuration portability, administrator controls, and regression coverage
+
+### Version 1.5.185
 - **Spatial orientation calibration**: correct mirrored, vertically flipped, or 180-degree-rotated entertainment-area layouts with a Normal default
 - **Video and audio consistency**: apply orientation to video sampling coordinates and audio spatial/stereo routing, including per-user inheritance
 - **Portable controls and telemetry**: expose orientation in runtime status, configuration backup/import, mapping summaries, administrator controls, and regression coverage

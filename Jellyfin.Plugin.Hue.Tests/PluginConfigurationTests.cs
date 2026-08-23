@@ -2433,7 +2433,7 @@ public class PluginConfigurationTests
 
         var errors = config.Validate();
 
-        Assert.Contains("Spatial orientation must be Normal, MirrorHorizontal, MirrorVertical, or Rotate180", errors);
+        Assert.Contains("Spatial orientation must be Normal, MirrorHorizontal, MirrorVertical, Rotate180, Rotate90Clockwise, or Rotate90Counterclockwise", errors);
     }
 
     [Theory]
@@ -2441,6 +2441,8 @@ public class PluginConfigurationTests
     [InlineData(PluginConfiguration.SpatialOrientationMirrorHorizontal)]
     [InlineData(PluginConfiguration.SpatialOrientationMirrorVertical)]
     [InlineData(PluginConfiguration.SpatialOrientationRotate180)]
+    [InlineData(PluginConfiguration.SpatialOrientationRotate90Clockwise)]
+    [InlineData(PluginConfiguration.SpatialOrientationRotate90Counterclockwise)]
     [InlineData("mirrorhorizontal")]
     public void Validate_WhenSpatialOrientationIsValid_ReturnsNoOrientationError(string orientation)
     {
@@ -2456,7 +2458,7 @@ public class PluginConfigurationTests
 
         var errors = config.Validate();
 
-        Assert.DoesNotContain("Spatial orientation must be Normal, MirrorHorizontal, MirrorVertical, or Rotate180", errors);
+        Assert.DoesNotContain("Spatial orientation must be Normal, MirrorHorizontal, MirrorVertical, Rotate180, Rotate90Clockwise, or Rotate90Counterclockwise", errors);
     }
 
     [Theory]
@@ -3555,7 +3557,7 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 video deinterlace override must be Off, Auto, or On", errors);
         Assert.Contains("User mapping 1 sampling breadth override must be between 1 and 50 percent", errors);
         Assert.Contains("User mapping 1 sampling mode override must be Average, CenterWeighted, or CenterPixel", errors);
-        Assert.Contains("User mapping 1 spatial orientation override must be Normal, MirrorHorizontal, MirrorVertical, or Rotate180", errors);
+        Assert.Contains("User mapping 1 spatial orientation override must be Normal, MirrorHorizontal, MirrorVertical, Rotate180, Rotate90Clockwise, or Rotate90Counterclockwise", errors);
         Assert.Contains("User mapping 1 color smoothing override must be between 0 and 90 percent", errors);
     }
 

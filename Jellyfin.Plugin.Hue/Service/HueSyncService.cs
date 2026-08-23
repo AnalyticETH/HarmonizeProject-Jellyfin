@@ -2610,8 +2610,21 @@ namespace Jellyfin.Plugin.Hue.Service
             string? orientation)
         {
             var normalized = NormalizeSpatialOrientation(orientation);
-            var transformedX = Math.Clamp(x, -1, 1);
-            var transformedZ = Math.Clamp(z, -1, 1);
+            var originalX = Math.Clamp(x, -1, 1);
+            var originalZ = Math.Clamp(z, -1, 1);
+            var transformedX = originalX;
+            var transformedZ = originalZ;
+
+            if (normalized == PluginConfiguration.SpatialOrientationRotate90Clockwise)
+            {
+                transformedX = originalZ;
+                transformedZ = -originalX;
+            }
+            else if (normalized == PluginConfiguration.SpatialOrientationRotate90Counterclockwise)
+            {
+                transformedX = -originalZ;
+                transformedZ = originalX;
+            }
 
             if (normalized == PluginConfiguration.SpatialOrientationMirrorHorizontal ||
                 normalized == PluginConfiguration.SpatialOrientationRotate180)
