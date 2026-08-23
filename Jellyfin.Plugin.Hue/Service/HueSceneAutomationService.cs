@@ -1126,7 +1126,15 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     internal static int GetEffectiveTransitionSeconds(HueSceneSchedule schedule, HueColorPreset? preset)
     {
-        var transition = preset?.TransitionSeconds ?? PluginConfiguration.MinColorPresetTransitionSeconds;
+        return GetEffectiveTransitionSeconds(schedule, preset, null);
+    }
+
+    internal static int GetEffectiveTransitionSeconds(
+        HueSceneSchedule schedule,
+        HueColorPreset? preset,
+        int? transitionOverrideSeconds)
+    {
+        var transition = transitionOverrideSeconds ?? preset?.TransitionSeconds ?? PluginConfiguration.MinColorPresetTransitionSeconds;
         return Math.Clamp(
             transition,
             PluginConfiguration.MinColorPresetTransitionSeconds,
@@ -1135,9 +1143,18 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     internal static int GetEffectiveTransitionOutSeconds(HueSceneSchedule schedule, HueColorPreset? preset)
     {
+        return GetEffectiveTransitionOutSeconds(schedule, preset, null, null);
+    }
+
+    internal static int GetEffectiveTransitionOutSeconds(
+        HueSceneSchedule schedule,
+        HueColorPreset? preset,
+        int? transitionOutOverrideSeconds,
+        int? transitionOverrideSeconds)
+    {
         var duration = GetEffectiveDurationSeconds(schedule, preset);
-        var transitionIn = GetEffectiveTransitionSeconds(schedule, preset);
-        var transitionOut = preset?.TransitionOutSeconds ?? PluginConfiguration.MinColorPresetTransitionOutSeconds;
+        var transitionIn = GetEffectiveTransitionSeconds(schedule, preset, transitionOverrideSeconds);
+        var transitionOut = transitionOutOverrideSeconds ?? preset?.TransitionOutSeconds ?? PluginConfiguration.MinColorPresetTransitionOutSeconds;
         return Math.Clamp(
             transitionOut,
             PluginConfiguration.MinColorPresetTransitionOutSeconds,
@@ -1238,6 +1255,14 @@ public sealed class HueSceneAutomationService : BackgroundService
                     playlist,
                     originalIndex - 1,
                     preset);
+                var transitionSecondsOverride = PluginConfiguration.GetEffectiveScenePlaylistStepTransitionSeconds(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
+                var transitionOutSecondsOverride = PluginConfiguration.GetEffectiveScenePlaylistStepTransitionOutSeconds(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
                 var stepSchedule = new HueSceneSchedule { DurationSeconds = durationSeconds };
                 PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
                 steps.Add(new HueScenePlaylistScheduleStep
@@ -1254,8 +1279,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                         originalIndex - 1,
                         preset),
                     DurationSeconds = durationSeconds,
-                    TransitionSeconds = GetEffectiveTransitionSeconds(stepSchedule, preset),
-                    TransitionOutSeconds = GetEffectiveTransitionOutSeconds(stepSchedule, preset),
+                    TransitionSeconds = GetEffectiveTransitionSeconds(stepSchedule, preset, transitionSecondsOverride),
+                    TransitionOutSeconds = GetEffectiveTransitionOutSeconds(
+                        stepSchedule,
+                        preset,
+                        transitionOutSecondsOverride,
+                        transitionSecondsOverride),
                     StartOffsetSeconds = startOffsetSeconds
                 });
                 startOffsetSeconds += durationSeconds;
@@ -1705,7 +1734,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueColorPreset preset,
         CancellationToken cancellationToken = default,
         bool targetScopedPlayback = false,
-        int? brightnessPercentOverride = null)
+        int? brightnessPercentOverride = null,
+        int? transitionSecondsOverride = null,
+        int? transitionOutSecondsOverride = null)
     {
         var config = Plugin.Instance?.Configuration;
         if (config == null)
@@ -1727,7 +1758,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                 target,
                 cancellationToken,
                 targetScopedPlayback,
-                brightnessPercentOverride).ConfigureAwait(false);
+                brightnessPercentOverride,
+                transitionSecondsOverride,
+                transitionOutSecondsOverride).ConfigureAwait(false);
             targetResults.Add(targetResult);
             if (!targetResult.Succeeded &&
                 targetResult.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
@@ -1849,6 +1882,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         var runAtUtc = NormalizeRunAtUtc(runAtUtcOverride) ?? executionStartedAtUtc;
         var totalStepCount = resolvedPresets.Length * repeatCount;
         var steps = new List<HueScenePlaylistStepResult>();
+        var startOffsetSeconds = 0;
         var canceled = false;
         for (var repeatIndex = 1; repeatIndex <= repeatCount && !canceled; repeatIndex++)
         {
@@ -1862,6 +1896,14 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 var (preset, originalIndex) = pass[index];
                 var effectiveBrightnessPercent = PluginConfiguration.GetEffectiveScenePlaylistStepBrightnessPercent(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
+                var transitionSecondsOverride = PluginConfiguration.GetEffectiveScenePlaylistStepTransitionSeconds(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
+                var transitionOutSecondsOverride = PluginConfiguration.GetEffectiveScenePlaylistStepTransitionOutSeconds(
                     playlist,
                     originalIndex - 1,
                     preset);
@@ -1884,7 +1926,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     preset,
                     cancellationToken,
                     targetScopedPlayback,
-                    effectiveBrightnessPercent).ConfigureAwait(false);
+                    effectiveBrightnessPercent,
+                    transitionSecondsOverride,
+                    transitionOutSecondsOverride).ConfigureAwait(false);
                 PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
                 steps.Add(new HueScenePlaylistStepResult
                 {
@@ -1897,13 +1941,22 @@ public sealed class HueSceneAutomationService : BackgroundService
                     TransitionCurve = GetEffectiveTransitionCurve(preset),
                     BrightnessPercent = effectiveBrightnessPercent,
                     DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset),
-                    TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset),
-                    TransitionOutSeconds = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(schedule, preset),
+                    TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(
+                        schedule,
+                        preset,
+                        transitionSecondsOverride),
+                    TransitionOutSeconds = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(
+                        schedule,
+                        preset,
+                        transitionOutSecondsOverride,
+                        transitionSecondsOverride),
+                    StartOffsetSeconds = startOffsetSeconds,
                     Succeeded = run.Succeeded,
                     Message = run.Message,
                     CleanupWarning = run.CleanupWarning,
                     TargetResults = run.TargetResults
                 });
+                startOffsetSeconds += schedule.DurationSeconds;
                 if (!run.Succeeded && run.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
                 {
                     canceled = true;
@@ -2810,6 +2863,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                     StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
                     StepBrightnessPercent = playlist.StepBrightnessPercent?.ToList() ?? new List<int?>(),
+                    StepTransitionSeconds = playlist.StepTransitionSeconds?.ToList() ?? new List<int?>(),
+                    StepTransitionOutSeconds = playlist.StepTransitionOutSeconds?.ToList() ?? new List<int?>(),
                     RepeatCount = playlist.RepeatCount,
                     PlaybackOrder = playlist.PlaybackOrder
                 },
@@ -3596,6 +3651,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                 StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
                 StepBrightnessPercent = playlist.StepBrightnessPercent?.ToList() ?? new List<int?>(),
+                StepTransitionSeconds = playlist.StepTransitionSeconds?.ToList() ?? new List<int?>(),
+                StepTransitionOutSeconds = playlist.StepTransitionOutSeconds?.ToList() ?? new List<int?>(),
                 RepeatCount = playlist.RepeatCount,
                 PlaybackOrder = playlist.PlaybackOrder,
                 TargetUserId = schedule.TargetAllEnabledMappings
@@ -3721,7 +3778,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneAutomationTargetDescription target,
         CancellationToken cancellationToken,
         bool targetScopedPlayback = false,
-        int? brightnessPercentOverride = null)
+        int? brightnessPercentOverride = null,
+        int? transitionSecondsOverride = null,
+        int? transitionOutSecondsOverride = null)
     {
         try
         {
@@ -3790,8 +3849,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
-                    GetEffectiveTransitionSeconds(schedule, preset),
-                    GetEffectiveTransitionOutSeconds(schedule, preset),
+                    GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
+                    GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
                     preset.Effect,
                     PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                     transitionCurve).ConfigureAwait(false)
@@ -3809,8 +3868,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
-                    GetEffectiveTransitionSeconds(schedule, preset),
-                    GetEffectiveTransitionOutSeconds(schedule, preset),
+                    GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
+                    GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
                     preset.Effect,
                     PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent)).ConfigureAwait(false)
                 : curveTester != null
@@ -3827,8 +3886,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
-                    GetEffectiveTransitionSeconds(schedule, preset),
-                    GetEffectiveTransitionOutSeconds(schedule, preset),
+                    GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
+                    GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
                     preset.Effect,
                     PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
                     transitionCurve).ConfigureAwait(false)
@@ -3845,8 +3904,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
-                    GetEffectiveTransitionSeconds(schedule, preset),
-                    GetEffectiveTransitionOutSeconds(schedule, preset),
+                    GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
+                    GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
                     preset.Effect,
                     PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent)).ConfigureAwait(false);
             return new HueSceneScheduleTargetResult
@@ -4275,6 +4334,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = source.EffectSpeedPercent,
             TransitionCurve = source.TransitionCurve,
             BrightnessPercent = source.BrightnessPercent,
+            StartOffsetSeconds = source.StartOffsetSeconds,
             DurationSeconds = source.DurationSeconds,
             TransitionSeconds = source.TransitionSeconds,
             TransitionOutSeconds = source.TransitionOutSeconds,
@@ -4309,6 +4369,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                     PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
                 : null,
+            StartOffsetSeconds = Math.Max(0, source.StartOffsetSeconds),
             DurationSeconds = Math.Clamp(
                 source.DurationSeconds,
                 PluginConfiguration.MinPreviewDurationSeconds,
@@ -4353,6 +4414,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                     PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
                 : 0,
+            StartOffsetSeconds = Math.Max(0, source.StartOffsetSeconds),
             DurationSeconds = Math.Clamp(
                 source.DurationSeconds,
                 PluginConfiguration.MinPreviewDurationSeconds,
@@ -4923,6 +4985,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = source.EffectSpeedPercent,
             TransitionCurve = source.TransitionCurve,
             BrightnessPercent = source.BrightnessPercent,
+            StartOffsetSeconds = source.StartOffsetSeconds,
             DurationSeconds = source.DurationSeconds,
             TransitionSeconds = source.TransitionSeconds,
             TransitionOutSeconds = source.TransitionOutSeconds,
@@ -5207,6 +5270,9 @@ public sealed class HueScenePlaylistStepResult
 
     [JsonPropertyName("brightnessPercent")]
     public int BrightnessPercent { get; init; }
+
+    [JsonPropertyName("startOffsetSeconds")]
+    public int StartOffsetSeconds { get; init; }
 
     [JsonPropertyName("durationSeconds")]
     public int DurationSeconds { get; init; }

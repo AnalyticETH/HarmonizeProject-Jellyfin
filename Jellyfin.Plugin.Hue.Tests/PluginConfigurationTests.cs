@@ -372,6 +372,74 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsPerStepTransitionOverridesAndPreservesLegacyInheritance()
+    {
+        var first = new HueColorPreset { Name = "Warm", TransitionSeconds = 4, TransitionOutSeconds = 3 };
+        var second = new HueColorPreset { Name = "Cool", TransitionSeconds = 2, TransitionOutSeconds = 2 };
+        var playlist = new HueScenePlaylist
+        {
+            Id = "playlist-transitions",
+            Name = "Transition sequence",
+            PresetNames = new List<string> { "Warm", "Cool" },
+            StepTransitionSeconds = new List<int?> { 1, null },
+            StepTransitionOutSeconds = new List<int?> { null, 0 }
+        };
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { first, second },
+            ScenePlaylists = new List<HueScenePlaylist> { playlist }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(1, PluginConfiguration.GetEffectiveScenePlaylistStepTransitionSeconds(playlist, 0, first));
+        Assert.Equal(2, PluginConfiguration.GetEffectiveScenePlaylistStepTransitionSeconds(playlist, 1, second));
+        Assert.Equal(3, PluginConfiguration.GetEffectiveScenePlaylistStepTransitionOutSeconds(playlist, 0, first));
+        Assert.Equal(0, PluginConfiguration.GetEffectiveScenePlaylistStepTransitionOutSeconds(playlist, 1, second));
+
+        playlist.StepTransitionSeconds = new List<int?>();
+        playlist.StepTransitionOutSeconds = new List<int?>();
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(4, PluginConfiguration.GetEffectiveScenePlaylistStepTransitionSeconds(playlist, 0, first));
+        Assert.Equal(3, PluginConfiguration.GetEffectiveScenePlaylistStepTransitionOutSeconds(playlist, 0, first));
+    }
+
+    [Fact]
+    public void ValidateScenePlaylists_RejectsMismatchedOrOutOfRangeStepTransitions()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm" },
+                new() { Name = "Cool" }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-invalid-transitions",
+                    Name = "Invalid transitions",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    StepTransitionSeconds = new List<int?> { 1 },
+                    StepTransitionOutSeconds = new List<int?> { 1 }
+                }
+            }
+        };
+
+        var mismatchErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step transition overrides must contain one value per saved scene, or be omitted", mismatchErrors);
+        Assert.Contains("Scene playlist 1 step fade-out overrides must contain one value per saved scene, or be omitted", mismatchErrors);
+
+        config.ScenePlaylists[0].StepTransitionSeconds = new List<int?> { -1, 31 };
+        config.ScenePlaylists[0].StepTransitionOutSeconds = new List<int?> { -1, 31 };
+        var rangeErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step 1 fade-in must be between 0 and 30 seconds, or null (inherit)", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 2 fade-in must be between 0 and 30 seconds, or null (inherit)", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 1 fade-out must be between 0 and 30 seconds, or null (inherit)", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 2 fade-out must be between 0 and 30 seconds, or null (inherit)", rangeErrors);
+    }
+
+    [Fact]
     public void ValidateScenePlaylists_RejectsMismatchedOrOutOfRangeStepBrightness()
     {
         var config = new PluginConfiguration

@@ -1329,7 +1329,9 @@ public sealed class HueSceneAutomationServiceTests
                     Id = "playlist-duration",
                     Name = "Timed sequence",
                     PresetNames = new List<string> { "Warm", "Cool" },
-                    StepDurationSeconds = new List<int> { 3, 0 }
+                    StepDurationSeconds = new List<int> { 3, 0 },
+                    StepTransitionSeconds = new List<int?> { 1, null },
+                    StepTransitionOutSeconds = new List<int?> { null, 1 }
                 }
             }
         };
@@ -1346,9 +1348,12 @@ public sealed class HueSceneAutomationServiceTests
 
         Assert.True(result.Succeeded);
         Assert.Equal(new[] { 3, 8 }, streamTester.Durations);
+        Assert.Equal(new[] { 1, 0 }, streamTester.TransitionSeconds);
+        Assert.Equal(new[] { 2, 1 }, streamTester.TransitionOutSeconds);
         Assert.Equal(new[] { 3, 8 }, result.Steps.Select(step => step.DurationSeconds));
-        Assert.Equal(2, result.Steps[0].TransitionSeconds);
-        Assert.Equal(1, result.Steps[0].TransitionOutSeconds);
+        Assert.Equal(new[] { 1, 0 }, result.Steps.Select(step => step.TransitionSeconds));
+        Assert.Equal(new[] { 2, 1 }, result.Steps.Select(step => step.TransitionOutSeconds));
+        Assert.Equal(new[] { 0, 3 }, result.Steps.Select(step => step.StartOffsetSeconds));
         Assert.Equal(0, result.Steps[1].TransitionSeconds);
         Assert.Equal(11, HueSceneAutomationService.GetPlaylistTotalDurationSeconds(
             configuration,
@@ -1387,6 +1392,8 @@ public sealed class HueSceneAutomationServiceTests
             PresetNames = new List<string> { "Warm", "Cool" },
             StepDurationSeconds = new List<int> { 3, 0 },
             StepBrightnessPercent = new List<int?> { 25, null },
+            StepTransitionSeconds = new List<int?> { 1, null },
+            StepTransitionOutSeconds = new List<int?> { null, 1 },
             RepeatCount = 2,
             PlaybackOrder = PluginConfiguration.ScenePlaylistOrderSequential
         };
@@ -1402,8 +1409,8 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(new[] { 0, 3, 11, 14 }, steps.Select(step => step.StartOffsetSeconds));
         Assert.Equal(new[] { 1, 1, 2, 2 }, steps.Select(step => step.RepeatIndex));
         Assert.Equal(new[] { 1, 2, 1, 2 }, steps.Select(step => step.OriginalIndex));
-        Assert.Equal(new[] { 3, 2, 3, 2 }, steps.Select(step => step.TransitionSeconds));
-        Assert.Equal(new[] { 0, 2, 0, 2 }, steps.Select(step => step.TransitionOutSeconds));
+        Assert.Equal(new[] { 1, 2, 1, 2 }, steps.Select(step => step.TransitionSeconds));
+        Assert.Equal(new[] { 2, 1, 2, 1 }, steps.Select(step => step.TransitionOutSeconds));
 
         playlist.PlaybackOrder = PluginConfiguration.ScenePlaylistOrderShuffle;
         var shuffled = HueSceneAutomationService.BuildPlaylistScheduleSteps(
@@ -1528,6 +1535,8 @@ public sealed class HueSceneAutomationServiceTests
                     Name = "Scheduled sequence",
                     PresetNames = new List<string> { "First", "Second" },
                     StepBrightnessPercent = new List<int?> { 30, null },
+                    StepTransitionSeconds = new List<int?> { 1, null },
+                    StepTransitionOutSeconds = new List<int?> { null, 1 },
                     RepeatCount = 2
                 }
             },
@@ -1562,11 +1571,18 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderSequential, result.PlaylistPlaybackOrder);
         Assert.Equal(new[] { "First", "Second", "First", "Second" }, result.PlaylistSteps.Select(step => step.PresetName));
         Assert.Equal(new[] { 30, 70, 30, 70 }, result.PlaylistSteps.Select(step => step.BrightnessPercent));
+        Assert.Equal(new[] { 0, 1, 3, 4 }, result.PlaylistSteps.Select(step => step.StartOffsetSeconds));
+        Assert.Equal(new[] { 1, 0, 1, 0 }, result.PlaylistSteps.Select(step => step.TransitionSeconds));
+        Assert.Equal(new[] { 0, 1, 0, 1 }, result.PlaylistSteps.Select(step => step.TransitionOutSeconds));
         Assert.Equal(new[] { 11, 222, 11, 222 }, streamTester.Reds);
         Assert.Equal(new[] { 30, 70, 30, 70 }, streamTester.Brightnesses);
+        Assert.Equal(new[] { 1, 0, 1, 0 }, streamTester.TransitionSeconds);
+        Assert.Equal(new[] { 0, 1, 0, 1 }, streamTester.TransitionOutSeconds);
         Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
         var history = Assert.Single(service.GetHistory());
         Assert.Equal(new[] { 30, 70, 30, 70 }, history.PlaylistSteps.Select(step => step.BrightnessPercent));
+        Assert.Equal(new[] { 0, 1, 3, 4 }, history.PlaylistSteps.Select(step => step.StartOffsetSeconds));
+        Assert.Equal(new[] { 1, 0, 1, 0 }, history.PlaylistSteps.Select(step => step.TransitionSeconds));
         var runtime = Assert.Single(service.GetStatus().Schedules);
         Assert.Equal("Scheduled sequence", runtime.PlaylistName);
         Assert.Equal(2, runtime.PlaylistStepCount);
@@ -3882,7 +3898,10 @@ public sealed class HueSceneAutomationServiceTests
                             OriginalIndex = 2,
                             PresetName = "Accent",
                             BrightnessPercent = 37,
+                            StartOffsetSeconds = 9,
                             DurationSeconds = 4,
+                            TransitionSeconds = 2,
+                            TransitionOutSeconds = 1,
                             Succeeded = true,
                             Message = "Restored step telemetry."
                         }
@@ -3912,6 +3931,9 @@ public sealed class HueSceneAutomationServiceTests
         var restoredStep = Assert.Single(history.PlaylistSteps);
         Assert.Equal(37, restoredStep.BrightnessPercent);
         Assert.Equal("Accent", restoredStep.PresetName);
+        Assert.Equal(9, restoredStep.StartOffsetSeconds);
+        Assert.Equal(2, restoredStep.TransitionSeconds);
+        Assert.Equal(1, restoredStep.TransitionOutSeconds);
         Assert.True(runtime.LastWasCatchUp);
         var serialized = JsonSerializer.Serialize(history);
         Assert.DoesNotContain("AppKey", serialized, StringComparison.OrdinalIgnoreCase);
@@ -4059,6 +4081,8 @@ public sealed class HueSceneAutomationServiceTests
         public List<int> Reds { get; } = new();
         public List<int> Brightnesses { get; } = new();
         public List<int> Durations { get; } = new();
+        public List<int> TransitionSeconds { get; } = new();
+        public List<int> TransitionOutSeconds { get; } = new();
 
         public Task<HueStreamProbeResult> TestAsync(
             string bridgeIp,
@@ -4095,6 +4119,8 @@ public sealed class HueSceneAutomationServiceTests
             Reds.Add(red);
             Brightnesses.Add(brightnessPercent);
             Durations.Add(durationSeconds);
+            TransitionSeconds.Add(transitionSeconds);
+            TransitionOutSeconds.Add(transitionOutSeconds);
             return Task.FromResult(new HueStreamProbeResult
             {
                 Succeeded = true,

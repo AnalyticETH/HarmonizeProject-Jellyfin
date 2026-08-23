@@ -127,7 +127,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
     /// <summary>
     /// A credential-free saved-scene collection. Playlists retain only scene names, optional
-    /// bounded per-step duration and brightness overrides, a bounded repeat count, playback order, and an
+    /// bounded per-step duration, brightness, and transition overrides, a bounded repeat count, playback order, and an
     /// optional target mode; bridge credentials and
     /// channel profiles are resolved from the current server configuration when the
     /// playlist is previewed. A selected-target playlist can fan out to a deliberate
@@ -151,6 +151,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// from 0 through 100 override only that playlist step.
         /// </summary>
         public List<int?> StepBrightnessPercent { get; set; } = new List<int?>();
+        /// <summary>
+        /// Optional per-step fade-in durations in seconds, parallel to <see cref="PresetNames"/>.
+        /// A null or missing value preserves the referenced scene's transition; explicit
+        /// values from 0 through 30 override only that playlist step.
+        /// </summary>
+        public List<int?> StepTransitionSeconds { get; set; } = new List<int?>();
+        /// <summary>
+        /// Optional per-step fade-out durations in seconds, parallel to <see cref="PresetNames"/>.
+        /// A null or missing value preserves the referenced scene's fade-out; explicit
+        /// values from 0 through 30 override only that playlist step.
+        /// </summary>
+        public List<int?> StepTransitionOutSeconds { get; set; } = new List<int?>();
         /// <summary>
         /// Number of times the saved scene sequence is played. Missing values in
         /// legacy configurations preserve the original single-pass behavior.
@@ -418,6 +430,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
         public int? BrightnessPercent { get; set; }
+        public int StartOffsetSeconds { get; set; }
         public int DurationSeconds { get; set; }
         public int TransitionSeconds { get; set; }
         public int TransitionOutSeconds { get; set; }
@@ -902,6 +915,54 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 overridePercent.Value > MaxScenePlaylistStepBrightnessPercent
                 ? Math.Clamp(preset.BrightnessPercent, MinOutputBrightnessPercent, MaxOutputBrightnessPercent)
                 : overridePercent.Value;
+        }
+
+        /// <summary>
+        /// Resolves one playlist step's fade-in duration. A missing, null, or malformed
+        /// override inherits the referenced scene transition; explicit values are bounded
+        /// to the same 0-30 second range used by saved scenes.
+        /// </summary>
+        public static int GetEffectiveScenePlaylistStepTransitionSeconds(
+            HueScenePlaylist playlist,
+            int stepIndex,
+            HueColorPreset preset)
+        {
+            ArgumentNullException.ThrowIfNull(playlist);
+            ArgumentNullException.ThrowIfNull(preset);
+            var overrideSeconds = playlist.StepTransitionSeconds != null &&
+                stepIndex >= 0 &&
+                stepIndex < playlist.StepTransitionSeconds.Count
+                ? playlist.StepTransitionSeconds[stepIndex]
+                : null;
+            return !overrideSeconds.HasValue ||
+                overrideSeconds.Value < MinColorPresetTransitionSeconds ||
+                overrideSeconds.Value > MaxColorPresetTransitionSeconds
+                ? Math.Clamp(preset.TransitionSeconds, MinColorPresetTransitionSeconds, MaxColorPresetTransitionSeconds)
+                : overrideSeconds.Value;
+        }
+
+        /// <summary>
+        /// Resolves one playlist step's fade-out duration. A missing, null, or malformed
+        /// override inherits the referenced scene fade-out; explicit values are bounded
+        /// to the same 0-30 second range used by saved scenes.
+        /// </summary>
+        public static int GetEffectiveScenePlaylistStepTransitionOutSeconds(
+            HueScenePlaylist playlist,
+            int stepIndex,
+            HueColorPreset preset)
+        {
+            ArgumentNullException.ThrowIfNull(playlist);
+            ArgumentNullException.ThrowIfNull(preset);
+            var overrideSeconds = playlist.StepTransitionOutSeconds != null &&
+                stepIndex >= 0 &&
+                stepIndex < playlist.StepTransitionOutSeconds.Count
+                ? playlist.StepTransitionOutSeconds[stepIndex]
+                : null;
+            return !overrideSeconds.HasValue ||
+                overrideSeconds.Value < MinColorPresetTransitionOutSeconds ||
+                overrideSeconds.Value > MaxColorPresetTransitionOutSeconds
+                ? Math.Clamp(preset.TransitionOutSeconds, MinColorPresetTransitionOutSeconds, MaxColorPresetTransitionOutSeconds)
+                : overrideSeconds.Value;
         }
 
         /// <summary>
@@ -2423,6 +2484,38 @@ namespace Jellyfin.Plugin.Hue.Configuration
                      stepBrightness[index]!.Value > MaxScenePlaylistStepBrightnessPercent))
                 {
                     errors.Add($"{label} step {index + 1} brightness must be between {MinScenePlaylistStepBrightnessPercent} and {MaxScenePlaylistStepBrightnessPercent} percent, or null (inherit)");
+                }
+            }
+
+            var stepTransitions = playlist.StepTransitionSeconds ?? new List<int?>();
+            if (stepTransitions.Count != 0 && stepTransitions.Count != presetNames.Count)
+            {
+                errors.Add($"{label} step transition overrides must contain one value per saved scene, or be omitted");
+            }
+
+            for (var index = 0; index < stepTransitions.Count; index++)
+            {
+                if (stepTransitions[index].HasValue &&
+                    (stepTransitions[index]!.Value < MinColorPresetTransitionSeconds ||
+                     stepTransitions[index]!.Value > MaxColorPresetTransitionSeconds))
+                {
+                    errors.Add($"{label} step {index + 1} fade-in must be between {MinColorPresetTransitionSeconds} and {MaxColorPresetTransitionSeconds} seconds, or null (inherit)");
+                }
+            }
+
+            var stepTransitionOuts = playlist.StepTransitionOutSeconds ?? new List<int?>();
+            if (stepTransitionOuts.Count != 0 && stepTransitionOuts.Count != presetNames.Count)
+            {
+                errors.Add($"{label} step fade-out overrides must contain one value per saved scene, or be omitted");
+            }
+
+            for (var index = 0; index < stepTransitionOuts.Count; index++)
+            {
+                if (stepTransitionOuts[index].HasValue &&
+                    (stepTransitionOuts[index]!.Value < MinColorPresetTransitionOutSeconds ||
+                     stepTransitionOuts[index]!.Value > MaxColorPresetTransitionOutSeconds))
+                {
+                    errors.Add($"{label} step {index + 1} fade-out must be between {MinColorPresetTransitionOutSeconds} and {MaxColorPresetTransitionOutSeconds} seconds, or null (inherit)");
                 }
             }
 

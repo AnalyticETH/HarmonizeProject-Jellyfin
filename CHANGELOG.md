@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.200] - 2026-08-23
+
+### Added
+- **Per-step playlist transitions**: saved-scene playlists now accept nullable `stepTransitionSeconds` and `stepTransitionOutSeconds` overrides bounded to 0-30 seconds; null or omitted values inherit the referenced scene's fade settings and short holds clamp safely at runtime
+- **End-to-end transition and offset parity**: carry effective per-step fades and cumulative start offsets through previews, scheduled cues, runtime/status/history telemetry, occurrence JSON/CSV/iCalendar plans, API/UI, duplication, and credential-free backup/restore
+- **Regression coverage**: verify transition validation/inheritance/clamping, API and backup round trips, preview/scheduler payloads, persisted history, and configuration-page contracts
+
 ## [1.5.199] - 2026-08-23
 
 ### Added
