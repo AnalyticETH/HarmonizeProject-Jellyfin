@@ -131,6 +131,66 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void SolarSchedule_AllowsOffsetAcrossLocalMidnight()
+    {
+        var date = new DateTime(2026, 6, 21);
+        var zone = TimeZoneInfo.Utc;
+        Assert.True(HueSolarCalculator.TryGetEventLocal(
+            date,
+            zone,
+            0,
+            0,
+            sunrise: false,
+            offsetMinutes: PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes,
+            out var shiftedLocal,
+            out var shiftedUtc));
+        Assert.Equal(date.AddDays(1), shiftedLocal.Date);
+        Assert.Equal(DateTimeKind.Utc, shiftedUtc.Kind);
+
+        var schedule = new HueSceneSchedule
+        {
+            Id = "solar-midnight",
+            Name = "Solar midnight",
+            Enabled = true,
+            PresetName = "Scene",
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeSunset,
+            SolarOffsetMinutes = PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes,
+            SolarLatitude = 0,
+            SolarLongitude = 0,
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            StartDate = date.ToString("yyyy-MM-dd"),
+            DaysOfWeekMask = 0
+        };
+
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            new DateTime(2026, 6, 21, 0, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 1,
+            horizonDays: 2);
+        var occurrence = Assert.Single(occurrences);
+        Assert.Equal(date.AddDays(1), occurrence.LocalTime.Date);
+
+        var shiftedDateOccurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            new DateTime(2026, 6, 22, 0, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 1,
+            horizonDays: 2);
+        var shiftedDateOccurrence = Assert.Single(shiftedDateOccurrences);
+        Assert.Equal(occurrence.UtcTime, shiftedDateOccurrence.UtcTime);
+
+        Assert.True(HueSceneAutomationService.IsDue(
+            schedule,
+            DateTime.SpecifyKind(occurrence.LocalTime.AddSeconds(30), DateTimeKind.Utc)));
+        var missed = HueSceneAutomationService.GetMostRecentMissedOccurrence(
+            schedule,
+            DateTime.SpecifyKind(occurrence.LocalTime.AddMinutes(1), DateTimeKind.Utc),
+            catchUpMinutes: 10);
+        Assert.NotNull(missed);
+        Assert.Equal(occurrence.UtcTime, missed!.UtcTime);
+    }
+
+    [Fact]
     public void IsDue_UsesSelectedLocalDayAndMinute()
     {
         var schedule = new HueSceneSchedule

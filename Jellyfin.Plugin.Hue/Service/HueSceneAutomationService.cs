@@ -1240,7 +1240,20 @@ public sealed class HueSceneAutomationService : BackgroundService
              !IsRecurrenceIntervalConfigurationValid(schedule, runDate)))
             return occurrences;
 
-        var firstCandidateDate = scheduleNow.Date;
+        // Solar offsets can move an event into the following local date. Include the
+        // preceding base date so a preview requested after midnight still finds the
+        // shifted event before evaluating the next base solar date.
+        var solarBaseLookbackDays = string.Equals(
+                normalizedTimeMode,
+                PluginConfiguration.SceneScheduleTimeModeSunrise,
+                StringComparison.Ordinal) ||
+            string.Equals(
+                normalizedTimeMode,
+                PluginConfiguration.SceneScheduleTimeModeSunset,
+                StringComparison.Ordinal)
+            ? 1
+            : 0;
+        var firstCandidateDate = scheduleNow.Date.AddDays(-solarBaseLookbackDays);
         if (runDate.HasValue)
         {
             if (runDate.Value < firstCandidateDate)
@@ -1266,7 +1279,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         var skipNextOccurrence = schedule.SkipNextOccurrence;
-        for (var dayOffset = 0; dayOffset < boundedHorizon; dayOffset++)
+        for (var dayOffset = 0; dayOffset < boundedHorizon + solarBaseLookbackDays; dayOffset++)
         {
             if (runDate.HasValue && dayOffset > 0)
                 break;
@@ -1930,6 +1943,36 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
+    private static bool TryGetScheduleOccurrenceForLocalDate(
+        HueSceneSchedule schedule,
+        DateTime localDate,
+        TimeZoneInfo timeZone,
+        out DateTime localTime,
+        out DateTime utcTime)
+    {
+        localTime = default;
+        utcTime = default;
+        for (var dayOffset = -1; dayOffset <= 1; dayOffset++)
+        {
+            if (!TryGetScheduleOccurrenceTimes(
+                    schedule,
+                    localDate.Date.AddDays(dayOffset),
+                    timeZone,
+                    out var candidateLocal,
+                    out var candidateUtc) ||
+                candidateLocal.Date != localDate.Date)
+            {
+                continue;
+            }
+
+            localTime = candidateLocal;
+            utcTime = candidateUtc;
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Determines whether a schedule is due in the supplied server-local minute after
     /// converting that instant into the cue's configured time zone. One-time cues match
@@ -1967,23 +2010,38 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (!PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
             return false;
 
-        if (!IsScheduleDateAllowed(schedule, scheduleNow.Date))
-            return false;
+        if (!PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var timeZone))
+            timeZone = TimeZoneInfo.Local;
 
-        if (!runDate.HasValue && !IsScheduleRecurrenceDate(schedule, normalizedRecurrence, scheduleNow.Date))
-            return false;
+        // Solar offsets can move an event across local midnight. Recurrence and date
+        // windows belong to the unshifted solar date, so inspect the adjacent base dates
+        // while matching the actual shifted local instant against the current minute.
+        for (var dayOffset = -1; dayOffset <= 1; dayOffset++)
+        {
+            var candidateDate = scheduleNow.Date.AddDays(dayOffset);
+            if (runDate.HasValue && candidateDate != runDate.Value)
+                continue;
+            if (!IsScheduleDateAllowed(schedule, candidateDate) ||
+                (!runDate.HasValue && !IsScheduleRecurrenceDate(schedule, normalizedRecurrence, candidateDate)) ||
+                !TryGetScheduleOccurrenceTimes(
+                    schedule,
+                    candidateDate,
+                    timeZone,
+                    out var expectedLocal,
+                    out _))
+            {
+                continue;
+            }
 
-        return TryGetScheduleOccurrenceTimes(
-                   schedule,
-                   scheduleNow.Date,
-                   PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var timeZone)
-                       ? timeZone
-                       : TimeZoneInfo.Local,
-                   out var expectedLocal,
-                   out _) &&
-               expectedLocal.Date == scheduleNow.Date &&
-               scheduleNow.Hour == expectedLocal.Hour &&
-               scheduleNow.Minute == expectedLocal.Minute;
+            if (expectedLocal.Date == scheduleNow.Date &&
+                scheduleNow.Hour == expectedLocal.Hour &&
+                scheduleNow.Minute == expectedLocal.Minute)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsRunLimitReached(HueSceneSchedule? schedule)
@@ -2241,9 +2299,12 @@ public sealed class HueSceneAutomationService : BackgroundService
             1,
             MaxUpcomingHorizonDays);
 
+        // Include the preceding base solar date because a permitted offset can move
+        // its actual local occurrence into the current calendar date.
+        var occurrenceSearchLocal = lookbackServerLocal.AddDays(-1);
         return GetUpcomingOccurrences(
                 candidateSchedule,
-                lookbackServerLocal,
+                occurrenceSearchLocal,
                 MaxUpcomingOccurrencesPerSchedule,
                 horizonDays)
             .Where(occurrence => occurrence.UtcTime > lookbackUtc && occurrence.UtcTime <= serverUtcNow)
@@ -2306,7 +2367,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     {
         if (TryGetScheduleLocalNow(schedule, serverLocalNow, out var scheduleLocalNow, out _) &&
             PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var timeZone) &&
-            TryGetScheduleOccurrenceTimes(schedule, scheduleLocalNow.Date, timeZone, out _, out var occurrenceUtc))
+            TryGetScheduleOccurrenceForLocalDate(schedule, scheduleLocalNow.Date, timeZone, out _, out var occurrenceUtc))
         {
             // Stable UTC slots prevent duplicate polling runs when a solar event falls
             // near a local DST transition or when the host crosses a minute boundary.

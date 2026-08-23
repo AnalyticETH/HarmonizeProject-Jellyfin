@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.189] - 2026-08-23
+
+### Fixed
+- **Cross-midnight solar offsets**: keep the unshifted sunrise/sunset calendar date as the recurrence anchor while allowing the bounded -720 to +720 minute offset to resolve into the adjacent local date
+- **Scheduler recovery and de-duplication**: match shifted solar occurrences across neighboring base dates so due checks, stable run slots, next-run previews, and missed-cue recovery remain correct after local midnight
+- **Regression coverage**: verify shifted UTC/local instants, due detection, upcoming previews, and catch-up recovery for solar events that cross midnight
+
 ## [1.5.188] - 2026-08-23
 
 ### Added

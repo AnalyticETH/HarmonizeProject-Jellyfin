@@ -5,9 +5,10 @@ namespace Jellyfin.Plugin.Hue.Service;
 /// <summary>
 /// Calculates sunrise and sunset without a network dependency. The implementation uses
 /// the NOAA low-precision solar-position equations with the official zenith used for
-/// apparent sunrise/sunset (90.833 degrees). Results are intentionally bounded to the
-/// supplied calendar date and return false during polar day/night when the requested event
-/// does not occur.
+/// apparent sunrise/sunset (90.833 degrees). The requested calendar date identifies the
+/// base solar event; a configured offset may intentionally move the returned local instant
+/// across midnight. The calculator returns false during polar day/night when the event does
+/// not occur.
 /// </summary>
 internal static class HueSolarCalculator
 {
@@ -100,20 +101,27 @@ internal static class HueSolarCalculator
 
         // Sunrise and sunset can fall on opposite UTC dates from the local calendar
         // date (for example, New York sunset is after midnight UTC). Try the neighboring
-        // UTC anchors and keep only the event that resolves to the requested local date.
+        // UTC anchors and keep only the base event that resolves to the requested local
+        // date before applying the user offset. The offset is allowed to cross local
+        // midnight because the schedule date belongs to the unshifted solar event.
         for (var dayOffset = -1; dayOffset <= 1; dayOffset++)
         {
             if (!TryGetEventUtc(utcNoon.Date.AddDays(dayOffset), latitude, longitude, sunrise, out var calculatedUtc))
                 continue;
 
-            calculatedUtc = calculatedUtc.AddMinutes(offsetMinutes);
-            var candidateUtc = DateTime.SpecifyKind(calculatedUtc, DateTimeKind.Utc);
+            var baseEventUtc = DateTime.SpecifyKind(calculatedUtc, DateTimeKind.Utc);
+            var baseEventLocal = DateTime.SpecifyKind(
+                TimeZoneInfo.ConvertTimeFromUtc(baseEventUtc, timeZone),
+                DateTimeKind.Unspecified);
+            if (baseEventLocal.Date != localDate.Date)
+                continue;
+
+            var candidateUtc = DateTime.SpecifyKind(
+                baseEventUtc.AddMinutes(offsetMinutes),
+                DateTimeKind.Utc);
             var candidateLocal = DateTime.SpecifyKind(
                 TimeZoneInfo.ConvertTimeFromUtc(candidateUtc, timeZone),
                 DateTimeKind.Unspecified);
-            if (candidateLocal.Date != localDate.Date)
-                continue;
-
             eventUtc = candidateUtc;
             eventLocal = new DateTime(
                 candidateLocal.Year,
