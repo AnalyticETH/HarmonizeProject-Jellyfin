@@ -428,7 +428,7 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
         CancellationToken cancellationToken)
     {
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, or Aurora.");
+            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, or Ocean.");
 
         effect = normalizedEffect;
         if (cancellationToken.IsCancellationRequested)
@@ -919,7 +919,7 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
     {
         ArgumentNullException.ThrowIfNull(targetColors);
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, Temperature, or Aurora.", nameof(effect));
+            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, or Ocean.", nameof(effect));
 
         var elapsed = Math.Max(0d, elapsedSeconds);
         var duration = Math.Max(1d, durationSeconds);
@@ -1028,6 +1028,64 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
                     ToRgb16Byte(auroraRed), ToRgb16Byte(auroraRed),
                     ToRgb16Byte(auroraGreen), ToRgb16Byte(auroraGreen),
                     ToRgb16Byte(auroraBlue), ToRgb16Byte(auroraBlue)
+                };
+                continue;
+            }
+
+            if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectFire, StringComparison.Ordinal))
+            {
+                // Fire uses a saturated red/amber/yellow palette with two bounded
+                // flicker frequencies. The seed frame controls intensity while the
+                // channel phase keeps a multi-light room from flickering in lockstep.
+                var firePeriod = 3.6d / speedMultiplier;
+                var firePhase = ((elapsed + (channelId * 0.23d)) % firePeriod) / firePeriod;
+                var fireWave = 0.5d + (0.5d * Math.Sin(firePhase * 2d * Math.PI));
+                var fireFlicker = 0.58d +
+                    (0.27d * fireWave) +
+                    (0.15d * (0.5d + (0.5d * Math.Sin((firePhase * 6d * Math.PI) + (channelId * 0.77d)))));
+                var fireHue = 4d + (42d * fireWave);
+                var fireSaturation = 0.86d + (0.10d * (0.5d + (0.5d * Math.Sin((firePhase * 4d * Math.PI) + 0.4d))));
+                var fireSeedValue = Math.Clamp(
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    0d,
+                    1d);
+                var (fireRed, fireGreen, fireBlue) = HsvToRgb(
+                    fireHue,
+                    Math.Clamp(fireSaturation, 0d, 1d),
+                    Math.Clamp(fireSeedValue * fireFlicker, 0d, 1d));
+                colors[channelId] = new[]
+                {
+                    ToRgb16Byte(fireRed), ToRgb16Byte(fireRed),
+                    ToRgb16Byte(fireGreen), ToRgb16Byte(fireGreen),
+                    ToRgb16Byte(fireBlue), ToRgb16Byte(fireBlue)
+                };
+                continue;
+            }
+
+            if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectOcean, StringComparison.Ordinal))
+            {
+                // Ocean rolls through deep blue and cyan with a slow wave. The seed
+                // frame controls output level and independent phase keeps the room
+                // spatially alive while remaining deterministic and bounded.
+                var oceanPeriod = 12d / speedMultiplier;
+                var oceanPhase = ((elapsed + (channelId * 0.19d)) % oceanPeriod) / oceanPeriod;
+                var oceanWave = 0.5d + (0.5d * Math.Sin(oceanPhase * 2d * Math.PI));
+                var oceanHue = 184d + (34d * oceanWave);
+                var oceanSaturation = 0.76d + (0.16d * (0.5d + (0.5d * Math.Sin((oceanPhase * 2d * Math.PI) + 0.8d))));
+                var oceanSeedValue = Math.Clamp(
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    0d,
+                    1d);
+                var oceanValue = oceanSeedValue * (0.70d + (0.30d * oceanWave));
+                var (oceanRed, oceanGreen, oceanBlue) = HsvToRgb(
+                    oceanHue,
+                    Math.Clamp(oceanSaturation, 0d, 1d),
+                    Math.Clamp(oceanValue, 0d, 1d));
+                colors[channelId] = new[]
+                {
+                    ToRgb16Byte(oceanRed), ToRgb16Byte(oceanRed),
+                    ToRgb16Byte(oceanGreen), ToRgb16Byte(oceanGreen),
+                    ToRgb16Byte(oceanBlue), ToRgb16Byte(oceanBlue)
                 };
                 continue;
             }

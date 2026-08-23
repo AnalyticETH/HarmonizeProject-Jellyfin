@@ -1076,7 +1076,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
             if (!PluginConfiguration.TryNormalizeColorPresetEffect(request.Effect, out var effect))
             {
-                return BadRequest($"Preview effect must be one of {PluginConfiguration.ColorPresetEffectSolid}, {PluginConfiguration.ColorPresetEffectPulse}, {PluginConfiguration.ColorPresetEffectRainbow}, {PluginConfiguration.ColorPresetEffectCandle}, {PluginConfiguration.ColorPresetEffectTemperature}, or {PluginConfiguration.ColorPresetEffectAurora}.");
+                return BadRequest($"Preview effect must be one of {PluginConfiguration.ColorPresetEffectSolid}, {PluginConfiguration.ColorPresetEffectPulse}, {PluginConfiguration.ColorPresetEffectRainbow}, {PluginConfiguration.ColorPresetEffectCandle}, {PluginConfiguration.ColorPresetEffectTemperature}, {PluginConfiguration.ColorPresetEffectAurora}, {PluginConfiguration.ColorPresetEffectFire}, or {PluginConfiguration.ColorPresetEffectOcean}.");
             }
 
             if (request.EffectSpeedPercent < PluginConfiguration.MinColorPresetEffectSpeedPercent ||
