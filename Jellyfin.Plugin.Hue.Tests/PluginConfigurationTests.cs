@@ -414,6 +414,10 @@ public class PluginConfigurationTests
         Assert.Empty(config.ValidateSceneSchedules());
         Assert.True(PluginConfiguration.TryNormalizeSceneScheduleTimeMode(" sunset ", out var normalized));
         Assert.Equal(PluginConfiguration.SceneScheduleTimeModeSunset, normalized);
+        Assert.True(PluginConfiguration.TryNormalizeSceneScheduleTimeMode(" civilDusk ", out var civilDusk));
+        Assert.Equal(PluginConfiguration.SceneScheduleTimeModeCivilDusk, civilDusk);
+        Assert.True(PluginConfiguration.IsSceneScheduleSolarTimeMode(PluginConfiguration.SceneScheduleTimeModeCivilDawn));
+        Assert.False(PluginConfiguration.IsSceneScheduleSolarTimeMode(PluginConfiguration.SceneScheduleTimeModeFixed));
         Assert.True(PluginConfiguration.AreValidSceneScheduleSolarCoordinates(0, 0));
         Assert.False(PluginConfiguration.AreValidSceneScheduleSolarCoordinates(91, 0));
     }
@@ -441,7 +445,7 @@ public class PluginConfigurationTests
         };
 
         var errors = config.ValidateSceneSchedules();
-        Assert.Contains("Scene schedule 1 time mode must be Fixed, Sunrise, or Sunset", errors);
+        Assert.Contains("Scene schedule 1 time mode must be Fixed, Sunrise, Sunset, CivilDawn, or CivilDusk", errors);
         Assert.Contains("Scene schedule 1 solar offset must be between -720 and 720 minutes", errors);
         Assert.Contains(errors, error => error.Contains("fixed time must use 24-hour HH:mm format", StringComparison.Ordinal));
     }

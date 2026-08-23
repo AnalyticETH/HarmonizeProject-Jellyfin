@@ -3937,6 +3937,25 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(40.7128, updatedResult.SolarLatitude);
         Assert.Equal(-74.0060, updatedResult.SolarLongitude);
         Assert.False(updatedResult.Enabled);
+
+        var civilUpdated = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = savedResult.Id,
+            Name = "Civil dusk updated",
+            PresetName = "Morning",
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeCivilDusk.ToLowerInvariant(),
+            SolarOffsetMinutes = -20,
+            SolarLatitude = 40.7128,
+            SolarLongitude = -74.0060,
+            Enabled = true
+        });
+
+        var civilResult = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(civilUpdated.Result).Value);
+        Assert.Equal(PluginConfiguration.SceneScheduleTimeModeCivilDusk, civilResult.TimeMode);
+        Assert.Equal(-20, civilResult.SolarOffsetMinutes);
+        Assert.True(civilResult.Enabled);
+        Assert.Equal(PluginConfiguration.SceneScheduleTimeModeCivilDusk, configuration.SceneSchedules[0].TimeMode);
+        Assert.Contains("\"timeMode\":\"CivilDusk\"", JsonSerializer.Serialize(civilResult), StringComparison.Ordinal);
     }
 
     [Fact]

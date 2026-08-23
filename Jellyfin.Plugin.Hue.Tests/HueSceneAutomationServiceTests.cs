@@ -53,6 +53,31 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(DateTimeKind.Utc, sunsetUtc.Kind);
         Assert.True(sunriseUtc < sunsetUtc);
 
+        Assert.True(HueSolarCalculator.TryGetCivilTwilightLocal(
+            date,
+            zone,
+            40.7128,
+            -74.0060,
+            dawn: true,
+            offsetMinutes: 0,
+            out var civilDawn,
+            out var civilDawnUtc));
+        Assert.True(HueSolarCalculator.TryGetCivilTwilightLocal(
+            date,
+            zone,
+            40.7128,
+            -74.0060,
+            dawn: false,
+            offsetMinutes: 0,
+            out var civilDusk,
+            out var civilDuskUtc));
+        Assert.Equal(date, civilDawn.Date);
+        Assert.Equal(date, civilDusk.Date);
+        Assert.True(civilDawn < sunrise);
+        Assert.True(civilDusk > sunset);
+        Assert.Equal(DateTimeKind.Utc, civilDawnUtc.Kind);
+        Assert.Equal(DateTimeKind.Utc, civilDuskUtc.Kind);
+
         Assert.True(HueSolarCalculator.TryGetEventLocal(
             date,
             zone,
@@ -103,6 +128,50 @@ public sealed class HueSceneAutomationServiceTests
                 DateTime.SpecifyKind(occurrence.LocalTime.AddSeconds(30), DateTimeKind.Utc)));
         });
         Assert.True(occurrences[0].UtcTime < occurrences[1].UtcTime);
+    }
+
+    [Fact]
+    public void CivilTwilightSchedule_UsesDawnTimeForDueAndUpcomingOccurrence()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Id = "civil-dawn-daily",
+            Name = "Civil dawn daily",
+            Enabled = true,
+            PresetName = "Scene",
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeCivilDawn,
+            SolarLatitude = 40.7128,
+            SolarLongitude = -74.0060,
+            TimeZoneId = TimeZoneInfo.FindSystemTimeZoneById(
+                OperatingSystem.IsWindows() ? "Eastern Standard Time" : "America/New_York").Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            StartDate = "2026-06-21",
+            DaysOfWeekMask = 0
+        };
+
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(
+            OperatingSystem.IsWindows() ? "Eastern Standard Time" : "America/New_York");
+        Assert.True(HueSolarCalculator.TryGetCivilTwilightLocal(
+            new DateTime(2026, 6, 21),
+            zone,
+            40.7128,
+            -74.0060,
+            dawn: true,
+            offsetMinutes: 0,
+            out var civilDawn,
+            out _));
+
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            new DateTime(2026, 6, 21, 0, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 1,
+            horizonDays: 2);
+        var occurrence = Assert.Single(occurrences);
+        Assert.Equal(PluginConfiguration.SceneScheduleTimeModeCivilDawn, occurrence.TimeMode);
+        Assert.Equal(civilDawn, occurrence.LocalTime);
+        Assert.True(HueSceneAutomationService.IsDue(
+            schedule,
+            DateTime.SpecifyKind(occurrence.UtcTime.AddSeconds(30), DateTimeKind.Utc)));
     }
 
     [Fact]

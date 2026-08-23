@@ -1243,14 +1243,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         // Solar offsets can move an event into the following local date. Include the
         // preceding base date so a preview requested after midnight still finds the
         // shifted event before evaluating the next base solar date.
-        var solarBaseLookbackDays = string.Equals(
-                normalizedTimeMode,
-                PluginConfiguration.SceneScheduleTimeModeSunrise,
-                StringComparison.Ordinal) ||
-            string.Equals(
-                normalizedTimeMode,
-                PluginConfiguration.SceneScheduleTimeModeSunset,
-                StringComparison.Ordinal)
+        var solarBaseLookbackDays = PluginConfiguration.IsSceneScheduleSolarTimeMode(normalizedTimeMode)
             ? 1
             : 0;
         var firstCandidateDate = scheduleNow.Date.AddDays(-solarBaseLookbackDays);
@@ -1898,8 +1891,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
         }
 
-        if (string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeSunrise, StringComparison.Ordinal) ||
-            string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeSunset, StringComparison.Ordinal))
+        if (PluginConfiguration.IsSceneScheduleSolarTimeMode(timeMode))
         {
             if (!PluginConfiguration.AreValidSceneScheduleSolarCoordinates(
                     schedule.SolarLatitude,
@@ -1908,16 +1900,33 @@ public sealed class HueSceneAutomationService : BackgroundService
                 return false;
             }
 
+            var dawn = string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeSunrise, StringComparison.Ordinal) ||
+                string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeCivilDawn, StringComparison.Ordinal);
+            var offsetMinutes = Math.Clamp(
+                schedule.SolarOffsetMinutes,
+                PluginConfiguration.MinSceneScheduleSolarOffsetMinutes,
+                PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes);
+            if (string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeCivilDawn, StringComparison.Ordinal) ||
+                string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeCivilDusk, StringComparison.Ordinal))
+            {
+                return HueSolarCalculator.TryGetCivilTwilightLocal(
+                    scheduleDate,
+                    timeZone,
+                    schedule.SolarLatitude!.Value,
+                    schedule.SolarLongitude!.Value,
+                    dawn,
+                    offsetMinutes,
+                    out localTime,
+                    out utcTime);
+            }
+
             return HueSolarCalculator.TryGetEventLocal(
                 scheduleDate,
                 timeZone,
                 schedule.SolarLatitude!.Value,
                 schedule.SolarLongitude!.Value,
-                string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeSunrise, StringComparison.Ordinal),
-                Math.Clamp(
-                    schedule.SolarOffsetMinutes,
-                    PluginConfiguration.MinSceneScheduleSolarOffsetMinutes,
-                    PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes),
+                dawn,
+                offsetMinutes,
                 out localTime,
                 out utcTime);
         }

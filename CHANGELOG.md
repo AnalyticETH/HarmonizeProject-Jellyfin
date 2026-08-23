@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.191] - 2026-08-23
+
+### Added
+- **Civil twilight scheduled cues**: schedule saved scenes and playlists at CivilDawn or CivilDusk, using the sun's 6°-below-horizon events with the same bounded offsets, portable coordinates, and selected cue time zone as sunrise/sunset
+- **Scheduler parity**: carry civil dawn/dusk through validation, occurrence previews, due checks, missed-cue recovery, API/status/CSV/iCalendar metadata, backup/restore, and administrator controls
+- **Regression coverage**: verify civil-twilight NOAA calculations, timezone-aware scheduling, canonical API persistence, and configuration-page contracts
+
 ## [1.5.190] - 2026-08-23
 
 ### Added

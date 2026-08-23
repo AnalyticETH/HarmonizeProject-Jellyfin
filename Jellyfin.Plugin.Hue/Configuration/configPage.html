@@ -514,8 +514,10 @@
                                     <option value="Fixed">Fixed local time</option>
                                     <option value="Sunrise">Sunrise</option>
                                     <option value="Sunset">Sunset</option>
+                                    <option value="CivilDawn">Civil dawn</option>
+                                    <option value="CivilDusk">Civil dusk</option>
                                 </select>
-                                <div class="fieldDescription">Use a fixed wall-clock time or calculate sunrise/sunset from the cue's coordinates.</div>
+                                <div class="fieldDescription">Use a fixed wall-clock time, sunrise/sunset, or civil dawn/dusk (the sun 6° below the horizon) from the cue's coordinates.</div>
                             </div>
                             <div id="sceneScheduleFixedTimeContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTime">Cue time</label>
@@ -5963,7 +5965,7 @@
                     var solarOffset = page.querySelector('#sceneScheduleSolarOffset');
                     var latitude = page.querySelector('#sceneScheduleSolarLatitude');
                     var longitude = page.querySelector('#sceneScheduleSolarLongitude');
-                    var isSolar = mode && (mode.value === 'Sunrise' || mode.value === 'Sunset');
+                    var isSolar = mode && ['Sunrise', 'Sunset', 'CivilDawn', 'CivilDusk'].indexOf(mode.value) >= 0;
                     if (fixedContainer) fixedContainer.style.display = isSolar ? 'none' : '';
                     if (solarContainer) solarContainer.style.display = isSolar ? '' : 'none';
                     if (fixedTime) fixedTime.disabled = !!isSolar;
@@ -6247,7 +6249,7 @@
                     var recurrenceMode = String(recurrence).toLowerCase();
                     var contentName = sourceType === 'playlist' ? playlistName : presetName;
                     if (!name || !contentName || (timeMode === 'Fixed' && !timeOfDay) ||
-                        ((timeMode === 'Sunrise' || timeMode === 'Sunset') &&
+                        (['Sunrise', 'Sunset', 'CivilDawn', 'CivilDusk'].indexOf(timeMode) >= 0 &&
                          (!Number.isFinite(solarLatitude) || solarLatitude < -90 || solarLatitude > 90 ||
                           !Number.isFinite(solarLongitude) || solarLongitude < -180 || solarLongitude > 180)) ||
                         (!runDate &&

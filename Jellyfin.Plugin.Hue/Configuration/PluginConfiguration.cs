@@ -566,6 +566,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string SceneScheduleTimeModeFixed = "Fixed";
         public const string SceneScheduleTimeModeSunrise = "Sunrise";
         public const string SceneScheduleTimeModeSunset = "Sunset";
+        public const string SceneScheduleTimeModeCivilDawn = "CivilDawn";
+        public const string SceneScheduleTimeModeCivilDusk = "CivilDusk";
         public const int MinSceneScheduleSolarOffsetMinutes = -720;
         public const int MaxSceneScheduleSolarOffsetMinutes = 720;
         public const double MinSceneScheduleSolarLatitude = -90;
@@ -605,7 +607,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             SceneScheduleTimeModeFixed,
             SceneScheduleTimeModeSunrise,
-            SceneScheduleTimeModeSunset
+            SceneScheduleTimeModeSunset,
+            SceneScheduleTimeModeCivilDawn,
+            SceneScheduleTimeModeCivilDusk
         };
 
         private static readonly string[] ColorPresetEffects =
@@ -2426,7 +2430,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var normalizedTimeMode))
             {
-                errors.Add($"{label} time mode must be Fixed, Sunrise, or Sunset");
+                errors.Add($"{label} time mode must be Fixed, Sunrise, Sunset, CivilDawn, or CivilDusk");
                 normalizedTimeMode = SceneScheduleTimeModeFixed;
             }
 
@@ -2707,7 +2711,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
-        /// Validates finite solar coordinates for a sunrise/sunset cue.
+        /// Returns whether a normalized schedule time mode uses a solar event rather
+        /// than a fixed wall-clock time.
+        /// </summary>
+        public static bool IsSceneScheduleSolarTimeMode(string? value)
+        {
+            return TryNormalizeSceneScheduleTimeMode(value, out var normalized) &&
+                   !string.Equals(normalized, SceneScheduleTimeModeFixed, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Validates finite solar coordinates for a sunrise, sunset, civil-dawn, or
+        /// civil-dusk cue.
         /// </summary>
         public static bool AreValidSceneScheduleSolarCoordinates(double? latitude, double? longitude)
         {

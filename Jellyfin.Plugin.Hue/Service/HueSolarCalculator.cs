@@ -3,22 +3,56 @@ using System;
 namespace Jellyfin.Plugin.Hue.Service;
 
 /// <summary>
-/// Calculates sunrise and sunset without a network dependency. The implementation uses
-/// the NOAA low-precision solar-position equations with the official zenith used for
-/// apparent sunrise/sunset (90.833 degrees). The requested calendar date identifies the
-/// base solar event; a configured offset may intentionally move the returned local instant
-/// across midnight. The calculator returns false during polar day/night when the event does
-/// not occur.
+/// Calculates sunrise, sunset, and civil twilight without a network dependency. The
+/// implementation uses the NOAA low-precision solar-position equations with the official
+/// zenith used for apparent sunrise/sunset (90.833 degrees) and civil twilight (96 degrees).
+/// The requested calendar date identifies the base solar event; a configured offset may
+/// intentionally move the returned local instant across midnight. The calculator returns
+/// false during polar day/night when the requested event does not occur.
 /// </summary>
 internal static class HueSolarCalculator
 {
     private const double SunriseSunsetZenithDegrees = 90.833;
+    private const double CivilTwilightZenithDegrees = 96.0;
 
     internal static bool TryGetEventUtc(
         DateTime utcCalculationDate,
         double latitude,
         double longitude,
         bool sunrise,
+        out DateTime eventUtc)
+    {
+        return TryGetEventUtc(
+            utcCalculationDate,
+            latitude,
+            longitude,
+            sunrise,
+            SunriseSunsetZenithDegrees,
+            out eventUtc);
+    }
+
+    internal static bool TryGetCivilTwilightUtc(
+        DateTime utcCalculationDate,
+        double latitude,
+        double longitude,
+        bool dawn,
+        out DateTime eventUtc)
+    {
+        return TryGetEventUtc(
+            utcCalculationDate,
+            latitude,
+            longitude,
+            dawn,
+            CivilTwilightZenithDegrees,
+            out eventUtc);
+    }
+
+    private static bool TryGetEventUtc(
+        DateTime utcCalculationDate,
+        double latitude,
+        double longitude,
+        bool sunrise,
+        double zenithDegrees,
         out DateTime eventUtc)
     {
         eventUtc = default;
@@ -47,7 +81,7 @@ internal static class HueSolarCalculator
         var sineDeclination = 0.39782 * SinDegrees(trueLongitude);
         var cosineDeclination = Math.Cos(Math.Asin(sineDeclination));
         var cosineHourAngle =
-            (Math.Cos(ToRadians(SunriseSunsetZenithDegrees)) -
+            (Math.Cos(ToRadians(zenithDegrees)) -
              (sineDeclination * SinDegrees(latitude))) /
             (cosineDeclination * Math.Cos(ToRadians(latitude)));
 
@@ -79,6 +113,51 @@ internal static class HueSolarCalculator
         out DateTime eventLocal,
         out DateTime eventUtc)
     {
+        return TryGetEventLocal(
+            localDate,
+            timeZone,
+            latitude,
+            longitude,
+            sunrise,
+            offsetMinutes,
+            SunriseSunsetZenithDegrees,
+            out eventLocal,
+            out eventUtc);
+    }
+
+    internal static bool TryGetCivilTwilightLocal(
+        DateTime localDate,
+        TimeZoneInfo timeZone,
+        double latitude,
+        double longitude,
+        bool dawn,
+        int offsetMinutes,
+        out DateTime eventLocal,
+        out DateTime eventUtc)
+    {
+        return TryGetEventLocal(
+            localDate,
+            timeZone,
+            latitude,
+            longitude,
+            dawn,
+            offsetMinutes,
+            CivilTwilightZenithDegrees,
+            out eventLocal,
+            out eventUtc);
+    }
+
+    private static bool TryGetEventLocal(
+        DateTime localDate,
+        TimeZoneInfo timeZone,
+        double latitude,
+        double longitude,
+        bool sunrise,
+        int offsetMinutes,
+        double zenithDegrees,
+        out DateTime eventLocal,
+        out DateTime eventUtc)
+    {
         eventLocal = default;
         eventUtc = default;
         if (timeZone == null || !double.IsFinite(latitude) || !double.IsFinite(longitude))
@@ -106,7 +185,13 @@ internal static class HueSolarCalculator
         // midnight because the schedule date belongs to the unshifted solar event.
         for (var dayOffset = -1; dayOffset <= 1; dayOffset++)
         {
-            if (!TryGetEventUtc(utcNoon.Date.AddDays(dayOffset), latitude, longitude, sunrise, out var calculatedUtc))
+            if (!TryGetEventUtc(
+                    utcNoon.Date.AddDays(dayOffset),
+                    latitude,
+                    longitude,
+                    sunrise,
+                    zenithDegrees,
+                    out var calculatedUtc))
                 continue;
 
             var baseEventUtc = DateTime.SpecifyKind(calculatedUtc, DateTimeKind.Utc);
