@@ -380,7 +380,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Saved Scene Playlists</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into a playlist. Each step inherits its saved scene's brightness, fade transitions, and fade curve unless you set an explicit 0-100% brightness, 0-30 second fade-in, 0-30 second fade-out, or Linear/SmoothStep/EaseIn/EaseOut/EaseInOut curve override; blank transition fields and Inherited scene curves preserve the saved scene. Its hold duration inherits the scene by default or can use a bounded per-step override from 1-30 seconds (0 means inherit). Choose Saved order or a stable date-seeded Shuffle for each restorative preview pass. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, all enabled targets, or a deliberate subset of enabled mappings and optionally include the default bridge. Playlist definitions contain only scene names, per-step duration/brightness/transition/curve overrides, repeat count, playback order, and credential-free target selection, never bridge credentials. Preview Targets can override one preview run without changing the saved playlist; Preview Playlist on All Targets remains an explicit broadcast override. Renaming a playlist automatically updates scheduled cues that use it; use View References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into a playlist. Each step inherits its saved scene's brightness, effect speed, fade transitions, and fade curve unless you set an explicit 0-100% brightness, 25-400% effect speed, 0-30 second fade-in, 0-30 second fade-out, or Linear/SmoothStep/EaseIn/EaseOut/EaseInOut curve override; blank fields and Inherited scene curves preserve the saved scene. Its hold duration inherits the scene by default or can use a bounded per-step override from 1-30 seconds (0 means inherit). Choose Saved order or a stable date-seeded Shuffle for each restorative preview pass. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, all enabled targets, or a deliberate subset of enabled mappings and optionally include the default bridge. Playlist definitions contain only scene names, per-step duration/brightness/effect-speed/transition/curve overrides, repeat count, playback order, and credential-free target selection, never bridge credentials. Preview Targets can override one preview run without changing the saved playlist; Preview Playlist on All Targets remains an explicit broadcast override. Renaming a playlist automatically updates scheduled cues that use it; use View References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="scenePlaylistSelect">Saved Playlist</label>
@@ -459,7 +459,7 @@
                             <button is="emby-button" type="button" class="raised" id="saveScenePlaylistBtn"><span>Save / Update Playlist</span></button>
                         </div>
                         <div id="scenePlaylistItems" style="margin-top: 0.75em;"></div>
-                        <div id="scenePlaylistStatus" class="fieldDescription" style="margin-top: 0.5em;">Select saved scenes, set optional per-step brightness, fade-in, fade-out, fade curve, and hold overrides (blank brightness/transitions and Inherited scene curves preserve the scene; 0 seconds inherits each scene's duration), choose Saved order or Stable daily shuffle, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge.</div>
+                        <div id="scenePlaylistStatus" class="fieldDescription" style="margin-top: 0.5em;">Select saved scenes, set optional per-step brightness, effect speed, fade-in, fade-out, fade curve, and hold overrides (blank fields and Inherited scene curves preserve the scene; 0 seconds inherits each scene's duration), choose Saved order or Stable daily shuffle, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -3729,6 +3729,17 @@
                     while (brightnesses.length < items.length) brightnesses.push(null);
                     if (brightnesses.length > items.length) brightnesses.length = items.length;
                     page._hueScenePlaylistBrightness = brightnesses;
+                    var effectSpeeds = Array.isArray(page._hueScenePlaylistEffectSpeeds)
+                        ? page._hueScenePlaylistEffectSpeeds
+                        : [];
+                    while (effectSpeeds.length < items.length) effectSpeeds.push(null);
+                    if (effectSpeeds.length > items.length) effectSpeeds.length = items.length;
+                    effectSpeeds = effectSpeeds.map(function (raw) {
+                        if (raw === null || raw === undefined || raw === '') return null;
+                        var value = Number(raw);
+                        return Number.isInteger(value) && value >= 25 && value <= 400 ? value : null;
+                    });
+                    page._hueScenePlaylistEffectSpeeds = effectSpeeds;
                     var transitions = Array.isArray(page._hueScenePlaylistTransitions)
                         ? page._hueScenePlaylistTransitions
                         : [];
@@ -3822,6 +3833,33 @@
                         });
                         row.appendChild(brightnessLabel);
                         row.appendChild(brightnessInput);
+                        var effectSpeedLabel = document.createElement('label');
+                        effectSpeedLabel.textContent = 'Speed (%; blank = scene):';
+                        effectSpeedLabel.style.marginRight = '0.35em';
+                        effectSpeedLabel.style.marginLeft = '0.35em';
+                        var effectSpeedInput = document.createElement('input');
+                        effectSpeedInput.type = 'number';
+                        effectSpeedInput.min = '25';
+                        effectSpeedInput.max = '400';
+                        effectSpeedInput.step = '1';
+                        effectSpeedInput.value = Number.isInteger(effectSpeeds[index]) ? String(effectSpeeds[index]) : '';
+                        effectSpeedInput.style.width = '5em';
+                        effectSpeedInput.setAttribute('aria-label', 'Effect speed override for ' + name + ' in percent; blank inherits the saved scene effect speed');
+                        effectSpeedInput.addEventListener('change', function () {
+                            var raw = effectSpeedInput.value.trim();
+                            if (!raw) {
+                                page._hueScenePlaylistEffectSpeeds[index] = null;
+                                return;
+                            }
+                            var value = Number(raw);
+                            if (!Number.isInteger(value) || value < 25 || value > 400) {
+                                value = null;
+                                effectSpeedInput.value = '';
+                            }
+                            page._hueScenePlaylistEffectSpeeds[index] = value;
+                        });
+                        row.appendChild(effectSpeedLabel);
+                        row.appendChild(effectSpeedInput);
                         var transitionLabel = document.createElement('label');
                         transitionLabel.textContent = 'Fade in (s; blank = scene):';
                         transitionLabel.style.marginRight = '0.35em';
@@ -3927,6 +3965,7 @@
                             page._hueScenePlaylistItems.splice(index, 1);
                             page._hueScenePlaylistDurations.splice(index, 1);
                             page._hueScenePlaylistBrightness.splice(index, 1);
+                            page._hueScenePlaylistEffectSpeeds.splice(index, 1);
                             page._hueScenePlaylistTransitions.splice(index, 1);
                             page._hueScenePlaylistTransitionOuts.splice(index, 1);
                             page._hueScenePlaylistTransitionCurves.splice(index, 1);
@@ -4118,6 +4157,14 @@
                         var value = Number(raw);
                         return Number.isInteger(value) && value >= 0 && value <= 100 ? value : null;
                     });
+                    var stepEffectSpeeds = playlist.stepEffectSpeedPercent !== undefined ? playlist.stepEffectSpeedPercent : (playlist.StepEffectSpeedPercent || []);
+                    stepEffectSpeeds = Array.isArray(stepEffectSpeeds) ? stepEffectSpeeds : [];
+                    stepEffectSpeeds = presetNames.map(function (_, index) {
+                        var raw = stepEffectSpeeds[index];
+                        if (raw === null || raw === undefined || raw === '') return null;
+                        var value = Number(raw);
+                        return Number.isInteger(value) && value >= 25 && value <= 400 ? value : null;
+                    });
                     var stepTransitions = playlist.stepTransitionSeconds !== undefined ? playlist.stepTransitionSeconds : (playlist.StepTransitionSeconds || []);
                     stepTransitions = Array.isArray(stepTransitions) ? stepTransitions : [];
                     stepTransitions = presetNames.map(function (_, index) {
@@ -4147,6 +4194,7 @@
                     page._hueScenePlaylistItems = presetNames.slice();
                     page._hueScenePlaylistDurations = stepDurations;
                     page._hueScenePlaylistBrightness = stepBrightness;
+                    page._hueScenePlaylistEffectSpeeds = stepEffectSpeeds;
                     page._hueScenePlaylistTransitions = stepTransitions;
                     page._hueScenePlaylistTransitionOuts = stepTransitionOuts;
                     page._hueScenePlaylistTransitionCurves = stepTransitionCurves;
@@ -4178,6 +4226,7 @@
                     page._hueScenePlaylistItems = [];
                     page._hueScenePlaylistDurations = [];
                     page._hueScenePlaylistBrightness = [];
+                    page._hueScenePlaylistEffectSpeeds = [];
                     page._hueScenePlaylistTransitions = [];
                     page._hueScenePlaylistTransitionOuts = [];
                     page._hueScenePlaylistTransitionCurves = [];
@@ -4208,6 +4257,7 @@
                     page._hueScenePlaylistItems = Array.isArray(page._hueScenePlaylistItems) ? page._hueScenePlaylistItems : [];
                     page._hueScenePlaylistDurations = Array.isArray(page._hueScenePlaylistDurations) ? page._hueScenePlaylistDurations : [];
                     page._hueScenePlaylistBrightness = Array.isArray(page._hueScenePlaylistBrightness) ? page._hueScenePlaylistBrightness : [];
+                    page._hueScenePlaylistEffectSpeeds = Array.isArray(page._hueScenePlaylistEffectSpeeds) ? page._hueScenePlaylistEffectSpeeds : [];
                     page._hueScenePlaylistTransitions = Array.isArray(page._hueScenePlaylistTransitions) ? page._hueScenePlaylistTransitions : [];
                     page._hueScenePlaylistTransitionOuts = Array.isArray(page._hueScenePlaylistTransitionOuts) ? page._hueScenePlaylistTransitionOuts : [];
                     page._hueScenePlaylistTransitionCurves = Array.isArray(page._hueScenePlaylistTransitionCurves) ? page._hueScenePlaylistTransitionCurves : [];
@@ -4218,6 +4268,7 @@
                     page._hueScenePlaylistItems.push(name);
                     page._hueScenePlaylistDurations.push(0);
                     page._hueScenePlaylistBrightness.push(null);
+                    page._hueScenePlaylistEffectSpeeds.push(null);
                     page._hueScenePlaylistTransitions.push(null);
                     page._hueScenePlaylistTransitionOuts.push(null);
                     page._hueScenePlaylistTransitionCurves.push(null);
@@ -4244,6 +4295,12 @@
                     brightnesses[index] = brightnesses[target];
                     brightnesses[target] = brightness;
                     page._hueScenePlaylistBrightness = brightnesses;
+                    var effectSpeeds = Array.isArray(page._hueScenePlaylistEffectSpeeds) ? page._hueScenePlaylistEffectSpeeds : [];
+                    while (effectSpeeds.length < items.length) effectSpeeds.push(null);
+                    var effectSpeed = effectSpeeds[index];
+                    effectSpeeds[index] = effectSpeeds[target];
+                    effectSpeeds[target] = effectSpeed;
+                    page._hueScenePlaylistEffectSpeeds = effectSpeeds;
                     var transitions = Array.isArray(page._hueScenePlaylistTransitions) ? page._hueScenePlaylistTransitions : [];
                     while (transitions.length < items.length) transitions.push(null);
                     var transition = transitions[index];
@@ -4377,8 +4434,17 @@
                             var originalIndex = step.originalIndex !== undefined ? step.originalIndex : step.OriginalIndex;
                             var presetName = step.presetName || step.PresetName || "Scene";
                             var succeeded = step.succeeded !== undefined ? step.succeeded : step.Succeeded;
+                            var brightness = Number(HueConfigurationPage.readStatusField(step, "BrightnessPercent", 0));
+                            var effectSpeed = Number(HueConfigurationPage.readStatusField(step, "EffectSpeedPercent", 100));
+                            var duration = Number(HueConfigurationPage.readStatusField(step, "DurationSeconds", 0));
+                            var transition = Number(HueConfigurationPage.readStatusField(step, "TransitionSeconds", 0));
+                            var transitionOut = Number(HueConfigurationPage.readStatusField(step, "TransitionOutSeconds", 0));
+                            var transitionCurve = String(HueConfigurationPage.readStatusField(step, "TransitionCurve", "Linear"));
                             var configuredPosition = Number(originalIndex) > 0 ? " (saved #" + originalIndex + ")" : "";
-                            return "#" + index + " " + presetName + configuredPosition + ": " + (succeeded ? "completed" : "failed");
+                            return "#" + index + " " + presetName + configuredPosition +
+                                " · brightness " + brightness + "% · speed " + effectSpeed + "% · hold " + duration + "s · " +
+                                transitionCurve + " fade " + transition + "/" + transitionOut + "s: " +
+                                (succeeded ? "completed" : "failed");
                         }).filter(Boolean);
                         if (stepDetails.length) result.text += " Steps: " + stepDetails.join(" | ");
                     }
@@ -4544,6 +4610,13 @@
                         var value = Number(raw);
                         return Number.isInteger(value) && value >= 0 && value <= 100 ? value : null;
                     });
+                    var effectSpeeds = Array.isArray(page._hueScenePlaylistEffectSpeeds) ? page._hueScenePlaylistEffectSpeeds : [];
+                    effectSpeeds = items.map(function (_, index) {
+                        var raw = effectSpeeds[index];
+                        if (raw === null || raw === undefined || raw === '') return null;
+                        var value = Number(raw);
+                        return Number.isInteger(value) && value >= 25 && value <= 400 ? value : null;
+                    });
                     var transitions = Array.isArray(page._hueScenePlaylistTransitions) ? page._hueScenePlaylistTransitions : [];
                     transitions = items.map(function (_, index) {
                         var raw = transitions[index];
@@ -4599,6 +4672,7 @@
                             presetNames: items,
                             stepDurationSeconds: durations,
                             stepBrightnessPercent: brightnesses,
+                            stepEffectSpeedPercent: effectSpeeds,
                             stepTransitionSeconds: transitions,
                             stepTransitionOutSeconds: transitionOuts,
                             stepTransitionCurves: transitionCurves,
@@ -5933,6 +6007,7 @@
                                 ? " · plan " + occurrenceSteps.map(function (step) {
                                     var stepIndex = Number(HueConfigurationPage.readStatusField(step, "Index", 0));
                                     var stepName = String(HueConfigurationPage.readStatusField(step, "PresetName", "Scene"));
+                                    var stepSpeed = Number(HueConfigurationPage.readStatusField(step, "EffectSpeedPercent", 100));
                                     var stepBrightness = Number(HueConfigurationPage.readStatusField(step, "BrightnessPercent", 0));
                                     var stepDuration = Number(HueConfigurationPage.readStatusField(step, "DurationSeconds", 0));
                                     var stepTransition = Number(HueConfigurationPage.readStatusField(step, "TransitionSeconds", 0));
@@ -5940,7 +6015,7 @@
                                     var stepCurve = String(HueConfigurationPage.readStatusField(step, "TransitionCurve", "Linear"));
                                     var stepRepeat = Number(HueConfigurationPage.readStatusField(step, "RepeatIndex", 1));
                                     var stepOffset = Number(HueConfigurationPage.readStatusField(step, "StartOffsetSeconds", 0));
-                                    return "#" + stepIndex + " " + stepName + " " + stepBrightness + "%/" + stepDuration + "s " + stepCurve + " fade " + stepTransition + "/" + stepTransitionOut + "s @" + stepOffset + "s" + (stepRepeat > 1 ? " (pass " + stepRepeat + ")" : "");
+                                    return "#" + stepIndex + " " + stepName + " · brightness " + stepBrightness + "% · speed " + stepSpeed + "% · hold " + stepDuration + "s · " + stepCurve + " fade " + stepTransition + "/" + stepTransitionOut + "s @" + stepOffset + "s" + (stepRepeat > 1 ? " (pass " + stepRepeat + ")" : "");
                                 }).join(" → ")
                                 : "";
                             addCell(occurrenceName + (occurrencePlaylistName ? " · " + (occurrencePlaybackOrder.toLowerCase() === "shuffle" ? "shuffle" : "saved order") : "") + " · " + occurrenceEffect + " · speed " + occurrenceSpeed + "%" + occurrencePlan + (occurrencePriority > 0 ? " · priority " + occurrencePriority : "") + ((occurrenceTransition > 0 || occurrenceTransitionOut > 0)
@@ -6144,6 +6219,7 @@
                                 ? " · plan " + playlistSteps.map(function (step) {
                                     var stepIndex = Number(HueConfigurationPage.readStatusField(step, "Index", 0));
                                     var stepName = String(HueConfigurationPage.readStatusField(step, "PresetName", "Scene"));
+                                    var stepSpeed = Number(HueConfigurationPage.readStatusField(step, "EffectSpeedPercent", 100));
                                     var stepBrightness = Number(HueConfigurationPage.readStatusField(step, "BrightnessPercent", 0));
                                     var stepDuration = Number(HueConfigurationPage.readStatusField(step, "DurationSeconds", 0));
                                     var stepTransition = Number(HueConfigurationPage.readStatusField(step, "TransitionSeconds", 0));
@@ -6151,7 +6227,7 @@
                                     var stepCurve = String(HueConfigurationPage.readStatusField(step, "TransitionCurve", "Linear"));
                                     var stepRepeat = Number(HueConfigurationPage.readStatusField(step, "RepeatIndex", 1));
                                     var stepOffset = Number(HueConfigurationPage.readStatusField(step, "StartOffsetSeconds", 0));
-                                    return "#" + stepIndex + " " + stepName + " " + stepBrightness + "%/" + stepDuration + "s " + stepCurve + " fade " + stepTransition + "/" + stepTransitionOut + "s @" + stepOffset + "s" + (stepRepeat > 1 ? " (pass " + stepRepeat + ")" : "");
+                                    return "#" + stepIndex + " " + stepName + " · brightness " + stepBrightness + "% · speed " + stepSpeed + "% · hold " + stepDuration + "s · " + stepCurve + " fade " + stepTransition + "/" + stepTransitionOut + "s @" + stepOffset + "s" + (stepRepeat > 1 ? " (pass " + stepRepeat + ")" : "");
                                 }).join(" → ")
                                 : "";
                             var runEffect = HueConfigurationPage.readStatusField(run, "Effect", "Solid");

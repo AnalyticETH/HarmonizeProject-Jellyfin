@@ -212,6 +212,14 @@ const requiredScript = [
     'transitionCurve: transitionCurve || "Linear"',
     'effectSpeedPercent: values.effectSpeedPercent',
     'transitionCurve: values.transitionCurve',
+    'var stepEffectSpeeds = playlist.stepEffectSpeedPercent',
+    'page._hueScenePlaylistEffectSpeeds = stepEffectSpeeds',
+    'page._hueScenePlaylistEffectSpeeds = []',
+    'page._hueScenePlaylistEffectSpeeds.push(null)',
+    'effectSpeeds[index] = effectSpeeds[target]',
+    'page._hueScenePlaylistEffectSpeeds.splice(index, 1)',
+    'stepEffectSpeedPercent: effectSpeeds',
+    'Effect speed override for ',
     "effect: values.effect",
     "fetchCurrentLightColor: function",
     "HueSync/Preview/CaptureCurrentColor",
@@ -313,6 +321,11 @@ for (const marker of requiredScript) {
     if (!scriptMatch[1].includes(marker)) {
         throw new Error(`${file} is missing required behavior: ${marker}`);
     }
+}
+
+const playlistStepSpeedTelemetryReads = html.match(/readStatusField\(step, "EffectSpeedPercent", 100\)/g) || [];
+if (playlistStepSpeedTelemetryReads.length < 3) {
+    throw new Error(`${file} must render per-step effect speed in playlist preview, occurrence, and history status`);
 }
 
 for (const functionName of ["testDefaultConnection", "testMappingConnection"]) {

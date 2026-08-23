@@ -7,6 +7,9 @@ on:
     branches: [ main, master, develop ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: jellyfin-hue-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -149,10 +152,16 @@ jobs:
         path: vulnerable-packages.txt
         retention-days: 30
 
+  security-analysis:
+    name: Blocking Security Analysis
+    uses: ./.github/workflows/security-scan.yml
+    permissions:
+      contents: read
+
   create-release-package:
     name: Create Release Package
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
-    needs: build-and-test
+    needs: [build-and-test, code-quality, security-analysis]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
 
     steps:

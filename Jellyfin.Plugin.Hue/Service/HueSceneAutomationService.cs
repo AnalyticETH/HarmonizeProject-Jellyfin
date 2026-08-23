@@ -1263,6 +1263,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                     playlist,
                     originalIndex - 1,
                     preset);
+                var effectSpeedPercent = PluginConfiguration.GetEffectiveScenePlaylistStepEffectSpeedPercent(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
                 var stepSchedule = new HueSceneSchedule { DurationSeconds = durationSeconds };
                 PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
                 steps.Add(new HueScenePlaylistScheduleStep
@@ -1272,7 +1276,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     OriginalIndex = originalIndex,
                     PresetName = preset.Name?.Trim() ?? string.Empty,
                     Effect = effect,
-                    EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                    EffectSpeedPercent = effectSpeedPercent,
                     TransitionCurve = PluginConfiguration.GetEffectiveScenePlaylistStepTransitionCurve(
                         playlist,
                         originalIndex - 1,
@@ -1740,7 +1744,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? brightnessPercentOverride = null,
         int? transitionSecondsOverride = null,
         int? transitionOutSecondsOverride = null,
-        string? transitionCurveOverride = null)
+        string? transitionCurveOverride = null,
+        int? effectSpeedPercentOverride = null)
     {
         var config = Plugin.Instance?.Configuration;
         if (config == null)
@@ -1765,7 +1770,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 brightnessPercentOverride,
                 transitionSecondsOverride,
                 transitionOutSecondsOverride,
-                transitionCurveOverride).ConfigureAwait(false);
+                transitionCurveOverride,
+                effectSpeedPercentOverride).ConfigureAwait(false);
             targetResults.Add(targetResult);
             if (!targetResult.Succeeded &&
                 targetResult.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
@@ -1786,7 +1792,12 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = schedule.Name?.Trim() ?? string.Empty,
             PresetName = preset.Name?.Trim() ?? string.Empty,
             Effect = effect,
-            EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+            EffectSpeedPercent = effectSpeedPercentOverride.HasValue
+                ? Math.Clamp(
+                    effectSpeedPercentOverride.Value,
+                    PluginConfiguration.MinScenePlaylistStepEffectSpeedPercent,
+                    PluginConfiguration.MaxScenePlaylistStepEffectSpeedPercent)
+                : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
             BrightnessPercent = brightnessPercentOverride.HasValue
                 ? Math.Clamp(
                     brightnessPercentOverride.Value,
@@ -1921,6 +1932,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                     playlist,
                     originalIndex - 1,
                     preset);
+                var effectSpeedPercentOverride = PluginConfiguration.GetEffectiveScenePlaylistStepEffectSpeedPercent(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
                 var schedule = new HueSceneSchedule
                 {
                     Id = $"scene-playlist-preview-{repeatIndex}-{index + 1}",
@@ -1943,7 +1958,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     effectiveBrightnessPercent,
                     transitionSecondsOverride,
                     transitionOutSecondsOverride,
-                    transitionCurveOverride).ConfigureAwait(false);
+                    transitionCurveOverride,
+                    effectSpeedPercentOverride).ConfigureAwait(false);
                 PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
                 steps.Add(new HueScenePlaylistStepResult
                 {
@@ -1952,7 +1968,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     OriginalIndex = originalIndex,
                     PresetName = preset.Name?.Trim() ?? string.Empty,
                     Effect = effect,
-                    EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                    EffectSpeedPercent = effectSpeedPercentOverride,
                     TransitionCurve = transitionCurveOverride,
                     BrightnessPercent = effectiveBrightnessPercent,
                     DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset),
@@ -2878,6 +2894,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                     StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
                     StepBrightnessPercent = playlist.StepBrightnessPercent?.ToList() ?? new List<int?>(),
+                    StepEffectSpeedPercent = playlist.StepEffectSpeedPercent?.ToList() ?? new List<int?>(),
                     StepTransitionSeconds = playlist.StepTransitionSeconds?.ToList() ?? new List<int?>(),
                     StepTransitionOutSeconds = playlist.StepTransitionOutSeconds?.ToList() ?? new List<int?>(),
                     StepTransitionCurves = playlist.StepTransitionCurves?.ToList() ?? new List<string?>(),
@@ -3667,6 +3684,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                 StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
                 StepBrightnessPercent = playlist.StepBrightnessPercent?.ToList() ?? new List<int?>(),
+                StepEffectSpeedPercent = playlist.StepEffectSpeedPercent?.ToList() ?? new List<int?>(),
                 StepTransitionSeconds = playlist.StepTransitionSeconds?.ToList() ?? new List<int?>(),
                 StepTransitionOutSeconds = playlist.StepTransitionOutSeconds?.ToList() ?? new List<int?>(),
                 StepTransitionCurves = playlist.StepTransitionCurves?.ToList() ?? new List<string?>(),
@@ -3798,7 +3816,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? brightnessPercentOverride = null,
         int? transitionSecondsOverride = null,
         int? transitionOutSecondsOverride = null,
-        string? transitionCurveOverride = null)
+        string? transitionCurveOverride = null,
+        int? effectSpeedPercentOverride = null)
     {
         try
         {
@@ -3858,6 +3877,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                     preset.BrightnessPercent,
                     PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                     PluginConfiguration.MaxScenePlaylistStepBrightnessPercent);
+            var effectSpeedPercent = effectSpeedPercentOverride.HasValue
+                ? Math.Clamp(
+                    effectSpeedPercentOverride.Value,
+                    PluginConfiguration.MinScenePlaylistStepEffectSpeedPercent,
+                    PluginConfiguration.MaxScenePlaylistStepEffectSpeedPercent)
+                : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent);
             var preview = scopedTester != null && curveTester != null
                 ? await curveTester.PreviewAsyncForTargetWithTransitionCurve(
                     target.BridgeIp,
@@ -3875,7 +3900,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
                     GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
                     preset.Effect,
-                    PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                    effectSpeedPercent,
                     transitionCurve).ConfigureAwait(false)
                 : scopedTester != null
                 ? await scopedTester.PreviewAsyncForTarget(
@@ -3894,7 +3919,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
                     GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
                     preset.Effect,
-                    PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent)).ConfigureAwait(false)
+                    effectSpeedPercent).ConfigureAwait(false)
                 : curveTester != null
                 ? await curveTester.PreviewAsyncWithTransitionCurve(
                     target.BridgeIp,
@@ -3912,7 +3937,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
                     GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
                     preset.Effect,
-                    PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                    effectSpeedPercent,
                     transitionCurve).ConfigureAwait(false)
                 : await _streamTester.PreviewAsync(
                     target.BridgeIp,
@@ -3930,7 +3955,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
                     GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
                     preset.Effect,
-                    PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent)).ConfigureAwait(false);
+                    effectSpeedPercent).ConfigureAwait(false);
             return new HueSceneScheduleTargetResult
             {
                 TargetLabel = target.TargetLabel,

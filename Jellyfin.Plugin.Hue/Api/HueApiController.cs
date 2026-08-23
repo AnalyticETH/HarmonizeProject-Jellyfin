@@ -476,6 +476,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetNames = presetNames,
                 StepDurationSeconds = (playlist.StepDurationSeconds ?? new List<int>()).ToArray(),
                 StepBrightnessPercent = (playlist.StepBrightnessPercent ?? new List<int?>()).ToArray(),
+                StepEffectSpeedPercent = (playlist.StepEffectSpeedPercent ?? new List<int?>()).ToArray(),
                 StepTransitionSeconds = (playlist.StepTransitionSeconds ?? new List<int?>()).ToArray(),
                 StepTransitionOutSeconds = (playlist.StepTransitionOutSeconds ?? new List<int?>()).ToArray(),
                 StepTransitionCurves = (playlist.StepTransitionCurves ?? new List<string?>())
@@ -532,6 +533,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 PresetNames = (playlist.PresetNames ?? new List<string>()).ToList(),
                 StepDurationSeconds = (playlist.StepDurationSeconds ?? new List<int>()).ToList(),
                 StepBrightnessPercent = (playlist.StepBrightnessPercent ?? new List<int?>()).ToList(),
+                StepEffectSpeedPercent = (playlist.StepEffectSpeedPercent ?? new List<int?>()).ToList(),
                 StepTransitionSeconds = (playlist.StepTransitionSeconds ?? new List<int?>()).ToList(),
                 StepTransitionOutSeconds = (playlist.StepTransitionOutSeconds ?? new List<int?>()).ToList(),
                 StepTransitionCurves = (playlist.StepTransitionCurves ?? new List<string?>()).ToList(),
@@ -2481,6 +2483,11 @@ namespace Jellyfin.Plugin.Hue.Api
             if (existingIndex >= 0 && request.StepBrightnessPercent == null)
             {
                 playlist.StepBrightnessPercent = config.ScenePlaylists[existingIndex]?.StepBrightnessPercent?.ToList()
+                    ?? new List<int?>();
+            }
+            if (existingIndex >= 0 && request.StepEffectSpeedPercent == null)
+            {
+                playlist.StepEffectSpeedPercent = config.ScenePlaylists[existingIndex]?.StepEffectSpeedPercent?.ToList()
                     ?? new List<int?>();
             }
             if (existingIndex >= 0 && request.StepTransitionSeconds == null)
@@ -6696,6 +6703,11 @@ namespace Jellyfin.Plugin.Hue.Api
                     playlist.StepBrightnessPercent = existingPlaylist.StepBrightnessPercent?.ToList()
                         ?? new List<int?>();
                 }
+                if (playlistRequest?.StepEffectSpeedPercent == null && existingPlaylist != null)
+                {
+                    playlist.StepEffectSpeedPercent = existingPlaylist.StepEffectSpeedPercent?.ToList()
+                        ?? new List<int?>();
+                }
                 if (playlistRequest?.StepTransitionSeconds == null && existingPlaylist != null)
                 {
                     playlist.StepTransitionSeconds = existingPlaylist.StepTransitionSeconds?.ToList()
@@ -9253,7 +9265,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Credential-free saved-scene playlist metadata returned by administrator APIs,
-    /// including its bounded per-step duration, brightness, fade-in, fade-out, and transition-curve overrides,
+    /// including its bounded per-step duration, brightness, effect-speed, fade-in, fade-out, and transition-curve overrides,
     /// repeat count, and selected target mode.
     /// </summary>
     public sealed class HueScenePlaylistResult
@@ -9272,6 +9284,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("stepBrightnessPercent")]
         public IReadOnlyList<int?> StepBrightnessPercent { get; set; } = Array.Empty<int?>();
+
+        [JsonPropertyName("stepEffectSpeedPercent")]
+        public IReadOnlyList<int?> StepEffectSpeedPercent { get; set; } = Array.Empty<int?>();
 
         [JsonPropertyName("stepTransitionSeconds")]
         public IReadOnlyList<int?> StepTransitionSeconds { get; set; } = Array.Empty<int?>();
@@ -9418,7 +9433,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
     /// <summary>
     /// Request shape for saving a credential-free scene playlist, its bounded repeat count,
-    /// playback order, optional per-step duration, brightness, fade-in, fade-out, and transition-curve overrides,
+    /// playback order, optional per-step duration, brightness, effect-speed, fade-in, fade-out, and transition-curve overrides,
     /// and either a legacy target mode or a selected mapping subset.
     /// </summary>
     public sealed class HueScenePlaylistRequest
@@ -9437,6 +9452,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("stepBrightnessPercent")]
         public List<int?>? StepBrightnessPercent { get; set; }
+
+        [JsonPropertyName("stepEffectSpeedPercent")]
+        public List<int?>? StepEffectSpeedPercent { get; set; }
 
         [JsonPropertyName("stepTransitionSeconds")]
         public List<int?>? StepTransitionSeconds { get; set; }
@@ -9477,6 +9495,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     .ToList(),
                 StepDurationSeconds = (StepDurationSeconds ?? new List<int>()).ToList(),
                 StepBrightnessPercent = (StepBrightnessPercent ?? new List<int?>()).ToList(),
+                StepEffectSpeedPercent = (StepEffectSpeedPercent ?? new List<int?>()).ToList(),
                 StepTransitionSeconds = (StepTransitionSeconds ?? new List<int?>()).ToList(),
                 StepTransitionOutSeconds = (StepTransitionOutSeconds ?? new List<int?>()).ToList(),
                 StepTransitionCurves = (StepTransitionCurves ?? new List<string?>())

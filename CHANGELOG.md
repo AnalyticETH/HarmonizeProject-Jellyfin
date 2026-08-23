@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.202] - 2026-08-23
+
+### Added
+- **Per-step playlist effect speeds**: saved-scene playlists now accept nullable `stepEffectSpeedPercent` overrides bounded to 25-400%; omitted or null values inherit the referenced scene's animation rate
+- **End-to-end speed parity**: apply effective per-step speeds to non-solid playlist previews and scheduled runs, expanded occurrence plans, runtime/history telemetry, API/UI, duplication, and credential-free backup/restore
+- **Regression coverage**: verify effect-speed validation/inheritance, stream propagation, scheduler/history telemetry, API round trips, backup portability, and configuration-page contracts
+- **Fail-closed release security**: gate packaging and release publication on build/tests, formatting, dependency vulnerability checks, full-history Gitleaks, and Semgrep; pin Gitleaks 8.30.1 and Semgrep 1.174.0, verify the official Gitleaks checksum manifest/archive, and run from isolated temporary paths without privileged host installation
+
 ## [1.5.201] - 2026-08-23
 
 ### Added

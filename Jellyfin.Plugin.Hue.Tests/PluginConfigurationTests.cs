@@ -372,6 +372,64 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsPerStepEffectSpeedOverridesAndPreservesLegacyInheritance()
+    {
+        var first = new HueColorPreset { Name = "Warm", EffectSpeedPercent = 125 };
+        var second = new HueColorPreset { Name = "Cool", EffectSpeedPercent = 275 };
+        var playlist = new HueScenePlaylist
+        {
+            Id = "playlist-speeds",
+            Name = "Speed sequence",
+            PresetNames = new List<string> { "Warm", "Cool" },
+            StepEffectSpeedPercent = new List<int?> { 200, null }
+        };
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { first, second },
+            ScenePlaylists = new List<HueScenePlaylist> { playlist }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(200, PluginConfiguration.GetEffectiveScenePlaylistStepEffectSpeedPercent(playlist, 0, first));
+        Assert.Equal(275, PluginConfiguration.GetEffectiveScenePlaylistStepEffectSpeedPercent(playlist, 1, second));
+
+        playlist.StepEffectSpeedPercent = new List<int?>();
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(125, PluginConfiguration.GetEffectiveScenePlaylistStepEffectSpeedPercent(playlist, 0, first));
+    }
+
+    [Fact]
+    public void ValidateScenePlaylists_RejectsMismatchedOrOutOfRangeStepEffectSpeeds()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm" },
+                new() { Name = "Cool" }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-invalid-speeds",
+                    Name = "Invalid speeds",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    StepEffectSpeedPercent = new List<int?> { 100 }
+                }
+            }
+        };
+
+        var mismatchErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step effect-speed overrides must contain one value per saved scene, or be omitted", mismatchErrors);
+
+        config.ScenePlaylists[0].StepEffectSpeedPercent = new List<int?> { 24, 401 };
+        var rangeErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step 1 effect speed must be between 25 and 400 percent, or null (inherit)", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 2 effect speed must be between 25 and 400 percent, or null (inherit)", rangeErrors);
+    }
+
+    [Fact]
     public void ValidateScenePlaylists_AllowsPerStepTransitionOverridesAndPreservesLegacyInheritance()
     {
         var first = new HueColorPreset { Name = "Warm", TransitionSeconds = 4, TransitionOutSeconds = 3 };

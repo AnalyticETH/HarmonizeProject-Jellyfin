@@ -1,14 +1,13 @@
 name: Security Scan
 
-# Blocking OSS secret + code scanning for every push and pull request.
+# Reusable blocking OSS secret + code scanning. The .NET CI/CD workflow calls
+# this gate for every push and pull request; weekly and manual runs remain here.
 # gitleaks (secrets) + semgrep (SAST) publish redacted JSON artifacts and fail
 # the job on findings or scanner errors. Dependency scanning stays with the
 # free Dependabot alerts and the .NET vulnerability check in dotnet-ci.yml.
 
 on:
-  push:
-    branches: [main, master]
-  pull_request:
+  workflow_call:
   schedule:
     - cron: '17 4 * * 1'
   workflow_dispatch:
@@ -16,8 +15,13 @@ on:
 permissions:
   contents: read
 
+env:
+  GITLEAKS_VERSION: '8.30.1'
+  GITLEAKS_CHECKSUMS_SHA256: '061476c21adaf5441516f96f185c1a4706a83cd6329b9b38762271b3d4a52fae'
+  SEMGREP_VERSION: '1.174.0'
+
 concurrency:
-  group: security-scan-${{ github.event.pull_request.number || github.ref }}
+  group: security-scan-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -29,19 +33,34 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install gitleaks
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=$(curl -sSfL -H "Authorization: Bearer $GH_TOKEN" \
-            https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/${TAG}/gitleaks_${TAG#v}_linux_x64.tar.gz" \
-            | tar -xz gitleaks
-          sudo install gitleaks /usr/local/bin/
+          set -euo pipefail
+          archive_name="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          checksums_name="gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          archive_path="$RUNNER_TEMP/$archive_name"
+          checksums_path="$RUNNER_TEMP/$checksums_name"
+          release_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+
+          curl -sSfL --retry 3 --retry-all-errors \
+            -o "$archive_path" "$release_url/$archive_name"
+          curl -sSfL --retry 3 --retry-all-errors \
+            -o "$checksums_path" "$release_url/$checksums_name"
+
+          printf '%s  %s\n' "$GITLEAKS_CHECKSUMS_SHA256" "$checksums_path" \
+            | sha256sum --check --strict -
+          checksum_entry=$(awk -v name="$archive_name" '$2 == name { print $1 "  " $2 }' "$checksums_path")
+          test -n "$checksum_entry"
+          printf '%s\n' "$checksum_entry" \
+            | (cd "$RUNNER_TEMP" && sha256sum --check --strict -)
+
+          tar -xzf "$archive_path" -C "$RUNNER_TEMP" gitleaks
+          chmod 0755 "$RUNNER_TEMP/gitleaks"
+          test "$("$RUNNER_TEMP/gitleaks" version)" = "$GITLEAKS_VERSION"
       - name: Scan git history
         run: |
           set -euo pipefail
           set +e
-          gitleaks detect --source . --redact --exit-code 1 \
+          "$RUNNER_TEMP/gitleaks" detect --source . --redact --exit-code 1 \
             --report-format json --report-path gitleaks.json
           scan_status=$?
           set -e
@@ -69,8 +88,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install semgrep
         run: |
+          set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/semgrep-venv"
-          "$RUNNER_TEMP/semgrep-venv/bin/python" -m pip install --disable-pip-version-check semgrep
+          "$RUNNER_TEMP/semgrep-venv/bin/python" -m pip install --disable-pip-version-check \
+            "semgrep==$SEMGREP_VERSION"
+          test "$("$RUNNER_TEMP/semgrep-venv/bin/semgrep" --version)" = "$SEMGREP_VERSION"
       - name: Scan (OSS rules)
         env:
           SEMGREP_SEND_METRICS: 'off'
