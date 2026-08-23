@@ -5265,6 +5265,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveVideoDeinterlaceMode = runtime?.ActiveVideoDeinterlaceMode,
                 ActiveSamplingBreadthPercent = runtime?.ActiveSamplingBreadthPercent,
                 ActiveSamplingMode = runtime?.ActiveSamplingMode,
+                ActiveSpatialOrientation = runtime?.ActiveSpatialOrientation,
                 ActiveColorSmoothingPercent = runtime?.ActiveColorSmoothingPercent,
                 ActiveBrightnessBoost = runtime?.ActiveBrightnessBoost,
                 ActiveRedGain = runtime?.ActiveRedGain,
@@ -6876,6 +6877,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 VideoDeinterlaceModeOverride = source.VideoDeinterlaceModeOverride,
                 SamplingBreadthPercentOverride = source.SamplingBreadthPercentOverride,
                 SamplingModeOverride = source.SamplingModeOverride,
+                SpatialOrientationOverride = PluginConfiguration.NormalizeOptionalSpatialOrientation(source.SpatialOrientationOverride),
                 ColorSmoothingPercentOverride = source.ColorSmoothingPercentOverride,
                 AudioSensitivityPercentOverride = source.AudioSensitivityPercentOverride,
                 AudioNoiseGatePercentOverride = source.AudioNoiseGatePercentOverride,
@@ -7712,6 +7714,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string VideoDeinterlaceMode { get; set; } = PluginConfiguration.VideoDeinterlaceModeOff;
         public int SamplingBreadthPercent { get; set; } = 15;
         public string SamplingMode { get; set; } = PluginConfiguration.SamplingModeAverage;
+        public string SpatialOrientation { get; set; } = PluginConfiguration.SpatialOrientationNormal;
         public int ColorSmoothingPercent { get; set; } = 0;
         public bool UseGpu { get; set; } = true;
         public string CustomFfmpegFlags { get; set; } = string.Empty;
@@ -7790,6 +7793,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 VideoDeinterlaceMode = config.VideoDeinterlaceMode,
                 SamplingBreadthPercent = config.SamplingBreadthPercent,
                 SamplingMode = config.SamplingMode,
+                SpatialOrientation = PluginConfiguration.TryNormalizeSpatialOrientation(
+                    config.SpatialOrientation,
+                    out var normalizedSpatialOrientation)
+                    ? normalizedSpatialOrientation
+                    : PluginConfiguration.SpatialOrientationNormal,
                 ColorSmoothingPercent = config.ColorSmoothingPercent,
                 UseGpu = config.UseGpu,
                 CustomFfmpegFlags = config.CustomFfmpegFlags,
@@ -7893,6 +7901,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.VideoDeinterlaceMode = VideoDeinterlaceMode?.Trim() ?? PluginConfiguration.VideoDeinterlaceModeOff;
             config.SamplingBreadthPercent = SamplingBreadthPercent;
             config.SamplingMode = SamplingMode?.Trim() ?? PluginConfiguration.SamplingModeAverage;
+            config.SpatialOrientation = SpatialOrientation?.Trim() ?? PluginConfiguration.SpatialOrientationNormal;
             config.ColorSmoothingPercent = ColorSmoothingPercent;
             config.UseGpu = UseGpu;
             config.CustomFfmpegFlags = CustomFfmpegFlags ?? string.Empty;
@@ -7975,6 +7984,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? VideoDeinterlaceModeOverride { get; set; }
         public int? SamplingBreadthPercentOverride { get; set; }
         public string? SamplingModeOverride { get; set; }
+        public string? SpatialOrientationOverride { get; set; }
         public int? ColorSmoothingPercentOverride { get; set; }
 
         public static UserBridgeMappingSummary From(UserBridgeMapping mapping)
@@ -8035,6 +8045,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 VideoDeinterlaceModeOverride = mapping.VideoDeinterlaceModeOverride,
                 SamplingBreadthPercentOverride = mapping.SamplingBreadthPercentOverride,
                 SamplingModeOverride = mapping.SamplingModeOverride,
+                SpatialOrientationOverride = mapping.SpatialOrientationOverride,
                 ColorSmoothingPercentOverride = mapping.ColorSmoothingPercentOverride
             };
         }
@@ -10042,6 +10053,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? ActiveVideoDeinterlaceMode { get; set; }
         public int? ActiveSamplingBreadthPercent { get; set; }
         public string? ActiveSamplingMode { get; set; }
+        public string? ActiveSpatialOrientation { get; set; }
         public int? ActiveColorSmoothingPercent { get; set; }
         public int? ActiveBrightnessBoost { get; set; }
         public int? ActiveRedGain { get; set; }

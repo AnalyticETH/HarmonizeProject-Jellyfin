@@ -543,6 +543,16 @@ public sealed class HueSyncServiceTests
                 frameIndex: 11,
                 audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
                 audioSpatialMode: "invalid")[1]);
+
+        var mirrored = HueSyncService.BuildAudioChannelColors(
+            lights,
+            energy,
+            frameIndex: 11,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteBand,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeSpatial,
+            spatialOrientation: PluginConfiguration.SpatialOrientationMirrorHorizontal);
+        Assert.Equal(spatial[1], mirrored[2]);
+        Assert.Equal(spatial[2], mirrored[1]);
     }
 
     [Fact]
@@ -714,6 +724,7 @@ public sealed class HueSyncServiceTests
             VideoDeinterlaceMode = PluginConfiguration.VideoDeinterlaceModeOff,
             SamplingBreadthPercent = 15,
             SamplingMode = PluginConfiguration.SamplingModeAverage,
+            SpatialOrientation = PluginConfiguration.SpatialOrientationMirrorVertical,
             ColorSmoothingPercent = 0,
             UserMappings = new List<UserBridgeMapping>
             {
@@ -726,6 +737,7 @@ public sealed class HueSyncServiceTests
                     VideoDeinterlaceModeOverride = PluginConfiguration.VideoDeinterlaceModeAuto,
                     SamplingBreadthPercentOverride = 25,
                     SamplingModeOverride = PluginConfiguration.SamplingModeCenterWeighted,
+                    SpatialOrientationOverride = PluginConfiguration.SpatialOrientationMirrorHorizontal,
                     ColorSmoothingPercentOverride = 40
                 }
             }
@@ -740,6 +752,7 @@ public sealed class HueSyncServiceTests
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, effective.VideoDeinterlaceMode);
         Assert.Equal(25, effective.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, effective.SamplingMode);
+        Assert.Equal(PluginConfiguration.SpatialOrientationMirrorHorizontal, effective.SpatialOrientation);
         Assert.Equal(40, effective.ColorSmoothingPercent);
         Assert.Equal(20, fallback.TargetFps);
         Assert.Equal(PluginConfiguration.FrameResolutionStandard, fallback.FrameResolution);
@@ -747,6 +760,7 @@ public sealed class HueSyncServiceTests
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOff, fallback.VideoDeinterlaceMode);
         Assert.Equal(15, fallback.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeAverage, fallback.SamplingMode);
+        Assert.Equal(PluginConfiguration.SpatialOrientationMirrorVertical, fallback.SpatialOrientation);
         Assert.Equal(0, fallback.ColorSmoothingPercent);
     }
 

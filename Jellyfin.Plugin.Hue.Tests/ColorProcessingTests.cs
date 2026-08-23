@@ -201,6 +201,25 @@ public class ColorProcessingTests : IDisposable
     }
 
     [Theory]
+    [InlineData(0.25, -0.5, "Normal", 0.25, -0.5)]
+    [InlineData(0.25, -0.5, "MirrorHorizontal", -0.25, -0.5)]
+    [InlineData(0.25, -0.5, "MirrorVertical", 0.25, 0.5)]
+    [InlineData(0.25, -0.5, "Rotate180", -0.25, 0.5)]
+    [InlineData(0.25, -0.5, "invalid", 0.25, -0.5)]
+    public void SpatialOrientation_TransformsNormalizedRoomCoordinates(
+        double x,
+        double z,
+        string orientation,
+        double expectedX,
+        double expectedZ)
+    {
+        var result = HueSyncService.ApplySpatialOrientation(x, z, orientation);
+
+        Assert.Equal(expectedX, result.X, precision: 6);
+        Assert.Equal(expectedZ, result.Z, precision: 6);
+    }
+
+    [Theory]
     [InlineData(0.2, 0.8, 0.1, 0.56)] // t < 1/6: p + (q-p)*6*t = 0.2 + 0.6*0.6 = 0.56
     [InlineData(0.2, 0.8, 0.4, 0.8)] // t < 1/2: returns q
     [InlineData(0.2, 0.8, 0.6, 0.44)] // t < 2/3: p + (q-p)*(2/3-t)*6 = 0.2 + 0.6*0.067*6 = 0.44

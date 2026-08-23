@@ -117,6 +117,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _currentAudioChannelMode;
         private int? _currentSamplingBreadthPercent;
         private string? _currentSamplingMode;
+        private string? _currentSpatialOrientation;
         private int? _currentColorSmoothingPercent;
         private (
             int BrightnessBoost,
@@ -433,6 +434,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioChannelMode = null;
                     _currentSamplingBreadthPercent = null;
                     _currentSamplingMode = null;
+                    _currentSpatialOrientation = null;
                     _currentColorSmoothingPercent = null;
 
                     if (bridgeConfig != null && (!areaAlreadyDeactivated || savedLightStates != null))
@@ -536,6 +538,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentAudioChannelMode = null;
                 _currentSamplingBreadthPercent = null;
                 _currentSamplingMode = null;
+                _currentSpatialOrientation = null;
                 _currentColorSmoothingPercent = null;
 
                 await RestoreAndDeactivateAsync(
@@ -581,6 +584,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string? currentAudioChannelMode;
             int? currentSamplingBreadthPercent;
             string? currentSamplingMode;
+            string? currentSpatialOrientation;
             int? currentColorSmoothingPercent;
             (
                 int BrightnessBoost,
@@ -641,6 +645,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentAudioChannelMode = _currentAudioChannelMode;
                 currentSamplingBreadthPercent = _currentSamplingBreadthPercent;
                 currentSamplingMode = _currentSamplingMode;
+                currentSpatialOrientation = _currentSpatialOrientation;
                 currentColorSmoothingPercent = _currentColorSmoothingPercent;
                 activeColorProcessingSettings = _activeColorProcessingSettings;
                 activeExecutionSettings = _activeExecutionSettings;
@@ -707,6 +712,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveAudioChannelMode = isSyncing ? currentAudioChannelMode : null,
                 ActiveSamplingBreadthPercent = isSyncing ? currentSamplingBreadthPercent : null,
                 ActiveSamplingMode = isSyncing ? currentSamplingMode : null,
+                ActiveSpatialOrientation = isSyncing ? currentSpatialOrientation : null,
                 ActiveColorSmoothingPercent = isSyncing ? currentColorSmoothingPercent : null,
                 ActiveBrightnessBoost = isSyncing ? activeColorProcessingSettings?.BrightnessBoost : null,
                 ActiveRedGain = isSyncing ? activeColorProcessingSettings?.RedGain : null,
@@ -1743,6 +1749,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentAudioChannelMode = null;
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
+            _currentSpatialOrientation = null;
             _currentColorSmoothingPercent = null;
 
             try
@@ -2012,6 +2019,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioChannelMode = null;
                     _currentSamplingBreadthPercent = null;
                     _currentSamplingMode = null;
+                    _currentSpatialOrientation = null;
                     _currentColorSmoothingPercent = null;
                     await RestoreAndDeactivateAsync(
                         config,
@@ -2438,6 +2446,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string VideoDeinterlaceMode,
             int SamplingBreadthPercent,
             string SamplingMode,
+            string SpatialOrientation,
             int ColorSmoothingPercent) ResolvePerformanceSettings(
             PluginConfiguration config,
             Guid userId)
@@ -2454,6 +2463,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     MinSamplingBreadthPercent,
                     MaxSamplingBreadthPercent),
                 NormalizeSamplingMode(overrides.SamplingMode ?? config.SamplingMode),
+                NormalizeSpatialOrientation(overrides.SpatialOrientation ?? config.SpatialOrientation),
                 Math.Clamp(
                     overrides.ColorSmoothingPercent ?? config.ColorSmoothingPercent,
                     MinColorSmoothingPercent,
@@ -2580,6 +2590,42 @@ namespace Jellyfin.Plugin.Hue.Service
                 return PluginConfiguration.SamplingModeCenterPixel;
 
             return PluginConfiguration.SamplingModeAverage;
+        }
+
+        private static string NormalizeSpatialOrientation(string? value)
+        {
+            return PluginConfiguration.TryNormalizeSpatialOrientation(value, out var normalized)
+                ? normalized
+                : PluginConfiguration.SpatialOrientationNormal;
+        }
+
+        /// <summary>
+        /// Transforms Hue's normalized entertainment-area coordinates into the
+        /// configured screen/room orientation. Coordinates remain in the [-1, 1]
+        /// range so the same helper can drive video sampling and audio routing.
+        /// </summary>
+        internal static (double X, double Z) ApplySpatialOrientation(
+            double x,
+            double z,
+            string? orientation)
+        {
+            var normalized = NormalizeSpatialOrientation(orientation);
+            var transformedX = Math.Clamp(x, -1, 1);
+            var transformedZ = Math.Clamp(z, -1, 1);
+
+            if (normalized == PluginConfiguration.SpatialOrientationMirrorHorizontal ||
+                normalized == PluginConfiguration.SpatialOrientationRotate180)
+            {
+                transformedX = -transformedX;
+            }
+
+            if (normalized == PluginConfiguration.SpatialOrientationMirrorVertical ||
+                normalized == PluginConfiguration.SpatialOrientationRotate180)
+            {
+                transformedZ = -transformedZ;
+            }
+
+            return (transformedX, transformedZ);
         }
 
         internal static int CalculateSamplingDistance(int samplingBreadthPercent)
@@ -2948,6 +2994,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 playSessionId,
                 DefaultSamplingBreadthPercent,
                 PluginConfiguration.SamplingModeAverage,
+                PluginConfiguration.SpatialOrientationNormal,
                 PluginConfiguration.FrameResolutionStandard,
                 0,
                 (
@@ -2975,6 +3022,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string playSessionId,
             int samplingBreadthPercent,
             string samplingMode,
+            string spatialOrientation,
             string frameResolution,
             int colorSmoothingPercent,
             (
@@ -3053,8 +3101,12 @@ namespace Jellyfin.Plugin.Hue.Service
                         // Convert from Hue coordinate space to pixel coordinates
                         // Hue: x: -1 (left) to 1 (right), z: -1 (bottom) to 1 (top)
                         // Pixels: 0,0 is top-left; clamp to valid range [0, dimension-1]
-                        int cx = (int)((kvp.Value.x + 1.0) * (frameWidth - 1) / 2.0);
-                        int cy = (int)((1.0 - kvp.Value.z) * (frameHeight - 1) / 2.0); // Invert z for screen coordinates
+                        var orientedPosition = ApplySpatialOrientation(
+                            kvp.Value.x,
+                            kvp.Value.z,
+                            spatialOrientation);
+                        int cx = (int)((orientedPosition.X + 1.0) * (frameWidth - 1) / 2.0);
+                        int cy = (int)((1.0 - orientedPosition.Z) * (frameHeight - 1) / 2.0); // Invert z for screen coordinates
 
                         channelColors[kvp.Key] = SampleRegionColor(
                             buffer,
@@ -3594,7 +3646,8 @@ namespace Jellyfin.Plugin.Hue.Service
             string? audioColorPalette = null,
             string? audioSpatialMode = null,
             string? audioChannelMode = null,
-            AudioChannelAnalysis? audioChannelAnalysis = null)
+            AudioChannelAnalysis? audioChannelAnalysis = null,
+            string? spatialOrientation = null)
         {
             var colors = new Dictionary<int, byte[]>(lights.Count);
             var normalizedPalette = PluginConfiguration.TryNormalizeAudioColorPalette(
@@ -3615,8 +3668,12 @@ namespace Jellyfin.Plugin.Hue.Service
 
             foreach (var light in lights)
             {
-                var physicalX = Math.Clamp((light.Value.x + 1) / 2.0, 0, 1);
-                var physicalZ = Math.Clamp((light.Value.z + 1) / 2.0, 0, 1);
+                var orientedPosition = ApplySpatialOrientation(
+                    light.Value.x,
+                    light.Value.z,
+                    spatialOrientation);
+                var physicalX = Math.Clamp((orientedPosition.X + 1) / 2.0, 0, 1);
+                var physicalZ = Math.Clamp((orientedPosition.Z + 1) / 2.0, 0, 1);
                 var x = normalizedSpatialMode == PluginConfiguration.AudioSpatialModeUniform
                     ? 0.5
                     : normalizedSpatialMode == PluginConfiguration.AudioSpatialModeMirror
@@ -3763,6 +3820,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string audioColorPalette,
             string audioSpatialMode,
             string audioChannelMode,
+            string spatialOrientation,
             int colorSmoothingPercent,
             (
                 int BrightnessBoost,
@@ -3869,7 +3927,8 @@ namespace Jellyfin.Plugin.Hue.Service
                         audioChannelMode,
                         !string.Equals(audioChannelMode, PluginConfiguration.AudioChannelModeMono, StringComparison.Ordinal)
                             ? audioAnalysis
-                            : null);
+                            : null,
+                        spatialOrientation);
 
                     var isBlackout = colorProcessingSettings.BlackoutThreshold > 0 &&
                         channelColors.Count > 0 &&
@@ -4090,6 +4149,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentAudioChannelMode = null;
                 _currentSamplingBreadthPercent = null;
                 _currentSamplingMode = null;
+                _currentSpatialOrientation = null;
                 _currentColorSmoothingPercent = null;
 
                 try
@@ -4450,6 +4510,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentAudioChannelMode = isAudioPlayback ? audioChannelMode : null;
                     _currentSamplingBreadthPercent = performanceSettings.SamplingBreadthPercent;
                     _currentSamplingMode = performanceSettings.SamplingMode;
+                    _currentSpatialOrientation = performanceSettings.SpatialOrientation;
                     _currentColorSmoothingPercent = performanceSettings.ColorSmoothingPercent;
                     _activeColorProcessingSettings = colorProcessingSettings;
                     _activeExecutionSettings = executionSettings;
@@ -4730,6 +4791,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         audioColorPalette,
                         audioSpatialMode,
                         audioChannelMode,
+                        performanceSettings.SpatialOrientation,
                         performanceSettings.ColorSmoothingPercent,
                         colorProcessingSettings));
                 }
@@ -4744,6 +4806,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         e.PlaySessionId,
                         samplingBreadthPercent,
                         samplingMode,
+                        performanceSettings.SpatialOrientation,
                         frameResolution,
                         performanceSettings.ColorSmoothingPercent,
                         colorProcessingSettings));
@@ -5119,6 +5182,7 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentAudioChannelMode = null;
             _currentSamplingBreadthPercent = null;
             _currentSamplingMode = null;
+            _currentSpatialOrientation = null;
             _currentColorSmoothingPercent = null;
             await RestoreAndDeactivateAsync(
                 config,
@@ -5283,6 +5347,7 @@ namespace Jellyfin.Plugin.Hue.Service
         public string? ActiveAudioChannelMode { get; init; }
         public int? ActiveSamplingBreadthPercent { get; init; }
         public string? ActiveSamplingMode { get; init; }
+        public string? ActiveSpatialOrientation { get; init; }
         public int? ActiveColorSmoothingPercent { get; init; }
         public int? ActiveBrightnessBoost { get; init; }
         public int? ActiveRedGain { get; init; }

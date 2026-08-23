@@ -26,6 +26,7 @@
                             <div><strong>Capture profile:</strong> <span id="runtimeCaptureProfile">—</span></div>
                             <div><strong>Audio visualizer:</strong> <span id="runtimeAudioProfile">—</span></div>
                             <div><strong>Sampling:</strong> <span id="runtimeSamplingProfile">—</span></div>
+                            <div><strong>Orientation:</strong> <span id="runtimeSpatialOrientation">—</span></div>
                             <div><strong>Color policy:</strong> <span id="runtimeColorProfile">—</span></div>
                             <div><strong>Execution:</strong> <span id="runtimeExecutionProfile">—</span></div>
                             <div><strong>Channels:</strong> <span id="runtimeChannelProfile">—</span></div>
@@ -925,6 +926,17 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="spatialOrientation">Screen / Room Orientation</label>
+                            <select id="spatialOrientation" name="spatialOrientation" is="emby-select">
+                                <option value="Normal">Normal (bridge coordinates)</option>
+                                <option value="MirrorHorizontal">Mirror horizontally (left ↔ right)</option>
+                                <option value="MirrorVertical">Mirror vertically (top ↔ bottom)</option>
+                                <option value="Rotate180">Rotate 180°</option>
+                            </select>
+                            <div class="fieldDescription">Corrects a physically mirrored or upside-down entertainment area. The selected orientation applies to video sampling and audio spatial routing; Normal preserves the bridge layout.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="colorSmoothingPercent">Temporal Color Smoothing (%)</label>
                             <input id="colorSmoothingPercent" name="colorSmoothingPercent" type="number" min="0" max="90" is="emby-input" />
                             <div class="fieldDescription">Blend the previous frame into new colors to reduce flicker (0-90%, default: 0). Higher values create smoother but slower transitions.</div>
@@ -1299,6 +1311,18 @@
                                         <option value="CenterWeighted">Center-weighted neighborhood</option>
                                         <option value="CenterPixel">Center pixel</option>
                                     </select>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="mappingSpatialOrientationOverride">Screen / Room Orientation Override</label>
+                                    <select id="mappingSpatialOrientationOverride" is="emby-select">
+                                        <option value="">Inherit global orientation</option>
+                                        <option value="Normal">Normal (bridge coordinates)</option>
+                                        <option value="MirrorHorizontal">Mirror horizontally (left ↔ right)</option>
+                                        <option value="MirrorVertical">Mirror vertically (top ↔ bottom)</option>
+                                        <option value="Rotate180">Rotate 180°</option>
+                                    </select>
+                                    <div class="fieldDescription">Optional per-user correction for a room whose physical Hue layout is oriented differently.</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -1694,6 +1718,7 @@
                         page.querySelector('#videoDeinterlaceMode').value = getConfigValue('VideoDeinterlaceMode', 'Off');
                         page.querySelector('#samplingBreadthPercent').value = getConfigValue('SamplingBreadthPercent', 15);
                         page.querySelector('#samplingMode').value = getConfigValue('SamplingMode', 'Average');
+                        page.querySelector('#spatialOrientation').value = getConfigValue('SpatialOrientation', 'Normal');
                         page.querySelector('#colorSmoothingPercent').value = getConfigValue('ColorSmoothingPercent', 0);
                         page.querySelector('#customFfmpegFlags').value = getConfigValue('CustomFfmpegFlags', '');
                         page.querySelector('#ffmpegStallTimeoutSeconds').value = getConfigValue('FfmpegStallTimeoutSeconds', 5);
@@ -1777,6 +1802,7 @@
                         VideoDeinterlaceMode: page.querySelector('#videoDeinterlaceMode').value,
                         SamplingBreadthPercent: parseNumberOrDefault('#samplingBreadthPercent', 15),
                         SamplingMode: page.querySelector('#samplingMode').value,
+                        SpatialOrientation: page.querySelector('#spatialOrientation').value || 'Normal',
                         ColorSmoothingPercent: parseNumberOrDefault('#colorSmoothingPercent', 0),
                         CustomFfmpegFlags: page.querySelector('#customFfmpegFlags').value,
                         FfmpegStallTimeoutSeconds: parseNumberOrDefault('#ffmpegStallTimeoutSeconds', 5),
@@ -6796,6 +6822,7 @@
                         var audioChannelMode = HueConfigurationPage.readStatusField(status, "ActiveAudioChannelMode", null);
                         var samplingBreadth = HueConfigurationPage.readStatusField(status, "ActiveSamplingBreadthPercent", null);
                         var samplingMode = HueConfigurationPage.readStatusField(status, "ActiveSamplingMode", null);
+                        var spatialOrientation = HueConfigurationPage.readStatusField(status, "ActiveSpatialOrientation", null);
                         var colorSmoothing = HueConfigurationPage.readStatusField(status, "ActiveColorSmoothingPercent", null);
                         var brightnessBoost = HueConfigurationPage.readStatusField(status, "ActiveBrightnessBoost", null);
                         var redGain = HueConfigurationPage.readStatusField(status, "ActiveRedGain", null);
@@ -6858,6 +6885,7 @@
                         page.querySelector('#runtimeSamplingProfile').textContent = samplingBreadth == null
                             ? "—"
                             : (samplingMode || "—") + " · " + String(samplingBreadth) + "% · smoothing " + (colorSmoothing == null ? "—" : String(colorSmoothing) + "%");
+                        page.querySelector('#runtimeSpatialOrientation').textContent = spatialOrientation || "—";
                         page.querySelector('#runtimeColorProfile').textContent = brightnessBoost == null
                             ? "—"
                             : String(brightnessBoost) + "% boost · RGB " + String(redGain) + "/" + String(greenGain) + "/" + String(blueGain) +
@@ -7790,6 +7818,7 @@
                                 getMappingValue('VideoDeinterlaceModeOverride', 'videoDeinterlaceModeOverride'),
                                 getMappingValue('SamplingBreadthPercentOverride', 'samplingBreadthPercentOverride'),
                                 getMappingValue('SamplingModeOverride', 'samplingModeOverride'),
+                                getMappingValue('SpatialOrientationOverride', 'spatialOrientationOverride'),
                                 getMappingValue('ColorSmoothingPercentOverride', 'colorSmoothingPercentOverride'),
                                 getMappingValue('AudioLowFrequencyHzOverride', 'audioLowFrequencyHzOverride'),
                                 getMappingValue('AudioMidFrequencyHzOverride', 'audioMidFrequencyHzOverride'),
@@ -8030,6 +8059,7 @@
                         '#mappingVideoDeinterlaceModeOverride',
                         '#mappingSamplingBreadthPercentOverride',
                         '#mappingSamplingModeOverride',
+                        '#mappingSpatialOrientationOverride',
                         '#mappingColorSmoothingPercentOverride',
                         '#mappingUseGpuOverride',
                         '#mappingCustomFfmpegFlagsOverride',
@@ -8677,6 +8707,7 @@
                         VideoDeinterlaceModeOverride: readOptionalString('mappingVideoDeinterlaceModeOverride'),
                         SamplingBreadthPercentOverride: readOptionalNumber('mappingSamplingBreadthPercentOverride'),
                         SamplingModeOverride: readOptionalString('mappingSamplingModeOverride'),
+                        SpatialOrientationOverride: readOptionalString('mappingSpatialOrientationOverride'),
                         ColorSmoothingPercentOverride: readOptionalNumber('mappingColorSmoothingPercentOverride'),
                         UseGpuOverride: readOptionalBoolean('mappingUseGpuOverride'),
                         CustomFfmpegFlagsOverride: readOptionalString('mappingCustomFfmpegFlagsOverride'),
@@ -8774,6 +8805,7 @@
                         '#mappingVideoDeinterlaceModeOverride',
                         '#mappingSamplingBreadthPercentOverride',
                         '#mappingSamplingModeOverride',
+                        '#mappingSpatialOrientationOverride',
                         '#mappingColorSmoothingPercentOverride',
                         '#mappingUseGpuOverride',
                         '#mappingCustomFfmpegFlagsOverride',
@@ -8873,6 +8905,7 @@
                         var videoDeinterlaceModeOverride = getMappingValue('VideoDeinterlaceModeOverride', 'videoDeinterlaceModeOverride');
                         var samplingBreadthPercentOverride = getMappingValue('SamplingBreadthPercentOverride', 'samplingBreadthPercentOverride');
                         var samplingModeOverride = getMappingValue('SamplingModeOverride', 'samplingModeOverride');
+                        var spatialOrientationOverride = getMappingValue('SpatialOrientationOverride', 'spatialOrientationOverride');
                         var colorSmoothingPercentOverride = getMappingValue('ColorSmoothingPercentOverride', 'colorSmoothingPercentOverride');
                         var useGpuOverride = getMappingValue('UseGpuOverride', 'useGpuOverride');
                         var customFfmpegFlagsOverride = getMappingValue('CustomFfmpegFlagsOverride', 'customFfmpegFlagsOverride');
@@ -8948,6 +8981,7 @@
                         page.querySelector('#mappingVideoDeinterlaceModeOverride').value = videoDeinterlaceModeOverride == null ? "" : videoDeinterlaceModeOverride;
                         page.querySelector('#mappingSamplingBreadthPercentOverride').value = samplingBreadthPercentOverride == null ? "" : samplingBreadthPercentOverride;
                         page.querySelector('#mappingSamplingModeOverride').value = samplingModeOverride == null ? "" : samplingModeOverride;
+                        page.querySelector('#mappingSpatialOrientationOverride').value = spatialOrientationOverride == null ? "" : spatialOrientationOverride;
                         page.querySelector('#mappingColorSmoothingPercentOverride').value = colorSmoothingPercentOverride == null ? "" : colorSmoothingPercentOverride;
                         page.querySelector('#mappingUseGpuOverride').value = useGpuOverride == null ? "" : String(useGpuOverride).toLowerCase();
                         page.querySelector('#mappingCustomFfmpegFlagsOverride').value = customFfmpegFlagsOverride == null ? "" : customFfmpegFlagsOverride;

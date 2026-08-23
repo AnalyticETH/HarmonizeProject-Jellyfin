@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.185] - 2026-08-23
+
+### Added
+- **Spatial orientation calibration**: correct physically mirrored, vertically flipped, or 180-degree-rotated Hue entertainment areas with Normal, MirrorHorizontal, MirrorVertical, and Rotate180 modes
+- **Consistent video/audio mapping**: apply the selected orientation to video sampling coordinates and audio spatial/stereo routing, with per-user inheritance and runtime telemetry
+- **Portable administrator controls**: carry orientation through configuration save/load, backup/import, mapping summaries, and the global/per-user configuration page with validation and regression coverage
+
 ## [1.5.184] - 2026-08-23
 
 ### Added

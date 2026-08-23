@@ -55,6 +55,7 @@ public sealed class HueSyncServiceLifecycleTests
         SetPrivateField(service, "_currentTargetFps", 30);
         SetPrivateField(service, "_currentSamplingBreadthPercent", 25);
         SetPrivateField(service, "_currentSamplingMode", PluginConfiguration.SamplingModeCenterWeighted);
+        SetPrivateField(service, "_currentSpatialOrientation", PluginConfiguration.SpatialOrientationRotate180);
         SetPrivateField(service, "_currentColorSmoothingPercent", 40);
         SetPrivateField(
             service,
@@ -120,6 +121,7 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal(30, status.ActiveTargetFps);
         Assert.Equal(25, status.ActiveSamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, status.ActiveSamplingMode);
+        Assert.Equal(PluginConfiguration.SpatialOrientationRotate180, status.ActiveSpatialOrientation);
         Assert.Equal(40, status.ActiveColorSmoothingPercent);
         Assert.Equal(150, status.ActiveBrightnessBoost);
         Assert.Equal(120, status.ActiveRedGain);

@@ -70,6 +70,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? SamplingBreadthPercentOverride { get; set; }
         public string? SamplingModeOverride { get; set; }
         public int? ColorSmoothingPercentOverride { get; set; }
+        public string? SpatialOrientationOverride { get; set; }
 
         // Optional per-user execution and reliability overrides. Null values inherit the global setting.
         public bool? UseGpuOverride { get; set; }
@@ -404,6 +405,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string SamplingModeAverage = "Average";
         public const string SamplingModeCenterWeighted = "CenterWeighted";
         public const string SamplingModeCenterPixel = "CenterPixel";
+        public const string SpatialOrientationNormal = "Normal";
+        public const string SpatialOrientationMirrorHorizontal = "MirrorHorizontal";
+        public const string SpatialOrientationMirrorVertical = "MirrorVertical";
+        public const string SpatialOrientationRotate180 = "Rotate180";
         public const string FrameResolutionLow = "80x45";
         public const string FrameResolutionStandard = "160x90";
         public const string FrameResolutionHigh = "320x180";
@@ -621,6 +626,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
             AudioChannelModeStereo,
             AudioChannelModeLeft,
             AudioChannelModeRight
+        };
+
+        private static readonly string[] SpatialOrientations =
+        {
+            SpatialOrientationNormal,
+            SpatialOrientationMirrorHorizontal,
+            SpatialOrientationMirrorVertical,
+            SpatialOrientationRotate180
         };
 
         private static readonly string[] BlackoutBehaviors =
@@ -923,6 +936,46 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Returns the canonical orientation used to map Hue entertainment-area
+        /// coordinates to the sampled screen and audio spatial field. Normal preserves
+        /// the bridge's coordinate system; mirror and rotate modes compensate for an
+        /// area mounted in the opposite physical orientation.
+        /// </summary>
+        public static bool TryNormalizeSpatialOrientation(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = SpatialOrientationNormal;
+                return true;
+            }
+
+            var match = SpatialOrientations.FirstOrDefault(orientation =>
+                string.Equals(orientation, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = SpatialOrientationNormal;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
+        /// Normalizes an optional per-user orientation while preserving invalid text for
+        /// configuration validation feedback. Blank values inherit the global setting.
+        /// </summary>
+        public static string? NormalizeOptionalSpatialOrientation(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            return TryNormalizeSpatialOrientation(value, out var normalized)
+                ? normalized
+                : value.Trim();
+        }
+
+        /// <summary>
         /// Clamps persisted or telemetry-only effect speed values to the supported range.
         /// Request and configuration validation still rejects out-of-range user input.
         /// </summary>
@@ -1134,6 +1187,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string VideoDeinterlaceMode { get; set; } = VideoDeinterlaceModeOff;
         public int SamplingBreadthPercent { get; set; } = 15;
         public string SamplingMode { get; set; } = SamplingModeAverage;
+        public string SpatialOrientation { get; set; } = SpatialOrientationNormal;
         public int ColorSmoothingPercent { get; set; } = 0;
         public bool UseGpu { get; set; } = true;
         public string CustomFfmpegFlags { get; set; } = string.Empty; // e.g. -hwaccel auto
@@ -1530,12 +1584,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
             string? VideoDeinterlaceMode,
             int? SamplingBreadthPercent,
             string? SamplingMode,
+            string? SpatialOrientation,
             int? ColorSmoothingPercent) GetPerformanceOverridesForUser(Guid userId)
         {
             var userIdText = userId.ToString();
             var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
             return mapping == null
-                ? (null, null, null, null, null, null, null)
+                ? (null, null, null, null, null, null, null, null)
                 : (
                     mapping.TargetFpsOverride,
                     NormalizeOptionalOverride(mapping.FrameResolutionOverride),
@@ -1543,6 +1598,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     NormalizeOptionalOverride(mapping.VideoDeinterlaceModeOverride),
                     mapping.SamplingBreadthPercentOverride,
                     NormalizeOptionalOverride(mapping.SamplingModeOverride),
+                    NormalizeOptionalSpatialOrientation(mapping.SpatialOrientationOverride),
                     mapping.ColorSmoothingPercentOverride);
         }
 
@@ -1869,6 +1925,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 !string.Equals(samplingMode, SamplingModeCenterPixel, StringComparison.OrdinalIgnoreCase))
             {
                 errors.Add($"{label} sampling mode override must be Average, CenterWeighted, or CenterPixel");
+            }
+
+            var spatialOrientation = mapping.SpatialOrientationOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(spatialOrientation) &&
+                !TryNormalizeSpatialOrientation(spatialOrientation, out _))
+            {
+                errors.Add($"{label} spatial orientation override must be Normal, MirrorHorizontal, MirrorVertical, or Rotate180");
             }
 
             if (mapping.ColorSmoothingPercentOverride.HasValue &&
@@ -2896,6 +2959,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     !string.Equals(SamplingMode, SamplingModeCenterWeighted, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(SamplingMode, SamplingModeCenterPixel, StringComparison.OrdinalIgnoreCase))
                     errors.Add("Sampling mode must be Average, CenterWeighted, or CenterPixel");
+
+                if (!TryNormalizeSpatialOrientation(SpatialOrientation, out _))
+                    errors.Add("Spatial orientation must be Normal, MirrorHorizontal, MirrorVertical, or Rotate180");
 
                 if (ColorSmoothingPercent < MinColorSmoothingPercent ||
                     ColorSmoothingPercent > MaxColorSmoothingPercent)

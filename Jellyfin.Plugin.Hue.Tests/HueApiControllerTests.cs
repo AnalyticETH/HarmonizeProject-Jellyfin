@@ -5837,6 +5837,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveVideoDeinterlaceMode);
         Assert.Null(status.ActiveSamplingBreadthPercent);
         Assert.Null(status.ActiveSamplingMode);
+        Assert.Null(status.ActiveSpatialOrientation);
         Assert.Null(status.ActiveColorSmoothingPercent);
         Assert.Null(status.ActiveBrightnessBoost);
         Assert.Null(status.ActiveRedGain);
@@ -6611,6 +6612,7 @@ public sealed class HueApiControllerTests : IDisposable
                     VideoDeinterlaceModeOverride = PluginConfiguration.VideoDeinterlaceModeAuto,
                     SamplingBreadthPercentOverride = 25,
                     SamplingModeOverride = PluginConfiguration.SamplingModeCenterWeighted,
+                    SpatialOrientationOverride = PluginConfiguration.SpatialOrientationMirrorHorizontal,
                     ColorSmoothingPercentOverride = 40
                 }
             }
@@ -6666,6 +6668,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, mapping.VideoDeinterlaceModeOverride);
         Assert.Equal((int?)25, mapping.SamplingBreadthPercentOverride);
         Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, mapping.SamplingModeOverride);
+        Assert.Equal(PluginConfiguration.SpatialOrientationMirrorHorizontal, mapping.SpatialOrientationOverride);
         Assert.Equal((int?)40, mapping.ColorSmoothingPercentOverride);
         var serialized = System.Text.Json.JsonSerializer.Serialize(mapping);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
@@ -7130,6 +7133,7 @@ public sealed class HueApiControllerTests : IDisposable
             VideoDeinterlaceMode = PluginConfiguration.VideoDeinterlaceModeAuto,
             SamplingBreadthPercent = 25,
             SamplingMode = PluginConfiguration.SamplingModeCenterWeighted,
+            SpatialOrientation = PluginConfiguration.SpatialOrientationMirrorVertical,
             ColorSmoothingPercent = 65,
             HueShiftDegrees = 45,
             OutputBrightnessPercent = 75,
@@ -7192,6 +7196,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeAuto, settings.VideoDeinterlaceMode);
         Assert.Equal(25, settings.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeCenterWeighted, settings.SamplingMode);
+        Assert.Equal(PluginConfiguration.SpatialOrientationMirrorVertical, settings.SpatialOrientation);
         Assert.Equal(65, settings.ColorSmoothingPercent);
         Assert.Equal(45, settings.HueShiftDegrees);
         Assert.Equal(75, settings.OutputBrightnessPercent);
@@ -8160,6 +8165,7 @@ public sealed class HueApiControllerTests : IDisposable
             VideoDeinterlaceMode = PluginConfiguration.VideoDeinterlaceModeOn,
             SamplingBreadthPercent = 25,
             SamplingMode = PluginConfiguration.SamplingModeCenterPixel,
+            SpatialOrientation = PluginConfiguration.SpatialOrientationRotate180,
             ColorSmoothingPercent = 40,
             HueShiftDegrees = -30,
             OutputBrightnessPercent = 60,
@@ -8205,6 +8211,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOn, configuration.VideoDeinterlaceMode);
         Assert.Equal(25, configuration.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeCenterPixel, configuration.SamplingMode);
+        Assert.Equal(PluginConfiguration.SpatialOrientationRotate180, configuration.SpatialOrientation);
         Assert.Equal(40, configuration.ColorSmoothingPercent);
         Assert.Equal(-30, configuration.HueShiftDegrees);
         Assert.Equal(60, configuration.OutputBrightnessPercent);
@@ -8521,6 +8528,7 @@ public sealed class HueApiControllerTests : IDisposable
             VideoDeinterlaceModeOverride = PluginConfiguration.VideoDeinterlaceModeOn,
             SamplingBreadthPercentOverride = 20,
             SamplingModeOverride = PluginConfiguration.SamplingModeCenterPixel,
+            SpatialOrientationOverride = PluginConfiguration.SpatialOrientationRotate180,
             ColorSmoothingPercentOverride = 35
         });
 
@@ -8569,6 +8577,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOn, mapping.VideoDeinterlaceModeOverride);
         Assert.Equal((int?)20, mapping.SamplingBreadthPercentOverride);
         Assert.Equal(PluginConfiguration.SamplingModeCenterPixel, mapping.SamplingModeOverride);
+        Assert.Equal(PluginConfiguration.SpatialOrientationRotate180, mapping.SpatialOrientationOverride);
         Assert.Equal((int?)35, mapping.ColorSmoothingPercentOverride);
     }
 

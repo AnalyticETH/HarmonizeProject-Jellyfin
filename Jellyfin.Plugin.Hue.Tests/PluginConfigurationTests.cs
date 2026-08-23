@@ -2135,6 +2135,7 @@ public class PluginConfigurationTests
         Assert.Equal(PluginConfiguration.VideoDeinterlaceModeOff, config.VideoDeinterlaceMode);
         Assert.Equal(15, config.SamplingBreadthPercent);
         Assert.Equal(PluginConfiguration.SamplingModeAverage, config.SamplingMode);
+        Assert.Equal(PluginConfiguration.SpatialOrientationNormal, config.SpatialOrientation);
         Assert.Equal(0, config.ColorSmoothingPercent);
         Assert.True(config.UseGpu);
         Assert.Equal(100, config.BrightnessBoost);
@@ -2414,6 +2415,48 @@ public class PluginConfigurationTests
         var errors = config.Validate();
 
         Assert.DoesNotContain("Sampling mode must be Average, CenterWeighted, or CenterPixel", errors);
+    }
+
+    [Theory]
+    [InlineData("Unsupported")]
+    public void Validate_WhenSpatialOrientationIsInvalid_ReturnsError(string orientation)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            SpatialOrientation = orientation
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Spatial orientation must be Normal, MirrorHorizontal, MirrorVertical, or Rotate180", errors);
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.SpatialOrientationNormal)]
+    [InlineData(PluginConfiguration.SpatialOrientationMirrorHorizontal)]
+    [InlineData(PluginConfiguration.SpatialOrientationMirrorVertical)]
+    [InlineData(PluginConfiguration.SpatialOrientationRotate180)]
+    [InlineData("mirrorhorizontal")]
+    public void Validate_WhenSpatialOrientationIsValid_ReturnsNoOrientationError(string orientation)
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            SpatialOrientation = orientation
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain("Spatial orientation must be Normal, MirrorHorizontal, MirrorVertical, or Rotate180", errors);
     }
 
     [Theory]
@@ -2823,6 +2866,7 @@ public class PluginConfigurationTests
                     VideoDeinterlaceModeOverride = "Auto",
                     SamplingBreadthPercentOverride = 25,
                     SamplingModeOverride = "CenterWeighted",
+                    SpatialOrientationOverride = " MirrorHorizontal ",
                     ColorSmoothingPercentOverride = 40
                 }
             }
@@ -2837,6 +2881,7 @@ public class PluginConfigurationTests
         Assert.Equal("Auto", overrides.VideoDeinterlaceMode);
         Assert.Equal((int?)25, overrides.SamplingBreadthPercent);
         Assert.Equal("CenterWeighted", overrides.SamplingMode);
+        Assert.Equal("MirrorHorizontal", overrides.SpatialOrientation);
         Assert.Equal((int?)40, overrides.ColorSmoothingPercent);
         Assert.Null(unmapped.TargetFps);
         Assert.Null(unmapped.FrameResolution);
@@ -2844,6 +2889,7 @@ public class PluginConfigurationTests
         Assert.Null(unmapped.VideoDeinterlaceMode);
         Assert.Null(unmapped.SamplingBreadthPercent);
         Assert.Null(unmapped.SamplingMode);
+        Assert.Null(unmapped.SpatialOrientation);
         Assert.Null(unmapped.ColorSmoothingPercent);
     }
 
@@ -3484,6 +3530,7 @@ public class PluginConfigurationTests
                     VideoDeinterlaceModeOverride = "InvalidDeinterlace",
                     SamplingBreadthPercentOverride = 51,
                     SamplingModeOverride = "InvalidSampling",
+                    SpatialOrientationOverride = "InvalidOrientation",
                     ColorSmoothingPercentOverride = 91
                 }
             }
@@ -3508,6 +3555,7 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 video deinterlace override must be Off, Auto, or On", errors);
         Assert.Contains("User mapping 1 sampling breadth override must be between 1 and 50 percent", errors);
         Assert.Contains("User mapping 1 sampling mode override must be Average, CenterWeighted, or CenterPixel", errors);
+        Assert.Contains("User mapping 1 spatial orientation override must be Normal, MirrorHorizontal, MirrorVertical, or Rotate180", errors);
         Assert.Contains("User mapping 1 color smoothing override must be between 0 and 90 percent", errors);
     }
 
