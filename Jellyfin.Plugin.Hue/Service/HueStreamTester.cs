@@ -428,7 +428,7 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
         CancellationToken cancellationToken)
     {
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, or Ocean.");
+            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, or Lightning.");
 
         effect = normalizedEffect;
         if (cancellationToken.IsCancellationRequested)
@@ -919,7 +919,7 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
     {
         ArgumentNullException.ThrowIfNull(targetColors);
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, or Ocean.", nameof(effect));
+            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, or Lightning.", nameof(effect));
 
         var elapsed = Math.Max(0d, elapsedSeconds);
         var duration = Math.Max(1d, durationSeconds);
@@ -1086,6 +1086,40 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
                     ToRgb16Byte(oceanRed), ToRgb16Byte(oceanRed),
                     ToRgb16Byte(oceanGreen), ToRgb16Byte(oceanGreen),
                     ToRgb16Byte(oceanBlue), ToRgb16Byte(oceanBlue)
+                };
+                continue;
+            }
+
+            if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectLightning, StringComparison.Ordinal))
+            {
+                // Lightning builds a dark electric-blue baseline with two narrow,
+                // independent flash envelopes. The seed frame controls intensity,
+                // while channel phase keeps a multi-light room from flashing in lockstep.
+                var lightningPeriod = 6.5d / speedMultiplier;
+                var lightningPhase = ((elapsed + (channelId * 0.31d)) % lightningPeriod) / lightningPeriod;
+                var primaryFlash = Math.Pow(
+                    Math.Max(0d, Math.Sin((lightningPhase * 2d * Math.PI) + 0.65d)),
+                    18d);
+                var secondaryFlash = Math.Pow(
+                    Math.Max(0d, Math.Sin((lightningPhase * 4d * Math.PI) + (channelId * 0.53d) + 1.2d)),
+                    28d);
+                var flash = Math.Clamp(0.06d + (0.68d * primaryFlash) + (0.26d * secondaryFlash), 0d, 1d);
+                var lightningHue = 210d + (30d * (0.5d + (0.5d * Math.Sin((lightningPhase * 2d * Math.PI) + 0.3d))));
+                var lightningSaturation = 0.92d - (0.82d * flash);
+                var lightningSeedValue = Math.Clamp(
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    0d,
+                    1d);
+                var lightningValue = lightningSeedValue * (0.08d + (0.92d * flash));
+                var (lightningRed, lightningGreen, lightningBlue) = HsvToRgb(
+                    lightningHue,
+                    Math.Clamp(lightningSaturation, 0d, 1d),
+                    Math.Clamp(lightningValue, 0d, 1d));
+                colors[channelId] = new[]
+                {
+                    ToRgb16Byte(lightningRed), ToRgb16Byte(lightningRed),
+                    ToRgb16Byte(lightningGreen), ToRgb16Byte(lightningGreen),
+                    ToRgb16Byte(lightningBlue), ToRgb16Byte(lightningBlue)
                 };
                 continue;
             }

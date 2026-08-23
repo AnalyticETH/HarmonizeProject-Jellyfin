@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.190] - 2026-08-23
+
+### Added
+- **Lightning scene effect**: deterministic electric blue/white storm flashes with independent channel phases for previews, saved scenes, playlists, and scheduled cues
+- **Portable effect support**: carry Lightning through validation, API/UI, backup/restore, occurrence metadata, and administrator controls
+- **Regression coverage**: verify deterministic animation, bounded RGB16 output, per-channel phase, and API/config contracts
+
 ## [1.5.189] - 2026-08-23
 
 ### Fixed
