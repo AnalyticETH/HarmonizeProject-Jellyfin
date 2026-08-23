@@ -637,6 +637,17 @@ namespace Jellyfin.Plugin.Hue.Api
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
                 TargetLabel = targetLabel,
                 TimeOfDay = schedule.TimeOfDay,
+                TimeMode = PluginConfiguration.TryNormalizeSceneScheduleTimeMode(
+                    schedule.TimeMode,
+                    out var normalizedTimeMode)
+                    ? normalizedTimeMode
+                    : PluginConfiguration.SceneScheduleTimeModeFixed,
+                SolarOffsetMinutes = Math.Clamp(
+                    schedule.SolarOffsetMinutes,
+                    PluginConfiguration.MinSceneScheduleSolarOffsetMinutes,
+                    PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes),
+                SolarLatitude = schedule.SolarLatitude,
+                SolarLongitude = schedule.SolarLongitude,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
                 Recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
                     schedule.Recurrence,
@@ -680,6 +691,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
                 TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                 TimeOfDay = schedule.TimeOfDay,
+                TimeMode = schedule.TimeMode,
+                SolarOffsetMinutes = schedule.SolarOffsetMinutes,
+                SolarLatitude = schedule.SolarLatitude,
+                SolarLongitude = schedule.SolarLongitude,
                 TimeZoneId = schedule.TimeZoneId,
                 Recurrence = schedule.Recurrence,
                 RecurrenceInterval = schedule.RecurrenceInterval,
@@ -3405,6 +3420,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 "effectSpeedPercent",
                 "recurrence",
                 "recurrenceInterval",
+                "timeMode",
+                "solarOffsetMinutes",
+                "solarLatitude",
+                "solarLongitude",
                 "durationSeconds",
                 "transitionSeconds",
                 "transitionOutSeconds",
@@ -3430,6 +3449,10 @@ namespace Jellyfin.Plugin.Hue.Api
                     occurrence.EffectSpeedPercent,
                     occurrence.Recurrence,
                     occurrence.RecurrenceInterval,
+                    occurrence.TimeMode,
+                    occurrence.SolarOffsetMinutes,
+                    occurrence.SolarLatitude,
+                    occurrence.SolarLongitude,
                     occurrence.DurationSeconds,
                     occurrence.TransitionSeconds,
                     occurrence.TransitionOutSeconds,
@@ -3562,6 +3585,10 @@ namespace Jellyfin.Plugin.Hue.Api
                             TargetAllEnabledMappings = occurrence.TargetAllEnabledMappings,
                             TargetUserIds = occurrence.TargetUserIds?.ToArray() ?? Array.Empty<string>(),
                             IncludeDefaultTarget = occurrence.IncludeDefaultTarget,
+                            TimeMode = occurrence.TimeMode,
+                            SolarOffsetMinutes = occurrence.SolarOffsetMinutes,
+                            SolarLatitude = occurrence.SolarLatitude,
+                            SolarLongitude = occurrence.SolarLongitude,
                             TargetLabel = ToSceneScheduleResult(schedule, config).TargetLabel,
                             TimeZoneId = occurrence.TimeZoneId,
                             TimeZoneDisplayName = occurrence.TimeZoneDisplayName,
@@ -3607,8 +3634,14 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(
                     builder,
                     "DESCRIPTION",
-                    $"{(string.IsNullOrWhiteSpace(occurrence.PlaylistName) ? $"Scene: {occurrence.PresetName}" : $"Playlist: {occurrence.PlaylistName}")}; Target: {occurrence.TargetLabel}; Time zone: {occurrence.TimeZoneDisplayName}");
+                    $"{(string.IsNullOrWhiteSpace(occurrence.PlaylistName) ? $"Scene: {occurrence.PresetName}" : $"Playlist: {occurrence.PlaylistName}")}; Target: {occurrence.TargetLabel}; Time zone: {occurrence.TimeZoneDisplayName}; Timing: {FormatSceneScheduleTiming(occurrence)}");
                 AppendIcsLine(builder, "X-HUE-TIMEZONE", occurrence.TimeZoneId);
+                AppendIcsLine(builder, "X-HUE-TIME-MODE", occurrence.TimeMode);
+                AppendIcsLine(builder, "X-HUE-SOLAR-OFFSET-MINUTES", occurrence.SolarOffsetMinutes.ToString(CultureInfo.InvariantCulture));
+                if (occurrence.SolarLatitude.HasValue)
+                    AppendIcsLine(builder, "X-HUE-SOLAR-LATITUDE", occurrence.SolarLatitude.Value.ToString("0.####", CultureInfo.InvariantCulture));
+                if (occurrence.SolarLongitude.HasValue)
+                    AppendIcsLine(builder, "X-HUE-SOLAR-LONGITUDE", occurrence.SolarLongitude.Value.ToString("0.####", CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-RECURRENCE", occurrence.Recurrence);
                 AppendIcsLine(builder, "X-HUE-RECURRENCE-INTERVAL", occurrence.RecurrenceInterval.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-PRIORITY", occurrence.Priority.ToString(CultureInfo.InvariantCulture));
@@ -3625,6 +3658,20 @@ namespace Jellyfin.Plugin.Hue.Api
 
             AppendIcsLine(builder, "END", "VCALENDAR");
             return builder.ToString();
+        }
+
+        private static string FormatSceneScheduleTiming(HueSceneScheduleOccurrenceResult occurrence)
+        {
+            var offset = occurrence.SolarOffsetMinutes > 0
+                ? $"+{occurrence.SolarOffsetMinutes}m"
+                : $"{occurrence.SolarOffsetMinutes}m";
+            if (string.Equals(occurrence.TimeMode, PluginConfiguration.SceneScheduleTimeModeFixed, StringComparison.OrdinalIgnoreCase))
+                return $"Fixed {occurrence.LocalTime.ToString("HH:mm", CultureInfo.InvariantCulture)}";
+
+            var coordinates = occurrence.SolarLatitude.HasValue && occurrence.SolarLongitude.HasValue
+                ? $" ({occurrence.SolarLatitude.Value.ToString("0.####", CultureInfo.InvariantCulture)},{occurrence.SolarLongitude.Value.ToString("0.####", CultureInfo.InvariantCulture)})"
+                : string.Empty;
+            return $"{occurrence.TimeMode} {offset}{coordinates}";
         }
 
         private static string BuildIcsUid(string? scheduleId, DateTime utcStart)
@@ -3861,6 +3908,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 schedule.Id = Guid.NewGuid().ToString("N");
             if (PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalizedTime))
                 schedule.TimeOfDay = normalizedTime;
+            if (PluginConfiguration.TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var normalizedTimeMode))
+                schedule.TimeMode = normalizedTimeMode;
             if (PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
                 schedule.Recurrence = normalizedRecurrence;
             if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.StartDate, out var normalizedStartDate))
@@ -6561,6 +6610,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.Id = Guid.NewGuid().ToString("N");
                 if (PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalizedTime))
                     schedule.TimeOfDay = normalizedTime;
+                if (PluginConfiguration.TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var normalizedTimeMode))
+                    schedule.TimeMode = normalizedTimeMode;
                 if (PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
                     schedule.Recurrence = normalizedRecurrence;
                 if (PluginConfiguration.TryNormalizeSceneScheduleDate(schedule.StartDate, out var normalizedStartDate))
@@ -9363,6 +9414,18 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("timeOfDay")]
         public string TimeOfDay { get; set; } = "20:00";
 
+        [JsonPropertyName("timeMode")]
+        public string TimeMode { get; set; } = PluginConfiguration.SceneScheduleTimeModeFixed;
+
+        [JsonPropertyName("solarOffsetMinutes")]
+        public int SolarOffsetMinutes { get; set; }
+
+        [JsonPropertyName("solarLatitude")]
+        public double? SolarLatitude { get; set; }
+
+        [JsonPropertyName("solarLongitude")]
+        public double? SolarLongitude { get; set; }
+
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
 
@@ -9433,6 +9496,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 IncludeDefaultTarget = IncludeDefaultTarget ?? false,
                 TargetAllEnabledMappings = TargetAllEnabledMappings ?? false,
                 TimeOfDay = TimeOfDay?.Trim() ?? string.Empty,
+                TimeMode = TimeMode?.Trim() ?? string.Empty,
+                SolarOffsetMinutes = SolarOffsetMinutes,
+                SolarLatitude = SolarLatitude,
+                SolarLongitude = SolarLongitude,
                 TimeZoneId = TimeZoneId?.Trim() ?? string.Empty,
                 Recurrence = Recurrence?.Trim() ?? string.Empty,
                 RecurrenceInterval = RecurrenceInterval,
@@ -9770,6 +9837,18 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("timeOfDay")]
         public string TimeOfDay { get; set; } = string.Empty;
 
+        [JsonPropertyName("timeMode")]
+        public string TimeMode { get; set; } = PluginConfiguration.SceneScheduleTimeModeFixed;
+
+        [JsonPropertyName("solarOffsetMinutes")]
+        public int SolarOffsetMinutes { get; set; }
+
+        [JsonPropertyName("solarLatitude")]
+        public double? SolarLatitude { get; set; }
+
+        [JsonPropertyName("solarLongitude")]
+        public double? SolarLongitude { get; set; }
+
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
 
@@ -9901,6 +9980,18 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("includeDefaultTarget")]
         public bool IncludeDefaultTarget { get; set; }
+
+        [JsonPropertyName("timeMode")]
+        public string TimeMode { get; set; } = PluginConfiguration.SceneScheduleTimeModeFixed;
+
+        [JsonPropertyName("solarOffsetMinutes")]
+        public int SolarOffsetMinutes { get; set; }
+
+        [JsonPropertyName("solarLatitude")]
+        public double? SolarLatitude { get; set; }
+
+        [JsonPropertyName("solarLongitude")]
+        public double? SolarLongitude { get; set; }
 
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;

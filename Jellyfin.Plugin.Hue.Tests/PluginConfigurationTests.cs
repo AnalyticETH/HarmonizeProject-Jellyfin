@@ -386,6 +386,66 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsSolarCueAndNormalizesTimeMode()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Sunrise scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "sunrise-cue",
+                    Name = "Sunrise welcome",
+                    PresetName = "Sunrise scene",
+                    TimeMode = " sunrise ",
+                    SolarOffsetMinutes = -30,
+                    SolarLatitude = 40.7128,
+                    SolarLongitude = -74.0060,
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    StartDate = "2026-01-01",
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+        Assert.True(PluginConfiguration.TryNormalizeSceneScheduleTimeMode(" sunset ", out var normalized));
+        Assert.Equal(PluginConfiguration.SceneScheduleTimeModeSunset, normalized);
+        Assert.True(PluginConfiguration.AreValidSceneScheduleSolarCoordinates(0, 0));
+        Assert.False(PluginConfiguration.AreValidSceneScheduleSolarCoordinates(91, 0));
+    }
+
+    [Fact]
+    public void ValidateSceneSchedules_RejectsInvalidSolarModeCoordinatesAndOffset()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Scene" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "invalid-solar",
+                    Name = "Invalid solar",
+                    PresetName = "Scene",
+                    TimeMode = "Moonrise",
+                    SolarOffsetMinutes = PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes + 1,
+                    SolarLatitude = 91,
+                    SolarLongitude = 181,
+                    TimeOfDay = "not-a-time"
+                }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+        Assert.Contains("Scene schedule 1 time mode must be Fixed, Sunrise, or Sunset", errors);
+        Assert.Contains("Scene schedule 1 solar offset must be between -720 and 720 minutes", errors);
+        Assert.Contains(errors, error => error.Contains("fixed time must use 24-hour HH:mm format", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_AllowsSavedPlaylistAndRejectsScenePlaylistAmbiguity()
     {
         var config = new PluginConfiguration
@@ -1197,7 +1257,7 @@ public class PluginConfigurationTests
         var errors = config.ValidateSceneSchedules();
 
         Assert.Contains("Scene schedule 1 references a saved scene that does not exist", errors);
-        Assert.Contains("Scene schedule 1 time must use 24-hour HH:mm format", errors);
+        Assert.Contains("Scene schedule 1 fixed time must use 24-hour HH:mm format", errors);
         Assert.Contains("Scene schedule 1 time zone is not available on this server", errors);
         Assert.Contains("Scene schedule 1 must select at least one day of the week", errors);
         Assert.Contains("Scene schedule 2 duplicates another scene schedule ID", errors);

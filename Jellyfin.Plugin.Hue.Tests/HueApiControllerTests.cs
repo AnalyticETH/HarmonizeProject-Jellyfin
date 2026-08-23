@@ -3821,6 +3821,62 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_CrudSupportsSolarTimingAndPortableMetadata()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Morning" } }
+        });
+        var controller = CreateController();
+
+        var saved = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Solar morning",
+            PresetName = "Morning",
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeSunrise.ToLowerInvariant(),
+            SolarOffsetMinutes = 15,
+            SolarLatitude = 40.7128,
+            SolarLongitude = -74.0060,
+            TimeOfDay = string.Empty,
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            DaysOfWeekMask = 0
+        });
+
+        var savedResult = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(saved.Result).Value);
+        Assert.Equal(PluginConfiguration.SceneScheduleTimeModeSunrise, savedResult.TimeMode);
+        Assert.Equal(15, savedResult.SolarOffsetMinutes);
+        Assert.Equal(40.7128, savedResult.SolarLatitude);
+        Assert.Equal(-74.0060, savedResult.SolarLongitude);
+        Assert.Equal(PluginConfiguration.SceneScheduleTimeModeSunrise, configuration.SceneSchedules[0].TimeMode);
+
+        var serialized = JsonSerializer.Serialize(savedResult);
+        Assert.Contains("\"timeMode\":\"Sunrise\"", serialized, StringComparison.Ordinal);
+        Assert.Contains("\"solarOffsetMinutes\":15", serialized, StringComparison.Ordinal);
+        Assert.Contains("\"solarLatitude\":40.7128", serialized, StringComparison.Ordinal);
+        Assert.Contains("\"solarLongitude\":-74.006", serialized, StringComparison.Ordinal);
+
+        var updated = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = savedResult.Id,
+            Name = "Solar morning updated",
+            PresetName = "Morning",
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeSunrise,
+            SolarOffsetMinutes = 15,
+            SolarLatitude = 40.7128,
+            SolarLongitude = -74.0060,
+            Enabled = false
+        });
+
+        var updatedResult = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(updated.Result).Value);
+        Assert.Equal(PluginConfiguration.SceneScheduleTimeModeSunrise, updatedResult.TimeMode);
+        Assert.Equal(15, updatedResult.SolarOffsetMinutes);
+        Assert.Equal(40.7128, updatedResult.SolarLatitude);
+        Assert.Equal(-74.0060, updatedResult.SolarLongitude);
+        Assert.False(updatedResult.Enabled);
+    }
+
+    [Fact]
     public void SceneSchedules_CrudSupportsPlaylistSourcesAndReportsAggregateDuration()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

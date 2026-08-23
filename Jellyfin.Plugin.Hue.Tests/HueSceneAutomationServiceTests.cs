@@ -20,6 +20,117 @@ namespace Jellyfin.Plugin.Hue.Tests;
 public sealed class HueSceneAutomationServiceTests
 {
     [Fact]
+    public void SolarCalculator_ProducesTimezoneAwareSunriseAndSunset()
+    {
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(
+            OperatingSystem.IsWindows() ? "Eastern Standard Time" : "America/New_York");
+        var date = new DateTime(2026, 6, 21);
+
+        Assert.True(HueSolarCalculator.TryGetEventLocal(
+            date,
+            zone,
+            40.7128,
+            -74.0060,
+            sunrise: true,
+            offsetMinutes: 0,
+            out var sunrise,
+            out var sunriseUtc));
+        Assert.True(HueSolarCalculator.TryGetEventLocal(
+            date,
+            zone,
+            40.7128,
+            -74.0060,
+            sunrise: false,
+            offsetMinutes: 0,
+            out var sunset,
+            out var sunsetUtc));
+
+        Assert.Equal(new DateTime(2026, 6, 21), sunrise.Date);
+        Assert.Equal(new DateTime(2026, 6, 21), sunset.Date);
+        Assert.InRange(sunrise.Hour, 5, 6);
+        Assert.InRange(sunset.Hour, 20, 21);
+        Assert.Equal(DateTimeKind.Utc, sunriseUtc.Kind);
+        Assert.Equal(DateTimeKind.Utc, sunsetUtc.Kind);
+        Assert.True(sunriseUtc < sunsetUtc);
+
+        Assert.True(HueSolarCalculator.TryGetEventLocal(
+            date,
+            zone,
+            40.7128,
+            -74.0060,
+            sunrise: true,
+            offsetMinutes: -30,
+            out var earlierSunrise,
+            out _));
+        Assert.Equal(sunrise.AddMinutes(-30), earlierSunrise);
+    }
+
+    [Fact]
+    public void SolarSchedule_UsesEventTimeForDueAndUpcomingOccurrence()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Id = "solar-daily",
+            Name = "Solar daily",
+            Enabled = true,
+            PresetName = "Scene",
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeSunrise,
+            SolarLatitude = 0,
+            SolarLongitude = 0,
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            StartDate = "2026-08-17",
+            DaysOfWeekMask = 0
+        };
+
+        var beforeSunrise = new DateTime(2026, 8, 17, 0, 0, 0, DateTimeKind.Utc);
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            beforeSunrise,
+            maxOccurrences: 2,
+            horizonDays: 3);
+
+        Assert.Equal(2, occurrences.Count);
+        Assert.All(occurrences, occurrence =>
+        {
+            Assert.Equal(PluginConfiguration.SceneScheduleTimeModeSunrise, occurrence.TimeMode);
+            Assert.Equal(0, occurrence.SolarOffsetMinutes);
+            Assert.Equal(0, occurrence.SolarLatitude);
+            Assert.Equal(0, occurrence.SolarLongitude);
+            Assert.Equal(6, occurrence.LocalTime.Hour);
+            Assert.True(HueSceneAutomationService.IsDue(
+                schedule,
+                DateTime.SpecifyKind(occurrence.LocalTime.AddSeconds(30), DateTimeKind.Utc)));
+        });
+        Assert.True(occurrences[0].UtcTime < occurrences[1].UtcTime);
+    }
+
+    [Fact]
+    public void SolarSchedule_RejectsPolarNoEventWithoutManufacturingOccurrence()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Id = "polar-solar",
+            Name = "Polar solar",
+            Enabled = true,
+            PresetName = "Scene",
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeSunrise,
+            SolarLatitude = 90,
+            SolarLongitude = 0,
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            StartDate = "2026-06-17",
+            DaysOfWeekMask = 0
+        };
+
+        Assert.Empty(HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            new DateTime(2026, 6, 17, 0, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 3,
+            horizonDays: 3));
+    }
+
+    [Fact]
     public void IsDue_UsesSelectedLocalDayAndMinute()
     {
         var schedule = new HueSceneSchedule

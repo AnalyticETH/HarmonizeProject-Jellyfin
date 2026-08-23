@@ -205,6 +205,28 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public bool TargetAllEnabledMappings { get; set; }
         public string TimeOfDay { get; set; } = "20:00";
         /// <summary>
+        /// Determines whether the cue uses its fixed <see cref="TimeOfDay"/> or a
+        /// calculated sunrise/sunset instant in the selected time zone. Missing values in
+        /// older configurations preserve fixed-time behavior.
+        /// </summary>
+        public string TimeMode { get; set; } = PluginConfiguration.SceneScheduleTimeModeFixed;
+        /// <summary>
+        /// Signed minutes relative to the selected solar event. Values from -720 through
+        /// 720 allow practical dawn/dusk offsets while keeping previews and scheduler work
+        /// bounded.
+        /// </summary>
+        public int SolarOffsetMinutes { get; set; }
+        /// <summary>
+        /// Latitude used for solar scheduling. Coordinates are required only for Sunrise or
+        /// Sunset cues and are stored with the cue so exports remain portable.
+        /// </summary>
+        public double? SolarLatitude { get; set; }
+        /// <summary>
+        /// Longitude used for solar scheduling. Coordinates are required only for Sunrise or
+        /// Sunset cues and are stored with the cue so exports remain portable.
+        /// </summary>
+        public double? SolarLongitude { get; set; }
+        /// <summary>
         /// Optional system time-zone ID for this cue. Blank preserves the original
         /// server-local behavior and is resolved from <see cref="TimeZoneInfo.Local"/>.
         /// </summary>
@@ -540,6 +562,15 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxSceneScheduleNameLength = 64;
         public const int MinSceneSchedulePriority = 0;
         public const int MaxSceneSchedulePriority = 100;
+        public const string SceneScheduleTimeModeFixed = "Fixed";
+        public const string SceneScheduleTimeModeSunrise = "Sunrise";
+        public const string SceneScheduleTimeModeSunset = "Sunset";
+        public const int MinSceneScheduleSolarOffsetMinutes = -720;
+        public const int MaxSceneScheduleSolarOffsetMinutes = 720;
+        public const double MinSceneScheduleSolarLatitude = -90;
+        public const double MaxSceneScheduleSolarLatitude = 90;
+        public const double MinSceneScheduleSolarLongitude = -180;
+        public const double MaxSceneScheduleSolarLongitude = 180;
         public const int MaxSceneScheduleExcludedDates = 100;
         public const int AllSceneScheduleDaysMask = 127;
         public const string SceneScheduleRecurrenceWeekly = "Weekly";
@@ -568,6 +599,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MinSceneAutomationDeferMinutes = 1;
         public const int MaxSceneAutomationDeferMinutes = 120;
         public const int DefaultSceneAutomationDeferMinutes = 15;
+
+        private static readonly string[] SceneScheduleTimeModes =
+        {
+            SceneScheduleTimeModeFixed,
+            SceneScheduleTimeModeSunrise,
+            SceneScheduleTimeModeSunset
+        };
 
         private static readonly string[] ColorPresetEffects =
         {
@@ -2384,8 +2422,29 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (!TryNormalizeSceneAutomationSchedulePlaybackPolicy(schedule.PlaybackPolicy, out _))
                 errors.Add($"{label} playback policy must be Inherit, Skip, or Defer");
 
-            if (!TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
-                errors.Add($"{label} time must use 24-hour HH:mm format");
+            if (!TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var normalizedTimeMode))
+            {
+                errors.Add($"{label} time mode must be Fixed, Sunrise, or Sunset");
+                normalizedTimeMode = SceneScheduleTimeModeFixed;
+            }
+
+            if (string.Equals(normalizedTimeMode, SceneScheduleTimeModeFixed, StringComparison.Ordinal) &&
+                !TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
+            {
+                errors.Add($"{label} fixed time must use 24-hour HH:mm format");
+            }
+
+            if (schedule.SolarOffsetMinutes < MinSceneScheduleSolarOffsetMinutes ||
+                schedule.SolarOffsetMinutes > MaxSceneScheduleSolarOffsetMinutes)
+            {
+                errors.Add($"{label} solar offset must be between {MinSceneScheduleSolarOffsetMinutes} and {MaxSceneScheduleSolarOffsetMinutes} minutes");
+            }
+
+            if (!string.Equals(normalizedTimeMode, SceneScheduleTimeModeFixed, StringComparison.Ordinal) &&
+                !AreValidSceneScheduleSolarCoordinates(schedule.SolarLatitude, schedule.SolarLongitude))
+            {
+                errors.Add($"{label} {normalizedTimeMode.ToLowerInvariant()} requires latitude from {MinSceneScheduleSolarLatitude} to {MaxSceneScheduleSolarLatitude} and longitude from {MinSceneScheduleSolarLongitude} to {MaxSceneScheduleSolarLongitude}");
+            }
 
             if (!TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
                 errors.Add($"{label} time zone is not available on this server");
@@ -2624,6 +2683,38 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             normalized = parsed.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
             return true;
+        }
+
+        /// <summary>
+        /// Normalizes the schedule's fixed or solar time mode. Blank values preserve the
+        /// historical fixed wall-clock behavior.
+        /// </summary>
+        public static bool TryNormalizeSceneScheduleTimeMode(string? value, out string normalized)
+        {
+            var trimmed = value?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                normalized = SceneScheduleTimeModeFixed;
+                return true;
+            }
+
+            var match = SceneScheduleTimeModes.FirstOrDefault(mode =>
+                string.Equals(mode, trimmed, StringComparison.OrdinalIgnoreCase));
+            normalized = match ?? string.Empty;
+            return match != null;
+        }
+
+        /// <summary>
+        /// Validates finite solar coordinates for a sunrise/sunset cue.
+        /// </summary>
+        public static bool AreValidSceneScheduleSolarCoordinates(double? latitude, double? longitude)
+        {
+            return latitude.HasValue && longitude.HasValue &&
+                   double.IsFinite(latitude.Value) && double.IsFinite(longitude.Value) &&
+                   latitude.Value >= MinSceneScheduleSolarLatitude &&
+                   latitude.Value <= MaxSceneScheduleSolarLatitude &&
+                   longitude.Value >= MinSceneScheduleSolarLongitude &&
+                   longitude.Value <= MaxSceneScheduleSolarLongitude;
         }
 
         /// <summary>

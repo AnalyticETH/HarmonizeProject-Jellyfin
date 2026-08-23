@@ -507,9 +507,36 @@
                                     <option value="">Save a playlist first</option>
                                 </select>
                             </div>
-                            <div>
+                            <div style="flex: 1 1 180px;">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTimeMode">Cue timing</label>
+                                <select id="sceneScheduleTimeMode" is="emby-select" style="width: 100%;">
+                                    <option value="Fixed">Fixed local time</option>
+                                    <option value="Sunrise">Sunrise</option>
+                                    <option value="Sunset">Sunset</option>
+                                </select>
+                                <div class="fieldDescription">Use a fixed wall-clock time or calculate sunrise/sunset from the cue's coordinates.</div>
+                            </div>
+                            <div id="sceneScheduleFixedTimeContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTime">Cue time</label>
                                 <input id="sceneScheduleTime" type="time" value="20:00" is="emby-input" />
+                            </div>
+                            <div id="sceneScheduleSolarContainer" style="display: none; flex: 1 1 520px;">
+                                <label class="inputLabel inputLabelUnfocused">Solar event settings</label>
+                                <div style="display: flex; gap: 0.75em; align-items: flex-end; flex-wrap: wrap;">
+                                    <div>
+                                        <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSolarOffset">Offset (minutes)</label>
+                                        <input id="sceneScheduleSolarOffset" type="number" min="-720" max="720" value="0" is="emby-input" />
+                                    </div>
+                                    <div>
+                                        <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSolarLatitude">Latitude</label>
+                                        <input id="sceneScheduleSolarLatitude" type="number" min="-90" max="90" step="0.0001" is="emby-input" placeholder="e.g. 40.7128" />
+                                    </div>
+                                    <div>
+                                        <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSolarLongitude">Longitude</label>
+                                        <input id="sceneScheduleSolarLongitude" type="number" min="-180" max="180" step="0.0001" is="emby-input" placeholder="e.g. -74.0060" />
+                                    </div>
+                                </div>
+                                <div class="fieldDescription">Offset is -720 to 720 minutes. Coordinates use decimal degrees: north/east are positive. Polar day/night dates without an event are skipped safely.</div>
                             </div>
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleDuration">Hold duration (optional)</label>
@@ -4870,12 +4897,22 @@
                             var units = { daily: "days", weekly: "weeks", monthly: "months", monthlyweekday: "months", yearly: "years" };
                             return " · every " + value + " " + (units[String(recurrence || "weekly").toLowerCase()] || "units");
                         };
+                        var formatScheduleTime = function (schedule) {
+                            var mode = schedule.timeMode !== undefined ? schedule.timeMode : (schedule.TimeMode || 'Fixed');
+                            if (String(mode).toLowerCase() === 'fixed') {
+                                return schedule.timeOfDay !== undefined ? schedule.timeOfDay : schedule.TimeOfDay;
+                            }
+                            var offset = schedule.solarOffsetMinutes !== undefined ? schedule.solarOffsetMinutes : schedule.SolarOffsetMinutes;
+                            var offsetNumber = Number(offset || 0);
+                            var offsetLabel = offsetNumber === 0 ? '' : (offsetNumber > 0 ? ' +' : ' ') + String(offsetNumber) + 'm';
+                            return String(mode) + offsetLabel;
+                        };
                         scheduleSelect.innerHTML = '<option value="">Choose a scheduled cue...</option>';
                         schedules.forEach(function (schedule) {
                             var id = schedule && (schedule.id !== undefined ? schedule.id : schedule.Id);
                             var name = schedule && (schedule.name !== undefined ? schedule.name : schedule.Name);
                             if (!id || !name) return;
-                            var time = schedule.timeOfDay !== undefined ? schedule.timeOfDay : schedule.TimeOfDay;
+                            var time = formatScheduleTime(schedule);
                             var duration = schedule.durationSeconds !== undefined ? schedule.durationSeconds : schedule.DurationSeconds;
                             var priority = schedule.priority !== undefined ? schedule.priority : schedule.Priority;
                             var transition = schedule.transitionSeconds !== undefined ? schedule.transitionSeconds : schedule.TransitionSeconds;
@@ -5109,6 +5146,8 @@
                             var dayOfWeek = HueConfigurationPage.readStatusField(schedule, "DayOfWeek", -1);
                             var target = HueConfigurationPage.readStatusField(schedule, "TargetLabel", "Default bridge target");
                             var time = HueConfigurationPage.readStatusField(schedule, "TimeOfDay", "—");
+                            var timeMode = HueConfigurationPage.readStatusField(schedule, "TimeMode", "Fixed");
+                            var solarOffset = Number(HueConfigurationPage.readStatusField(schedule, "SolarOffsetMinutes", 0) || 0);
                             var timeZone = HueConfigurationPage.readStatusField(schedule, "TimeZoneDisplayName", "Server local");
                             var runDate = HueConfigurationPage.readStatusField(schedule, "RunDate", "");
                             var startDate = HueConfigurationPage.readStatusField(schedule, "StartDate", "");
@@ -5165,7 +5204,10 @@
                             var transitionLabel = (Number(transition) > 0 || Number(transitionOut) > 0)
                                 ? " · fade " + Number(transition || 0) + "s/" + Number(transitionOut || 0) + "s"
                                 : "";
-                            addCell(String(contentName) + (playlist ? " · " + Number(playlistStepCount || 0) + " steps × " + Number(playlistRepeatCount || 1) + " pass" + (Number(playlistRepeatCount || 1) === 1 ? "" : "es") : "") + " · " + String(effect) + " · speed " + String(Number(effectSpeed || 100)) + "% · " + String(time) + " · " + String(duration || 0) + "s" + transitionLabel + (Number(priority || 0) > 0 ? " · priority " + String(Number(priority)) : "") + " · playback " + String(playbackPolicy) + (String(playbackPolicyOverride).toLowerCase() !== "inherit" ? " (override)" : "") + " · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
+                            var scheduleTimeLabel = String(timeMode).toLowerCase() === "fixed"
+                                ? String(time || "—")
+                                : String(timeMode) + (solarOffset === 0 ? "" : (solarOffset > 0 ? " +" : " ") + String(solarOffset) + "m");
+                            addCell(String(contentName) + (playlist ? " · " + Number(playlistStepCount || 0) + " steps × " + Number(playlistRepeatCount || 1) + " pass" + (Number(playlistRepeatCount || 1) === 1 ? "" : "es") : "") + " · " + String(effect) + " · speed " + String(Number(effectSpeed || 100)) + "% · " + scheduleTimeLabel + " · " + String(duration || 0) + "s" + transitionLabel + (Number(priority || 0) > 0 ? " · priority " + String(Number(priority)) : "") + " · playback " + String(playbackPolicy) + (String(playbackPolicyOverride).toLowerCase() !== "inherit" ? " (override)" : "") + " · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
                             addCell(deferredPending
@@ -5911,6 +5953,23 @@
                             : "Blank or 0 uses the saved scene duration; 1-30 seconds overrides it for this cue.";
                     }
                 },
+                updateSceneScheduleTimeMode: function (page) {
+                    if (!page) return;
+                    var mode = page.querySelector('#sceneScheduleTimeMode');
+                    var fixedContainer = page.querySelector('#sceneScheduleFixedTimeContainer');
+                    var fixedTime = page.querySelector('#sceneScheduleTime');
+                    var solarContainer = page.querySelector('#sceneScheduleSolarContainer');
+                    var solarOffset = page.querySelector('#sceneScheduleSolarOffset');
+                    var latitude = page.querySelector('#sceneScheduleSolarLatitude');
+                    var longitude = page.querySelector('#sceneScheduleSolarLongitude');
+                    var isSolar = mode && (mode.value === 'Sunrise' || mode.value === 'Sunset');
+                    if (fixedContainer) fixedContainer.style.display = isSolar ? 'none' : '';
+                    if (solarContainer) solarContainer.style.display = isSolar ? '' : 'none';
+                    if (fixedTime) fixedTime.disabled = !!isSolar;
+                    [solarOffset, latitude, longitude].forEach(function (control) {
+                        if (control) control.disabled = !isSolar;
+                    });
+                },
                 updateSceneScheduleRecurrenceMode: function (page, clearRecurringRules) {
                     if (!page) return;
                     var runDate = page.querySelector('#sceneScheduleRunDate');
@@ -6038,7 +6097,11 @@
                     page.querySelector('#sceneSchedulePlaylistSelect').value = playlistName;
                     page.querySelector('#sceneScheduleSourceType').value = playlistName ? 'playlist' : 'scene';
                     HueConfigurationPage.updateSceneScheduleSource(page);
+                    page.querySelector('#sceneScheduleTimeMode').value = get('TimeMode', 'timeMode', 'Fixed') || 'Fixed';
                     page.querySelector('#sceneScheduleTime').value = get('TimeOfDay', 'timeOfDay', '20:00');
+                    page.querySelector('#sceneScheduleSolarOffset').value = get('SolarOffsetMinutes', 'solarOffsetMinutes', 0) || '0';
+                    page.querySelector('#sceneScheduleSolarLatitude').value = get('SolarLatitude', 'solarLatitude', '') ?? '';
+                    page.querySelector('#sceneScheduleSolarLongitude').value = get('SolarLongitude', 'solarLongitude', '') ?? '';
                     page.querySelector('#sceneScheduleDuration').value = get('DurationSeconds', 'durationSeconds', 0) || '';
                     page.querySelector('#sceneScheduleMaxRuns').value = get('MaxRuns', 'maxRuns', 0) || '';
                     page.querySelector('#sceneSchedulePriority').value = get('Priority', 'priority', 0) || '0';
@@ -6095,6 +6158,7 @@
                     }
                     page.querySelector('#sceneScheduleEnabled').checked = get('Enabled', 'enabled', true) !== false;
                     HueConfigurationPage.setSceneScheduleDaysMask(page, get('DaysOfWeekMask', 'daysOfWeekMask', 127));
+                    HueConfigurationPage.updateSceneScheduleTimeMode(page);
                     HueConfigurationPage.updateSceneScheduleRecurrenceMode(page, false);
                     HueConfigurationPage.updateSceneScheduleButtons(page);
                 },
@@ -6107,7 +6171,11 @@
                     page.querySelector('#sceneSchedulePlaylistSelect').value = '';
                     page.querySelector('#sceneScheduleSourceType').value = 'scene';
                     HueConfigurationPage.updateSceneScheduleSource(page);
+                    page.querySelector('#sceneScheduleTimeMode').value = 'Fixed';
                     page.querySelector('#sceneScheduleTime').value = '20:00';
+                    page.querySelector('#sceneScheduleSolarOffset').value = '0';
+                    page.querySelector('#sceneScheduleSolarLatitude').value = '';
+                    page.querySelector('#sceneScheduleSolarLongitude').value = '';
                     page.querySelector('#sceneScheduleDuration').value = '';
                     page.querySelector('#sceneScheduleMaxRuns').value = '';
                     page.querySelector('#sceneSchedulePriority').value = '0';
@@ -6128,6 +6196,7 @@
                         Array.prototype.forEach.call(targetSelect.options, function (option) { option.selected = option.value === ''; });
                     }
                     page.querySelector('#sceneScheduleEnabled').checked = true;
+                    HueConfigurationPage.updateSceneScheduleTimeMode(page);
                     HueConfigurationPage.setSceneScheduleDaysMask(page, 127);
                     HueConfigurationPage.updateSceneScheduleRecurrenceMode(page, false);
                     HueConfigurationPage.updateSceneScheduleButtons(page);
@@ -6139,7 +6208,14 @@
                     var playlistName = page.querySelector('#sceneSchedulePlaylistSelect').value;
                     if (sourceType === 'playlist') presetName = '';
                     else playlistName = '';
+                    var timeMode = page.querySelector('#sceneScheduleTimeMode').value || 'Fixed';
                     var timeOfDay = page.querySelector('#sceneScheduleTime').value;
+                    var solarOffsetText = page.querySelector('#sceneScheduleSolarOffset').value.trim();
+                    var solarOffsetMinutes = solarOffsetText ? Number(solarOffsetText) : 0;
+                    var solarLatitudeText = page.querySelector('#sceneScheduleSolarLatitude').value.trim();
+                    var solarLongitudeText = page.querySelector('#sceneScheduleSolarLongitude').value.trim();
+                    var solarLatitude = solarLatitudeText ? Number(solarLatitudeText) : null;
+                    var solarLongitude = solarLongitudeText ? Number(solarLongitudeText) : null;
                     var durationText = page.querySelector('#sceneScheduleDuration').value.trim();
                     var durationSeconds = durationText ? Number(durationText) : 0;
                     var maxRunsText = page.querySelector('#sceneScheduleMaxRuns').value.trim();
@@ -6169,7 +6245,11 @@
                     var daysOfWeekMask = HueConfigurationPage.getSceneScheduleDaysMask(page);
                     var recurrenceMode = String(recurrence).toLowerCase();
                     var contentName = sourceType === 'playlist' ? playlistName : presetName;
-                    if (!name || !contentName || !timeOfDay || (!runDate &&
+                    if (!name || !contentName || (timeMode === 'Fixed' && !timeOfDay) ||
+                        ((timeMode === 'Sunrise' || timeMode === 'Sunset') &&
+                         (!Number.isFinite(solarLatitude) || solarLatitude < -90 || solarLatitude > 90 ||
+                          !Number.isFinite(solarLongitude) || solarLongitude < -180 || solarLongitude > 180)) ||
+                        (!runDate &&
                         ((recurrenceMode === 'monthly' && !dayOfMonth) ||
                          (recurrenceMode === 'yearly' && (!monthOfYear || !dayOfMonth)) ||
                          (recurrenceMode === 'monthlyweekday' && (!weekOfMonth || dayOfWeek < 0)) ||
@@ -6182,9 +6262,13 @@
                                     ? "Enter a cue name, saved scene or playlist, time, yearly month, and day of month."
                                 : (recurrenceMode === 'monthlyweekday'
                                     ? "Enter a cue name, saved scene or playlist, time, and monthly ordinal weekday."
-                                    : (recurrenceMode === 'weekly'
+                            : (recurrenceMode === 'weekly'
                                     ? "Enter a cue name, saved scene or playlist, time, and at least one weekday."
-                                    : "Enter a cue name, saved scene or playlist, and time.")))));
+                                    : "Enter a cue name, saved scene or playlist, and a valid timing mode.")))));
+                        return;
+                    }
+                    if (!Number.isInteger(solarOffsetMinutes) || solarOffsetMinutes < -720 || solarOffsetMinutes > 720) {
+                        Dashboard.alert("Solar offset must be a whole number from -720 to 720 minutes.");
                         return;
                     }
                     if (sourceType !== 'playlist' && (!Number.isInteger(durationSeconds) || durationSeconds < 0 || durationSeconds > 30)) {
@@ -6265,6 +6349,10 @@
                             targetUserIds: legacyTargetUserId ? [] : targetUserIds,
                             includeDefaultTarget: includeDefaultTarget,
                             timeOfDay: timeOfDay,
+                            timeMode: timeMode,
+                            solarOffsetMinutes: solarOffsetMinutes,
+                            solarLatitude: solarLatitude,
+                            solarLongitude: solarLongitude,
                             durationSeconds: durationSeconds,
                             maxRuns: maxRuns,
                             priority: priority,
@@ -9308,6 +9396,10 @@
 
             document.querySelector('#sceneScheduleSourceType').addEventListener('change', function () {
                 HueConfigurationPage.updateSceneScheduleSource(this.closest('.page'));
+            });
+
+            document.querySelector('#sceneScheduleTimeMode').addEventListener('change', function () {
+                HueConfigurationPage.updateSceneScheduleTimeMode(this.closest('.page'));
             });
 
             document.querySelector('#sceneScheduleRunDate').addEventListener('change', function () {

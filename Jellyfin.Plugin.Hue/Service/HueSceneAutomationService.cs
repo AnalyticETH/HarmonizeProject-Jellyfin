@@ -943,6 +943,17 @@ public sealed class HueSceneAutomationService : BackgroundService
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
                 TargetLabel = ResolveTargetLabel(config, schedule),
                 TimeOfDay = schedule.TimeOfDay?.Trim() ?? string.Empty,
+                TimeMode = PluginConfiguration.TryNormalizeSceneScheduleTimeMode(
+                    schedule.TimeMode,
+                    out var normalizedTimeMode)
+                    ? normalizedTimeMode
+                    : PluginConfiguration.SceneScheduleTimeModeFixed,
+                SolarOffsetMinutes = Math.Clamp(
+                    schedule.SolarOffsetMinutes,
+                    PluginConfiguration.MinSceneScheduleSolarOffsetMinutes,
+                    PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes),
+                SolarLatitude = schedule.SolarLatitude,
+                SolarLongitude = schedule.SolarLongitude,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
                 TimeZoneDisplayName = string.IsNullOrWhiteSpace(schedule.TimeZoneId)
                     ? $"Server local ({timeZone.DisplayName})"
@@ -1191,7 +1202,7 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         if (schedule == null || !schedule.Enabled ||
             IsRunLimitReached(schedule) ||
-            !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized) ||
+            !PluginConfiguration.TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var normalizedTimeMode) ||
             !PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var timeZone) ||
             (schedule.DurationSeconds != 0 &&
              (schedule.DurationSeconds < PluginConfiguration.MinPreviewDurationSeconds ||
@@ -1201,6 +1212,18 @@ public sealed class HueSceneAutomationService : BackgroundService
             !PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(schedule.ExcludedDates, out _) ||
             !TryGetScheduleRunDate(schedule, out var runDate) ||
             !PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
+        {
+            return occurrences;
+        }
+
+        if (string.Equals(normalizedTimeMode, PluginConfiguration.SceneScheduleTimeModeFixed, StringComparison.Ordinal) &&
+            !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
+        {
+            return occurrences;
+        }
+
+        if (!string.Equals(normalizedTimeMode, PluginConfiguration.SceneScheduleTimeModeFixed, StringComparison.Ordinal) &&
+            !PluginConfiguration.AreValidSceneScheduleSolarCoordinates(schedule.SolarLatitude, schedule.SolarLongitude))
         {
             return occurrences;
         }
@@ -1217,7 +1240,6 @@ public sealed class HueSceneAutomationService : BackgroundService
              !IsRecurrenceIntervalConfigurationValid(schedule, runDate)))
             return occurrences;
 
-        var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
         var firstCandidateDate = scheduleNow.Date;
         if (runDate.HasValue)
         {
@@ -1258,19 +1280,16 @@ public sealed class HueSceneAutomationService : BackgroundService
             if (!runDate.HasValue && !IsScheduleRecurrenceDate(schedule, normalizedRecurrence, candidateDate))
                 continue;
 
-            var candidateLocal = DateTime.SpecifyKind(candidateDate.Add(expectedTime), DateTimeKind.Unspecified);
-            // A spring-forward transition can remove a local wall-clock time. Skipping
-            // that occurrence keeps previews identical to the hosted scheduler.
-            if (timeZone.IsInvalidTime(candidateLocal))
-                continue;
-
-            DateTime candidateUtc;
-            try
+            if (!TryGetScheduleOccurrenceTimes(
+                    schedule,
+                    candidateDate,
+                    timeZone,
+                    out var candidateLocal,
+                    out var candidateUtc))
             {
-                candidateUtc = TimeZoneInfo.ConvertTimeToUtc(candidateLocal, timeZone);
-            }
-            catch (ArgumentException)
-            {
+                // A spring-forward fixed time or a polar-day/night solar event has no
+                // occurrence on this local date. Skipping it keeps scheduler and preview
+                // behavior identical and avoids manufacturing an unsafe instant.
                 continue;
             }
 
@@ -1295,6 +1314,17 @@ public sealed class HueSceneAutomationService : BackgroundService
                     .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                     ?? Array.Empty<string>(),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
+                TimeMode = PluginConfiguration.TryNormalizeSceneScheduleTimeMode(
+                    schedule.TimeMode,
+                    out var occurrenceTimeMode)
+                    ? occurrenceTimeMode
+                    : PluginConfiguration.SceneScheduleTimeModeFixed,
+                SolarOffsetMinutes = Math.Clamp(
+                    schedule.SolarOffsetMinutes,
+                    PluginConfiguration.MinSceneScheduleSolarOffsetMinutes,
+                    PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes),
+                SolarLatitude = schedule.SolarLatitude,
+                SolarLongitude = schedule.SolarLongitude,
                 Effect = PluginConfiguration.ColorPresetEffectSolid,
                 EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(effectSpeedPercent),
                 DurationSeconds = durationSeconds >= 0 ? durationSeconds : schedule.DurationSeconds,
@@ -1840,6 +1870,66 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
+    private static bool TryGetScheduleOccurrenceTimes(
+        HueSceneSchedule schedule,
+        DateTime scheduleDate,
+        TimeZoneInfo timeZone,
+        out DateTime localTime,
+        out DateTime utcTime)
+    {
+        localTime = default;
+        utcTime = default;
+        if (schedule == null || timeZone == null ||
+            !PluginConfiguration.TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var timeMode))
+        {
+            return false;
+        }
+
+        if (string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeSunrise, StringComparison.Ordinal) ||
+            string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeSunset, StringComparison.Ordinal))
+        {
+            if (!PluginConfiguration.AreValidSceneScheduleSolarCoordinates(
+                    schedule.SolarLatitude,
+                    schedule.SolarLongitude))
+            {
+                return false;
+            }
+
+            return HueSolarCalculator.TryGetEventLocal(
+                scheduleDate,
+                timeZone,
+                schedule.SolarLatitude!.Value,
+                schedule.SolarLongitude!.Value,
+                string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeSunrise, StringComparison.Ordinal),
+                Math.Clamp(
+                    schedule.SolarOffsetMinutes,
+                    PluginConfiguration.MinSceneScheduleSolarOffsetMinutes,
+                    PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes),
+                out localTime,
+                out utcTime);
+        }
+
+        if (!PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalizedTime))
+            return false;
+
+        var parsedTime = TimeSpan.Parse(normalizedTime, System.Globalization.CultureInfo.InvariantCulture);
+        localTime = DateTime.SpecifyKind(scheduleDate.Date.Add(parsedTime), DateTimeKind.Unspecified);
+        if (timeZone.IsInvalidTime(localTime))
+            return false;
+
+        try
+        {
+            utcTime = DateTime.SpecifyKind(
+                TimeZoneInfo.ConvertTimeToUtc(localTime, timeZone),
+                DateTimeKind.Utc);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Determines whether a schedule is due in the supplied server-local minute after
     /// converting that instant into the cue's configured time zone. One-time cues match
@@ -1850,10 +1940,16 @@ public sealed class HueSceneAutomationService : BackgroundService
     {
         if (schedule == null || !schedule.Enabled ||
             IsRunLimitReached(schedule) ||
-            !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out var normalized) ||
+            !PluginConfiguration.TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var normalizedTimeMode) ||
             !TryGetScheduleLocalNow(schedule, localNow, out var scheduleNow, out _) ||
             !TryGetScheduleRunDate(schedule, out var runDate))
             return false;
+
+        if (string.Equals(normalizedTimeMode, PluginConfiguration.SceneScheduleTimeModeFixed, StringComparison.Ordinal) &&
+            !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
+        {
+            return false;
+        }
 
         if (!runDate.HasValue &&
             (!PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var recurrence) ||
@@ -1874,10 +1970,20 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (!IsScheduleDateAllowed(schedule, scheduleNow.Date))
             return false;
 
-        var expectedTime = TimeSpan.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
-        return (runDate.HasValue || IsScheduleRecurrenceDate(schedule, normalizedRecurrence, scheduleNow.Date)) &&
-               scheduleNow.Hour == expectedTime.Hours &&
-               scheduleNow.Minute == expectedTime.Minutes;
+        if (!runDate.HasValue && !IsScheduleRecurrenceDate(schedule, normalizedRecurrence, scheduleNow.Date))
+            return false;
+
+        return TryGetScheduleOccurrenceTimes(
+                   schedule,
+                   scheduleNow.Date,
+                   PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var timeZone)
+                       ? timeZone
+                       : TimeZoneInfo.Local,
+                   out var expectedLocal,
+                   out _) &&
+               expectedLocal.Date == scheduleNow.Date &&
+               scheduleNow.Hour == expectedLocal.Hour &&
+               scheduleNow.Minute == expectedLocal.Minute;
     }
 
     private static bool IsRunLimitReached(HueSceneSchedule? schedule)
@@ -2198,7 +2304,16 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private static DateTime GetScheduleRunSlot(HueSceneSchedule schedule, DateTime serverLocalNow)
     {
-        if (TryGetScheduleLocalNow(schedule, serverLocalNow, out var scheduleLocalNow, out _))
+        if (TryGetScheduleLocalNow(schedule, serverLocalNow, out var scheduleLocalNow, out _) &&
+            PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var timeZone) &&
+            TryGetScheduleOccurrenceTimes(schedule, scheduleLocalNow.Date, timeZone, out _, out var occurrenceUtc))
+        {
+            // Stable UTC slots prevent duplicate polling runs when a solar event falls
+            // near a local DST transition or when the host crosses a minute boundary.
+            return occurrenceUtc;
+        }
+
+        if (TryGetScheduleLocalNow(schedule, serverLocalNow, out scheduleLocalNow, out _))
         {
             return new DateTime(
                 scheduleLocalNow.Year,
@@ -2245,8 +2360,29 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (config == null)
             return new HueSceneScheduleReadiness(false, "Plugin configuration is unavailable.");
 
-        if (!PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
-            return new HueSceneScheduleReadiness(false, "The scheduled time is invalid.");
+        if (!PluginConfiguration.TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var normalizedTimeMode))
+            return new HueSceneScheduleReadiness(false, "The schedule time mode is invalid.");
+
+        if (string.Equals(normalizedTimeMode, PluginConfiguration.SceneScheduleTimeModeFixed, StringComparison.Ordinal))
+        {
+            if (!PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
+                return new HueSceneScheduleReadiness(false, "The fixed scheduled time is invalid.");
+        }
+        else
+        {
+            if (schedule.SolarOffsetMinutes < PluginConfiguration.MinSceneScheduleSolarOffsetMinutes ||
+                schedule.SolarOffsetMinutes > PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes)
+            {
+                return new HueSceneScheduleReadiness(false, "The solar offset is outside the supported range.");
+            }
+
+            if (!PluginConfiguration.AreValidSceneScheduleSolarCoordinates(
+                    schedule.SolarLatitude,
+                    schedule.SolarLongitude))
+            {
+                return new HueSceneScheduleReadiness(false, "Solar cues require valid latitude and longitude coordinates.");
+            }
+        }
 
         if (!PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
             return new HueSceneScheduleReadiness(false, "The scheduled time zone is not available on this server.");
@@ -4204,6 +4340,10 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserId = source.TargetUserId,
             TargetAllEnabledMappings = source.TargetAllEnabledMappings,
             TimeOfDay = source.TimeOfDay,
+            TimeMode = source.TimeMode,
+            SolarOffsetMinutes = source.SolarOffsetMinutes,
+            SolarLatitude = source.SolarLatitude,
+            SolarLongitude = source.SolarLongitude,
             TimeZoneId = source.TimeZoneId,
             Recurrence = source.Recurrence,
             RecurrenceInterval = source.RecurrenceInterval,
@@ -4594,6 +4734,18 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("includeDefaultTarget")]
     public bool IncludeDefaultTarget { get; init; }
 
+    [JsonPropertyName("timeMode")]
+    public string TimeMode { get; init; } = PluginConfiguration.SceneScheduleTimeModeFixed;
+
+    [JsonPropertyName("solarOffsetMinutes")]
+    public int SolarOffsetMinutes { get; init; }
+
+    [JsonPropertyName("solarLatitude")]
+    public double? SolarLatitude { get; init; }
+
+    [JsonPropertyName("solarLongitude")]
+    public double? SolarLongitude { get; init; }
+
     [JsonPropertyName("effect")]
     public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
 
@@ -4785,6 +4937,18 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("timeOfDay")]
     public string TimeOfDay { get; init; } = string.Empty;
+
+    [JsonPropertyName("timeMode")]
+    public string TimeMode { get; init; } = PluginConfiguration.SceneScheduleTimeModeFixed;
+
+    [JsonPropertyName("solarOffsetMinutes")]
+    public int SolarOffsetMinutes { get; init; }
+
+    [JsonPropertyName("solarLatitude")]
+    public double? SolarLatitude { get; init; }
+
+    [JsonPropertyName("solarLongitude")]
+    public double? SolarLongitude { get; init; }
 
     [JsonPropertyName("timeZoneId")]
     public string TimeZoneId { get; init; } = string.Empty;

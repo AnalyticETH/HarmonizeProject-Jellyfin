@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.188] - 2026-08-23
+
+### Added
+- **Solar-aware scheduled cues**: schedule saved scenes and playlists at local **Fixed**, **Sunrise**, or **Sunset** times with bounded -720 to +720 minute offsets
+- **Portable location and time-zone rules**: persist decimal latitude/longitude per solar cue, resolve the event in the selected cue time zone with DST-safe UTC instants, and skip polar day/night dates without inventing a run
+- **Credential-free observability**: expose timing mode, offset, coordinates, and resolved occurrence metadata through schedule CRUD, status, upcoming occurrences, CSV, iCalendar, backup/restore, and the administrator editor
+- **Regression coverage**: verify NOAA solar calculations, midnight-crossing events, polar no-event handling, validation, normalization, and scheduler due/upcoming behavior
+
 ## [1.5.187] - 2026-08-23
 
 ### Added
