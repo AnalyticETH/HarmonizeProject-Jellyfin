@@ -380,7 +380,7 @@
 
                     <fieldset class="verticalSection">
                         <legend>Saved Scene Playlists</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into a playlist. Each step inherits its saved scene's brightness and fade transitions unless you set an explicit 0-100% brightness, 0-30 second fade-in, or 0-30 second fade-out override; blank transition fields inherit the saved scene. Its hold duration inherits the scene by default or can use a bounded per-step override from 1-30 seconds (0 means inherit). Choose Saved order or a stable date-seeded Shuffle for each restorative preview pass. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, all enabled targets, or a deliberate subset of enabled mappings and optionally include the default bridge. Playlist definitions contain only scene names, per-step duration/brightness/transition overrides, repeat count, playback order, and credential-free target selection, never bridge credentials. Preview Targets can override one preview run without changing the saved playlist; Preview Playlist on All Targets remains an explicit broadcast override. Renaming a playlist automatically updates scheduled cues that use it; use View References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into a playlist. Each step inherits its saved scene's brightness, fade transitions, and fade curve unless you set an explicit 0-100% brightness, 0-30 second fade-in, 0-30 second fade-out, or Linear/SmoothStep/EaseIn/EaseOut/EaseInOut curve override; blank transition fields and Inherited scene curves preserve the saved scene. Its hold duration inherits the scene by default or can use a bounded per-step override from 1-30 seconds (0 means inherit). Choose Saved order or a stable date-seeded Shuffle for each restorative preview pass. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, all enabled targets, or a deliberate subset of enabled mappings and optionally include the default bridge. Playlist definitions contain only scene names, per-step duration/brightness/transition/curve overrides, repeat count, playback order, and credential-free target selection, never bridge credentials. Preview Targets can override one preview run without changing the saved playlist; Preview Playlist on All Targets remains an explicit broadcast override. Renaming a playlist automatically updates scheduled cues that use it; use View References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="scenePlaylistSelect">Saved Playlist</label>
@@ -459,12 +459,12 @@
                             <button is="emby-button" type="button" class="raised" id="saveScenePlaylistBtn"><span>Save / Update Playlist</span></button>
                         </div>
                         <div id="scenePlaylistItems" style="margin-top: 0.75em;"></div>
-                        <div id="scenePlaylistStatus" class="fieldDescription" style="margin-top: 0.5em;">Select saved scenes, set optional per-step brightness, fade-in, fade-out, and hold overrides (blank brightness/transitions inherit; 0 seconds inherits each scene's duration), choose Saved order or Stable daily shuffle, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge.</div>
+                        <div id="scenePlaylistStatus" class="fieldDescription" style="margin-top: 0.5em;">Select saved scenes, set optional per-step brightness, fade-in, fade-out, fade curve, and hold overrides (blank brightness/transitions and Inherited scene curves preserve the scene; 0 seconds inherits each scene's duration), choose Saved order or Stable daily shuffle, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
                         <legend>Scheduled Scene Cues</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene or a saved-scene playlist automatically at a chosen wall-clock time and time zone. Playlist cues use the saved order or stable daily shuffle for each repeat pass and keep each scene's effect plus its optional per-step brightness, duration, fade-in, and fade-out overrides (blank brightness/transitions and 0 seconds inherit the saved scene); their playback order, pass count, effective per-step brightness/durations/transitions, start offsets, and total duration are shown in status, calendar, and history. The saved scene's effect and 25-400% animation speed are inherited by every single-scene cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) for the saved scene or playlist; a 1-30 second override is available only for single-scene cues because playlist steps have their own saved overrides. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Choose a playback policy per cue: <strong>Inherit global policy</strong> keeps the scheduler-wide setting, while Skip or Defer overrides it for this cue only. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, or multi-select a deliberate subset of enabled mappings and optionally the default bridge; each selected target is validated and reported without exposing credentials. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene or a saved-scene playlist automatically at a chosen wall-clock time and time zone. Playlist cues use the saved order or stable daily shuffle for each repeat pass and keep each scene's effect plus its optional per-step brightness, duration, fade-in, fade-out, and fade-curve overrides (blank brightness/transitions and Inherited scene curves preserve the saved scene); their playback order, pass count, effective per-step brightness/durations/transitions/curves, start offsets, and total duration are shown in status, calendar, and history. The saved scene's effect and 25-400% animation speed are inherited by every single-scene cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) for the saved scene or playlist; a 1-30 second override is available only for single-scene cues because playlist steps have their own saved overrides. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Choose a playback policy per cue: <strong>Inherit global policy</strong> keeps the scheduler-wide setting, while Skip or Defer overrides it for this cue only. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, or multi-select a deliberate subset of enabled mappings and optionally the default bridge; each selected target is validated and reported without exposing credentials. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleSelect">Saved Cue</label>
@@ -3751,6 +3751,18 @@
                         return Number.isInteger(value) && value >= 0 && value <= 30 ? value : null;
                     });
                     page._hueScenePlaylistTransitionOuts = transitionOuts;
+                    var transitionCurves = Array.isArray(page._hueScenePlaylistTransitionCurves)
+                        ? page._hueScenePlaylistTransitionCurves
+                        : [];
+                    while (transitionCurves.length < items.length) transitionCurves.push(null);
+                    if (transitionCurves.length > items.length) transitionCurves.length = items.length;
+                    transitionCurves = transitionCurves.map(function (raw) {
+                        if (raw === null || raw === undefined || String(raw).trim() === '') return null;
+                        var normalized = String(raw).trim();
+                        var supported = ['Linear', 'SmoothStep', 'EaseIn', 'EaseOut', 'EaseInOut'];
+                        return supported.find(function (curve) { return curve.toLowerCase() === normalized.toLowerCase(); }) || null;
+                    });
+                    page._hueScenePlaylistTransitionCurves = transitionCurves;
                     var list = document.createElement('ol');
                     list.style.margin = '0';
                     list.style.paddingLeft = '2em';
@@ -3864,6 +3876,33 @@
                         });
                         row.appendChild(transitionOutLabel);
                         row.appendChild(transitionOutInput);
+                        var transitionCurveLabel = document.createElement('label');
+                        transitionCurveLabel.textContent = 'Fade curve (inherit):';
+                        transitionCurveLabel.style.marginRight = '0.35em';
+                        transitionCurveLabel.style.marginLeft = '0.35em';
+                        var transitionCurveSelect = document.createElement('select');
+                        transitionCurveSelect.is = 'emby-select';
+                        transitionCurveSelect.style.width = '8em';
+                        [
+                            ['', 'Inherited scene'],
+                            ['Linear', 'Linear'],
+                            ['SmoothStep', 'SmoothStep'],
+                            ['EaseIn', 'EaseIn'],
+                            ['EaseOut', 'EaseOut'],
+                            ['EaseInOut', 'EaseInOut']
+                        ].forEach(function (optionDefinition) {
+                            var option = document.createElement('option');
+                            option.value = optionDefinition[0];
+                            option.textContent = optionDefinition[1];
+                            transitionCurveSelect.appendChild(option);
+                        });
+                        transitionCurveSelect.value = transitionCurves[index] || '';
+                        transitionCurveSelect.setAttribute('aria-label', 'Fade curve override for ' + name + '; inherited scene curve by default');
+                        transitionCurveSelect.addEventListener('change', function () {
+                            page._hueScenePlaylistTransitionCurves[index] = transitionCurveSelect.value || null;
+                        });
+                        row.appendChild(transitionCurveLabel);
+                        row.appendChild(transitionCurveSelect);
                         var up = document.createElement('button');
                         up.type = 'button';
                         up.className = 'raised';
@@ -3890,6 +3929,7 @@
                             page._hueScenePlaylistBrightness.splice(index, 1);
                             page._hueScenePlaylistTransitions.splice(index, 1);
                             page._hueScenePlaylistTransitionOuts.splice(index, 1);
+                            page._hueScenePlaylistTransitionCurves.splice(index, 1);
                             HueConfigurationPage.renderScenePlaylistItems(page);
                             HueConfigurationPage.updateScenePlaylistButtons(page);
                         });
@@ -4094,12 +4134,22 @@
                         var value = Number(raw);
                         return Number.isInteger(value) && value >= 0 && value <= 30 ? value : null;
                     });
+                    var stepTransitionCurves = playlist.stepTransitionCurves !== undefined ? playlist.stepTransitionCurves : (playlist.StepTransitionCurves || []);
+                    stepTransitionCurves = Array.isArray(stepTransitionCurves) ? stepTransitionCurves : [];
+                    stepTransitionCurves = presetNames.map(function (_, index) {
+                        var raw = stepTransitionCurves[index];
+                        if (raw === null || raw === undefined || String(raw).trim() === '') return null;
+                        var normalized = String(raw).trim();
+                        var supported = ['Linear', 'SmoothStep', 'EaseIn', 'EaseOut', 'EaseInOut'];
+                        return supported.find(function (curve) { return curve.toLowerCase() === normalized.toLowerCase(); }) || null;
+                    });
                     page._hueScenePlaylistId = id || '';
                     page._hueScenePlaylistItems = presetNames.slice();
                     page._hueScenePlaylistDurations = stepDurations;
                     page._hueScenePlaylistBrightness = stepBrightness;
                     page._hueScenePlaylistTransitions = stepTransitions;
                     page._hueScenePlaylistTransitionOuts = stepTransitionOuts;
+                    page._hueScenePlaylistTransitionCurves = stepTransitionCurves;
                     page.querySelector('#scenePlaylistName').value = playlistName || '';
                     page.querySelector('#scenePlaylistRepeatCount').value = repeatCount || 1;
                     var playbackOrderSelect = page.querySelector('#scenePlaylistPlaybackOrder');
@@ -4130,6 +4180,7 @@
                     page._hueScenePlaylistBrightness = [];
                     page._hueScenePlaylistTransitions = [];
                     page._hueScenePlaylistTransitionOuts = [];
+                    page._hueScenePlaylistTransitionCurves = [];
                     var name = page.querySelector('#scenePlaylistName');
                     var repeatCount = page.querySelector('#scenePlaylistRepeatCount');
                     var playbackOrder = page.querySelector('#scenePlaylistPlaybackOrder');
@@ -4159,6 +4210,7 @@
                     page._hueScenePlaylistBrightness = Array.isArray(page._hueScenePlaylistBrightness) ? page._hueScenePlaylistBrightness : [];
                     page._hueScenePlaylistTransitions = Array.isArray(page._hueScenePlaylistTransitions) ? page._hueScenePlaylistTransitions : [];
                     page._hueScenePlaylistTransitionOuts = Array.isArray(page._hueScenePlaylistTransitionOuts) ? page._hueScenePlaylistTransitionOuts : [];
+                    page._hueScenePlaylistTransitionCurves = Array.isArray(page._hueScenePlaylistTransitionCurves) ? page._hueScenePlaylistTransitionCurves : [];
                     if (page._hueScenePlaylistItems.length >= 20) {
                         Dashboard.alert("A playlist can contain no more than 20 saved scenes.");
                         return;
@@ -4168,6 +4220,7 @@
                     page._hueScenePlaylistBrightness.push(null);
                     page._hueScenePlaylistTransitions.push(null);
                     page._hueScenePlaylistTransitionOuts.push(null);
+                    page._hueScenePlaylistTransitionCurves.push(null);
                     source.value = '';
                     HueConfigurationPage.renderScenePlaylistItems(page);
                     HueConfigurationPage.updateScenePlaylistButtons(page);
@@ -4203,6 +4256,12 @@
                     transitionOuts[index] = transitionOuts[target];
                     transitionOuts[target] = transitionOut;
                     page._hueScenePlaylistTransitionOuts = transitionOuts;
+                    var transitionCurves = Array.isArray(page._hueScenePlaylistTransitionCurves) ? page._hueScenePlaylistTransitionCurves : [];
+                    while (transitionCurves.length < items.length) transitionCurves.push(null);
+                    var transitionCurve = transitionCurves[index];
+                    transitionCurves[index] = transitionCurves[target];
+                    transitionCurves[target] = transitionCurve;
+                    page._hueScenePlaylistTransitionCurves = transitionCurves;
                     HueConfigurationPage.renderScenePlaylistItems(page);
                 },
                 normalizeScenePlaylistTargetSelection: function (page) {
@@ -4499,6 +4558,14 @@
                         var value = Number(raw);
                         return Number.isInteger(value) && value >= 0 && value <= 30 ? value : null;
                     });
+                    var transitionCurves = Array.isArray(page._hueScenePlaylistTransitionCurves) ? page._hueScenePlaylistTransitionCurves : [];
+                    transitionCurves = items.map(function (_, index) {
+                        var raw = transitionCurves[index];
+                        if (raw === null || raw === undefined || String(raw).trim() === '') return null;
+                        var normalized = String(raw).trim();
+                        var supported = ['Linear', 'SmoothStep', 'EaseIn', 'EaseOut', 'EaseInOut'];
+                        return supported.find(function (curve) { return curve.toLowerCase() === normalized.toLowerCase(); }) || null;
+                    });
                     var targetSelection = HueConfigurationPage.getScenePlaylistTargetSelection(page);
                     var status = page.querySelector('#scenePlaylistStatus');
                     var scheduleSelect = page.querySelector('#sceneScheduleSelect');
@@ -4534,6 +4601,7 @@
                             stepBrightnessPercent: brightnesses,
                             stepTransitionSeconds: transitions,
                             stepTransitionOutSeconds: transitionOuts,
+                            stepTransitionCurves: transitionCurves,
                             repeatCount: repeatCount,
                             playbackOrder: playbackOrder,
                             targetUserId: targetSelection.targetUserId,
@@ -5869,9 +5937,10 @@
                                     var stepDuration = Number(HueConfigurationPage.readStatusField(step, "DurationSeconds", 0));
                                     var stepTransition = Number(HueConfigurationPage.readStatusField(step, "TransitionSeconds", 0));
                                     var stepTransitionOut = Number(HueConfigurationPage.readStatusField(step, "TransitionOutSeconds", 0));
+                                    var stepCurve = String(HueConfigurationPage.readStatusField(step, "TransitionCurve", "Linear"));
                                     var stepRepeat = Number(HueConfigurationPage.readStatusField(step, "RepeatIndex", 1));
                                     var stepOffset = Number(HueConfigurationPage.readStatusField(step, "StartOffsetSeconds", 0));
-                                    return "#" + stepIndex + " " + stepName + " " + stepBrightness + "%/" + stepDuration + "s fade " + stepTransition + "/" + stepTransitionOut + "s @" + stepOffset + "s" + (stepRepeat > 1 ? " (pass " + stepRepeat + ")" : "");
+                                    return "#" + stepIndex + " " + stepName + " " + stepBrightness + "%/" + stepDuration + "s " + stepCurve + " fade " + stepTransition + "/" + stepTransitionOut + "s @" + stepOffset + "s" + (stepRepeat > 1 ? " (pass " + stepRepeat + ")" : "");
                                 }).join(" → ")
                                 : "";
                             addCell(occurrenceName + (occurrencePlaylistName ? " · " + (occurrencePlaybackOrder.toLowerCase() === "shuffle" ? "shuffle" : "saved order") : "") + " · " + occurrenceEffect + " · speed " + occurrenceSpeed + "%" + occurrencePlan + (occurrencePriority > 0 ? " · priority " + occurrencePriority : "") + ((occurrenceTransition > 0 || occurrenceTransitionOut > 0)
@@ -6079,9 +6148,10 @@
                                     var stepDuration = Number(HueConfigurationPage.readStatusField(step, "DurationSeconds", 0));
                                     var stepTransition = Number(HueConfigurationPage.readStatusField(step, "TransitionSeconds", 0));
                                     var stepTransitionOut = Number(HueConfigurationPage.readStatusField(step, "TransitionOutSeconds", 0));
+                                    var stepCurve = String(HueConfigurationPage.readStatusField(step, "TransitionCurve", "Linear"));
                                     var stepRepeat = Number(HueConfigurationPage.readStatusField(step, "RepeatIndex", 1));
                                     var stepOffset = Number(HueConfigurationPage.readStatusField(step, "StartOffsetSeconds", 0));
-                                    return "#" + stepIndex + " " + stepName + " " + stepBrightness + "%/" + stepDuration + "s fade " + stepTransition + "/" + stepTransitionOut + "s @" + stepOffset + "s" + (stepRepeat > 1 ? " (pass " + stepRepeat + ")" : "");
+                                    return "#" + stepIndex + " " + stepName + " " + stepBrightness + "%/" + stepDuration + "s " + stepCurve + " fade " + stepTransition + "/" + stepTransitionOut + "s @" + stepOffset + "s" + (stepRepeat > 1 ? " (pass " + stepRepeat + ")" : "");
                                 }).join(" → ")
                                 : "";
                             var runEffect = HueConfigurationPage.readStatusField(run, "Effect", "Solid");

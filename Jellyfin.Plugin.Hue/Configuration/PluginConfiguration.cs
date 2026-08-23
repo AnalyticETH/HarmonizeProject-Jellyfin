@@ -127,7 +127,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
     /// <summary>
     /// A credential-free saved-scene collection. Playlists retain only scene names, optional
-    /// bounded per-step duration, brightness, and transition overrides, a bounded repeat count, playback order, and an
+    /// bounded per-step duration, brightness, transition, and transition-curve overrides, a bounded repeat count, playback order, and an
     /// optional target mode; bridge credentials and
     /// channel profiles are resolved from the current server configuration when the
     /// playlist is previewed. A selected-target playlist can fan out to a deliberate
@@ -163,6 +163,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// values from 0 through 30 override only that playlist step.
         /// </summary>
         public List<int?> StepTransitionOutSeconds { get; set; } = new List<int?>();
+        /// <summary>
+        /// Optional per-step fade curves, parallel to <see cref="PresetNames"/>.
+        /// A null, blank, or missing value preserves the referenced scene's transition
+        /// curve; explicit values must be one of the supported transition curves.
+        /// </summary>
+        public List<string?> StepTransitionCurves { get; set; } = new List<string?>();
         /// <summary>
         /// Number of times the saved scene sequence is played. Missing values in
         /// legacy configurations preserve the original single-pass behavior.
@@ -963,6 +969,30 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 overrideSeconds.Value > MaxColorPresetTransitionOutSeconds
                 ? Math.Clamp(preset.TransitionOutSeconds, MinColorPresetTransitionOutSeconds, MaxColorPresetTransitionOutSeconds)
                 : overrideSeconds.Value;
+        }
+
+        /// <summary>
+        /// Resolves one playlist step's fade curve. A missing, blank, or malformed
+        /// override inherits the referenced scene curve.
+        /// </summary>
+        public static string GetEffectiveScenePlaylistStepTransitionCurve(
+            HueScenePlaylist playlist,
+            int stepIndex,
+            HueColorPreset preset)
+        {
+            ArgumentNullException.ThrowIfNull(playlist);
+            ArgumentNullException.ThrowIfNull(preset);
+            var overrideCurve = playlist.StepTransitionCurves != null &&
+                stepIndex >= 0 &&
+                stepIndex < playlist.StepTransitionCurves.Count
+                ? playlist.StepTransitionCurves[stepIndex]
+                : null;
+            return !string.IsNullOrWhiteSpace(overrideCurve) &&
+                TryNormalizeColorPresetTransitionCurve(overrideCurve, out var normalizedOverride)
+                ? normalizedOverride
+                : TryNormalizeColorPresetTransitionCurve(preset.TransitionCurve, out var normalizedPreset)
+                    ? normalizedPreset
+                    : ColorPresetTransitionCurveLinear;
         }
 
         /// <summary>
@@ -2516,6 +2546,22 @@ namespace Jellyfin.Plugin.Hue.Configuration
                      stepTransitionOuts[index]!.Value > MaxColorPresetTransitionOutSeconds))
                 {
                     errors.Add($"{label} step {index + 1} fade-out must be between {MinColorPresetTransitionOutSeconds} and {MaxColorPresetTransitionOutSeconds} seconds, or null (inherit)");
+                }
+            }
+
+            var stepTransitionCurves = playlist.StepTransitionCurves ?? new List<string?>();
+            if (stepTransitionCurves.Count != 0 && stepTransitionCurves.Count != presetNames.Count)
+            {
+                errors.Add($"{label} step transition curves must contain one value per saved scene, or be omitted");
+            }
+
+            for (var index = 0; index < stepTransitionCurves.Count; index++)
+            {
+                var curve = stepTransitionCurves[index];
+                if (!string.IsNullOrWhiteSpace(curve) &&
+                    !TryNormalizeColorPresetTransitionCurve(curve, out _))
+                {
+                    errors.Add($"{label} step {index + 1} transition curve must be one of {string.Join(", ", ColorPresetTransitionCurves)}, or null (inherit)");
                 }
             }
 

@@ -1319,7 +1319,7 @@ public sealed class HueSceneAutomationServiceTests
             EntertainmentAreaId = "area-1",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, DurationSeconds = 12, TransitionSeconds = 2, TransitionOutSeconds = 2 },
+                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, DurationSeconds = 12, TransitionSeconds = 2, TransitionOutSeconds = 2, TransitionCurve = PluginConfiguration.ColorPresetTransitionCurveEaseIn },
                 new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, DurationSeconds = 8 }
             },
             ScenePlaylists = new List<HueScenePlaylist>
@@ -1331,7 +1331,8 @@ public sealed class HueSceneAutomationServiceTests
                     PresetNames = new List<string> { "Warm", "Cool" },
                     StepDurationSeconds = new List<int> { 3, 0 },
                     StepTransitionSeconds = new List<int?> { 1, null },
-                    StepTransitionOutSeconds = new List<int?> { null, 1 }
+                    StepTransitionOutSeconds = new List<int?> { null, 1 },
+                    StepTransitionCurves = new List<string?> { PluginConfiguration.ColorPresetTransitionCurveEaseInOut, null }
                 }
             }
         };
@@ -1350,6 +1351,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(new[] { 3, 8 }, streamTester.Durations);
         Assert.Equal(new[] { 1, 0 }, streamTester.TransitionSeconds);
         Assert.Equal(new[] { 2, 1 }, streamTester.TransitionOutSeconds);
+        Assert.Equal(new[] { "EaseInOut", "Linear" }, streamTester.TransitionCurves);
         Assert.Equal(new[] { 3, 8 }, result.Steps.Select(step => step.DurationSeconds));
         Assert.Equal(new[] { 1, 0 }, result.Steps.Select(step => step.TransitionSeconds));
         Assert.Equal(new[] { 2, 1 }, result.Steps.Select(step => step.TransitionOutSeconds));
@@ -1411,6 +1413,12 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(new[] { 1, 2, 1, 2 }, steps.Select(step => step.OriginalIndex));
         Assert.Equal(new[] { 1, 2, 1, 2 }, steps.Select(step => step.TransitionSeconds));
         Assert.Equal(new[] { 2, 1, 2, 1 }, steps.Select(step => step.TransitionOutSeconds));
+        playlist.StepTransitionCurves = new List<string?> { "EaseInOut", null };
+        var curveSteps = HueSceneAutomationService.BuildPlaylistScheduleSteps(
+            configuration,
+            playlist,
+            new DateTime(2026, 8, 23, 20, 0, 0));
+        Assert.Equal(new[] { "EaseInOut", "Linear", "EaseInOut", "Linear" }, curveSteps.Select(step => step.TransitionCurve));
 
         playlist.PlaybackOrder = PluginConfiguration.ScenePlaylistOrderShuffle;
         var shuffled = HueSceneAutomationService.BuildPlaylistScheduleSteps(
@@ -1537,6 +1545,7 @@ public sealed class HueSceneAutomationServiceTests
                     StepBrightnessPercent = new List<int?> { 30, null },
                     StepTransitionSeconds = new List<int?> { 1, null },
                     StepTransitionOutSeconds = new List<int?> { null, 1 },
+                    StepTransitionCurves = new List<string?> { "EaseInOut", null },
                     RepeatCount = 2
                 }
             },
@@ -1574,6 +1583,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(new[] { 0, 1, 3, 4 }, result.PlaylistSteps.Select(step => step.StartOffsetSeconds));
         Assert.Equal(new[] { 1, 0, 1, 0 }, result.PlaylistSteps.Select(step => step.TransitionSeconds));
         Assert.Equal(new[] { 0, 1, 0, 1 }, result.PlaylistSteps.Select(step => step.TransitionOutSeconds));
+        Assert.Equal(new[] { "EaseInOut", "Linear", "EaseInOut", "Linear" }, result.PlaylistSteps.Select(step => step.TransitionCurve));
         Assert.Equal(new[] { 11, 222, 11, 222 }, streamTester.Reds);
         Assert.Equal(new[] { 30, 70, 30, 70 }, streamTester.Brightnesses);
         Assert.Equal(new[] { 1, 0, 1, 0 }, streamTester.TransitionSeconds);
@@ -1583,6 +1593,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(new[] { 30, 70, 30, 70 }, history.PlaylistSteps.Select(step => step.BrightnessPercent));
         Assert.Equal(new[] { 0, 1, 3, 4 }, history.PlaylistSteps.Select(step => step.StartOffsetSeconds));
         Assert.Equal(new[] { 1, 0, 1, 0 }, history.PlaylistSteps.Select(step => step.TransitionSeconds));
+        Assert.Equal(new[] { "EaseInOut", "Linear", "EaseInOut", "Linear" }, history.PlaylistSteps.Select(step => step.TransitionCurve));
         var runtime = Assert.Single(service.GetStatus().Schedules);
         Assert.Equal("Scheduled sequence", runtime.PlaylistName);
         Assert.Equal(2, runtime.PlaylistStepCount);
@@ -4076,13 +4087,14 @@ public sealed class HueSceneAutomationServiceTests
         }
     }
 
-    private sealed class RecordingStreamTester : IHueStreamTester
+    private sealed class RecordingStreamTester : IHueStreamTester, IHueTransitionCurveStreamTester
     {
         public List<int> Reds { get; } = new();
         public List<int> Brightnesses { get; } = new();
         public List<int> Durations { get; } = new();
         public List<int> TransitionSeconds { get; } = new();
         public List<int> TransitionOutSeconds { get; } = new();
+        public List<string> TransitionCurves { get; } = new();
 
         public Task<HueStreamProbeResult> TestAsync(
             string bridgeIp,
@@ -4127,6 +4139,75 @@ public sealed class HueSceneAutomationServiceTests
                 Message = "Displayed scheduled scene."
             });
         }
+
+        public Task<HueStreamProbeResult> PreviewAsyncWithTransitionCurve(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+            string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear)
+        {
+            Reds.Add(red);
+            Brightnesses.Add(brightnessPercent);
+            Durations.Add(durationSeconds);
+            TransitionSeconds.Add(transitionSeconds);
+            TransitionOutSeconds.Add(transitionOutSeconds);
+            TransitionCurves.Add(transitionCurve);
+            return Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Displayed scheduled scene."
+            });
+        }
+
+        public Task<HueStreamProbeResult> PreviewAsyncForTargetWithTransitionCurve(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+            string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear)
+            => PreviewAsyncWithTransitionCurve(
+                bridgeIp,
+                appKey,
+                clientKey,
+                areaId,
+                areaConfiguration,
+                channelIds,
+                red,
+                green,
+                blue,
+                brightnessPercent,
+                durationSeconds,
+                cancellationToken,
+                transitionSeconds,
+                transitionOutSeconds,
+                effect,
+                effectSpeedPercent,
+                transitionCurve);
 
         public bool CancelActiveDiagnostic() => false;
     }

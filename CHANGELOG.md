@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.201] - 2026-08-23
+
+### Added
+- **Per-step playlist fade curves**: saved-scene playlists now accept nullable `stepTransitionCurves` overrides for Linear, SmoothStep, EaseIn, EaseOut, and EaseInOut; omitted or null values inherit the referenced scene curve
+- **End-to-end curve parity**: apply effective per-step curves to easing-capable previews, scheduled plans, runtime/status/history telemetry, API/UI, occurrence displays, duplication, and credential-free backup/restore
+- **Regression coverage**: verify curve validation/inheritance, runtime propagation, scheduler/history telemetry, API round trips, backup portability, and configuration-page contracts
+
 ## [1.5.200] - 2026-08-23
 
 ### Added

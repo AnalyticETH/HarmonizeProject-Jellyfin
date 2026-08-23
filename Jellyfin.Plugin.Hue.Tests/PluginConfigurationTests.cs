@@ -404,6 +404,63 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsPerStepTransitionCurveOverridesAndPreservesLegacyInheritance()
+    {
+        var first = new HueColorPreset { Name = "Warm", TransitionCurve = PluginConfiguration.ColorPresetTransitionCurveEaseIn };
+        var second = new HueColorPreset { Name = "Cool", TransitionCurve = PluginConfiguration.ColorPresetTransitionCurveEaseOut };
+        var playlist = new HueScenePlaylist
+        {
+            Id = "playlist-curves",
+            Name = "Curve sequence",
+            PresetNames = new List<string> { "Warm", "Cool" },
+            StepTransitionCurves = new List<string?> { "easeinout", null }
+        };
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { first, second },
+            ScenePlaylists = new List<HueScenePlaylist> { playlist }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(PluginConfiguration.ColorPresetTransitionCurveEaseInOut, PluginConfiguration.GetEffectiveScenePlaylistStepTransitionCurve(playlist, 0, first));
+        Assert.Equal(PluginConfiguration.ColorPresetTransitionCurveEaseOut, PluginConfiguration.GetEffectiveScenePlaylistStepTransitionCurve(playlist, 1, second));
+
+        playlist.StepTransitionCurves = new List<string?>();
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(PluginConfiguration.ColorPresetTransitionCurveEaseIn, PluginConfiguration.GetEffectiveScenePlaylistStepTransitionCurve(playlist, 0, first));
+    }
+
+    [Fact]
+    public void ValidateScenePlaylists_RejectsMismatchedOrUnknownStepTransitionCurves()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm" },
+                new() { Name = "Cool" }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-invalid-curves",
+                    Name = "Invalid curves",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    StepTransitionCurves = new List<string?> { "EaseIn" }
+                }
+            }
+        };
+
+        var mismatchErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step transition curves must contain one value per saved scene, or be omitted", mismatchErrors);
+
+        config.ScenePlaylists[0].StepTransitionCurves = new List<string?> { "Bounce", null };
+        var invalidErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step 1 transition curve must be one of Linear, SmoothStep, EaseIn, EaseOut, EaseInOut, or null (inherit)", invalidErrors);
+    }
+
+    [Fact]
     public void ValidateScenePlaylists_RejectsMismatchedOrOutOfRangeStepTransitions()
     {
         var config = new PluginConfiguration
