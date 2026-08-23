@@ -512,6 +512,7 @@
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTimeMode">Cue timing</label>
                                 <select id="sceneScheduleTimeMode" is="emby-select" style="width: 100%;">
                                     <option value="Fixed">Fixed local time</option>
+                                    <option value="SolarNoon">Solar noon</option>
                                     <option value="Sunrise">Sunrise</option>
                                     <option value="Sunset">Sunset</option>
                                     <option value="CivilDawn">Civil dawn</option>
@@ -521,7 +522,7 @@
                                     <option value="AstronomicalDawn">Astronomical dawn</option>
                                     <option value="AstronomicalDusk">Astronomical dusk</option>
                                 </select>
-                                <div class="fieldDescription">Use a fixed wall-clock time, sunrise/sunset, civil dawn/dusk (6° below), nautical dawn/dusk (12° below), or astronomical dawn/dusk (18° below) from the cue's coordinates.</div>
+                                <div class="fieldDescription">Use a fixed wall-clock time, solar noon, sunrise/sunset, civil dawn/dusk (6° below), nautical dawn/dusk (12° below), or astronomical dawn/dusk (18° below) from the cue's coordinates.</div>
                             </div>
                             <div id="sceneScheduleFixedTimeContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTime">Cue time</label>
@@ -5969,7 +5970,7 @@
                     var solarOffset = page.querySelector('#sceneScheduleSolarOffset');
                     var latitude = page.querySelector('#sceneScheduleSolarLatitude');
                     var longitude = page.querySelector('#sceneScheduleSolarLongitude');
-                    var isSolar = mode && ['Sunrise', 'Sunset', 'CivilDawn', 'CivilDusk', 'NauticalDawn', 'NauticalDusk', 'AstronomicalDawn', 'AstronomicalDusk'].indexOf(mode.value) >= 0;
+                    var isSolar = mode && ['SolarNoon', 'Sunrise', 'Sunset', 'CivilDawn', 'CivilDusk', 'NauticalDawn', 'NauticalDusk', 'AstronomicalDawn', 'AstronomicalDusk'].indexOf(mode.value) >= 0;
                     if (fixedContainer) fixedContainer.style.display = isSolar ? 'none' : '';
                     if (solarContainer) solarContainer.style.display = isSolar ? '' : 'none';
                     if (fixedTime) fixedTime.disabled = !!isSolar;
@@ -6253,7 +6254,7 @@
                     var recurrenceMode = String(recurrence).toLowerCase();
                     var contentName = sourceType === 'playlist' ? playlistName : presetName;
                     if (!name || !contentName || (timeMode === 'Fixed' && !timeOfDay) ||
-                        (['Sunrise', 'Sunset', 'CivilDawn', 'CivilDusk', 'NauticalDawn', 'NauticalDusk', 'AstronomicalDawn', 'AstronomicalDusk'].indexOf(timeMode) >= 0 &&
+                        (['SolarNoon', 'Sunrise', 'Sunset', 'CivilDawn', 'CivilDusk', 'NauticalDawn', 'NauticalDusk', 'AstronomicalDawn', 'AstronomicalDusk'].indexOf(timeMode) >= 0 &&
                          (!Number.isFinite(solarLatitude) || solarLatitude < -90 || solarLatitude > 90 ||
                           !Number.isFinite(solarLongitude) || solarLongitude < -180 || solarLongitude > 180)) ||
                         (!runDate &&

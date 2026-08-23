@@ -206,7 +206,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string TimeOfDay { get; set; } = "20:00";
         /// <summary>
         /// Determines whether the cue uses its fixed <see cref="TimeOfDay"/> or a
-        /// calculated sunrise/sunset instant in the selected time zone. Missing values in
+        /// calculated solar instant in the selected time zone. Missing values in
         /// older configurations preserve fixed-time behavior.
         /// </summary>
         public string TimeMode { get; set; } = PluginConfiguration.SceneScheduleTimeModeFixed;
@@ -217,13 +217,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int SolarOffsetMinutes { get; set; }
         /// <summary>
-        /// Latitude used for solar scheduling. Coordinates are required only for Sunrise or
-        /// Sunset cues and are stored with the cue so exports remain portable.
+        /// Latitude used for solar scheduling. Coordinates are required only for non-fixed
+        /// cues and are stored with the cue so exports remain portable.
         /// </summary>
         public double? SolarLatitude { get; set; }
         /// <summary>
-        /// Longitude used for solar scheduling. Coordinates are required only for Sunrise or
-        /// Sunset cues and are stored with the cue so exports remain portable.
+        /// Longitude used for solar scheduling. Coordinates are required only for non-fixed
+        /// cues and are stored with the cue so exports remain portable.
         /// </summary>
         public double? SolarLongitude { get; set; }
         /// <summary>
@@ -564,6 +564,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MinSceneSchedulePriority = 0;
         public const int MaxSceneSchedulePriority = 100;
         public const string SceneScheduleTimeModeFixed = "Fixed";
+        public const string SceneScheduleTimeModeSolarNoon = "SolarNoon";
         public const string SceneScheduleTimeModeSunrise = "Sunrise";
         public const string SceneScheduleTimeModeSunset = "Sunset";
         public const string SceneScheduleTimeModeCivilDawn = "CivilDawn";
@@ -610,6 +611,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         private static readonly string[] SceneScheduleTimeModes =
         {
             SceneScheduleTimeModeFixed,
+            SceneScheduleTimeModeSolarNoon,
             SceneScheduleTimeModeSunrise,
             SceneScheduleTimeModeSunset,
             SceneScheduleTimeModeCivilDawn,
@@ -2438,7 +2440,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var normalizedTimeMode))
             {
-                errors.Add($"{label} time mode must be Fixed, Sunrise, Sunset, CivilDawn, CivilDusk, NauticalDawn, NauticalDusk, AstronomicalDawn, or AstronomicalDusk");
+                errors.Add($"{label} time mode must be Fixed, SolarNoon, Sunrise, Sunset, CivilDawn, CivilDusk, NauticalDawn, NauticalDusk, AstronomicalDawn, or AstronomicalDusk");
                 normalizedTimeMode = SceneScheduleTimeModeFixed;
             }
 
@@ -2741,7 +2743,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
-        /// Validates finite solar coordinates for a sunrise/sunset or twilight cue.
+        /// Validates finite solar coordinates for a non-fixed solar cue.
         /// </summary>
         public static bool AreValidSceneScheduleSolarCoordinates(double? latitude, double? longitude)
         {

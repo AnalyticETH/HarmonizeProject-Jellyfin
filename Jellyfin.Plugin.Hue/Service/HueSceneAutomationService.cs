@@ -1905,6 +1905,18 @@ public sealed class HueSceneAutomationService : BackgroundService
                 schedule.SolarOffsetMinutes,
                 PluginConfiguration.MinSceneScheduleSolarOffsetMinutes,
                 PluginConfiguration.MaxSceneScheduleSolarOffsetMinutes);
+            if (string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeSolarNoon, StringComparison.Ordinal))
+            {
+                return HueSolarCalculator.TryGetSolarNoonLocal(
+                    scheduleDate,
+                    timeZone,
+                    schedule.SolarLatitude!.Value,
+                    schedule.SolarLongitude!.Value,
+                    offsetMinutes,
+                    out localTime,
+                    out utcTime);
+            }
+
             if (string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeCivilDawn, StringComparison.Ordinal) ||
                 string.Equals(timeMode, PluginConfiguration.SceneScheduleTimeModeCivilDusk, StringComparison.Ordinal))
             {

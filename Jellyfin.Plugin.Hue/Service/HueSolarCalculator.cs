@@ -3,13 +3,15 @@ using System;
 namespace Jellyfin.Plugin.Hue.Service;
 
 /// <summary>
-/// Calculates sunrise, sunset, and standard twilight bands without a network dependency.
+/// Calculates solar noon, sunrise, sunset, and standard twilight bands without a network dependency.
 /// The implementation uses the NOAA low-precision solar-position equations with the
-/// official zenith used for apparent sunrise/sunset (90.833 degrees), civil twilight
+/// solar-noon equation (longitude plus equation of time), the official zenith used for apparent
+/// sunrise/sunset (90.833 degrees), civil twilight
 /// (96 degrees), nautical twilight (102 degrees), and astronomical twilight (108 degrees).
 /// The requested calendar date identifies the base solar event; a configured offset may
 /// intentionally move the returned local instant across midnight. The calculator returns
-/// false during polar day/night when the requested event does not occur.
+/// false during polar day/night when a requested horizon event does not occur; solar noon
+/// remains defined at every valid location.
 /// </summary>
 internal static class HueSolarCalculator
 {
@@ -17,6 +19,36 @@ internal static class HueSolarCalculator
     private const double CivilTwilightZenithDegrees = 96.0;
     private const double NauticalTwilightZenithDegrees = 102.0;
     private const double AstronomicalTwilightZenithDegrees = 108.0;
+
+    internal static bool TryGetSolarNoonUtc(
+        DateTime utcCalculationDate,
+        double latitude,
+        double longitude,
+        out DateTime eventUtc)
+    {
+        eventUtc = default;
+        if (!double.IsFinite(latitude) || !double.IsFinite(longitude) ||
+            latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
+        {
+            return false;
+        }
+
+        var date = DateTime.SpecifyKind(utcCalculationDate.Date, DateTimeKind.Utc);
+        var daysInYear = DateTime.IsLeapYear(date.Year) ? 366.0 : 365.0;
+        var fractionalYear = 2.0 * Math.PI / daysInYear * (date.DayOfYear - 1);
+        var equationOfTimeMinutes = 229.18 *
+            (0.000075 +
+             (0.001868 * Math.Cos(fractionalYear)) -
+             (0.032077 * Math.Sin(fractionalYear)) -
+             (0.014615 * Math.Cos(2.0 * fractionalYear)) -
+             (0.040849 * Math.Sin(2.0 * fractionalYear)));
+        var solarNoonMinutesUtc = 720.0 - (4.0 * longitude) - equationOfTimeMinutes;
+        if (!double.IsFinite(solarNoonMinutesUtc))
+            return false;
+
+        eventUtc = date.AddMinutes(solarNoonMinutesUtc);
+        return true;
+    }
 
     internal static bool TryGetEventUtc(
         DateTime utcCalculationDate,
@@ -158,6 +190,74 @@ internal static class HueSolarCalculator
             SunriseSunsetZenithDegrees,
             out eventLocal,
             out eventUtc);
+    }
+
+    internal static bool TryGetSolarNoonLocal(
+        DateTime localDate,
+        TimeZoneInfo timeZone,
+        double latitude,
+        double longitude,
+        int offsetMinutes,
+        out DateTime eventLocal,
+        out DateTime eventUtc)
+    {
+        eventLocal = default;
+        eventUtc = default;
+        if (timeZone == null || !double.IsFinite(latitude) || !double.IsFinite(longitude))
+            return false;
+
+        DateTime utcNoon;
+        try
+        {
+            utcNoon = TimeZoneInfo.ConvertTimeToUtc(
+                DateTime.SpecifyKind(localDate.Date.AddHours(12), DateTimeKind.Unspecified),
+                timeZone);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        // Solar noon can fall on either side of UTC midnight for locations near the
+        // international date line. Keep the unshifted local solar-noon date as the
+        // recurrence anchor before applying the user's optional offset.
+        for (var dayOffset = -1; dayOffset <= 1; dayOffset++)
+        {
+            if (!TryGetSolarNoonUtc(
+                    utcNoon.Date.AddDays(dayOffset),
+                    latitude,
+                    longitude,
+                    out var calculatedUtc))
+            {
+                continue;
+            }
+
+            var baseEventUtc = DateTime.SpecifyKind(calculatedUtc, DateTimeKind.Utc);
+            var baseEventLocal = DateTime.SpecifyKind(
+                TimeZoneInfo.ConvertTimeFromUtc(baseEventUtc, timeZone),
+                DateTimeKind.Unspecified);
+            if (baseEventLocal.Date != localDate.Date)
+                continue;
+
+            var candidateUtc = DateTime.SpecifyKind(
+                baseEventUtc.AddMinutes(offsetMinutes),
+                DateTimeKind.Utc);
+            var candidateLocal = DateTime.SpecifyKind(
+                TimeZoneInfo.ConvertTimeFromUtc(candidateUtc, timeZone),
+                DateTimeKind.Unspecified);
+            eventUtc = candidateUtc;
+            eventLocal = new DateTime(
+                candidateLocal.Year,
+                candidateLocal.Month,
+                candidateLocal.Day,
+                candidateLocal.Hour,
+                candidateLocal.Minute,
+                0,
+                DateTimeKind.Unspecified);
+            return true;
+        }
+
+        return false;
     }
 
     internal static bool TryGetCivilTwilightLocal(

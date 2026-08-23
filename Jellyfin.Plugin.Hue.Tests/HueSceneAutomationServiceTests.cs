@@ -133,6 +133,19 @@ public sealed class HueSceneAutomationServiceTests
             out var earlierSunrise,
             out _));
         Assert.Equal(sunrise.AddMinutes(-30), earlierSunrise);
+
+        Assert.True(HueSolarCalculator.TryGetSolarNoonLocal(
+            date,
+            zone,
+            40.7128,
+            -74.0060,
+            offsetMinutes: 0,
+            out var solarNoon,
+            out var solarNoonUtc));
+        Assert.Equal(date, solarNoon.Date);
+        Assert.InRange(solarNoon.Hour, 12, 13);
+        Assert.Equal(DateTimeKind.Utc, solarNoonUtc.Kind);
+        Assert.True(solarNoonUtc > sunriseUtc && solarNoonUtc < sunsetUtc);
     }
 
     [Fact]
@@ -173,6 +186,48 @@ public sealed class HueSceneAutomationServiceTests
                 DateTime.SpecifyKind(occurrence.LocalTime.AddSeconds(30), DateTimeKind.Utc)));
         });
         Assert.True(occurrences[0].UtcTime < occurrences[1].UtcTime);
+    }
+
+    [Fact]
+    public void SolarNoonSchedule_UsesNoonTimeForDueAndUpcomingOccurrence()
+    {
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(
+            OperatingSystem.IsWindows() ? "Eastern Standard Time" : "America/New_York");
+        var schedule = new HueSceneSchedule
+        {
+            Id = "solar-noon-daily",
+            Name = "Solar noon daily",
+            Enabled = true,
+            PresetName = "Scene",
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeSolarNoon,
+            SolarLatitude = 40.7128,
+            SolarLongitude = -74.0060,
+            TimeZoneId = zone.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            StartDate = "2026-06-21",
+            DaysOfWeekMask = 0
+        };
+
+        Assert.True(HueSolarCalculator.TryGetSolarNoonLocal(
+            new DateTime(2026, 6, 21),
+            zone,
+            40.7128,
+            -74.0060,
+            offsetMinutes: 0,
+            out var solarNoon,
+            out _));
+
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            new DateTime(2026, 6, 21, 0, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 1,
+            horizonDays: 2);
+        var occurrence = Assert.Single(occurrences);
+        Assert.Equal(PluginConfiguration.SceneScheduleTimeModeSolarNoon, occurrence.TimeMode);
+        Assert.Equal(solarNoon, occurrence.LocalTime);
+        Assert.True(HueSceneAutomationService.IsDue(
+            schedule,
+            DateTime.SpecifyKind(occurrence.UtcTime.AddSeconds(30), DateTimeKind.Utc)));
     }
 
     [Fact]
@@ -285,6 +340,42 @@ public sealed class HueSceneAutomationServiceTests
             new DateTime(2026, 6, 17, 0, 0, 0, DateTimeKind.Utc),
             maxOccurrences: 3,
             horizonDays: 3));
+    }
+
+    [Fact]
+    public void SolarNoonSchedule_RemainsAvailableDuringPolarDay()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Id = "polar-noon",
+            Name = "Polar noon",
+            Enabled = true,
+            PresetName = "Scene",
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeSolarNoon,
+            SolarLatitude = 90,
+            SolarLongitude = 0,
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            StartDate = "2026-06-17",
+            DaysOfWeekMask = 0
+        };
+
+        Assert.True(HueSolarCalculator.TryGetSolarNoonLocal(
+            new DateTime(2026, 6, 17),
+            TimeZoneInfo.Utc,
+            90,
+            0,
+            offsetMinutes: 0,
+            out var solarNoon,
+            out _));
+
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            new DateTime(2026, 6, 17, 0, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 1,
+            horizonDays: 1);
+        var occurrence = Assert.Single(occurrences);
+        Assert.Equal(solarNoon, occurrence.LocalTime);
     }
 
     [Fact]
