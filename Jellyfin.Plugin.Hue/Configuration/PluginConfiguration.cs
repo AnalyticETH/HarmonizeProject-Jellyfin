@@ -127,7 +127,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
     /// <summary>
     /// A credential-free saved-scene collection. Playlists retain only scene names, optional
-    /// bounded per-step duration, brightness, effect-speed, transition, and transition-curve overrides, a bounded repeat count, playback order, and an
+    /// bounded per-step duration, brightness, effect, effect-speed, transition, and transition-curve overrides, a bounded repeat count, playback order, and an
     /// optional target mode; bridge credentials and
     /// channel profiles are resolved from the current server configuration when the
     /// playlist is previewed. A selected-target playlist can fan out to a deliberate
@@ -151,6 +151,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// from 0 through 100 override only that playlist step.
         /// </summary>
         public List<int?> StepBrightnessPercent { get; set; } = new List<int?>();
+        /// <summary>
+        /// Optional per-step effects, parallel to <see cref="PresetNames"/>.
+        /// A null, blank, or missing value preserves the referenced scene's effect; explicit
+        /// values must be one of the supported saved-scene effects.
+        /// </summary>
+        public List<string?> StepEffects { get; set; } = new List<string?>();
         /// <summary>
         /// Optional per-step animation speeds in percent, parallel to <see cref="PresetNames"/>.
         /// A null or missing value preserves the referenced scene's effect speed; explicit
@@ -929,6 +935,31 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 overridePercent.Value > MaxScenePlaylistStepBrightnessPercent
                 ? Math.Clamp(preset.BrightnessPercent, MinOutputBrightnessPercent, MaxOutputBrightnessPercent)
                 : overridePercent.Value;
+        }
+
+        /// <summary>
+        /// Resolves one playlist step's saved-scene effect. A missing, null, blank, or malformed
+        /// override inherits the referenced scene effect, and all returned values use the
+        /// canonical saved-scene spelling.
+        /// </summary>
+        public static string GetEffectiveScenePlaylistStepEffect(
+            HueScenePlaylist playlist,
+            int stepIndex,
+            HueColorPreset preset)
+        {
+            ArgumentNullException.ThrowIfNull(playlist);
+            ArgumentNullException.ThrowIfNull(preset);
+            var overrideEffect = playlist.StepEffects != null &&
+                stepIndex >= 0 &&
+                stepIndex < playlist.StepEffects.Count
+                ? playlist.StepEffects[stepIndex]
+                : null;
+            return !string.IsNullOrWhiteSpace(overrideEffect) &&
+                TryNormalizeColorPresetEffect(overrideEffect, out var normalizedOverride)
+                ? normalizedOverride
+                : TryNormalizeColorPresetEffect(preset.Effect, out var normalizedPreset)
+                    ? normalizedPreset
+                    : ColorPresetEffectSolid;
         }
 
         /// <summary>
@@ -2546,6 +2577,22 @@ namespace Jellyfin.Plugin.Hue.Configuration
                      stepBrightness[index]!.Value > MaxScenePlaylistStepBrightnessPercent))
                 {
                     errors.Add($"{label} step {index + 1} brightness must be between {MinScenePlaylistStepBrightnessPercent} and {MaxScenePlaylistStepBrightnessPercent} percent, or null (inherit)");
+                }
+            }
+
+            var stepEffects = playlist.StepEffects ?? new List<string?>();
+            if (stepEffects.Count != 0 && stepEffects.Count != presetNames.Count)
+            {
+                errors.Add($"{label} step effect overrides must contain one value per saved scene, or be omitted");
+            }
+
+            for (var index = 0; index < stepEffects.Count; index++)
+            {
+                var effect = stepEffects[index];
+                if (!string.IsNullOrWhiteSpace(effect) &&
+                    !TryNormalizeColorPresetEffect(effect, out _))
+                {
+                    errors.Add($"{label} step {index + 1} effect must be one of {string.Join(", ", ColorPresetEffects)}, or null/blank (inherit)");
                 }
             }
 

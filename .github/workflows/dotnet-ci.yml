@@ -2,10 +2,7 @@ name: .NET CI/CD
 
 on:
   push:
-    branches: [ main, master, develop, claude/** ]
-  pull_request:
-    branches: [ main, master, develop ]
-  workflow_dispatch:
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -17,13 +14,14 @@ concurrency:
 env:
   DOTNET_VERSION: '8.0.x'
   BUILD_CONFIGURATION: 'Release'
-  # The self-hosted runner runs as the unprivileged `claude` user.
-  # setup-dotnet otherwise defaults to /usr/share/dotnet on Linux.
-  DOTNET_INSTALL_DIR: /home/claude/.dotnet
+  # The self-hosted runner uses the dedicated, least-privileged
+  # `harmonize-runner` service account.
+  DOTNET_INSTALL_DIR: /var/lib/harmonize-runner/home/.dotnet
 
 jobs:
   build-and-test:
     name: Build and Test
+    if: github.ref == 'refs/heads/main'
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
 
     steps:
@@ -41,12 +39,12 @@ jobs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}
         restore-keys: |
           ${{ runner.os }}-nuget-
 
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore --locked-mode
 
     - name: Build solution
       run: dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
@@ -117,6 +115,7 @@ jobs:
 
   code-quality:
     name: Code Quality Checks
+    if: github.ref == 'refs/heads/main'
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     needs: build-and-test
 
@@ -130,10 +129,10 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore --locked-mode
 
     - name: Run dotnet format check
-      run: dotnet format --verify-no-changes --verbosity diagnostic
+      run: dotnet format --verify-no-changes --no-restore --verbosity diagnostic
 
     - name: Security scan with .NET tools
       run: |
@@ -154,6 +153,7 @@ jobs:
 
   security-analysis:
     name: Blocking Security Analysis
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/security-scan.yml
     permissions:
       contents: read
@@ -162,7 +162,7 @@ jobs:
     name: Create Release Package
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     needs: [build-and-test, code-quality, security-analysis]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
     - name: Checkout code
@@ -175,8 +175,8 @@ jobs:
 
     - name: Restore and build
       run: |
-        dotnet restore
-        dotnet build --configuration ${{ env.BUILD_CONFIGURATION }}
+        dotnet restore --locked-mode
+        dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
     - name: Create plugin package
       run: |
@@ -230,9 +230,10 @@ jobs:
 
   create-github-release:
     name: Create GitHub Release
-    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
+    # Keep the contents:write token off the persistent build/test identity.
+    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]
     needs: create-release-package
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
 
@@ -248,28 +249,29 @@ jobs:
         echo "tag=v$VERSION" >> $GITHUB_OUTPUT
         echo "Detected version: $VERSION"
 
-    - name: Check whether release tag already exists
-      id: release_tag
+    - name: Require an unused release tag
       env:
         RELEASE_TAG: ${{ steps.version.outputs.tag }}
       run: |
         set -euo pipefail
         TAG="$RELEASE_TAG"
-        if git ls-remote --exit-code --refs origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-          echo "exists=true" >> "$GITHUB_OUTPUT"
-          echo "Release tag ${TAG} already exists; this push will not replace it."
-        else
-          echo "exists=false" >> "$GITHUB_OUTPUT"
-          echo "Release tag ${TAG} is not present; a new release may be created."
-        fi
-
-    - name: Record duplicate-release guard
-      if: steps.release_tag.outputs.exists == 'true'
-      env:
-        RELEASE_TAG: ${{ steps.version.outputs.tag }}
-      run: |
-        echo "## Release guard" >> "$GITHUB_STEP_SUMMARY"
-        echo "Skipped GitHub Release creation because tag **$RELEASE_TAG** already exists." >> "$GITHUB_STEP_SUMMARY"
+        set +e
+        git ls-remote --exit-code --refs origin "refs/tags/${TAG}" >/dev/null
+        tag_status=$?
+        set -e
+        case "$tag_status" in
+          0)
+            echo "Release tag ${TAG} already exists; bump the version before pushing main." >&2
+            exit 1
+            ;;
+          2)
+            echo "Release tag ${TAG} is unused; release creation may proceed."
+            ;;
+          *)
+            echo "Could not verify whether release tag ${TAG} is unused (git ls-remote exit ${tag_status}); refusing to publish." >&2
+            exit "$tag_status"
+            ;;
+        esac
 
     - name: Download release package
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -301,7 +303,6 @@ jobs:
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Create GitHub Release
-      if: steps.release_tag.outputs.exists != 'true'
       uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
       with:
         tag_name: ${{ steps.version.outputs.tag }}

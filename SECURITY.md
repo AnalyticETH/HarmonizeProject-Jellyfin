@@ -12,9 +12,16 @@ Include the affected release, reproduction steps, impact, and any suggested miti
 
 ## Automated coverage
 
-Every push and pull request runs the named self-hosted CI runner with:
+Every trusted `main` push runs the named self-hosted CI runner with:
 
+- A dedicated, least-privileged `harmonize-runner` service account and isolated home directory
+- No `workflow_dispatch`, pull-request, or non-main push trigger, plus a job-level `refs/heads/main` guard and a separate release-runner identity for the `contents:write` publication job
+- Locked-mode NuGet restores with committed dependency content hashes
 - NuGet vulnerability auditing through `dotnet list package --vulnerable --include-transitive`
 - Blocking Gitleaks history scanning with a redacted JSON artifact
 - Blocking Semgrep static analysis with the explicit `p/default` ruleset and a JSON artifact
 - Immutable commit-SHA references for third-party GitHub Actions
+
+The repository-controlled weekly default-branch security workflow reruns the blocking Gitleaks and Semgrep gates. Both scanner jobs carry the same `refs/heads/main` guard, so pull-request and non-main code never reach the persistent runner.
+
+The identity split, host confinement, daily upstream-version monitor, and manual verified-update procedure are documented in [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md).

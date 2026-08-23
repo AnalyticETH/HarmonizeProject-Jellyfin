@@ -123,6 +123,158 @@ internal interface IHueTransitionCurveStreamTester
 }
 
 /// <summary>
+/// Optional continuous-playlist preview capability. Implementations keep the complete
+/// ordered step plan inside one save/activate/DTLS/restore lifecycle for a target. The
+/// original <see cref="IHueStreamTester"/> contract remains unchanged so older test
+/// doubles and extensions can continue to use per-step previews as a fallback.
+/// </summary>
+internal interface IHuePlaylistStreamTester
+{
+    Task<HuePlaylistStreamProbeResult> PreviewPlaylistAsync(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        IReadOnlyList<HuePlaylistPreviewStep> steps,
+        CancellationToken cancellationToken = default);
+
+    Task<HuePlaylistStreamProbeResult> PreviewPlaylistAsyncForTarget(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        IReadOnlyList<HuePlaylistPreviewStep> steps,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Credential-free, fully effective input for one step in a continuous playlist stream.
+/// Callers resolve saved-scene inheritance, repeat order, and shuffle order before invoking
+/// the stream tester so the complete plan can be validated before any bridge mutation.
+/// </summary>
+public sealed class HuePlaylistPreviewStep
+{
+    public int Index { get; init; }
+    public int Red { get; init; }
+    public int Green { get; init; }
+    public int Blue { get; init; }
+    public int BrightnessPercent { get; init; }
+    public int DurationSeconds { get; init; }
+    public int TransitionSeconds { get; init; }
+    public int TransitionOutSeconds { get; init; }
+    public string Effect { get; init; } = PluginConfiguration.ColorPresetEffectSolid;
+    public int EffectSpeedPercent { get; init; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+    public string TransitionCurve { get; init; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
+}
+
+/// <summary>
+/// Credential-free outcome for one attempted continuous-playlist step.
+/// </summary>
+public sealed class HuePlaylistPreviewStepResult
+{
+    public int Index { get; init; }
+    public bool Succeeded { get; init; }
+    public string Message { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Aggregate result for a continuous playlist stream. Cleanup warnings apply to the
+/// target lifecycle as a whole; completed step outcomes remain available when a later
+/// step fails or cancellation stops the sequence.
+/// </summary>
+public sealed class HuePlaylistStreamProbeResult
+{
+    public bool Succeeded { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public string? CleanupWarning { get; init; }
+    public IReadOnlyList<HuePlaylistPreviewStepResult> Steps { get; init; } =
+        Array.Empty<HuePlaylistPreviewStepResult>();
+}
+
+/// <summary>
+/// Testable DTLS surface used only by continuous playlist previews. Production wraps
+/// <see cref="HueStreamer"/>; keeping this small avoids changing playback's public stream
+/// contract while allowing lifecycle-count regression tests without launching OpenSSL.
+/// </summary>
+internal interface IHuePreviewStream
+{
+    Func<CancellationToken, Task<bool>>? OnBeforeReconnectWithCancellation { set; }
+
+    Task StartStreamAsync(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        CancellationToken cancellationToken);
+
+    bool IsHealthy();
+
+    Task<bool> SendColors(
+        string areaId,
+        Dictionary<int, byte[]> channelColors,
+        CancellationToken cancellationToken);
+
+    void StopStream();
+}
+
+internal interface IHuePreviewStreamFactory
+{
+    IHuePreviewStream Create();
+}
+
+internal sealed class HuePreviewStreamFactory : IHuePreviewStreamFactory
+{
+    private readonly ILoggerFactory _loggerFactory;
+
+    public HuePreviewStreamFactory(ILoggerFactory loggerFactory)
+    {
+        _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+    }
+
+    public IHuePreviewStream Create()
+        => new HuePreviewStreamAdapter(
+            new HueStreamer(_loggerFactory.CreateLogger<HueStreamer>()));
+}
+
+internal sealed class HuePreviewStreamAdapter : IHuePreviewStream
+{
+    private readonly HueStreamer _streamer;
+
+    public HuePreviewStreamAdapter(HueStreamer streamer)
+    {
+        _streamer = streamer ?? throw new ArgumentNullException(nameof(streamer));
+    }
+
+    public Func<CancellationToken, Task<bool>>? OnBeforeReconnectWithCancellation
+    {
+        set => _streamer.OnBeforeReconnectWithCancellation = value;
+    }
+
+    public Task StartStreamAsync(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        CancellationToken cancellationToken)
+        => _streamer.StartStreamAsync(bridgeIp, appKey, clientKey, cancellationToken);
+
+    public bool IsHealthy() => _streamer.IsHealthy();
+
+    public Task<bool> SendColors(
+        string areaId,
+        Dictionary<int, byte[]> channelColors,
+        CancellationToken cancellationToken)
+        => _streamer.SendColors(
+            areaId,
+            channelColors,
+            cancellationToken: cancellationToken);
+
+    public void StopStream() => _streamer.StopStream();
+}
+
+/// <summary>
 /// Result of a DTLS stream probe. No bridge credentials are included.
 /// </summary>
 public sealed class HueStreamProbeResult
@@ -136,7 +288,11 @@ public sealed class HueStreamProbeResult
 /// Opens the same activate/DTLS/send/deactivate lifecycle used by playback, using a
 /// very low-intensity probe color and the selected area's real channel IDs.
 /// </summary>
-public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTester, IHueTransitionCurveStreamTester
+public sealed class HueStreamTester :
+    IHueStreamTester,
+    IHueTargetScopedStreamTester,
+    IHueTransitionCurveStreamTester,
+    IHuePlaylistStreamTester
 {
     private const int EntertainmentAreaActivationDelayMs = 200;
     private const int PreviewTransitionRefreshIntervalMs = 100;
@@ -149,6 +305,7 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<HueStreamTester> _logger;
     private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
+    private readonly IHuePreviewStreamFactory _previewStreamFactory;
     private readonly object _activeOperationLock = new();
     private CancellationTokenSource? _activeOperationCancellation;
 
@@ -157,11 +314,27 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
         ILoggerFactory loggerFactory,
         ILogger<HueStreamTester> logger,
         HueBridgeLifecycleGate? bridgeLifecycleGate = null)
+        : this(
+            hueClient,
+            loggerFactory,
+            logger,
+            bridgeLifecycleGate,
+            new HuePreviewStreamFactory(loggerFactory))
+    {
+    }
+
+    internal HueStreamTester(
+        HueClient hueClient,
+        ILoggerFactory loggerFactory,
+        ILogger<HueStreamTester> logger,
+        HueBridgeLifecycleGate? bridgeLifecycleGate,
+        IHuePreviewStreamFactory previewStreamFactory)
     {
         _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
+        _previewStreamFactory = previewStreamFactory ?? throw new ArgumentNullException(nameof(previewStreamFactory));
     }
 
     public Task<HueStreamProbeResult> TestAsync(
@@ -496,6 +669,80 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
             transitionCurve,
             cancellationToken,
             HueSyncService.GetPlaybackResourceKey(bridgeIp, areaId));
+
+    /// <summary>
+    /// Displays every pre-resolved playlist step through one target lifecycle. All input
+    /// is validated before light state is captured, then the target is activated and its
+    /// DTLS stream is opened once. State is restored once after the sequence completes,
+    /// fails, or is canceled.
+    /// </summary>
+    public Task<HuePlaylistStreamProbeResult> PreviewPlaylistAsync(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        IReadOnlyList<HuePlaylistPreviewStep> steps,
+        CancellationToken cancellationToken = default)
+        => RunPlaylistPreviewAsync(
+            bridgeIp,
+            appKey,
+            clientKey,
+            areaId,
+            areaConfiguration,
+            channelIds,
+            steps,
+            cancellationToken,
+            resourceKey: null);
+
+    /// <summary>
+    /// Runs a continuous playlist while reserving only the selected bridge/area target.
+    /// This mirrors target-scoped single previews and retains the lifecycle lease for the
+    /// complete ordered sequence.
+    /// </summary>
+    public Task<HuePlaylistStreamProbeResult> PreviewPlaylistAsyncForTarget(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        IReadOnlyList<HuePlaylistPreviewStep> steps,
+        CancellationToken cancellationToken = default)
+        => RunPlaylistPreviewAsync(
+            bridgeIp,
+            appKey,
+            clientKey,
+            areaId,
+            areaConfiguration,
+            channelIds,
+            steps,
+            cancellationToken,
+            HueSyncService.GetPlaybackResourceKey(bridgeIp, areaId));
+
+    private Task<HuePlaylistStreamProbeResult> RunPlaylistPreviewAsync(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        IReadOnlyList<HuePlaylistPreviewStep> steps,
+        CancellationToken cancellationToken,
+        string? resourceKey)
+        => RunSerializedPlaylistAsync(
+            operationCancellation => PreviewPlaylistCoreAsync(
+                bridgeIp,
+                appKey,
+                clientKey,
+                areaId,
+                areaConfiguration,
+                channelIds,
+                steps,
+                operationCancellation),
+            cancellationToken,
+            resourceKey);
 
     private Task<HueStreamProbeResult> RunPreviewAsync(
         string bridgeIp,
@@ -922,6 +1169,737 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
         }
 
         return previewResult;
+    }
+
+    private async Task<HuePlaylistStreamProbeResult> PreviewPlaylistCoreAsync(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        IReadOnlyList<HuePlaylistPreviewStep> steps,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return PlaylistFailure("The continuous playlist preview request was canceled.");
+
+        if (string.IsNullOrWhiteSpace(bridgeIp) ||
+            string.IsNullOrWhiteSpace(appKey) ||
+            string.IsNullOrWhiteSpace(clientKey) ||
+            string.IsNullOrWhiteSpace(areaId))
+        {
+            return PlaylistFailure("Bridge address, app key, client key, and entertainment area are required.");
+        }
+
+        if (!TryPreparePlaylistSteps(
+                areaConfiguration,
+                channelIds,
+                steps,
+                out var preparedSteps,
+                out var preparationFailure))
+        {
+            return preparationFailure;
+        }
+
+        List<HueClient.LightState> savedLightStates;
+        try
+        {
+            var captureResult = await _hueClient.GetLightStatesWithResult(
+                bridgeIp,
+                appKey,
+                areaConfiguration,
+                channelIds,
+                cancellationToken).ConfigureAwait(false);
+            if (!captureResult.Succeeded || captureResult.AttemptedCount == 0)
+            {
+                return PlaylistFailure(
+                    captureResult.AttemptedCount == 0
+                        ? "The continuous playlist preview could not capture any light state safely."
+                        : $"The continuous playlist preview could not capture all light states safely ({captureResult.CapturedCount} of {captureResult.AttemptedCount} captured; {captureResult.FailedCount} failed).");
+            }
+
+            savedLightStates = captureResult.States;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return PlaylistFailure("The continuous playlist preview request was canceled before activation.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not save light state before continuous Hue playlist preview for area {0}", areaId);
+            return PlaylistFailure("The continuous playlist preview could not save the current light state safely.");
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return PlaylistFailure("The continuous playlist preview request was canceled before activation.");
+
+        bool activated;
+        try
+        {
+            activated = await _hueClient.StartEntertainmentArea(
+                bridgeIp,
+                appKey,
+                areaId,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return await AddPlaylistCleanupResultAsync(
+                PlaylistFailure("The continuous playlist preview request was canceled during activation; the bridge is being restored."),
+                bridgeIp,
+                appKey,
+                areaId,
+                savedLightStates).ConfigureAwait(false);
+        }
+
+        if (!activated)
+        {
+            return await AddPlaylistCleanupResultAsync(
+                PlaylistFailure("The Hue bridge could not activate the entertainment area for continuous playlist preview; the bridge is being restored."),
+                bridgeIp,
+                appKey,
+                areaId,
+                savedLightStates).ConfigureAwait(false);
+        }
+
+        var completedSteps = new List<HuePlaylistPreviewStepResult>(preparedSteps.Count);
+        var playlistResult = PlaylistFailure("The continuous playlist preview did not complete.");
+        PreparedPlaylistPreviewStep? activeStep = null;
+        IHuePreviewStream? stream = null;
+        try
+        {
+            await Task.Delay(EntertainmentAreaActivationDelayMs, cancellationToken).ConfigureAwait(false);
+
+            stream = _previewStreamFactory.Create();
+            stream.OnBeforeReconnectWithCancellation = reconnectToken =>
+                _hueClient.StartEntertainmentArea(bridgeIp, appKey, areaId, reconnectToken);
+            await stream.StartStreamAsync(
+                bridgeIp,
+                appKey,
+                clientKey,
+                cancellationToken).ConfigureAwait(false);
+            if (!stream.IsHealthy())
+            {
+                playlistResult = PlaylistFailure(
+                    "The DTLS stream did not become healthy. Check the client key and OpenSSL installation.");
+            }
+            else
+            {
+                foreach (var preparedStep in preparedSteps)
+                {
+                    activeStep = preparedStep;
+                    var stepResult = await RenderPlaylistStepAsync(
+                        stream,
+                        areaId,
+                        preparedStep,
+                        cancellationToken).ConfigureAwait(false);
+                    completedSteps.Add(stepResult);
+                    if (!stepResult.Succeeded)
+                    {
+                        playlistResult = PlaylistFailure(
+                            $"Completed {completedSteps.Count(result => result.Succeeded)} of {preparedSteps.Count} playlist step(s) before the continuous stream failed. {stepResult.Message}",
+                            completedSteps);
+                        break;
+                    }
+
+                    activeStep = null;
+                }
+
+                if (completedSteps.Count == preparedSteps.Count && completedSteps.All(step => step.Succeeded))
+                {
+                    playlistResult = new HuePlaylistStreamProbeResult
+                    {
+                        Succeeded = true,
+                        Message = $"Displayed {completedSteps.Count} playlist step(s) in one continuous DTLS session.",
+                        Steps = completedSteps.ToArray()
+                    };
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (activeStep != null && completedSteps.All(result => result.Index != activeStep.Index))
+            {
+                completedSteps.Add(new HuePlaylistPreviewStepResult
+                {
+                    Index = activeStep.Index,
+                    Succeeded = false,
+                    Message = "The playlist step was canceled."
+                });
+            }
+
+            playlistResult = PlaylistFailure(
+                $"The continuous playlist preview was canceled after {completedSteps.Count(result => result.Succeeded)} of {preparedSteps.Count} step(s); the bridge is being restored.",
+                completedSteps);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Continuous Hue playlist preview failed for entertainment area {0}", areaId);
+            if (activeStep != null && completedSteps.All(result => result.Index != activeStep.Index))
+            {
+                completedSteps.Add(new HuePlaylistPreviewStepResult
+                {
+                    Index = activeStep.Index,
+                    Succeeded = false,
+                    Message = "The playlist step failed unexpectedly."
+                });
+            }
+
+            playlistResult = PlaylistFailure(
+                "The continuous playlist preview failed. Check the client key and OpenSSL diagnostics.",
+                completedSteps);
+        }
+        finally
+        {
+            if (stream != null)
+            {
+                try
+                {
+                    stream.StopStream();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not stop the continuous Hue playlist DTLS stream for area {0}", areaId);
+                    playlistResult = AddPlaylistCleanupWarning(
+                        playlistResult,
+                        "The DTLS stream could not be stopped cleanly.");
+                }
+            }
+
+            playlistResult = await AddPlaylistCleanupResultAsync(
+                playlistResult,
+                bridgeIp,
+                appKey,
+                areaId,
+                savedLightStates).ConfigureAwait(false);
+        }
+
+        if (cancellationToken.IsCancellationRequested &&
+            !playlistResult.Message.Contains("cancel", StringComparison.OrdinalIgnoreCase))
+        {
+            playlistResult = new HuePlaylistStreamProbeResult
+            {
+                Succeeded = false,
+                Message = $"The continuous playlist preview was canceled during cleanup after {playlistResult.Steps.Count(step => step.Succeeded)} of {preparedSteps.Count} step(s). {playlistResult.Message}",
+                CleanupWarning = playlistResult.CleanupWarning,
+                Steps = playlistResult.Steps
+            };
+        }
+
+        return playlistResult;
+    }
+
+    private static bool TryPreparePlaylistSteps(
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        IReadOnlyList<HuePlaylistPreviewStep>? steps,
+        out IReadOnlyList<PreparedPlaylistPreviewStep> preparedSteps,
+        out HuePlaylistStreamProbeResult failure)
+    {
+        var prepared = new List<PreparedPlaylistPreviewStep>();
+        preparedSteps = prepared;
+        failure = PlaylistFailure("The continuous playlist preview plan is invalid.");
+        var maxSteps = PluginConfiguration.MaxScenePlaylistItems *
+            PluginConfiguration.MaxScenePlaylistRepeatCount;
+        if (steps == null || steps.Count < 1 || steps.Count > maxSteps)
+        {
+            failure = PlaylistFailure(
+                $"A continuous playlist preview must contain between 1 and {maxSteps} expanded steps.");
+            return false;
+        }
+
+        var usedIndexes = new HashSet<int>();
+        var totalDurationSeconds = 0;
+        for (var position = 0; position < steps.Count; position++)
+        {
+            var step = steps[position];
+            var index = step?.Index > 0 ? step.Index : position + 1;
+            if (step == null)
+            {
+                failure = PlaylistStepFailure(index, "Playlist step configuration is required.");
+                return false;
+            }
+
+            if (!usedIndexes.Add(index))
+            {
+                failure = PlaylistStepFailure(index, "Playlist step indexes must be unique.");
+                return false;
+            }
+
+            if (!PluginConfiguration.TryNormalizeColorPresetEffect(step.Effect, out var effect))
+            {
+                failure = PlaylistStepFailure(
+                    index,
+                    "Playlist step effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, or Starlight.");
+                return false;
+            }
+
+            if (!PluginConfiguration.TryNormalizeColorPresetTransitionCurve(
+                    step.TransitionCurve,
+                    out var transitionCurve))
+            {
+                failure = PlaylistStepFailure(
+                    index,
+                    "Playlist step transition curve must be Linear, SmoothStep, EaseIn, EaseOut, or EaseInOut.");
+                return false;
+            }
+
+            if (step.EffectSpeedPercent < PluginConfiguration.MinColorPresetEffectSpeedPercent ||
+                step.EffectSpeedPercent > PluginConfiguration.MaxColorPresetEffectSpeedPercent)
+            {
+                failure = PlaylistStepFailure(
+                    index,
+                    $"Playlist step effect speed must be between {PluginConfiguration.MinColorPresetEffectSpeedPercent} and {PluginConfiguration.MaxColorPresetEffectSpeedPercent} percent.");
+                return false;
+            }
+
+            if (step.DurationSeconds < MinPreviewDurationSeconds ||
+                step.DurationSeconds > MaxPreviewDurationSeconds)
+            {
+                failure = PlaylistStepFailure(
+                    index,
+                    $"Playlist step duration must be between {MinPreviewDurationSeconds} and {MaxPreviewDurationSeconds} seconds.");
+                return false;
+            }
+
+            if (step.TransitionSeconds < PluginConfiguration.MinColorPresetTransitionSeconds ||
+                step.TransitionSeconds > PluginConfiguration.MaxColorPresetTransitionSeconds)
+            {
+                failure = PlaylistStepFailure(
+                    index,
+                    $"Playlist step fade-in must be between {PluginConfiguration.MinColorPresetTransitionSeconds} and {PluginConfiguration.MaxColorPresetTransitionSeconds} seconds.");
+                return false;
+            }
+
+            if (step.TransitionOutSeconds < PluginConfiguration.MinColorPresetTransitionOutSeconds ||
+                step.TransitionOutSeconds > PluginConfiguration.MaxColorPresetTransitionOutSeconds)
+            {
+                failure = PlaylistStepFailure(
+                    index,
+                    $"Playlist step fade-out must be between {PluginConfiguration.MinColorPresetTransitionOutSeconds} and {PluginConfiguration.MaxColorPresetTransitionOutSeconds} seconds.");
+                return false;
+            }
+
+            if (step.TransitionSeconds + step.TransitionOutSeconds > step.DurationSeconds)
+            {
+                failure = PlaylistStepFailure(
+                    index,
+                    "Playlist step fade-in and fade-out cannot exceed its duration together.");
+                return false;
+            }
+
+            if (!TryBuildSolidColors(
+                    areaConfiguration,
+                    channelIds,
+                    step.Red,
+                    step.Green,
+                    step.Blue,
+                    step.BrightnessPercent,
+                    out var channelColors))
+            {
+                failure = PlaylistStepFailure(
+                    index,
+                    channelIds == null
+                        ? "The selected entertainment area has no valid controllable channels or the playlist step color is invalid."
+                        : "The selected channel profile has no valid controllable channels in this entertainment area or the playlist step color is invalid.");
+                return false;
+            }
+
+            totalDurationSeconds += step.DurationSeconds;
+            prepared.Add(new PreparedPlaylistPreviewStep(
+                index,
+                step.DurationSeconds,
+                step.TransitionSeconds,
+                step.TransitionOutSeconds,
+                effect,
+                step.EffectSpeedPercent,
+                transitionCurve,
+                channelColors));
+        }
+
+        if (totalDurationSeconds > PluginConfiguration.MaxScenePlaylistTotalDurationSeconds)
+        {
+            failure = PlaylistFailure(
+                $"A continuous playlist preview cannot exceed {PluginConfiguration.MaxScenePlaylistTotalDurationSeconds} seconds in total.");
+            return false;
+        }
+
+        preparedSteps = prepared;
+        return true;
+    }
+
+    private static async Task<HuePlaylistPreviewStepResult> RenderPlaylistStepAsync(
+        IHuePreviewStream stream,
+        string areaId,
+        PreparedPlaylistPreviewStep step,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var previewStartedAt = DateTime.UtcNow;
+        var previewEndsAt = previewStartedAt.AddSeconds(step.DurationSeconds);
+        var transitionEndsAt = previewStartedAt.AddSeconds(step.TransitionSeconds);
+        var transitionOutStartsAt = previewEndsAt.Subtract(TimeSpan.FromSeconds(step.TransitionOutSeconds));
+        var animated = !string.Equals(
+            step.Effect,
+            PluginConfiguration.ColorPresetEffectSolid,
+            StringComparison.OrdinalIgnoreCase);
+        var frame = BuildEffectColors(
+            step.ChannelColors,
+            step.Effect,
+            0,
+            step.DurationSeconds,
+            step.EffectSpeedPercent);
+        if (step.TransitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds)
+            frame = BuildTransitionColors(frame, 0, step.TransitionCurve);
+
+        if (!await SendPlaylistColorsAsync(
+                stream,
+                areaId,
+                frame,
+                cancellationToken).ConfigureAwait(false))
+        {
+            return PlaylistRenderFailure(
+                step.Index,
+                "The DTLS stream opened, but the playlist step color could not be sent.");
+        }
+
+        while (step.TransitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds)
+        {
+            var remaining = transitionEndsAt - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+                break;
+
+            await Task.Delay(
+                remaining > TimeSpan.FromMilliseconds(PreviewTransitionRefreshIntervalMs)
+                    ? TimeSpan.FromMilliseconds(PreviewTransitionRefreshIntervalMs)
+                    : remaining,
+                cancellationToken).ConfigureAwait(false);
+
+            var progress = Math.Clamp(
+                (DateTime.UtcNow - (transitionEndsAt - TimeSpan.FromSeconds(step.TransitionSeconds))).TotalSeconds /
+                step.TransitionSeconds,
+                0d,
+                1d);
+            var elapsedSeconds = (DateTime.UtcNow - previewStartedAt).TotalSeconds;
+            frame = BuildTransitionColors(
+                BuildEffectColors(
+                    step.ChannelColors,
+                    step.Effect,
+                    elapsedSeconds,
+                    step.DurationSeconds,
+                    step.EffectSpeedPercent),
+                progress,
+                step.TransitionCurve);
+            if (!await SendPlaylistColorsAsync(
+                    stream,
+                    areaId,
+                    frame,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                return PlaylistRenderFailure(
+                    step.Index,
+                    "The DTLS stream stopped while fading in the playlist step.");
+            }
+        }
+
+        if (step.TransitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds &&
+            !await SendPlaylistColorsAsync(
+                stream,
+                areaId,
+                BuildEffectColors(
+                    step.ChannelColors,
+                    step.Effect,
+                    (DateTime.UtcNow - previewStartedAt).TotalSeconds,
+                    step.DurationSeconds,
+                    step.EffectSpeedPercent),
+                cancellationToken).ConfigureAwait(false))
+        {
+            return PlaylistRenderFailure(
+                step.Index,
+                "The DTLS stream stopped while completing the playlist step fade-in.");
+        }
+
+        while (true)
+        {
+            var now = DateTime.UtcNow;
+            if (now >= previewEndsAt)
+                break;
+
+            if (step.TransitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds &&
+                now >= transitionOutStartsAt)
+            {
+                var remainingFadeOut = previewEndsAt - now;
+                await Task.Delay(
+                    remainingFadeOut > TimeSpan.FromMilliseconds(PreviewTransitionRefreshIntervalMs)
+                        ? TimeSpan.FromMilliseconds(PreviewTransitionRefreshIntervalMs)
+                        : remainingFadeOut,
+                    cancellationToken).ConfigureAwait(false);
+
+                var fadeOutProgress = Math.Clamp(
+                    (DateTime.UtcNow - transitionOutStartsAt).TotalSeconds /
+                    step.TransitionOutSeconds,
+                    0d,
+                    1d);
+                frame = BuildTransitionColors(
+                    BuildEffectColors(
+                        step.ChannelColors,
+                        step.Effect,
+                        (DateTime.UtcNow - previewStartedAt).TotalSeconds,
+                        step.DurationSeconds,
+                        step.EffectSpeedPercent),
+                    1d - fadeOutProgress,
+                    step.TransitionCurve);
+                if (!await SendPlaylistColorsAsync(
+                        stream,
+                        areaId,
+                        frame,
+                        cancellationToken).ConfigureAwait(false))
+                {
+                    return PlaylistRenderFailure(
+                        step.Index,
+                        "The DTLS stream stopped while fading out the playlist step.");
+                }
+
+                continue;
+            }
+
+            var remainingHold = previewEndsAt - now;
+            if (step.TransitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds)
+            {
+                remainingHold = TimeSpan.FromTicks(
+                    Math.Min(remainingHold.Ticks, (transitionOutStartsAt - now).Ticks));
+            }
+
+            if (remainingHold <= TimeSpan.Zero)
+                continue;
+
+            var refreshInterval = animated
+                ? TimeSpan.FromMilliseconds(PreviewTransitionRefreshIntervalMs)
+                : TimeSpan.FromSeconds(1);
+            await Task.Delay(
+                remainingHold > refreshInterval ? refreshInterval : remainingHold,
+                cancellationToken).ConfigureAwait(false);
+            if (DateTime.UtcNow < transitionOutStartsAt &&
+                DateTime.UtcNow < previewEndsAt &&
+                !await SendPlaylistColorsAsync(
+                    stream,
+                    areaId,
+                    BuildEffectColors(
+                        step.ChannelColors,
+                        step.Effect,
+                        (DateTime.UtcNow - previewStartedAt).TotalSeconds,
+                        step.DurationSeconds,
+                        step.EffectSpeedPercent),
+                    cancellationToken).ConfigureAwait(false))
+            {
+                return PlaylistRenderFailure(
+                    step.Index,
+                    "The DTLS stream stopped while holding the playlist step.");
+            }
+        }
+
+        if (step.TransitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds &&
+            !await SendPlaylistColorsAsync(
+                stream,
+                areaId,
+                BuildTransitionColors(
+                    BuildEffectColors(
+                        step.ChannelColors,
+                        step.Effect,
+                        step.DurationSeconds,
+                        step.DurationSeconds,
+                        step.EffectSpeedPercent),
+                    0,
+                    step.TransitionCurve),
+                cancellationToken).ConfigureAwait(false))
+        {
+            return PlaylistRenderFailure(
+                step.Index,
+                "The DTLS stream stopped while completing the playlist step fade-out.");
+        }
+
+        var transitionMessage = step.TransitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds &&
+            step.TransitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds
+            ? $" with a {step.TransitionSeconds}-second {step.TransitionCurve} fade-in and a {step.TransitionOutSeconds}-second {step.TransitionCurve} fade-out."
+            : step.TransitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds
+                ? $" with a {step.TransitionSeconds}-second {step.TransitionCurve} fade-in."
+                : step.TransitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds
+                    ? $" with a {step.TransitionOutSeconds}-second {step.TransitionCurve} fade-out."
+                    : ".";
+        var effectDescription = string.Equals(
+            step.Effect,
+            PluginConfiguration.ColorPresetEffectSolid,
+            StringComparison.OrdinalIgnoreCase)
+            ? "solid color"
+            : $"{step.Effect.ToLowerInvariant()} effect";
+        return new HuePlaylistPreviewStepResult
+        {
+            Index = step.Index,
+            Succeeded = true,
+            Message = $"Displayed the {effectDescription} playlist step for {step.DurationSeconds} seconds across {step.ChannelColors.Count} channel(s){transitionMessage}"
+        };
+    }
+
+    private static async Task<bool> SendPlaylistColorsAsync(
+        IHuePreviewStream stream,
+        string areaId,
+        Dictionary<int, byte[]> colors,
+        CancellationToken cancellationToken)
+    {
+        var sent = await stream.SendColors(
+            areaId,
+            colors,
+            cancellationToken).ConfigureAwait(false);
+        if (!sent)
+            cancellationToken.ThrowIfCancellationRequested();
+
+        return sent;
+    }
+
+    private static HuePlaylistPreviewStepResult PlaylistRenderFailure(int index, string message)
+        => new()
+        {
+            Index = index,
+            Succeeded = false,
+            Message = message
+        };
+
+    private static HuePlaylistStreamProbeResult PlaylistStepFailure(int index, string message)
+        => PlaylistFailure(
+            $"Playlist step {index}: {message}",
+            new[]
+            {
+                new HuePlaylistPreviewStepResult
+                {
+                    Index = index,
+                    Succeeded = false,
+                    Message = message
+                }
+            });
+
+    private static HuePlaylistStreamProbeResult PlaylistFailure(
+        string message,
+        IReadOnlyList<HuePlaylistPreviewStepResult>? steps = null)
+        => new()
+        {
+            Succeeded = false,
+            Message = message,
+            Steps = steps?.ToArray() ?? Array.Empty<HuePlaylistPreviewStepResult>()
+        };
+
+    private async Task<HuePlaylistStreamProbeResult> AddPlaylistCleanupResultAsync(
+        HuePlaylistStreamProbeResult playlistResult,
+        string bridgeIp,
+        string appKey,
+        string areaId,
+        List<HueClient.LightState> savedLightStates)
+    {
+        var cleanupResult = await AddCleanupResultAsync(
+            new HueStreamProbeResult
+            {
+                Succeeded = playlistResult.Succeeded,
+                Message = playlistResult.Message
+            },
+            bridgeIp,
+            appKey,
+            areaId,
+            savedLightStates).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(cleanupResult.CleanupWarning))
+            return playlistResult;
+
+        return AddPlaylistCleanupWarning(
+            playlistResult,
+            cleanupResult.CleanupWarning!);
+    }
+
+    private static HuePlaylistStreamProbeResult AddPlaylistCleanupWarning(
+        HuePlaylistStreamProbeResult result,
+        string warning)
+    {
+        var warnings = new[] { result.CleanupWarning, warning }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var cleanupWarning = string.Join(" ", warnings);
+        var message = result.Message;
+        if (!string.IsNullOrWhiteSpace(warning) &&
+            !message.Contains(warning, StringComparison.Ordinal))
+        {
+            message = $"{message} Cleanup warning: {warning.Trim()}";
+        }
+
+        return new HuePlaylistStreamProbeResult
+        {
+            Succeeded = false,
+            Message = message,
+            CleanupWarning = cleanupWarning,
+            Steps = result.Steps
+        };
+    }
+
+    private async Task<HuePlaylistStreamProbeResult> RunSerializedPlaylistAsync(
+        Func<CancellationToken, Task<HuePlaylistStreamProbeResult>> operation,
+        CancellationToken requestCancellation,
+        string? resourceKey)
+    {
+        var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic(resourceKey);
+        if (lifecycleLease == null)
+            return PlaylistFailure(DiagnosticBusyMessage);
+
+        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
+        lock (_activeOperationLock)
+        {
+            _activeOperationCancellation = operationCancellation;
+        }
+
+        try
+        {
+            return await operation(operationCancellation.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_activeOperationLock)
+            {
+                if (ReferenceEquals(_activeOperationCancellation, operationCancellation))
+                    _activeOperationCancellation = null;
+            }
+
+            lifecycleLease.Dispose();
+        }
+    }
+
+    private sealed class PreparedPlaylistPreviewStep
+    {
+        public PreparedPlaylistPreviewStep(
+            int index,
+            int durationSeconds,
+            int transitionSeconds,
+            int transitionOutSeconds,
+            string effect,
+            int effectSpeedPercent,
+            string transitionCurve,
+            Dictionary<int, byte[]> channelColors)
+        {
+            Index = index;
+            DurationSeconds = durationSeconds;
+            TransitionSeconds = transitionSeconds;
+            TransitionOutSeconds = transitionOutSeconds;
+            Effect = effect;
+            EffectSpeedPercent = effectSpeedPercent;
+            TransitionCurve = transitionCurve;
+            ChannelColors = channelColors;
+        }
+
+        public int Index { get; }
+        public int DurationSeconds { get; }
+        public int TransitionSeconds { get; }
+        public int TransitionOutSeconds { get; }
+        public string Effect { get; }
+        public int EffectSpeedPercent { get; }
+        public string TransitionCurve { get; }
+        public Dictionary<int, byte[]> ChannelColors { get; }
     }
 
     public bool CancelActiveDiagnostic()

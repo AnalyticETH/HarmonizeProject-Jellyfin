@@ -212,6 +212,14 @@ const requiredScript = [
     'transitionCurve: transitionCurve || "Linear"',
     'effectSpeedPercent: values.effectSpeedPercent',
     'transitionCurve: values.transitionCurve',
+    'var stepEffects = playlist.stepEffects',
+    'page._hueScenePlaylistEffects = stepEffects',
+    'page._hueScenePlaylistEffects = []',
+    'page._hueScenePlaylistEffects.push(null)',
+    'effects[index] = effects[target]',
+    'page._hueScenePlaylistEffects.splice(index, 1)',
+    'stepEffects: effects',
+    'Effect override for ',
     'var stepEffectSpeeds = playlist.stepEffectSpeedPercent',
     'page._hueScenePlaylistEffectSpeeds = stepEffectSpeeds',
     'page._hueScenePlaylistEffectSpeeds = []',
@@ -326,6 +334,26 @@ for (const marker of requiredScript) {
 const playlistStepSpeedTelemetryReads = html.match(/readStatusField\(step, "EffectSpeedPercent", 100\)/g) || [];
 if (playlistStepSpeedTelemetryReads.length < 3) {
     throw new Error(`${file} must render per-step effect speed in playlist preview, occurrence, and history status`);
+}
+
+const playlistStepEffectTelemetryReads = html.match(/readStatusField\(step, "Effect", "Solid"\)/g) || [];
+if (playlistStepEffectTelemetryReads.length < 3) {
+    throw new Error(`${file} must render the effective per-step effect in playlist preview, occurrence, and history status`);
+}
+
+{
+    const start = scriptMatch[1].indexOf("renderScenePlaylistItems: function");
+    const end = scriptMatch[1].indexOf("updateScenePlaylistButtons: function", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const effect of ["Solid", "Pulse", "Rainbow", "Candle", "Temperature", "Aurora", "Fire", "Ocean", "Lightning", "Starlight"]) {
+        if (!functionBody.includes(`['${effect}', '${effect}']`)) {
+            throw new Error(`${file} playlist step effect selector is missing canonical effect: ${effect}`);
+        }
+    }
+    if (!functionBody.includes("['', 'Inherited scene']") ||
+        !functionBody.includes("page._hueScenePlaylistEffects[index] = effectSelect.value || null")) {
+        throw new Error(`${file} playlist step effect selector is missing null-as-inherit wiring`);
+    }
 }
 
 for (const functionName of ["testDefaultConnection", "testMappingConnection"]) {

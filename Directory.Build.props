@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Every project must produce and consume a committed, content-hashed NuGet graph. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>

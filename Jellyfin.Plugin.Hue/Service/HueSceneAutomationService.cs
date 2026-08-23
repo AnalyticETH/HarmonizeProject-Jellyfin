@@ -1267,8 +1267,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                     playlist,
                     originalIndex - 1,
                     preset);
+                var effect = PluginConfiguration.GetEffectiveScenePlaylistStepEffect(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
                 var stepSchedule = new HueSceneSchedule { DurationSeconds = durationSeconds };
-                PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
                 steps.Add(new HueScenePlaylistScheduleStep
                 {
                     Index = steps.Count + 1,
@@ -1736,7 +1739,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// This keeps immediate all-target previews on the same sequential, restorative
     /// lifecycle as scheduled cues without creating a schedule or retaining run history.
     /// </summary>
-    public async Task<HueSceneAutomationRunResult> RunPreviewAsync(
+    public Task<HueSceneAutomationRunResult> RunPreviewAsync(
         HueSceneSchedule schedule,
         HueColorPreset preset,
         CancellationToken cancellationToken = default,
@@ -1746,6 +1749,29 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? transitionOutSecondsOverride = null,
         string? transitionCurveOverride = null,
         int? effectSpeedPercentOverride = null)
+        => RunPreviewWithEffectAsync(
+            schedule,
+            preset,
+            cancellationToken,
+            targetScopedPlayback,
+            brightnessPercentOverride,
+            transitionSecondsOverride,
+            transitionOutSecondsOverride,
+            transitionCurveOverride,
+            effectSpeedPercentOverride,
+            effectOverride: null);
+
+    private async Task<HueSceneAutomationRunResult> RunPreviewWithEffectAsync(
+        HueSceneSchedule schedule,
+        HueColorPreset preset,
+        CancellationToken cancellationToken,
+        bool targetScopedPlayback,
+        int? brightnessPercentOverride,
+        int? transitionSecondsOverride,
+        int? transitionOutSecondsOverride,
+        string? transitionCurveOverride,
+        int? effectSpeedPercentOverride,
+        string? effectOverride)
     {
         var config = Plugin.Instance?.Configuration;
         if (config == null)
@@ -1757,7 +1783,12 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (!TryResolveTargets(config, schedule, out var targets, out var targetError))
             return Failure(schedule.Id, targetError, schedule);
 
-        PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
+        var effect = !string.IsNullOrWhiteSpace(effectOverride) &&
+            PluginConfiguration.TryNormalizeColorPresetEffect(effectOverride, out var normalizedEffectOverride)
+            ? normalizedEffectOverride
+            : PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var normalizedPresetEffect)
+                ? normalizedPresetEffect
+                : PluginConfiguration.ColorPresetEffectSolid;
         var targetResults = new List<HueSceneScheduleTargetResult>();
         foreach (var target in targets)
         {
@@ -1771,7 +1802,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 transitionSecondsOverride,
                 transitionOutSecondsOverride,
                 transitionCurveOverride,
-                effectSpeedPercentOverride).ConfigureAwait(false);
+                effectSpeedPercentOverride,
+                effect).ConfigureAwait(false);
             targetResults.Add(targetResult);
             if (!targetResult.Succeeded &&
                 targetResult.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
@@ -1889,7 +1921,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 effectiveTargetUserIds.Count == 0 &&
                 playlist.TargetAllEnabledMappings
         };
-        if (!TryResolveTargets(config, targetSchedule, out _, out var targetError))
+        if (!TryResolveTargets(config, targetSchedule, out var resolvedTargets, out var targetError))
             return PlaylistFailure(playlist, targetError);
 
         var repeatCount = Math.Clamp(
@@ -1901,99 +1933,72 @@ public sealed class HueSceneAutomationService : BackgroundService
             out var playbackOrder);
         var executionStartedAtUtc = DateTime.UtcNow;
         var runAtUtc = NormalizeRunAtUtc(runAtUtcOverride) ?? executionStartedAtUtc;
-        var totalStepCount = resolvedPresets.Length * repeatCount;
-        var steps = new List<HueScenePlaylistStepResult>();
-        var startOffsetSeconds = 0;
-        var canceled = false;
-        for (var repeatIndex = 1; repeatIndex <= repeatCount && !canceled; repeatIndex++)
+        var plannedSteps = BuildPlaylistScheduleSteps(config, playlist, runAtUtc);
+        var totalStepCount = plannedSteps.Count;
+        if (_streamTester is IHuePlaylistStreamTester playlistStreamTester)
         {
-            var pass = BuildPlaylistPass(
+            return await RunContinuousPlaylistPreviewAsync(
+                config,
+                playlist,
+                targetSchedule,
+                resolvedTargets,
                 resolvedPresets,
+                plannedSteps,
+                playlistStreamTester,
+                repeatCount,
                 playbackOrder,
-                playlist.Id,
-                repeatIndex,
-                runAtUtc);
-            for (var index = 0; index < pass.Count; index++)
+                executionStartedAtUtc,
+                targetScopedPlayback,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        var steps = new List<HueScenePlaylistStepResult>();
+        foreach (var plannedStep in plannedSteps)
+        {
+            var preset = resolvedPresets[plannedStep.OriginalIndex - 1];
+            var schedule = new HueSceneSchedule
             {
-                var (preset, originalIndex) = pass[index];
-                var effectiveBrightnessPercent = PluginConfiguration.GetEffectiveScenePlaylistStepBrightnessPercent(
-                    playlist,
-                    originalIndex - 1,
-                    preset);
-                var transitionSecondsOverride = PluginConfiguration.GetEffectiveScenePlaylistStepTransitionSeconds(
-                    playlist,
-                    originalIndex - 1,
-                    preset);
-                var transitionOutSecondsOverride = PluginConfiguration.GetEffectiveScenePlaylistStepTransitionOutSeconds(
-                    playlist,
-                    originalIndex - 1,
-                    preset);
-                var transitionCurveOverride = PluginConfiguration.GetEffectiveScenePlaylistStepTransitionCurve(
-                    playlist,
-                    originalIndex - 1,
-                    preset);
-                var effectSpeedPercentOverride = PluginConfiguration.GetEffectiveScenePlaylistStepEffectSpeedPercent(
-                    playlist,
-                    originalIndex - 1,
-                    preset);
-                var schedule = new HueSceneSchedule
-                {
-                    Id = $"scene-playlist-preview-{repeatIndex}-{index + 1}",
-                    Name = playlist.Name?.Trim() ?? string.Empty,
-                    PresetName = preset.Name?.Trim() ?? string.Empty,
-                    DurationSeconds = PluginConfiguration.GetEffectiveScenePlaylistStepDurationSeconds(
-                        playlist,
-                        originalIndex - 1,
-                        preset),
-                    TargetUserId = targetSchedule.TargetUserId,
-                    TargetUserIds = targetSchedule.TargetUserIds.ToList(),
-                    IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
-                    TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings
-                };
-                var run = await RunPreviewAsync(
-                    schedule,
-                    preset,
-                    cancellationToken,
-                    targetScopedPlayback,
-                    effectiveBrightnessPercent,
-                    transitionSecondsOverride,
-                    transitionOutSecondsOverride,
-                    transitionCurveOverride,
-                    effectSpeedPercentOverride).ConfigureAwait(false);
-                PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
-                steps.Add(new HueScenePlaylistStepResult
-                {
-                    Index = steps.Count + 1,
-                    RepeatIndex = repeatIndex,
-                    OriginalIndex = originalIndex,
-                    PresetName = preset.Name?.Trim() ?? string.Empty,
-                    Effect = effect,
-                    EffectSpeedPercent = effectSpeedPercentOverride,
-                    TransitionCurve = transitionCurveOverride,
-                    BrightnessPercent = effectiveBrightnessPercent,
-                    DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset),
-                    TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(
-                        schedule,
-                        preset,
-                        transitionSecondsOverride),
-                    TransitionOutSeconds = HueSceneAutomationService.GetEffectiveTransitionOutSeconds(
-                        schedule,
-                        preset,
-                        transitionOutSecondsOverride,
-                        transitionSecondsOverride),
-                    StartOffsetSeconds = startOffsetSeconds,
-                    Succeeded = run.Succeeded,
-                    Message = run.Message,
-                    CleanupWarning = run.CleanupWarning,
-                    TargetResults = run.TargetResults
-                });
-                startOffsetSeconds += schedule.DurationSeconds;
-                if (!run.Succeeded && run.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
-                {
-                    canceled = true;
-                    break;
-                }
-            }
+                Id = $"scene-playlist-preview-{plannedStep.RepeatIndex}-{plannedStep.Index}",
+                Name = playlist.Name?.Trim() ?? string.Empty,
+                PresetName = plannedStep.PresetName,
+                DurationSeconds = plannedStep.DurationSeconds,
+                TargetUserId = targetSchedule.TargetUserId,
+                TargetUserIds = targetSchedule.TargetUserIds.ToList(),
+                IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
+                TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings
+            };
+            var run = await RunPreviewWithEffectAsync(
+                schedule,
+                preset,
+                cancellationToken,
+                targetScopedPlayback,
+                plannedStep.BrightnessPercent,
+                plannedStep.TransitionSeconds,
+                plannedStep.TransitionOutSeconds,
+                plannedStep.TransitionCurve,
+                plannedStep.EffectSpeedPercent,
+                plannedStep.Effect).ConfigureAwait(false);
+            steps.Add(new HueScenePlaylistStepResult
+            {
+                Index = plannedStep.Index,
+                RepeatIndex = plannedStep.RepeatIndex,
+                OriginalIndex = plannedStep.OriginalIndex,
+                PresetName = plannedStep.PresetName,
+                Effect = plannedStep.Effect,
+                EffectSpeedPercent = plannedStep.EffectSpeedPercent,
+                TransitionCurve = plannedStep.TransitionCurve,
+                BrightnessPercent = plannedStep.BrightnessPercent,
+                DurationSeconds = plannedStep.DurationSeconds,
+                TransitionSeconds = plannedStep.TransitionSeconds,
+                TransitionOutSeconds = plannedStep.TransitionOutSeconds,
+                StartOffsetSeconds = plannedStep.StartOffsetSeconds,
+                Succeeded = run.Succeeded,
+                Message = run.Message,
+                CleanupWarning = run.CleanupWarning,
+                TargetResults = run.TargetResults
+            });
+            if (!run.Succeeded && run.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
+                break;
         }
 
         var succeededCount = steps.Count(step => step.Succeeded);
@@ -2002,16 +2007,17 @@ public sealed class HueSceneAutomationService : BackgroundService
             steps
                 .Where(step => !string.IsNullOrWhiteSpace(step.CleanupWarning))
                 .Select(step => $"{step.PresetName}: {step.CleanupWarning!.Trim()}"));
-        var targetResults = steps
-            .SelectMany(step => step.TargetResults)
-            .GroupBy(target => target.TargetLabel, StringComparer.OrdinalIgnoreCase)
-            .Select(group =>
+        var targetResults = Enumerable.Range(0, resolvedTargets.Count)
+            .Select(targetIndex =>
             {
-                var entries = group.ToArray();
+                var entries = steps
+                    .Where(step => step.TargetResults.Count > targetIndex)
+                    .Select(step => step.TargetResults[targetIndex])
+                    .ToArray();
                 var failed = entries.Where(entry => !entry.Succeeded).ToArray();
                 return new HueScenePlaylistTargetResult
                 {
-                    TargetLabel = group.Key,
+                    TargetLabel = resolvedTargets[targetIndex].TargetLabel,
                     Succeeded = entries.Length == totalStepCount && entries.All(entry => entry.Succeeded),
                     CompletedStepCount = entries.Length,
                     TotalStepCount = totalStepCount,
@@ -2053,6 +2059,316 @@ public sealed class HueSceneAutomationService : BackgroundService
             RunAtUtc = executionStartedAtUtc
         };
     }
+
+    private async Task<HueScenePlaylistRunResult> RunContinuousPlaylistPreviewAsync(
+        PluginConfiguration config,
+        HueScenePlaylist playlist,
+        HueSceneSchedule targetSchedule,
+        IReadOnlyList<HueSceneAutomationTargetDescription> resolvedTargets,
+        IReadOnlyList<HueColorPreset> resolvedPresets,
+        IReadOnlyList<HueScenePlaylistScheduleStep> plannedSteps,
+        IHuePlaylistStreamTester playlistStreamTester,
+        int repeatCount,
+        string playbackOrder,
+        DateTime executionStartedAtUtc,
+        bool targetScopedPlayback,
+        CancellationToken cancellationToken)
+    {
+        var streamSteps = plannedSteps
+            .Select(step =>
+            {
+                var preset = resolvedPresets[step.OriginalIndex - 1];
+                return new HuePlaylistPreviewStep
+                {
+                    Index = step.Index,
+                    Red = preset.Red,
+                    Green = preset.Green,
+                    Blue = preset.Blue,
+                    BrightnessPercent = step.BrightnessPercent,
+                    DurationSeconds = step.DurationSeconds,
+                    TransitionSeconds = step.TransitionSeconds,
+                    TransitionOutSeconds = step.TransitionOutSeconds,
+                    Effect = step.Effect,
+                    EffectSpeedPercent = step.EffectSpeedPercent,
+                    TransitionCurve = step.TransitionCurve
+                };
+            })
+            .ToArray();
+        var targetExecutions = new List<(
+            HueScenePlaylistTargetResult Result,
+            IReadOnlyDictionary<int, HueSceneScheduleTargetResult> StepResults)>(resolvedTargets.Count);
+        var canceled = false;
+        foreach (var target in resolvedTargets)
+        {
+            if (canceled || cancellationToken.IsCancellationRequested)
+            {
+                targetExecutions.Add(ContinuousPlaylistTargetFailure(
+                    target,
+                    plannedSteps.Count,
+                    "The continuous playlist preview was canceled before this target started."));
+                continue;
+            }
+
+            var execution = await RunContinuousPlaylistTargetAsync(
+                playlist.Name,
+                target,
+                streamSteps,
+                playlistStreamTester,
+                targetScopedPlayback,
+                cancellationToken).ConfigureAwait(false);
+            targetExecutions.Add(execution);
+            canceled = !execution.Result.Succeeded &&
+                (IndicatesCancellation(execution.Result.Message) ||
+                 execution.StepResults.Values.Any(result => IndicatesCancellation(result.Message)));
+        }
+
+        var steps = plannedSteps
+            .Select(plannedStep =>
+            {
+                var stepTargetResults = targetExecutions
+                    .Select(execution => execution.StepResults.TryGetValue(plannedStep.Index, out var result)
+                        ? result
+                        : new HueSceneScheduleTargetResult
+                        {
+                            TargetLabel = execution.Result.TargetLabel,
+                            Succeeded = false,
+                            Message = execution.Result.CompletedStepCount == 0
+                                ? execution.Result.Message
+                                : "The continuous playlist stream ended before this step.",
+                            AvailableChannelCount = execution.Result.AvailableChannelCount,
+                            SelectedChannelCount = execution.Result.SelectedChannelCount
+                        })
+                    .ToArray();
+                var succeededTargetCount = stepTargetResults.Count(result => result.Succeeded);
+                var stepCleanupWarning = string.Join(
+                    " ",
+                    stepTargetResults
+                        .Where(result => !string.IsNullOrWhiteSpace(result.CleanupWarning))
+                        .Select(result => $"{result.TargetLabel}: {result.CleanupWarning!.Trim()}"));
+                return new HueScenePlaylistStepResult
+                {
+                    Index = plannedStep.Index,
+                    RepeatIndex = plannedStep.RepeatIndex,
+                    OriginalIndex = plannedStep.OriginalIndex,
+                    PresetName = plannedStep.PresetName,
+                    Effect = plannedStep.Effect,
+                    EffectSpeedPercent = plannedStep.EffectSpeedPercent,
+                    TransitionCurve = plannedStep.TransitionCurve,
+                    BrightnessPercent = plannedStep.BrightnessPercent,
+                    DurationSeconds = plannedStep.DurationSeconds,
+                    TransitionSeconds = plannedStep.TransitionSeconds,
+                    TransitionOutSeconds = plannedStep.TransitionOutSeconds,
+                    StartOffsetSeconds = plannedStep.StartOffsetSeconds,
+                    Succeeded = stepTargetResults.Length > 0 &&
+                        succeededTargetCount == stepTargetResults.Length,
+                    Message = BuildAggregateRunMessage(stepTargetResults, succeededTargetCount),
+                    CleanupWarning = string.IsNullOrWhiteSpace(stepCleanupWarning)
+                        ? null
+                        : stepCleanupWarning,
+                    TargetResults = stepTargetResults
+                };
+            })
+            .ToArray();
+        var targetResults = targetExecutions.Select(execution => execution.Result).ToArray();
+        var succeededStepCount = steps.Count(step => step.Succeeded);
+        var succeeded = steps.Length == plannedSteps.Count &&
+            succeededStepCount == steps.Length &&
+            targetResults.Length == resolvedTargets.Count &&
+            targetResults.All(result => result.Succeeded);
+        var wasCanceled = canceled ||
+            cancellationToken.IsCancellationRequested ||
+            targetResults.Any(result => IndicatesCancellation(result.Message)) ||
+            steps.Any(step =>
+                IndicatesCancellation(step.Message) ||
+                step.TargetResults.Any(result => IndicatesCancellation(result.Message)));
+        var cleanupWarning = string.Join(
+            " ",
+            targetResults
+                .Where(result => !string.IsNullOrWhiteSpace(result.CleanupWarning))
+                .Select(result => $"{result.TargetLabel}: {result.CleanupWarning!.Trim()}"));
+        var message = succeeded
+            ? repeatCount == 1
+                ? $"Played playlist '{playlist.Name?.Trim()}' with {resolvedPresets.Count} saved scene(s) in continuous streams."
+                : $"Played playlist '{playlist.Name?.Trim()}' with {resolvedPresets.Count} saved scene(s) for {repeatCount} passes in continuous streams."
+            : wasCanceled
+                ? $"The continuous playlist preview was canceled after {succeededStepCount} of {plannedSteps.Count} playlist step(s) completed successfully across all targets."
+                : steps.Length == 0
+                    ? "The scene playlist did not contain any runnable steps."
+                    : $"Played {succeededStepCount} of {plannedSteps.Count} playlist step(s) successfully across all targets.";
+        return new HueScenePlaylistRunResult
+        {
+            PlaylistId = playlist.Id?.Trim() ?? string.Empty,
+            PlaylistName = playlist.Name?.Trim() ?? string.Empty,
+            RepeatCount = repeatCount,
+            PlaybackOrder = playbackOrder,
+            TargetLabel = ResolveTargetLabel(config, targetSchedule),
+            TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
+            TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                ?? Array.Empty<string>(),
+            IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
+            Succeeded = succeeded,
+            Message = message,
+            CleanupWarning = string.IsNullOrWhiteSpace(cleanupWarning) ? null : cleanupWarning,
+            Steps = steps,
+            TargetResults = targetResults,
+            RunAtUtc = executionStartedAtUtc
+        };
+    }
+
+    private async Task<(
+        HueScenePlaylistTargetResult Result,
+        IReadOnlyDictionary<int, HueSceneScheduleTargetResult> StepResults)> RunContinuousPlaylistTargetAsync(
+        string? playlistName,
+        HueSceneAutomationTargetDescription target,
+        IReadOnlyList<HuePlaylistPreviewStep> steps,
+        IHuePlaylistStreamTester playlistStreamTester,
+        bool targetScopedPlayback,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            _hueClient.RetryAttempts = target.RetryAttempts;
+            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
+                target.BridgeIp,
+                target.AppKey,
+                target.EntertainmentAreaId,
+                cancellationToken).ConfigureAwait(false);
+            if (areaConfiguration == null)
+            {
+                return ContinuousPlaylistTargetFailure(
+                    target,
+                    steps.Count,
+                    "The Hue bridge did not return the configured entertainment area.");
+            }
+
+            var availableChannelIds = GetValidChannelIds(areaConfiguration.Value);
+            var selectedChannelCount = target.ChannelIds?.Count ?? availableChannelIds.Count;
+            if (target.ChannelIds != null)
+            {
+                var missingChannelIds = target.ChannelIds
+                    .Where(channelId => !availableChannelIds.Contains(channelId))
+                    .OrderBy(channelId => channelId)
+                    .ToArray();
+                if (missingChannelIds.Length > 0)
+                {
+                    return ContinuousPlaylistTargetFailure(
+                        target,
+                        steps.Count,
+                        $"The channel profile references IDs not present in this entertainment area: {string.Join(", ", missingChannelIds)}.",
+                        availableChannelIds.Count,
+                        selectedChannelCount);
+                }
+            }
+
+            var probe = targetScopedPlayback
+                ? await playlistStreamTester.PreviewPlaylistAsyncForTarget(
+                    target.BridgeIp,
+                    target.AppKey,
+                    target.ClientKey,
+                    target.EntertainmentAreaId,
+                    areaConfiguration.Value,
+                    target.ChannelIds,
+                    steps,
+                    cancellationToken).ConfigureAwait(false)
+                : await playlistStreamTester.PreviewPlaylistAsync(
+                    target.BridgeIp,
+                    target.AppKey,
+                    target.ClientKey,
+                    target.EntertainmentAreaId,
+                    areaConfiguration.Value,
+                    target.ChannelIds,
+                    steps,
+                    cancellationToken).ConfigureAwait(false);
+            var plannedIndexes = steps.Select(step => step.Index).ToHashSet();
+            var probeSteps = probe.Steps
+                .Where(step => step != null && plannedIndexes.Contains(step.Index))
+                .GroupBy(step => step.Index)
+                .ToDictionary(group => group.Key, group => group.Last());
+            var lastCompletedIndex = probeSteps.Keys.DefaultIfEmpty(-1).Max();
+            var stepResults = probeSteps.ToDictionary(
+                pair => pair.Key,
+                pair => new HueSceneScheduleTargetResult
+                {
+                    TargetLabel = target.TargetLabel,
+                    Succeeded = pair.Value.Succeeded,
+                    Message = pair.Value.Message,
+                    CleanupWarning = pair.Key == lastCompletedIndex ? probe.CleanupWarning : null,
+                    AvailableChannelCount = availableChannelIds.Count,
+                    SelectedChannelCount = selectedChannelCount
+                });
+            var targetSucceeded = probe.Succeeded &&
+                stepResults.Count == steps.Count &&
+                stepResults.Values.All(result => result.Succeeded);
+            return (
+                new HueScenePlaylistTargetResult
+                {
+                    TargetLabel = target.TargetLabel,
+                    Succeeded = targetSucceeded,
+                    CompletedStepCount = stepResults.Count,
+                    TotalStepCount = steps.Count,
+                    Message = probe.Message,
+                    CleanupWarning = probe.CleanupWarning,
+                    AvailableChannelCount = availableChannelIds.Count,
+                    SelectedChannelCount = selectedChannelCount
+                },
+                stepResults);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return ContinuousPlaylistTargetFailure(
+                target,
+                steps.Count,
+                "The continuous playlist preview was canceled; the bridge is being restored.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Hue scene playlist {0} failed for target {1}",
+                playlistName,
+                target.TargetLabel);
+            return ContinuousPlaylistTargetFailure(
+                target,
+                steps.Count,
+                "The continuous playlist preview failed for this target.");
+        }
+    }
+
+    private static (
+        HueScenePlaylistTargetResult Result,
+        IReadOnlyDictionary<int, HueSceneScheduleTargetResult> StepResults) ContinuousPlaylistTargetFailure(
+        HueSceneAutomationTargetDescription target,
+        int totalStepCount,
+        string message,
+        int availableChannelCount = 0,
+        int selectedChannelCount = 0)
+        => (
+            new HueScenePlaylistTargetResult
+            {
+                TargetLabel = target.TargetLabel,
+                Succeeded = false,
+                CompletedStepCount = 0,
+                TotalStepCount = totalStepCount,
+                Message = message,
+                AvailableChannelCount = availableChannelCount,
+                SelectedChannelCount = selectedChannelCount
+            },
+            new Dictionary<int, HueSceneScheduleTargetResult>());
+
+    private static bool IndicatesCancellation(string? message)
+        => !string.IsNullOrWhiteSpace(message) &&
+            (message.Contains("canceled", StringComparison.OrdinalIgnoreCase) ||
+             message.Contains("cancelled", StringComparison.OrdinalIgnoreCase) ||
+             message.Contains("cancellation", StringComparison.OrdinalIgnoreCase));
+
+    internal static bool IndicatesCancellation(HueScenePlaylistRunResult? result)
+        => result != null &&
+            (IndicatesCancellation(result.Message) ||
+             (result.TargetResults?.Any(target => IndicatesCancellation(target.Message)) ?? false) ||
+             (result.Steps?.Any(step =>
+                 IndicatesCancellation(step.Message) ||
+                 (step.TargetResults?.Any(target => IndicatesCancellation(target.Message)) ?? false)) ?? false));
 
     private static DateTime? NormalizeRunAtUtc(DateTime? value)
     {
@@ -2894,6 +3210,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                     StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
                     StepBrightnessPercent = playlist.StepBrightnessPercent?.ToList() ?? new List<int?>(),
+                    StepEffects = playlist.StepEffects?.ToList() ?? new List<string?>(),
                     StepEffectSpeedPercent = playlist.StepEffectSpeedPercent?.ToList() ?? new List<int?>(),
                     StepTransitionSeconds = playlist.StepTransitionSeconds?.ToList() ?? new List<int?>(),
                     StepTransitionOutSeconds = playlist.StepTransitionOutSeconds?.ToList() ?? new List<int?>(),
@@ -3684,6 +4001,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                 StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
                 StepBrightnessPercent = playlist.StepBrightnessPercent?.ToList() ?? new List<int?>(),
+                StepEffects = playlist.StepEffects?.ToList() ?? new List<string?>(),
                 StepEffectSpeedPercent = playlist.StepEffectSpeedPercent?.ToList() ?? new List<int?>(),
                 StepTransitionSeconds = playlist.StepTransitionSeconds?.ToList() ?? new List<int?>(),
                 StepTransitionOutSeconds = playlist.StepTransitionOutSeconds?.ToList() ?? new List<int?>(),
@@ -3817,7 +4135,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? transitionSecondsOverride = null,
         int? transitionOutSecondsOverride = null,
         string? transitionCurveOverride = null,
-        int? effectSpeedPercentOverride = null)
+        int? effectSpeedPercentOverride = null,
+        string? effectOverride = null)
     {
         try
         {
@@ -3883,6 +4202,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PluginConfiguration.MinScenePlaylistStepEffectSpeedPercent,
                     PluginConfiguration.MaxScenePlaylistStepEffectSpeedPercent)
                 : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent);
+            var effect = !string.IsNullOrWhiteSpace(effectOverride) &&
+                PluginConfiguration.TryNormalizeColorPresetEffect(effectOverride, out var normalizedEffectOverride)
+                ? normalizedEffectOverride
+                : PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var normalizedPresetEffect)
+                    ? normalizedPresetEffect
+                    : PluginConfiguration.ColorPresetEffectSolid;
             var preview = scopedTester != null && curveTester != null
                 ? await curveTester.PreviewAsyncForTargetWithTransitionCurve(
                     target.BridgeIp,
@@ -3899,7 +4224,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     cancellationToken,
                     GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
                     GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
-                    preset.Effect,
+                    effect,
                     effectSpeedPercent,
                     transitionCurve).ConfigureAwait(false)
                 : scopedTester != null
@@ -3918,7 +4243,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     cancellationToken,
                     GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
                     GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
-                    preset.Effect,
+                    effect,
                     effectSpeedPercent).ConfigureAwait(false)
                 : curveTester != null
                 ? await curveTester.PreviewAsyncWithTransitionCurve(
@@ -3936,7 +4261,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     cancellationToken,
                     GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
                     GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
-                    preset.Effect,
+                    effect,
                     effectSpeedPercent,
                     transitionCurve).ConfigureAwait(false)
                 : await _streamTester.PreviewAsync(
@@ -3954,7 +4279,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     cancellationToken,
                     GetEffectiveTransitionSeconds(schedule, preset, transitionSecondsOverride),
                     GetEffectiveTransitionOutSeconds(schedule, preset, transitionOutSecondsOverride, transitionSecondsOverride),
-                    preset.Effect,
+                    effect,
                     effectSpeedPercent).ConfigureAwait(false);
             return new HueSceneScheduleTargetResult
             {

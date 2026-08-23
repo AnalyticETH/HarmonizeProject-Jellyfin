@@ -1366,6 +1366,261 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunPlaylistPreview_ContinuousCapabilityRunsOncePerTargetWithFullEffectivePlan()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "continuous-app-secret",
+            HueClientKey = "continuous-client-secret",
+            EntertainmentAreaId = "default-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new()
+                {
+                    Name = "Warm",
+                    Effect = PluginConfiguration.ColorPresetEffectPulse,
+                    EffectSpeedPercent = 150,
+                    Red = 11,
+                    Green = 22,
+                    Blue = 33,
+                    BrightnessPercent = 80,
+                    DurationSeconds = 12,
+                    TransitionSeconds = 4,
+                    TransitionOutSeconds = 3,
+                    TransitionCurve = PluginConfiguration.ColorPresetTransitionCurveEaseIn
+                },
+                new()
+                {
+                    Name = "Cool",
+                    Effect = PluginConfiguration.ColorPresetEffectRainbow,
+                    EffectSpeedPercent = 275,
+                    Red = 210,
+                    Green = 180,
+                    Blue = 140,
+                    BrightnessPercent = 60,
+                    DurationSeconds = 8,
+                    TransitionSeconds = 2,
+                    TransitionOutSeconds = 2,
+                    TransitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear
+                }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area"
+                }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "continuous-plan",
+                    Name = "Continuous plan",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    StepDurationSeconds = new List<int> { 3, 0 },
+                    StepBrightnessPercent = new List<int?> { 25, null },
+                    StepEffects = new List<string?> { PluginConfiguration.ColorPresetEffectLightning, null },
+                    StepEffectSpeedPercent = new List<int?> { 175, null },
+                    StepTransitionSeconds = new List<int?> { 1, null },
+                    StepTransitionOutSeconds = new List<int?> { null, 1 },
+                    StepTransitionCurves = new List<string?>
+                    {
+                        PluginConfiguration.ColorPresetTransitionCurveEaseInOut,
+                        null
+                    },
+                    RepeatCount = 2,
+                    PlaybackOrder = PluginConfiguration.ScenePlaylistOrderSequential,
+                    TargetUserIds = new List<string> { "user-1" },
+                    IncludeDefaultTarget = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new ContinuousPlaylistStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(
+            configuration.ScenePlaylists[0],
+            runAtUtcOverride: new DateTime(2026, 8, 23, 20, 0, 0, DateTimeKind.Utc));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, streamTester.LegacyPreviewCallCount);
+        Assert.Empty(streamTester.TargetScopedPlaylistInvocations);
+        Assert.Equal(2, streamTester.PlaylistInvocations.Count);
+        Assert.Equal(
+            new[] { "192.168.1.100", "192.168.1.101" },
+            streamTester.PlaylistInvocations.Select(invocation => invocation.BridgeIp));
+        Assert.All(streamTester.PlaylistInvocations, invocation =>
+        {
+            Assert.Equal(new[] { 1, 2, 3, 4 }, invocation.Steps.Select(step => step.Index));
+            Assert.Equal(new[] { 11, 210, 11, 210 }, invocation.Steps.Select(step => step.Red));
+            Assert.Equal(new[] { 22, 180, 22, 180 }, invocation.Steps.Select(step => step.Green));
+            Assert.Equal(new[] { 33, 140, 33, 140 }, invocation.Steps.Select(step => step.Blue));
+            Assert.Equal(new[] { 25, 60, 25, 60 }, invocation.Steps.Select(step => step.BrightnessPercent));
+            Assert.Equal(new[] { 3, 8, 3, 8 }, invocation.Steps.Select(step => step.DurationSeconds));
+            Assert.Equal(new[] { 1, 2, 1, 2 }, invocation.Steps.Select(step => step.TransitionSeconds));
+            Assert.Equal(new[] { 2, 1, 2, 1 }, invocation.Steps.Select(step => step.TransitionOutSeconds));
+            Assert.Equal(
+                new[] { "Lightning", "Rainbow", "Lightning", "Rainbow" },
+                invocation.Steps.Select(step => step.Effect));
+            Assert.Equal(new[] { 175, 275, 175, 275 }, invocation.Steps.Select(step => step.EffectSpeedPercent));
+            Assert.Equal(
+                new[] { "EaseInOut", "Linear", "EaseInOut", "Linear" },
+                invocation.Steps.Select(step => step.TransitionCurve));
+        });
+        Assert.Equal(new[] { "Warm", "Cool", "Warm", "Cool" }, result.Steps.Select(step => step.PresetName));
+        Assert.Equal(new[] { 1, 2, 1, 2 }, result.Steps.Select(step => step.OriginalIndex));
+        Assert.Equal(new[] { 1, 1, 2, 2 }, result.Steps.Select(step => step.RepeatIndex));
+        Assert.Equal(new[] { 0, 3, 11, 14 }, result.Steps.Select(step => step.StartOffsetSeconds));
+        Assert.Equal(new[] { "Lightning", "Rainbow", "Lightning", "Rainbow" }, result.Steps.Select(step => step.Effect));
+        Assert.Equal(2, result.TargetResults.Count);
+        Assert.All(result.TargetResults, target =>
+        {
+            Assert.True(target.Succeeded);
+            Assert.Equal(4, target.CompletedStepCount);
+            Assert.Equal(4, target.TotalStepCount);
+        });
+    }
+
+    [Fact]
+    public async Task RunPlaylistPreview_ContinuousCapabilitySelectsTargetScopedEntryPoint()
+    {
+        var configuration = CreateContinuousPlaylistConfiguration("target-scoped-playlist", "Target-scoped playlist", 2);
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new ContinuousPlaylistStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(
+            configuration.ScenePlaylists[0],
+            targetScopedPlayback: true);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, streamTester.LegacyPreviewCallCount);
+        Assert.Empty(streamTester.PlaylistInvocations);
+        var invocation = Assert.Single(streamTester.TargetScopedPlaylistInvocations);
+        Assert.Equal("192.168.1.100", invocation.BridgeIp);
+        Assert.Equal("area-1", invocation.AreaId);
+        Assert.Equal(new[] { 1, 2 }, invocation.Steps.Select(step => step.Index));
+    }
+
+    [Fact]
+    public async Task RunPlaylistPreview_ContinuousPartialFailurePreservesStepAndCleanupTelemetry()
+    {
+        var configuration = CreateContinuousPlaylistConfiguration("partial-playlist", "Partial playlist", 3);
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new ContinuousPlaylistStreamTester();
+        streamTester.EnqueueResult(new HuePlaylistStreamProbeResult
+        {
+            Succeeded = false,
+            Message = "Completed 1 of 3 playlist steps before the continuous stream failed.",
+            CleanupWarning = "The bridge restore was incomplete.",
+            Steps = new HuePlaylistPreviewStepResult[]
+            {
+                new() { Index = 1, Succeeded = true, Message = "Displayed playlist step 1." },
+                new() { Index = 2, Succeeded = false, Message = "The playlist frame could not be sent." }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, streamTester.LegacyPreviewCallCount);
+        Assert.Single(streamTester.PlaylistInvocations);
+        Assert.Equal(3, result.Steps.Count);
+        Assert.True(result.Steps[0].Succeeded);
+        Assert.False(result.Steps[1].Succeeded);
+        Assert.Contains("frame could not be sent", result.Steps[1].Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("restore was incomplete", result.Steps[1].CleanupWarning, StringComparison.OrdinalIgnoreCase);
+        Assert.False(result.Steps[2].Succeeded);
+        Assert.Contains("ended before this step", result.Steps[2].Message, StringComparison.OrdinalIgnoreCase);
+        var target = Assert.Single(result.TargetResults);
+        Assert.False(target.Succeeded);
+        Assert.Equal(2, target.CompletedStepCount);
+        Assert.Equal(3, target.TotalStepCount);
+        Assert.Equal("The bridge restore was incomplete.", target.CleanupWarning);
+        Assert.Contains("Completed 1 of 3", target.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunPlaylistPreview_ContinuousCancellationStopsBeforeTheNextTargetAndPreservesTelemetry()
+    {
+        var configuration = CreateContinuousPlaylistConfiguration("canceled-playlist", "Canceled playlist", 2);
+        configuration.UserMappings = new List<UserBridgeMapping>
+        {
+            new()
+            {
+                UserId = "user-1",
+                UserName = "Kitchen",
+                SyncEnabled = true,
+                HueBridgeIp = "192.168.1.101",
+                HueAppKey = "mapping-app-secret",
+                HueClientKey = "mapping-client-secret",
+                EntertainmentAreaId = "mapping-area"
+            }
+        };
+        configuration.ScenePlaylists[0].TargetUserIds = new List<string> { "user-1" };
+        configuration.ScenePlaylists[0].IncludeDefaultTarget = true;
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new ContinuousPlaylistStreamTester();
+        streamTester.EnqueueResult(new HuePlaylistStreamProbeResult
+        {
+            Succeeded = false,
+            Message = "The continuous playlist preview was canceled after 0 of 2 step(s); the bridge is being restored.",
+            CleanupWarning = "The canceled target was restored with warnings.",
+            Steps = new HuePlaylistPreviewStepResult[]
+            {
+                new() { Index = 1, Succeeded = false, Message = "The playlist step was canceled." }
+            }
+        });
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, streamTester.LegacyPreviewCallCount);
+        var invocation = Assert.Single(streamTester.PlaylistInvocations);
+        Assert.Equal("192.168.1.100", invocation.BridgeIp);
+        Assert.Equal(2, result.TargetResults.Count);
+        Assert.Equal(1, result.TargetResults[0].CompletedStepCount);
+        Assert.Contains("canceled after 0 of 2", result.TargetResults[0].Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("The canceled target was restored with warnings.", result.TargetResults[0].CleanupWarning);
+        Assert.Equal(0, result.TargetResults[1].CompletedStepCount);
+        Assert.Contains("canceled before this target started", result.TargetResults[1].Message, StringComparison.OrdinalIgnoreCase);
+        Assert.All(result.Steps, step => Assert.False(step.Succeeded));
+        Assert.Contains("playlist step was canceled", result.Steps[0].Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ended before this step", result.Steps[1].Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BuildPlaylistScheduleSteps_ExpandsEffectiveOverridesAndOffsets()
     {
         var configuration = new PluginConfiguration
@@ -1612,6 +1867,84 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(2, runtime.PlaylistRepeatCount);
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderSequential, runtime.PlaylistPlaybackOrder);
         Assert.Equal(6, runtime.PlaylistTotalDurationSeconds);
+    }
+
+    [Fact]
+    public async Task RunScheduleAsync_ContinuousPlaylistCloneRetainsStepEffects()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "scheduled-effects-app-secret",
+            HueClientKey = "scheduled-effects-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new()
+                {
+                    Name = "First",
+                    Effect = PluginConfiguration.ColorPresetEffectPulse,
+                    Red = 11,
+                    Green = 20,
+                    Blue = 30,
+                    DurationSeconds = 1
+                },
+                new()
+                {
+                    Name = "Second",
+                    Effect = PluginConfiguration.ColorPresetEffectRainbow,
+                    Red = 222,
+                    Green = 180,
+                    Blue = 140,
+                    DurationSeconds = 1
+                }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "scheduled-effects-playlist",
+                    Name = "Scheduled effects",
+                    PresetNames = new List<string> { "First", "Second" },
+                    StepEffects = new List<string?>
+                    {
+                        PluginConfiguration.ColorPresetEffectLightning,
+                        null
+                    }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "scheduled-effects-cue",
+                    Name = "Scheduled effects cue",
+                    PlaylistName = "Scheduled effects",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new ContinuousPlaylistStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunScheduleAsync("scheduled-effects-cue");
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, streamTester.LegacyPreviewCallCount);
+        var invocation = Assert.Single(streamTester.PlaylistInvocations);
+        Assert.Equal(new[] { "Lightning", "Rainbow" }, invocation.Steps.Select(step => step.Effect));
+        Assert.Equal(new[] { "Lightning", "Rainbow" }, result.PlaylistSteps.Select(step => step.Effect));
+        Assert.Equal(
+            new string?[] { PluginConfiguration.ColorPresetEffectLightning, null },
+            configuration.ScenePlaylists[0].StepEffects);
     }
 
     [Fact]
@@ -3625,6 +3958,77 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunPlaylistPreview_ContinuousModePreservesDistinctTargetsThatShareADisplayLabel()
+    {
+        var configuration = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, DurationSeconds = 1 },
+                new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, DurationSeconds = 1 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Living Room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "first-app-secret",
+                    HueClientKey = "first-client-secret",
+                    EntertainmentAreaId = "first-area"
+                },
+                new()
+                {
+                    UserId = "user-2",
+                    UserName = "Living Room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "second-app-secret",
+                    HueClientKey = "second-client-secret",
+                    EntertainmentAreaId = "second-area"
+                }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "same-label-playlist",
+                    Name = "Shared room sequence",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    TargetUserIds = new List<string> { "user-1", "user-2" }
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new ContinuousPlaylistStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, streamTester.LegacyPreviewCallCount);
+        Assert.Equal(2, streamTester.PlaylistInvocations.Count);
+        Assert.Equal(
+            new[] { "192.168.1.101", "192.168.1.102" },
+            streamTester.PlaylistInvocations.Select(invocation => invocation.BridgeIp));
+        Assert.Equal(2, result.TargetResults.Count);
+        Assert.All(result.TargetResults, target =>
+        {
+            Assert.Equal("Living Room", target.TargetLabel);
+            Assert.True(target.Succeeded);
+            Assert.Equal(2, target.CompletedStepCount);
+            Assert.Equal(2, target.TotalStepCount);
+        });
+    }
+
+    [Fact]
     public async Task RunSchedule_ResolvesPresetAndReturnsSanitizedResult()
     {
         InstallConfiguration(new PluginConfiguration
@@ -4007,6 +4411,40 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("cue-0", service.GetHistory()[0].ScheduleId);
     }
 
+    private static PluginConfiguration CreateContinuousPlaylistConfiguration(
+        string playlistId,
+        string playlistName,
+        int stepCount)
+    {
+        var presets = Enumerable.Range(1, stepCount)
+            .Select(index => new HueColorPreset
+            {
+                Name = $"Scene {index}",
+                Red = index * 20,
+                Green = index * 20 + 1,
+                Blue = index * 20 + 2,
+                DurationSeconds = 1
+            })
+            .ToList();
+        return new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "continuous-app-secret",
+            HueClientKey = "continuous-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = presets,
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = playlistId,
+                    Name = playlistName,
+                    PresetNames = presets.Select(preset => preset.Name).ToList()
+                }
+            }
+        };
+    }
+
     private static void InstallConfiguration(
         PluginConfiguration configuration,
         IXmlSerializer? xmlSerializer = null)
@@ -4043,6 +4481,121 @@ public sealed class HueSceneAutomationServiceTests
                     "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}",
                     Encoding.UTF8,
                     "application/json")
+            });
+        }
+    }
+
+    private sealed class ContinuousPlaylistStreamTester : IHueStreamTester, IHuePlaylistStreamTester
+    {
+        private readonly Queue<HuePlaylistStreamProbeResult> _queuedResults = new();
+
+        public int LegacyPreviewCallCount { get; private set; }
+
+        public List<(string BridgeIp, string AreaId, IReadOnlyList<HuePlaylistPreviewStep> Steps)>
+            PlaylistInvocations
+        { get; } = new();
+
+        public List<(string BridgeIp, string AreaId, IReadOnlyList<HuePlaylistPreviewStep> Steps)>
+            TargetScopedPlaylistInvocations
+        { get; } = new();
+
+        public void EnqueueResult(HuePlaylistStreamProbeResult result)
+            => _queuedResults.Enqueue(result);
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "Not used by this test."
+            });
+
+        public Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        {
+            LegacyPreviewCallCount++;
+            return Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Unexpected legacy preview."
+            });
+        }
+
+        public Task<HuePlaylistStreamProbeResult> PreviewPlaylistAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            IReadOnlyList<HuePlaylistPreviewStep> steps,
+            CancellationToken cancellationToken = default)
+            => RecordPlaylistInvocation(
+                PlaylistInvocations,
+                bridgeIp,
+                areaId,
+                steps);
+
+        public Task<HuePlaylistStreamProbeResult> PreviewPlaylistAsyncForTarget(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            IReadOnlyList<HuePlaylistPreviewStep> steps,
+            CancellationToken cancellationToken = default)
+            => RecordPlaylistInvocation(
+                TargetScopedPlaylistInvocations,
+                bridgeIp,
+                areaId,
+                steps);
+
+        public bool CancelActiveDiagnostic() => false;
+
+        private Task<HuePlaylistStreamProbeResult> RecordPlaylistInvocation(
+            List<(string BridgeIp, string AreaId, IReadOnlyList<HuePlaylistPreviewStep> Steps)> invocations,
+            string bridgeIp,
+            string areaId,
+            IReadOnlyList<HuePlaylistPreviewStep> steps)
+        {
+            invocations.Add((bridgeIp, areaId, steps.ToArray()));
+            if (_queuedResults.Count > 0)
+                return Task.FromResult(_queuedResults.Dequeue());
+
+            return Task.FromResult(new HuePlaylistStreamProbeResult
+            {
+                Succeeded = true,
+                Message = $"Displayed {steps.Count} playlist step(s) in one continuous stream.",
+                Steps = steps
+                    .Select(step => new HuePlaylistPreviewStepResult
+                    {
+                        Index = step.Index,
+                        Succeeded = true,
+                        Message = $"Displayed playlist step {step.Index}."
+                    })
+                    .ToArray()
             });
         }
     }

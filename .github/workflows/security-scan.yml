@@ -1,7 +1,7 @@
 name: Security Scan
 
 # Reusable blocking OSS secret + code scanning. The .NET CI/CD workflow calls
-# this gate for every push and pull request; weekly and manual runs remain here.
+# this gate for every trusted main push; weekly default-branch runs remain here.
 # gitleaks (secrets) + semgrep (SAST) publish redacted JSON artifacts and fail
 # the job on findings or scanner errors. Dependency scanning stays with the
 # free Dependabot alerts and the .NET vulnerability check in dotnet-ci.yml.
@@ -10,7 +10,6 @@ on:
   workflow_call:
   schedule:
     - cron: '17 4 * * 1'
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,12 +20,13 @@ env:
   SEMGREP_VERSION: '1.174.0'
 
 concurrency:
-  group: security-scan-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: security-scan-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   gitleaks:
     name: Secret scan (gitleaks)
+    if: github.ref == 'refs/heads/main'
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -83,6 +83,7 @@ jobs:
 
   semgrep:
     name: Static analysis (semgrep)
+    if: github.ref == 'refs/heads/main'
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -100,7 +101,7 @@ jobs:
           set -euo pipefail
           set +e
           "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
-            --config p/default --metrics off --timeout 30 --json --output semgrep.json .
+            --config p/default --metrics off --timeout 120 --json --output semgrep.json .
           scan_status=$?
           set -e
           test -f semgrep.json || {

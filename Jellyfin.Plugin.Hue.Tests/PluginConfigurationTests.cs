@@ -399,6 +399,79 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsPerStepEffectOverridesAndCanonicalizesInheritance()
+    {
+        var first = new HueColorPreset { Name = "Warm", Effect = PluginConfiguration.ColorPresetEffectPulse };
+        var second = new HueColorPreset { Name = "Cool", Effect = " rainbow " };
+        var playlist = new HueScenePlaylist
+        {
+            Id = "playlist-effects",
+            Name = "Effect sequence",
+            PresetNames = new List<string> { "Warm", "Cool" },
+            StepEffects = new List<string?> { " starlight ", null }
+        };
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { first, second },
+            ScenePlaylists = new List<HueScenePlaylist> { playlist }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(
+            PluginConfiguration.ColorPresetEffectStarlight,
+            PluginConfiguration.GetEffectiveScenePlaylistStepEffect(playlist, 0, first));
+        Assert.Equal(
+            PluginConfiguration.ColorPresetEffectRainbow,
+            PluginConfiguration.GetEffectiveScenePlaylistStepEffect(playlist, 1, second));
+
+        playlist.StepEffects[0] = " ";
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(
+            PluginConfiguration.ColorPresetEffectPulse,
+            PluginConfiguration.GetEffectiveScenePlaylistStepEffect(playlist, 0, first));
+
+        playlist.StepEffects = new List<string?>();
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(
+            PluginConfiguration.ColorPresetEffectPulse,
+            PluginConfiguration.GetEffectiveScenePlaylistStepEffect(playlist, 0, first));
+    }
+
+    [Fact]
+    public void ValidateScenePlaylists_RejectsMismatchedOrUnknownStepEffects()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm" },
+                new() { Name = "Cool" }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-invalid-effects",
+                    Name = "Invalid effects",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    StepEffects = new List<string?> { PluginConfiguration.ColorPresetEffectPulse }
+                }
+            }
+        };
+
+        var mismatchErrors = config.ValidateScenePlaylists();
+        Assert.Contains(
+            "Scene playlist 1 step effect overrides must contain one value per saved scene, or be omitted",
+            mismatchErrors);
+
+        config.ScenePlaylists[0].StepEffects = new List<string?> { "Strobe", null };
+        var effectErrors = config.ValidateScenePlaylists();
+        Assert.Contains(
+            "Scene playlist 1 step 1 effect must be one of Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight, or null/blank (inherit)",
+            effectErrors);
+    }
+
+    [Fact]
     public void ValidateScenePlaylists_RejectsMismatchedOrOutOfRangeStepEffectSpeeds()
     {
         var config = new PluginConfiguration

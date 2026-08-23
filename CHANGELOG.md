@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.5.203] - 2026-08-23
+
+### Added
+- **Per-step playlist effects**: add nullable `stepEffects` overrides for Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, and Starlight; blank/null values inherit the referenced saved scene effect, with full administrator, API, scheduler, telemetry, duplication, and backup parity
+- **Continuous playlist streaming**: preflight the complete expanded plan, then render every step for one target through a single capture, entertainment-area activation, DTLS session, deactivation, and restoration lifecycle
+- **Stable target telemetry**: correlate playlist outcomes by resolved target position so distinct targets with duplicate display labels retain independent completion and failure details
+
+### Security
+- **Reproducible dependency restore**: commit NuGet dependency locks with content hashes and require locked-mode restores before build, formatting, vulnerability audit, packaging, and release
+- **Dedicated self-hosted runners**: remove manual, pull-request, and non-main triggers; restrict every self-hosted job to trusted `main`, including scheduled default-branch security scans; isolate the `contents:write` release job under a separate least-privileged runner identity; and fail release creation when the version tag already exists
+
 ## [1.5.202] - 2026-08-23
 
 ### Added

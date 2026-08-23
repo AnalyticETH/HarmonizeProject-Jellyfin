@@ -1123,4 +1123,394 @@ public sealed class HueStreamTesterTests
                 request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal)),
             ItExpr.IsAny<CancellationToken>());
     }
+
+    [Fact]
+    public async Task PreviewPlaylistAsync_PreflightsEveryStepBeforeBridgeMutation()
+    {
+        var lifecycleHandler = new PlaylistLifecycleHandler();
+        using var httpClient = new HttpClient(lifecycleHandler);
+        var streamFactory = new RecordingPreviewStreamFactory();
+        var tester = CreatePlaylistTester(httpClient, streamFactory);
+        using var document = CreatePlaylistAreaConfiguration();
+
+        var result = await tester.PreviewPlaylistAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            null,
+            new[]
+            {
+                CreatePlaylistStep(1, red: 255),
+                CreatePlaylistStep(2, red: 0, durationSeconds: PluginConfiguration.MaxPreviewDurationSeconds + 1)
+            });
+
+        Assert.False(result.Succeeded);
+        var failedStep = Assert.Single(result.Steps);
+        Assert.Equal(2, failedStep.Index);
+        Assert.Contains("duration", failedStep.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, lifecycleHandler.CaptureCount);
+        Assert.Equal(0, lifecycleHandler.ActivationCount);
+        Assert.Equal(0, lifecycleHandler.DeactivationCount);
+        Assert.Equal(0, lifecycleHandler.RestoreCount);
+        Assert.Equal(0, streamFactory.CreateCount);
+    }
+
+    [Fact]
+    public async Task PreviewPlaylistAsyncForTarget_UsesOneLifecycleForEverySuccessfulStep()
+    {
+        var lifecycleHandler = new PlaylistLifecycleHandler();
+        using var httpClient = new HttpClient(lifecycleHandler);
+        var streamFactory = new RecordingPreviewStreamFactory();
+        var tester = CreatePlaylistTester(httpClient, streamFactory);
+        using var document = CreatePlaylistAreaConfiguration();
+
+        var result = await tester.PreviewPlaylistAsyncForTarget(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            null,
+            new[]
+            {
+                CreatePlaylistStep(1, red: 255),
+                CreatePlaylistStep(2, red: 0, blue: 255)
+            });
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(new[] { 1, 2 }, result.Steps.Select(step => step.Index));
+        Assert.All(result.Steps, step => Assert.True(step.Succeeded));
+        Assert.Contains("one continuous DTLS session", result.Message, StringComparison.Ordinal);
+        Assert.Equal(1, lifecycleHandler.CaptureCount);
+        Assert.Equal(1, lifecycleHandler.ActivationCount);
+        Assert.Equal(1, lifecycleHandler.DeactivationCount);
+        Assert.Equal(1, lifecycleHandler.RestoreCount);
+        Assert.Equal(1, streamFactory.CreateCount);
+        Assert.Equal(1, streamFactory.Stream.StartCount);
+        Assert.Equal(1, streamFactory.Stream.StopCount);
+        Assert.True(streamFactory.Stream.SendCount >= 2);
+    }
+
+    [Fact]
+    public async Task PreviewPlaylistAsync_MidSequenceSendFailureStillCleansUpOnce()
+    {
+        var lifecycleHandler = new PlaylistLifecycleHandler();
+        using var httpClient = new HttpClient(lifecycleHandler);
+        var streamFactory = new RecordingPreviewStreamFactory(colors =>
+            colors.Values.All(frame => frame[2] == 0));
+        var tester = CreatePlaylistTester(httpClient, streamFactory);
+        using var document = CreatePlaylistAreaConfiguration();
+
+        var result = await tester.PreviewPlaylistAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            null,
+            new[]
+            {
+                CreatePlaylistStep(1, red: 255),
+                CreatePlaylistStep(2, red: 0, green: 255),
+                CreatePlaylistStep(3, red: 0, blue: 255)
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(2, result.Steps.Count);
+        Assert.True(result.Steps[0].Succeeded);
+        Assert.False(result.Steps[1].Succeeded);
+        Assert.Equal(2, result.Steps[1].Index);
+        Assert.Equal(1, lifecycleHandler.CaptureCount);
+        Assert.Equal(1, lifecycleHandler.ActivationCount);
+        Assert.Equal(1, lifecycleHandler.DeactivationCount);
+        Assert.Equal(1, lifecycleHandler.RestoreCount);
+        Assert.Equal(1, streamFactory.Stream.StartCount);
+        Assert.Equal(1, streamFactory.Stream.StopCount);
+    }
+
+    [Fact]
+    public async Task PreviewPlaylistAsync_CancelActiveDiagnosticStopsSequenceAndCleansUpOnce()
+    {
+        var lifecycleHandler = new PlaylistLifecycleHandler();
+        using var httpClient = new HttpClient(lifecycleHandler);
+        var streamFactory = new RecordingPreviewStreamFactory();
+        var tester = CreatePlaylistTester(httpClient, streamFactory);
+        using var document = CreatePlaylistAreaConfiguration();
+
+        var preview = tester.PreviewPlaylistAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            null,
+            new[]
+            {
+                CreatePlaylistStep(1, red: 255),
+                CreatePlaylistStep(2, red: 0, green: 255),
+                CreatePlaylistStep(3, red: 0, blue: 255)
+            });
+        await streamFactory.Stream.FirstSend.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(tester.CancelActiveDiagnostic());
+        var result = await preview;
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("canceled", result.Message, StringComparison.OrdinalIgnoreCase);
+        var canceledStep = Assert.Single(result.Steps);
+        Assert.Equal(1, canceledStep.Index);
+        Assert.False(canceledStep.Succeeded);
+        Assert.Equal(1, lifecycleHandler.CaptureCount);
+        Assert.Equal(1, lifecycleHandler.ActivationCount);
+        Assert.Equal(1, lifecycleHandler.DeactivationCount);
+        Assert.Equal(1, lifecycleHandler.RestoreCount);
+        Assert.Equal(1, streamFactory.Stream.StartCount);
+        Assert.Equal(1, streamFactory.Stream.StopCount);
+    }
+
+    [Fact]
+    public async Task PreviewPlaylistAsync_CancelDuringCleanupConvertsSuccessToCanceledResult()
+    {
+        var lifecycleHandler = new PlaylistLifecycleHandler { BlockDeactivation = true };
+        using var httpClient = new HttpClient(lifecycleHandler);
+        var streamFactory = new RecordingPreviewStreamFactory();
+        var tester = CreatePlaylistTester(httpClient, streamFactory);
+        using var document = CreatePlaylistAreaConfiguration();
+
+        var preview = tester.PreviewPlaylistAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            null,
+            new[] { CreatePlaylistStep(1, red: 255) });
+        await lifecycleHandler.DeactivationStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var cancellationAccepted = tester.CancelActiveDiagnostic();
+        lifecycleHandler.ReleaseDeactivation();
+        var result = await preview;
+
+        Assert.True(cancellationAccepted);
+        Assert.False(result.Succeeded);
+        Assert.Contains("canceled during cleanup", result.Message, StringComparison.OrdinalIgnoreCase);
+        var completedStep = Assert.Single(result.Steps);
+        Assert.True(completedStep.Succeeded);
+        Assert.Equal(1, lifecycleHandler.CaptureCount);
+        Assert.Equal(1, lifecycleHandler.ActivationCount);
+        Assert.Equal(1, lifecycleHandler.DeactivationCount);
+        Assert.Equal(1, lifecycleHandler.RestoreCount);
+        Assert.Equal(1, streamFactory.Stream.StopCount);
+    }
+
+    [Fact]
+    public async Task PreviewPlaylistAsync_ActivationFailureRestoresCapturedStateWithoutCreatingStream()
+    {
+        var lifecycleHandler = new PlaylistLifecycleHandler { ActivationSucceeds = false };
+        using var httpClient = new HttpClient(lifecycleHandler);
+        var streamFactory = new RecordingPreviewStreamFactory();
+        var tester = CreatePlaylistTester(httpClient, streamFactory);
+        using var document = CreatePlaylistAreaConfiguration();
+
+        var result = await tester.PreviewPlaylistAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement,
+            null,
+            new[] { CreatePlaylistStep(1, red: 255) });
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("being restored", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, lifecycleHandler.CaptureCount);
+        Assert.Equal(1, lifecycleHandler.ActivationCount);
+        Assert.Equal(1, lifecycleHandler.DeactivationCount);
+        Assert.Equal(1, lifecycleHandler.RestoreCount);
+        Assert.Equal(0, streamFactory.CreateCount);
+    }
+
+    private static HueStreamTester CreatePlaylistTester(
+        HttpClient httpClient,
+        IHuePreviewStreamFactory streamFactory)
+    {
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
+        {
+            RetryAttempts = 0
+        };
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>()))
+            .Returns(Mock.Of<ILogger>());
+        return new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>(),
+            new HueBridgeLifecycleGate(),
+            streamFactory);
+    }
+
+    private static JsonDocument CreatePlaylistAreaConfiguration()
+        => JsonDocument.Parse(
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+
+    private static HuePlaylistPreviewStep CreatePlaylistStep(
+        int index,
+        int red,
+        int green = 0,
+        int blue = 0,
+        int durationSeconds = 1)
+        => new()
+        {
+            Index = index,
+            Red = red,
+            Green = green,
+            Blue = blue,
+            BrightnessPercent = 50,
+            DurationSeconds = durationSeconds,
+            Effect = PluginConfiguration.ColorPresetEffectSolid,
+            EffectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+            TransitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear
+        };
+
+    private sealed class PlaylistLifecycleHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource<bool> _deactivationStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _releaseDeactivation =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool ActivationSucceeds { get; init; } = true;
+        public bool BlockDeactivation { get; init; }
+        public int CaptureCount { get; private set; }
+        public int ActivationCount { get; private set; }
+        public int DeactivationCount { get; private set; }
+        public int RestoreCount { get; private set; }
+        public Task DeactivationStarted => _deactivationStarted.Task;
+
+        public void ReleaseDeactivation() => _releaseDeactivation.TrySetResult(true);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Get &&
+                request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal))
+            {
+                CaptureCount++;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(@"{
+                        ""data"": [{
+                            ""on"": {""on"": true},
+                            ""dimming"": {""brightness"": 50},
+                            ""color"": {""xy"": {""x"": 0.3, ""y"": 0.3}}
+                        }]
+                    }")
+                };
+            }
+
+            if (request.Method == HttpMethod.Put)
+            {
+                var body = request.Content == null
+                    ? string.Empty
+                    : await request.Content.ReadAsStringAsync(cancellationToken);
+                if (body.Contains("\"start\"", StringComparison.Ordinal))
+                {
+                    ActivationCount++;
+                    return new HttpResponseMessage(
+                        ActivationSucceeds ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable)
+                    {
+                        Content = new StringContent("{}")
+                    };
+                }
+
+                if (body.Contains("\"stop\"", StringComparison.Ordinal))
+                {
+                    DeactivationCount++;
+                    _deactivationStarted.TrySetResult(true);
+                    if (BlockDeactivation)
+                        await _releaseDeactivation.Task.ConfigureAwait(false);
+                }
+                else if (request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal))
+                    RestoreCount++;
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}")
+            };
+        }
+    }
+
+    private sealed class RecordingPreviewStreamFactory : IHuePreviewStreamFactory
+    {
+        public RecordingPreviewStreamFactory(
+            Func<Dictionary<int, byte[]>, bool>? sendResult = null)
+        {
+            Stream = new RecordingPreviewStream(sendResult);
+        }
+
+        public int CreateCount { get; private set; }
+        public RecordingPreviewStream Stream { get; }
+
+        public IHuePreviewStream Create()
+        {
+            CreateCount++;
+            return Stream;
+        }
+    }
+
+    private sealed class RecordingPreviewStream : IHuePreviewStream
+    {
+        private readonly Func<Dictionary<int, byte[]>, bool> _sendResult;
+
+        public RecordingPreviewStream(
+            Func<Dictionary<int, byte[]>, bool>? sendResult)
+        {
+            _sendResult = sendResult ?? (_ => true);
+        }
+
+        public Func<CancellationToken, Task<bool>>? OnBeforeReconnectWithCancellation
+        {
+            set { }
+        }
+        public int StartCount { get; private set; }
+        public int SendCount { get; private set; }
+        public int StopCount { get; private set; }
+        public Task FirstSend => _firstSend.Task;
+
+        private readonly TaskCompletionSource<bool> _firstSend =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task StartStreamAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            StartCount++;
+            return Task.CompletedTask;
+        }
+
+        public bool IsHealthy() => true;
+
+        public Task<bool> SendColors(
+            string areaId,
+            Dictionary<int, byte[]> channelColors,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SendCount++;
+            _firstSend.TrySetResult(true);
+            return Task.FromResult(_sendResult(channelColors));
+        }
+
+        public void StopStream()
+        {
+            StopCount++;
+        }
+    }
 }

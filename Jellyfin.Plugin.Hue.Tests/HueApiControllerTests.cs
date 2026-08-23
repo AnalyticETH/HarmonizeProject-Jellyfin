@@ -2253,8 +2253,8 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "global-area",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Warm", Red = 25, Green = 50, Blue = 75, BrightnessPercent = 75, DurationSeconds = 1 },
-                new() { Name = "Cool", Red = 220, Green = 180, Blue = 140, BrightnessPercent = 60, DurationSeconds = 2 }
+                new() { Name = "Warm", Effect = PluginConfiguration.ColorPresetEffectPulse, Red = 25, Green = 50, Blue = 75, BrightnessPercent = 75, DurationSeconds = 1 },
+                new() { Name = "Cool", Effect = PluginConfiguration.ColorPresetEffectRainbow, Red = 220, Green = 180, Blue = 140, BrightnessPercent = 60, DurationSeconds = 2 }
             }
         });
         var controller = CreateController();
@@ -2265,6 +2265,7 @@ public sealed class HueApiControllerTests : IDisposable
             PresetNames = new List<string> { "Warm", "Cool" },
             StepDurationSeconds = new List<int> { 3, 0 },
             StepBrightnessPercent = new List<int?> { 40, null },
+            StepEffects = new List<string?> { " starlight ", null },
             StepEffectSpeedPercent = new List<int?> { 225, null },
             StepTransitionSeconds = new List<int?> { 1, null },
             StepTransitionOutSeconds = new List<int?> { null, 1 },
@@ -2278,6 +2279,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(10, savedResult.TotalDurationSeconds);
         Assert.Equal(new[] { 3, 0 }, savedResult.StepDurationSeconds);
         Assert.Equal(new int?[] { 40, null }, savedResult.StepBrightnessPercent);
+        Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight, null }, savedResult.StepEffects);
         Assert.Equal(new int?[] { 225, null }, savedResult.StepEffectSpeedPercent);
         Assert.Equal(new int?[] { 1, null }, savedResult.StepTransitionSeconds);
         Assert.Equal(new int?[] { null, 1 }, savedResult.StepTransitionOutSeconds);
@@ -2291,6 +2293,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(new[] { "Warm", "Cool" }, listed[0].PresetNames);
         Assert.Equal(2, listed[0].RepeatCount);
         Assert.Equal(new int?[] { 40, null }, listed[0].StepBrightnessPercent);
+        Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight, null }, listed[0].StepEffects);
         Assert.Equal(new int?[] { 225, null }, listed[0].StepEffectSpeedPercent);
         Assert.Equal(new int?[] { 1, null }, listed[0].StepTransitionSeconds);
         Assert.Equal(new int?[] { null, 1 }, listed[0].StepTransitionOutSeconds);
@@ -2338,6 +2341,15 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(result.Succeeded);
         Assert.Equal(2, result.RepeatCount);
         Assert.Equal(new[] { "Warm", "Cool", "Warm", "Cool" }, result.Steps.Select(step => step.PresetName));
+        Assert.Equal(
+            new[]
+            {
+                PluginConfiguration.ColorPresetEffectStarlight,
+                PluginConfiguration.ColorPresetEffectRainbow,
+                PluginConfiguration.ColorPresetEffectStarlight,
+                PluginConfiguration.ColorPresetEffectRainbow
+            },
+            result.Steps.Select(step => step.Effect));
         Assert.Equal(new[] { "EaseInOut", "Linear", "EaseInOut", "Linear" }, result.Steps.Select(step => step.TransitionCurve));
         Assert.Equal(new[] { 25, 220, 25, 220 }, streamTester.Invocations
             .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
@@ -2359,6 +2371,18 @@ public sealed class HueApiControllerTests : IDisposable
             .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
             .Select(invocation => (int)invocation.Arguments[15]!)
             .ToArray());
+        Assert.Equal(
+            new[]
+            {
+                PluginConfiguration.ColorPresetEffectStarlight,
+                PluginConfiguration.ColorPresetEffectRainbow,
+                PluginConfiguration.ColorPresetEffectStarlight,
+                PluginConfiguration.ColorPresetEffectRainbow
+            },
+            streamTester.Invocations
+                .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
+                .Select(invocation => (string)invocation.Arguments[14]!)
+                .ToArray());
         Assert.Equal(new[] { 0, 1, 0, 1 }, streamTester.Invocations
             .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
             .Select(invocation => (int)invocation.Arguments[13]!)
@@ -2376,6 +2400,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("Evening sequence (Copy)", duplicateResult.Name);
         Assert.Equal(new[] { 3, 0 }, duplicateResult.StepDurationSeconds);
         Assert.Equal(new int?[] { 40, null }, duplicateResult.StepBrightnessPercent);
+        Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight, null }, duplicateResult.StepEffects);
         Assert.Equal(new int?[] { 225, null }, duplicateResult.StepEffectSpeedPercent);
         Assert.Equal(new int?[] { 1, null }, duplicateResult.StepTransitionSeconds);
         Assert.Equal(new int?[] { null, 1 }, duplicateResult.StepTransitionOutSeconds);
@@ -2388,7 +2413,7 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
-    public void ScenePlaylists_UpdateOmittingStepEffectSpeedPreservesExistingOverrides()
+    public void ScenePlaylists_UpdateOmittingStepEffectsPreservesExistingOverridesAndExplicitEmptyClearsThem()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
         {
@@ -2404,6 +2429,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = "playlist-speed-update",
                     Name = "Speed update",
                     PresetNames = new List<string> { "Warm", "Cool" },
+                    StepEffects = new List<string?> { PluginConfiguration.ColorPresetEffectStarlight, null },
                     StepEffectSpeedPercent = new List<int?> { 225, null }
                 }
             }
@@ -2419,9 +2445,25 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var result = Assert.IsType<HueScenePlaylistResult>(response.Value);
         Assert.Equal("Speed update renamed", result.Name);
+        Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight, null }, result.StepEffects);
         Assert.Equal(new int?[] { 225, null }, result.StepEffectSpeedPercent);
         var persisted = Assert.Single(configuration.ScenePlaylists);
+        Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight, null }, persisted.StepEffects);
         Assert.Equal(new int?[] { 225, null }, persisted.StepEffectSpeedPercent);
+
+        var clearAction = CreateController().SaveScenePlaylist(new HueScenePlaylistRequest
+        {
+            Id = "playlist-speed-update",
+            Name = "Speed update renamed",
+            PresetNames = new List<string> { "Warm", "Cool" },
+            StepEffects = new List<string?>()
+        });
+
+        var clearResponse = Assert.IsType<OkObjectResult>(clearAction.Result);
+        var cleared = Assert.IsType<HueScenePlaylistResult>(clearResponse.Value);
+        Assert.Empty(cleared.StepEffects);
+        Assert.Equal(new int?[] { 225, null }, cleared.StepEffectSpeedPercent);
+        Assert.Empty(Assert.Single(configuration.ScenePlaylists).StepEffects);
     }
 
     [Fact]
@@ -3131,6 +3173,56 @@ public sealed class HueApiControllerTests : IDisposable
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("bulk-playlist-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("bulk-playlist-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ScenePlaylistsBulkPreview_NestedContinuousCancellationStopsRemainingPlaylists()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-cancel-app-secret",
+            HueClientKey = "bulk-cancel-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm", DurationSeconds = 1 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-cancel-first", Name = "Cancel first", PresetNames = new List<string> { "Warm" } },
+                new() { Id = "playlist-must-not-run", Name = "Must not run", PresetNames = new List<string> { "Warm" } }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new NestedCancellationPlaylistStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester, hostedServices: new[] { service });
+
+        var action = await controller.PreviewScenePlaylistsBulk(new HueScenePlaylistBulkPreviewRequest
+        {
+            PlaylistIds = new List<string> { "playlist-cancel-first", "playlist-must-not-run" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueScenePlaylistBulkPreviewResult>(response.Value);
+        Assert.True(result.Canceled);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(1, result.CompletedCount);
+        Assert.Equal(1, result.FailedCount);
+        Assert.Equal(1, streamTester.PlaylistCallCount);
+        var canceledPlaylist = Assert.Single(result.Results);
+        Assert.Equal("Cancel first", canceledPlaylist.PlaylistName);
+        Assert.Contains("canceled", canceledPlaylist.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "canceled",
+            Assert.Single(canceledPlaylist.Steps).Message,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -6458,6 +6550,7 @@ public sealed class HueApiControllerTests : IDisposable
                     PresetNames = new List<string> { "Warm", "Cool" },
                     StepDurationSeconds = new List<int> { 3, 0 },
                     StepBrightnessPercent = new List<int?> { 25, null },
+                    StepEffects = new List<string?> { PluginConfiguration.ColorPresetEffectStarlight, null },
                     StepEffectSpeedPercent = new List<int?> { 225, null },
                     RepeatCount = 2,
                     PlaybackOrder = PluginConfiguration.ScenePlaylistOrderSequential
@@ -6486,6 +6579,15 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(22, occurrence.PlaylistTotalDurationSeconds);
         Assert.Equal(new[] { "Warm", "Cool", "Warm", "Cool" }, occurrence.PlaylistSteps.Select(step => step.PresetName));
         Assert.Equal(new[] { 25, 60, 25, 60 }, occurrence.PlaylistSteps.Select(step => step.BrightnessPercent));
+        Assert.Equal(
+            new[]
+            {
+                PluginConfiguration.ColorPresetEffectStarlight,
+                PluginConfiguration.ColorPresetEffectRainbow,
+                PluginConfiguration.ColorPresetEffectStarlight,
+                PluginConfiguration.ColorPresetEffectRainbow
+            },
+            occurrence.PlaylistSteps.Select(step => step.Effect));
         Assert.Equal(new[] { 225, 275, 225, 275 }, occurrence.PlaylistSteps.Select(step => step.EffectSpeedPercent));
         Assert.Equal(new[] { 3, 8, 3, 8 }, occurrence.PlaylistSteps.Select(step => step.DurationSeconds));
         Assert.Equal(new[] { 0, 3, 11, 14 }, occurrence.PlaylistSteps.Select(step => step.StartOffsetSeconds));
@@ -6497,6 +6599,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("\"playlistSteps\"", csvText, StringComparison.Ordinal);
         Assert.Contains("Warm", csvText, StringComparison.Ordinal);
         var normalizedCsvText = csvText.Replace("\"\"", "\"", StringComparison.Ordinal);
+        Assert.Contains("\"effect\":\"Starlight\"", normalizedCsvText, StringComparison.Ordinal);
+        Assert.Contains("\"effect\":\"Rainbow\"", normalizedCsvText, StringComparison.Ordinal);
         Assert.Contains("\"effectSpeedPercent\":225", normalizedCsvText, StringComparison.Ordinal);
         Assert.Contains("\"effectSpeedPercent\":275", normalizedCsvText, StringComparison.Ordinal);
         Assert.DoesNotContain("playlist-occurrence-app-secret", csvText, StringComparison.Ordinal);
@@ -6506,6 +6610,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("X-HUE-PLAYLIST-STEP-PLAN:", calendarText, StringComparison.Ordinal);
         Assert.Contains("Warm", calendarText, StringComparison.Ordinal);
         var unfoldedCalendarText = calendarText.Replace("\r\n ", string.Empty, StringComparison.Ordinal);
+        Assert.Contains("\"effect\":\"Starlight\"", unfoldedCalendarText, StringComparison.Ordinal);
+        Assert.Contains("\"effect\":\"Rainbow\"", unfoldedCalendarText, StringComparison.Ordinal);
         Assert.Contains("\"effectSpeedPercent\":225", unfoldedCalendarText, StringComparison.Ordinal);
         Assert.Contains("\"effectSpeedPercent\":275", unfoldedCalendarText, StringComparison.Ordinal);
         Assert.DoesNotContain("playlist-occurrence-client-secret", calendarText, StringComparison.Ordinal);
@@ -8044,6 +8150,7 @@ public sealed class HueApiControllerTests : IDisposable
                     PresetNames = new List<string> { "Sunrise", "Midnight" },
                     StepDurationSeconds = new List<int> { 2, 0 },
                     StepBrightnessPercent = new List<int?> { 35, null },
+                    StepEffects = new List<string?> { PluginConfiguration.ColorPresetEffectFire, null },
                     StepEffectSpeedPercent = new List<int?> { 175, null },
                     StepTransitionSeconds = new List<int?> { 2, null },
                     StepTransitionOutSeconds = new List<int?> { null, 1 },
@@ -8061,6 +8168,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(new[] { "Sunrise", "Midnight" }, exportedPlaylist.PresetNames);
         Assert.Equal(new[] { 2, 0 }, exportedPlaylist.StepDurationSeconds);
         Assert.Equal(new int?[] { 35, null }, exportedPlaylist.StepBrightnessPercent);
+        Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectFire, null }, exportedPlaylist.StepEffects);
         Assert.Equal(new int?[] { 175, null }, exportedPlaylist.StepEffectSpeedPercent);
         Assert.Equal(new int?[] { 2, null }, exportedPlaylist.StepTransitionSeconds);
         Assert.Equal(new int?[] { null, 1 }, exportedPlaylist.StepTransitionOutSeconds);
@@ -8105,6 +8213,7 @@ public sealed class HueApiControllerTests : IDisposable
                     PresetNames = exportedPlaylist.PresetNames.ToList(),
                     StepDurationSeconds = exportedPlaylist.StepDurationSeconds.ToList(),
                     StepBrightnessPercent = exportedPlaylist.StepBrightnessPercent.ToList(),
+                    StepEffects = exportedPlaylist.StepEffects.ToList(),
                     StepEffectSpeedPercent = exportedPlaylist.StepEffectSpeedPercent.ToList(),
                     StepTransitionSeconds = exportedPlaylist.StepTransitionSeconds.ToList(),
                     StepTransitionOutSeconds = exportedPlaylist.StepTransitionOutSeconds.ToList(),
@@ -8128,6 +8237,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(new[] { "Sunrise", "Midnight" }, imported.PresetNames);
         Assert.Equal(new[] { 2, 0 }, imported.StepDurationSeconds);
         Assert.Equal(new int?[] { 35, null }, imported.StepBrightnessPercent);
+        Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectFire, null }, imported.StepEffects);
         Assert.Equal(new int?[] { 175, null }, imported.StepEffectSpeedPercent);
         Assert.Equal(new int?[] { 2, null }, imported.StepTransitionSeconds);
         Assert.Equal(new int?[] { null, 1 }, imported.StepTransitionOutSeconds);
@@ -8153,7 +8263,13 @@ public sealed class HueApiControllerTests : IDisposable
             },
             ScenePlaylists = new List<HueScenePlaylist>
             {
-                new() { Id = "portable-rename", Name = "Old sequence", PresetNames = new List<string> { "Warm" } }
+                new()
+                {
+                    Id = "portable-rename",
+                    Name = "Old sequence",
+                    PresetNames = new List<string> { "Warm" },
+                    StepEffects = new List<string?> { PluginConfiguration.ColorPresetEffectStarlight }
+                }
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
@@ -8186,7 +8302,9 @@ public sealed class HueApiControllerTests : IDisposable
         });
 
         Assert.IsType<OkObjectResult>(action.Result);
-        Assert.Equal("New sequence", Assert.Single(destination.ScenePlaylists).Name);
+        var importedPlaylist = Assert.Single(destination.ScenePlaylists);
+        Assert.Equal("New sequence", importedPlaylist.Name);
+        Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight }, importedPlaylist.StepEffects);
         Assert.Equal("New sequence", Assert.Single(destination.SceneSchedules).PlaylistName);
     }
 
@@ -9333,6 +9451,88 @@ public sealed class HueApiControllerTests : IDisposable
 
         Assert.IsType<OkObjectResult>(action);
         Assert.Empty(configuration.UserMappings);
+    }
+
+    private sealed class NestedCancellationPlaylistStreamTester : IHueStreamTester, IHuePlaylistStreamTester
+    {
+        public int PlaylistCallCount { get; private set; }
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("The continuous-playlist test double must not use the legacy probe path.");
+
+        public Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+            => throw new InvalidOperationException("The continuous-playlist test double must not use the legacy preview path.");
+
+        public bool CancelActiveDiagnostic() => false;
+
+        public Task<HuePlaylistStreamProbeResult> PreviewPlaylistAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            IReadOnlyList<HuePlaylistPreviewStep> steps,
+            CancellationToken cancellationToken = default)
+        {
+            PlaylistCallCount++;
+            return Task.FromResult(new HuePlaylistStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "The continuous playlist preview ended during bridge cleanup.",
+                Steps = new[]
+                {
+                    new HuePlaylistPreviewStepResult
+                    {
+                        Index = steps[0].Index,
+                        Succeeded = false,
+                        Message = "The playlist step was canceled during cleanup."
+                    }
+                }
+            });
+        }
+
+        public Task<HuePlaylistStreamProbeResult> PreviewPlaylistAsyncForTarget(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            IReadOnlyList<HuePlaylistPreviewStep> steps,
+            CancellationToken cancellationToken = default)
+            => PreviewPlaylistAsync(
+                bridgeIp,
+                appKey,
+                clientKey,
+                areaId,
+                areaConfiguration,
+                channelIds,
+                steps,
+                cancellationToken);
     }
 
     private HueApiController CreateController(
