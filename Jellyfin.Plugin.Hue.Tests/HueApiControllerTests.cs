@@ -3371,7 +3371,8 @@ public sealed class HueApiControllerTests : IDisposable
             BrightnessPercent = 75,
             DurationSeconds = 8,
             TransitionSeconds = 2,
-            TransitionOutSeconds = 2
+            TransitionOutSeconds = 2,
+            TransitionCurve = " easeinout "
         });
         Assert.IsType<OkObjectResult>(addAction.Result);
 
@@ -3398,6 +3399,27 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(1, preset.TransitionSeconds);
         Assert.Equal(1, preset.TransitionOutSeconds);
         Assert.Equal(125, preset.EffectSpeedPercent);
+        Assert.Equal(PluginConfiguration.ColorPresetTransitionCurveLinear, preset.TransitionCurve);
+    }
+
+    [Fact]
+    public void SaveColorPreset_ReturnsCanonicalTransitionCurve()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+
+        var action = CreateController().SaveColorPreset(new HueColorPresetRequest
+        {
+            Name = "Curve scene",
+            DurationSeconds = 6,
+            TransitionSeconds = 2,
+            TransitionOutSeconds = 2,
+            TransitionCurve = " easeout "
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueColorPresetResult>(response.Value);
+        Assert.Equal(PluginConfiguration.ColorPresetTransitionCurveEaseOut, result.TransitionCurve);
+        Assert.Equal(PluginConfiguration.ColorPresetTransitionCurveEaseOut, Assert.Single(configuration.ColorPresets).TransitionCurve);
     }
 
     [Fact]

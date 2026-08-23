@@ -85,8 +85,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// target information; they can be applied to the default target or any per-user
     /// mapping from the administrator configuration page. TransitionSeconds and
     /// TransitionOutSeconds optionally fade the scene in and out within the configured
-    /// duration. Effect selects the bounded frame pattern used during the hold, and
-    /// EffectSpeedPercent controls the animation rate for non-solid effects.
+    /// duration. TransitionCurve selects the easing curve used for both fades. Effect
+    /// selects the bounded frame pattern used during the hold, and EffectSpeedPercent
+    /// controls the animation rate for non-solid effects.
     /// </summary>
     public class HueColorPreset
     {
@@ -117,6 +118,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// exceed the duration.
         /// </summary>
         public int TransitionOutSeconds { get; set; }
+        /// <summary>
+        /// Easing curve applied to fade-in and fade-out transitions. Missing values in
+        /// older configurations preserve the original linear behavior.
+        /// </summary>
+        public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
     }
 
     /// <summary>
@@ -368,6 +374,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string PlaylistPlaybackOrder { get; set; } = PluginConfiguration.ScenePlaylistOrderSequential;
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+        public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
         public string? TargetLabel { get; set; }
         public List<string> TargetUserIds { get; set; } = new List<string>();
         public bool IncludeDefaultTarget { get; set; }
@@ -554,6 +561,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxColorPresetTransitionSeconds = MaxPreviewDurationSeconds;
         public const int MinColorPresetTransitionOutSeconds = 0;
         public const int MaxColorPresetTransitionOutSeconds = MaxPreviewDurationSeconds;
+        public const string ColorPresetTransitionCurveLinear = "Linear";
+        public const string ColorPresetTransitionCurveSmoothStep = "SmoothStep";
+        public const string ColorPresetTransitionCurveEaseIn = "EaseIn";
+        public const string ColorPresetTransitionCurveEaseOut = "EaseOut";
+        public const string ColorPresetTransitionCurveEaseInOut = "EaseInOut";
         public const int MinColorPresetEffectSpeedPercent = 25;
         public const int MaxColorPresetEffectSpeedPercent = 400;
         public const int DefaultColorPresetEffectSpeedPercent = 100;
@@ -644,6 +656,15 @@ namespace Jellyfin.Plugin.Hue.Configuration
             ColorPresetEffectOcean,
             ColorPresetEffectLightning,
             ColorPresetEffectStarlight
+        };
+
+        private static readonly string[] ColorPresetTransitionCurves =
+        {
+            ColorPresetTransitionCurveLinear,
+            ColorPresetTransitionCurveSmoothStep,
+            ColorPresetTransitionCurveEaseIn,
+            ColorPresetTransitionCurveEaseOut,
+            ColorPresetTransitionCurveEaseInOut
         };
 
         private static readonly string[] ScenePlaylistOrders =
@@ -738,6 +759,31 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (match == null)
             {
                 normalized = ColorPresetEffectSolid;
+                return false;
+            }
+
+            normalized = match;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the canonical spelling for a supported saved-scene transition curve.
+        /// Blank values preserve the original linear fade behavior for older
+        /// configurations and API clients.
+        /// </summary>
+        public static bool TryNormalizeColorPresetTransitionCurve(string? value, out string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                normalized = ColorPresetTransitionCurveLinear;
+                return true;
+            }
+
+            var match = ColorPresetTransitionCurves.FirstOrDefault(curve =>
+                string.Equals(curve, value.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                normalized = ColorPresetTransitionCurveLinear;
                 return false;
             }
 
@@ -2172,6 +2218,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!TryNormalizeColorPresetEffect(preset.Effect, out _))
                 errors.Add($"{label} effect must be one of {string.Join(", ", ColorPresetEffects)}");
+
+            if (!TryNormalizeColorPresetTransitionCurve(preset.TransitionCurve, out _))
+                errors.Add($"{label} transition curve must be one of {string.Join(", ", ColorPresetTransitionCurves)}");
 
             if (preset.EffectSpeedPercent < MinColorPresetEffectSpeedPercent ||
                 preset.EffectSpeedPercent > MaxColorPresetEffectSpeedPercent)

@@ -122,6 +122,28 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void TransitionCurve_NormalizesSupportedValuesAndPreservesLegacyLinearDefault()
+    {
+        Assert.True(PluginConfiguration.TryNormalizeColorPresetTransitionCurve(string.Empty, out var blank));
+        Assert.Equal(PluginConfiguration.ColorPresetTransitionCurveLinear, blank);
+        Assert.True(PluginConfiguration.TryNormalizeColorPresetTransitionCurve(" easeinout ", out var normalized));
+        Assert.Equal(PluginConfiguration.ColorPresetTransitionCurveEaseInOut, normalized);
+        Assert.False(PluginConfiguration.TryNormalizeColorPresetTransitionCurve("Bounce", out _));
+    }
+
+    [Fact]
+    public void ValidateColorPreset_RejectsUnknownTransitionCurve()
+    {
+        var errors = PluginConfiguration.ValidateColorPreset(new HueColorPreset
+        {
+            Name = "Unknown curve",
+            TransitionCurve = "Bounce"
+        });
+
+        Assert.Contains("Color preset transition curve must be one of Linear, SmoothStep, EaseIn, EaseOut, EaseInOut", errors);
+    }
+
+    [Fact]
     public void ValidateColorPresets_RejectsInvalidValuesAndDuplicateNames()
     {
         var config = new PluginConfiguration

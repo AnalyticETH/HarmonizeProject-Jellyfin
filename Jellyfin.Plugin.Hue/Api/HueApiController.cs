@@ -411,7 +411,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 BrightnessPercent = preset.BrightnessPercent,
                 DurationSeconds = preset.DurationSeconds,
                 TransitionSeconds = preset.TransitionSeconds,
-                TransitionOutSeconds = preset.TransitionOutSeconds
+                TransitionOutSeconds = preset.TransitionOutSeconds,
+                TransitionCurve = HueSceneAutomationService.GetEffectiveTransitionCurve(preset)
             };
         }
 
@@ -501,7 +502,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 BrightnessPercent = preset.BrightnessPercent,
                 DurationSeconds = preset.DurationSeconds,
                 TransitionSeconds = preset.TransitionSeconds,
-                TransitionOutSeconds = preset.TransitionOutSeconds
+                TransitionOutSeconds = preset.TransitionOutSeconds,
+                TransitionCurve = preset.TransitionCurve
             };
         }
 
@@ -627,6 +629,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 EffectSpeedPercent = isPlaylist || preset == null
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                     : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                TransitionCurve = isPlaylist
+                    ? PluginConfiguration.ColorPresetTransitionCurveLinear
+                    : HueSceneAutomationService.GetEffectiveTransitionCurve(preset),
                 PlaylistStepCount = playlist?.PresetNames?.Count ?? 0,
                 PlaylistRepeatCount = playlist == null
                     ? PluginConfiguration.DefaultScenePlaylistRepeatCount
@@ -1105,6 +1110,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest($"Preview effect must be one of {PluginConfiguration.ColorPresetEffectSolid}, {PluginConfiguration.ColorPresetEffectPulse}, {PluginConfiguration.ColorPresetEffectRainbow}, {PluginConfiguration.ColorPresetEffectCandle}, {PluginConfiguration.ColorPresetEffectTemperature}, {PluginConfiguration.ColorPresetEffectAurora}, {PluginConfiguration.ColorPresetEffectFire}, {PluginConfiguration.ColorPresetEffectOcean}, {PluginConfiguration.ColorPresetEffectLightning}, or {PluginConfiguration.ColorPresetEffectStarlight}.");
             }
 
+            if (!PluginConfiguration.TryNormalizeColorPresetTransitionCurve(request.TransitionCurve, out var transitionCurve))
+            {
+                return BadRequest($"Preview transition curve must be one of {PluginConfiguration.ColorPresetTransitionCurveLinear}, {PluginConfiguration.ColorPresetTransitionCurveSmoothStep}, {PluginConfiguration.ColorPresetTransitionCurveEaseIn}, {PluginConfiguration.ColorPresetTransitionCurveEaseOut}, or {PluginConfiguration.ColorPresetTransitionCurveEaseInOut}.");
+            }
+
             if (request.EffectSpeedPercent < PluginConfiguration.MinColorPresetEffectSpeedPercent ||
                 request.EffectSpeedPercent > PluginConfiguration.MaxColorPresetEffectSpeedPercent)
             {
@@ -1192,7 +1202,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     BrightnessPercent = request.BrightnessPercent,
                     DurationSeconds = request.DurationSeconds,
                     TransitionSeconds = request.TransitionSeconds,
-                    TransitionOutSeconds = request.TransitionOutSeconds
+                    TransitionOutSeconds = request.TransitionOutSeconds,
+                    TransitionCurve = transitionCurve
                 };
                 var broadcastResult = await _sceneAutomationService.RunPreviewAsync(
                     previewSchedule,
@@ -1252,23 +1263,43 @@ namespace Jellyfin.Plugin.Hue.Api
             HueStreamProbeResult streamPreview;
             try
             {
-                streamPreview = await _streamTester.PreviewAsync(
-                    bridgeIp,
-                    appKey,
-                    clientKey,
-                    areaId,
-                    areaConfiguration.Value,
-                    requestedChannelIds,
-                    request.Red,
-                    request.Green,
-                    request.Blue,
-                    request.BrightnessPercent,
-                    request.DurationSeconds,
-                    cancellationToken,
-                    request.TransitionSeconds,
-                    request.TransitionOutSeconds,
-                    effect,
-                    request.EffectSpeedPercent);
+                var curveTester = _streamTester as IHueTransitionCurveStreamTester;
+                streamPreview = curveTester != null
+                    ? await curveTester.PreviewAsyncWithTransitionCurve(
+                        bridgeIp,
+                        appKey,
+                        clientKey,
+                        areaId,
+                        areaConfiguration.Value,
+                        requestedChannelIds,
+                        request.Red,
+                        request.Green,
+                        request.Blue,
+                        request.BrightnessPercent,
+                        request.DurationSeconds,
+                        cancellationToken,
+                        request.TransitionSeconds,
+                        request.TransitionOutSeconds,
+                        effect,
+                        request.EffectSpeedPercent,
+                        transitionCurve)
+                    : await _streamTester.PreviewAsync(
+                        bridgeIp,
+                        appKey,
+                        clientKey,
+                        areaId,
+                        areaConfiguration.Value,
+                        requestedChannelIds,
+                        request.Red,
+                        request.Green,
+                        request.Blue,
+                        request.BrightnessPercent,
+                        request.DurationSeconds,
+                        cancellationToken,
+                        request.TransitionSeconds,
+                        request.TransitionOutSeconds,
+                        effect,
+                        request.EffectSpeedPercent);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -1297,6 +1328,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 DurationSeconds = request.DurationSeconds,
                 TransitionSeconds = request.TransitionSeconds,
                 TransitionOutSeconds = request.TransitionOutSeconds,
+                TransitionCurve = transitionCurve,
                 TargetAllEnabledMappings = false,
                 TargetResults = new[]
                 {
@@ -1626,6 +1658,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Blue = preset.Blue,
                 Effect = effect,
                 EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                TransitionCurve = HueSceneAutomationService.GetEffectiveTransitionCurve(preset),
                 BrightnessPercent = preset.BrightnessPercent,
                 DurationSeconds = HueSceneAutomationService.GetEffectiveDurationSeconds(schedule, preset),
                 TransitionSeconds = HueSceneAutomationService.GetEffectiveTransitionSeconds(schedule, preset),
@@ -3444,6 +3477,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 "durationSeconds",
                 "transitionSeconds",
                 "transitionOutSeconds",
+                "transitionCurve",
                 "targetLabel",
                 "targetAllEnabledMappings",
                 "timeZoneId",
@@ -3474,6 +3508,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     occurrence.DurationSeconds,
                     occurrence.TransitionSeconds,
                     occurrence.TransitionOutSeconds,
+                    occurrence.TransitionCurve,
                     occurrence.TargetLabel,
                     occurrence.TargetAllEnabledMappings,
                     occurrence.TimeZoneId,
@@ -3567,7 +3602,10 @@ namespace Jellyfin.Plugin.Hue.Api
                             effectSpeedPercent: preset == null
                                 ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                                 : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
-                            durationSeconds: effectiveDuration)
+                            durationSeconds: effectiveDuration,
+                            transitionCurve: isPlaylist
+                                ? PluginConfiguration.ColorPresetTransitionCurveLinear
+                                : HueSceneAutomationService.GetEffectiveTransitionCurve(preset))
                         .Select(occurrence => new HueSceneScheduleOccurrenceResult
                         {
                             ScheduleId = occurrence.ScheduleId,
@@ -3592,6 +3630,9 @@ namespace Jellyfin.Plugin.Hue.Api
                             EffectSpeedPercent = isPlaylist || preset == null
                                 ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                                 : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                            TransitionCurve = isPlaylist
+                                ? PluginConfiguration.ColorPresetTransitionCurveLinear
+                                : HueSceneAutomationService.GetEffectiveTransitionCurve(preset),
                             Recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
                                 schedule.Recurrence,
                                 out var normalizedRecurrence)
@@ -3675,6 +3716,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "X-HUE-EFFECT-SPEED-PERCENT", occurrence.EffectSpeedPercent.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-SECONDS", occurrence.TransitionSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-OUT-SECONDS", occurrence.TransitionOutSeconds.ToString(CultureInfo.InvariantCulture));
+                AppendIcsLine(builder, "X-HUE-TRANSITION-CURVE", occurrence.TransitionCurve);
                 AppendIcsLine(builder, "STATUS", "CONFIRMED");
                 AppendIcsLine(builder, "TRANSP", "TRANSPARENT");
                 AppendIcsLine(builder, "END", "VEVENT");
@@ -8537,6 +8579,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("effectSpeedPercent")]
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
+        [JsonPropertyName("transitionCurve")]
+        public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
+
         [JsonPropertyName("red")]
         public int Red { get; set; } = 255;
 
@@ -8776,6 +8821,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("transitionOutSeconds")]
         public int TransitionOutSeconds { get; set; }
 
+        [JsonPropertyName("transitionCurve")]
+        public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
+
         [JsonPropertyName("availableChannelCount")]
         public int AvailableChannelCount { get; set; }
 
@@ -8915,11 +8963,17 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("transitionOutSeconds")]
         public int TransitionOutSeconds { get; set; }
 
+        [JsonPropertyName("transitionCurve")]
+        public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
+
         public HueColorPreset ToConfigurationPreset()
         {
             var normalizedEffect = PluginConfiguration.TryNormalizeColorPresetEffect(Effect, out var effect)
                 ? effect
                 : Effect?.Trim() ?? string.Empty;
+            var normalizedTransitionCurve = PluginConfiguration.TryNormalizeColorPresetTransitionCurve(TransitionCurve, out var transitionCurve)
+                ? transitionCurve
+                : TransitionCurve?.Trim() ?? string.Empty;
             return new HueColorPreset
             {
                 Name = Name?.Trim() ?? string.Empty,
@@ -8931,7 +8985,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 BrightnessPercent = BrightnessPercent,
                 DurationSeconds = DurationSeconds,
                 TransitionSeconds = TransitionSeconds,
-                TransitionOutSeconds = TransitionOutSeconds
+                TransitionOutSeconds = TransitionOutSeconds,
+                TransitionCurve = normalizedTransitionCurve
             };
         }
     }
@@ -8976,6 +9031,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("transitionOutSeconds")]
         public int TransitionOutSeconds { get; set; }
+
+        [JsonPropertyName("transitionCurve")]
+        public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
     }
 
     /// <summary>
@@ -9856,6 +9914,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("effectSpeedPercent")]
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
+        [JsonPropertyName("transitionCurve")]
+        public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
+
         [JsonPropertyName("targetUserId")]
         public string TargetUserId { get; set; } = string.Empty;
 
@@ -9981,6 +10042,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("effectSpeedPercent")]
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
+        [JsonPropertyName("transitionCurve")]
+        public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
 
         [JsonPropertyName("recurrence")]
         public string Recurrence { get; set; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;

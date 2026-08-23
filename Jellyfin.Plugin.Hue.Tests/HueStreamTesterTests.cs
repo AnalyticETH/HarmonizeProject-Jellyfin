@@ -72,6 +72,33 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public void ApplyTransitionCurve_UsesDeterministicBoundedEasing()
+    {
+        Assert.Equal(0.25d, HueStreamTester.ApplyTransitionCurve(0.25d, PluginConfiguration.ColorPresetTransitionCurveLinear), 6);
+        Assert.Equal(0.0625d, HueStreamTester.ApplyTransitionCurve(0.25d, PluginConfiguration.ColorPresetTransitionCurveEaseIn), 6);
+        Assert.Equal(0.4375d, HueStreamTester.ApplyTransitionCurve(0.25d, PluginConfiguration.ColorPresetTransitionCurveEaseOut), 6);
+        Assert.Equal(0.15625d, HueStreamTester.ApplyTransitionCurve(0.25d, PluginConfiguration.ColorPresetTransitionCurveSmoothStep), 6);
+        Assert.Equal(0.125d, HueStreamTester.ApplyTransitionCurve(0.25d, PluginConfiguration.ColorPresetTransitionCurveEaseInOut), 6);
+        Assert.Equal(0d, HueStreamTester.ApplyTransitionCurve(-1d, PluginConfiguration.ColorPresetTransitionCurveEaseOut), 6);
+        Assert.Equal(1d, HueStreamTester.ApplyTransitionCurve(2d, PluginConfiguration.ColorPresetTransitionCurveEaseOut), 6);
+    }
+
+    [Fact]
+    public void BuildTransitionColors_DefaultsToLinearAndAppliesSelectedCurve()
+    {
+        var target = new Dictionary<int, byte[]> { [1] = new byte[] { 100, 0, 0, 0, 0, 0 } };
+
+        var legacy = HueStreamTester.BuildTransitionColors(target, 0.5d);
+        var eased = HueStreamTester.BuildTransitionColors(
+            target,
+            0.5d,
+            PluginConfiguration.ColorPresetTransitionCurveEaseIn);
+
+        Assert.Equal(50, legacy[1][0]);
+        Assert.Equal(25, eased[1][0]);
+    }
+
+    [Fact]
     public void TryBuildSolidColors_AppliesBrightnessAndUsesSelectedChannels()
     {
         using var document = JsonDocument.Parse(

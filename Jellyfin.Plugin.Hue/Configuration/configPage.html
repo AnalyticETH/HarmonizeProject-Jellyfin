@@ -286,6 +286,16 @@
                                 <label class="inputLabel inputLabelUnfocused" for="previewTransitionOutSeconds">Fade out (seconds)</label>
                                 <input id="previewTransitionOutSeconds" type="number" min="0" max="30" value="0" is="emby-input" />
                             </div>
+                            <div style="min-width: 150px;">
+                                <label class="inputLabel inputLabelUnfocused" for="previewTransitionCurve">Fade curve</label>
+                                <select id="previewTransitionCurve" is="emby-select">
+                                    <option value="Linear">Linear</option>
+                                    <option value="SmoothStep">Smooth step</option>
+                                    <option value="EaseIn">Ease in</option>
+                                    <option value="EaseOut">Ease out</option>
+                                    <option value="EaseInOut">Ease in/out</option>
+                                </select>
+                            </div>
                             <button is="emby-button" type="button" class="raised" id="previewColorBtn">
                                 <span>Preview Default Target</span>
                             </button>
@@ -2243,7 +2253,7 @@
                         dataType: "json"
                     });
                 },
-                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId, transitionSeconds, transitionOutSeconds, effect, effectSpeedPercent, targetAllEnabledMappings, targetSelection) {
+                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId, transitionSeconds, transitionOutSeconds, effect, effectSpeedPercent, transitionCurve, targetAllEnabledMappings, targetSelection) {
                     targetSelection = targetSelection || {};
                     var selectedTargetIds = Array.isArray(targetSelection.targetUserIds) ? targetSelection.targetUserIds : [];
                     var multiTarget = !!targetAllEnabledMappings || !!targetSelection.targetAllEnabledMappings || !!targetSelection.includeDefaultTarget || selectedTargetIds.length > 0;
@@ -2261,7 +2271,8 @@
                         brightnessPercent: brightnessPercent,
                         durationSeconds: durationSeconds,
                         transitionSeconds: transitionSeconds || 0,
-                        transitionOutSeconds: transitionOutSeconds || 0
+                        transitionOutSeconds: transitionOutSeconds || 0,
+                        transitionCurve: transitionCurve || "Linear"
                     };
                     if (multiTarget) {
                         payload.targetAllEnabledMappings = !!(targetAllEnabledMappings || targetSelection.targetAllEnabledMappings);
@@ -2347,10 +2358,15 @@
                     var duration = parseInt(page.querySelector('#previewDuration').value, 10);
                     var transition = parseInt(page.querySelector('#previewTransitionSeconds').value, 10);
                     var transitionOut = parseInt(page.querySelector('#previewTransitionOutSeconds').value, 10);
+                    var transitionCurveEl = page.querySelector('#previewTransitionCurve');
+                    var transitionCurve = transitionCurveEl && transitionCurveEl.value ? transitionCurveEl.value : "Linear";
                     var effectEl = page.querySelector('#previewEffect');
                     var effect = effectEl && effectEl.value ? effectEl.value : "Solid";
                     if (["Solid", "Pulse", "Rainbow", "Candle", "Temperature", "Aurora", "Fire", "Ocean", "Lightning", "Starlight"].indexOf(effect) < 0) {
                         throw new Error("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, or Starlight.");
+                    }
+                    if (["Linear", "SmoothStep", "EaseIn", "EaseOut", "EaseInOut"].indexOf(transitionCurve) < 0) {
+                        throw new Error("Fade curve must be Linear, SmoothStep, EaseIn, EaseOut, or EaseInOut.");
                     }
                     brightness = isNaN(brightness) ? 100 : brightness;
                     effectSpeed = isNaN(effectSpeed) ? 100 : effectSpeed;
@@ -2382,7 +2398,8 @@
                         durationSeconds: duration,
                         effect: effect,
                         transitionSeconds: transition,
-                        transitionOutSeconds: transitionOut
+                        transitionOutSeconds: transitionOut,
+                        transitionCurve: transitionCurve
                     };
                 },
                 previewMessage: function (response, includeTargetDetails) {
@@ -2571,6 +2588,7 @@
                         values.transitionOutSeconds,
                         values.effect,
                         values.effectSpeedPercent,
+                        values.transitionCurve,
                         false,
                         targetSelection);
                     page._huePreviewRequest = request;
@@ -2634,6 +2652,7 @@
                         values.transitionOutSeconds,
                         values.effect,
                         values.effectSpeedPercent,
+                        values.transitionCurve,
                         true);
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
@@ -2947,6 +2966,7 @@
                                 option.dataset.durationSeconds = String(preset.durationSeconds !== undefined ? preset.durationSeconds : preset.DurationSeconds);
                                 option.dataset.transitionSeconds = String(preset.transitionSeconds !== undefined ? preset.transitionSeconds : (preset.TransitionSeconds || 0));
                                 option.dataset.transitionOutSeconds = String(preset.transitionOutSeconds !== undefined ? preset.transitionOutSeconds : (preset.TransitionOutSeconds || 0));
+                                option.dataset.transitionCurve = String(preset.transitionCurve !== undefined ? preset.transitionCurve : (preset.TransitionCurve || "Linear"));
                                 selectEl.appendChild(option);
                                 if (bulkSelect) {
                                     var bulkOption = document.createElement('option');
@@ -3269,6 +3289,7 @@
                     var duration = Number(option.dataset.durationSeconds);
                     var transition = Number(option.dataset.transitionSeconds || 0);
                     var transitionOut = Number(option.dataset.transitionOutSeconds || 0);
+                    var transitionCurve = option.dataset.transitionCurve || "Linear";
                     page.querySelector('#previewColor').value = '#' + [red, green, blue].map(function (component) {
                         return component.toString(16).padStart(2, '0');
                     }).join('');
@@ -3278,6 +3299,7 @@
                     page.querySelector('#previewDuration').value = duration;
                     page.querySelector('#previewTransitionSeconds').value = transition;
                     page.querySelector('#previewTransitionOutSeconds').value = transitionOut;
+                    page.querySelector('#previewTransitionCurve').value = transitionCurve;
                     page.querySelector('#previewPresetName').value = option.value;
                     if (statusEl) {
                         statusEl.textContent = "Applied saved scene '" + option.value + "'. Preview it on the default target or current mapping.";
@@ -3486,7 +3508,8 @@
                             brightnessPercent: values.brightnessPercent,
                             durationSeconds: values.durationSeconds,
                             transitionSeconds: values.transitionSeconds,
-                            transitionOutSeconds: values.transitionOutSeconds
+                            transitionOutSeconds: values.transitionOutSeconds,
+                            transitionCurve: values.transitionCurve
                         }),
                         contentType: "application/json",
                         dataType: "json"
@@ -4954,6 +4977,7 @@
                             var priority = schedule.priority !== undefined ? schedule.priority : schedule.Priority;
                             var transition = schedule.transitionSeconds !== undefined ? schedule.transitionSeconds : schedule.TransitionSeconds;
                             var transitionOut = schedule.transitionOutSeconds !== undefined ? schedule.transitionOutSeconds : schedule.TransitionOutSeconds;
+                            var transitionCurve = schedule.transitionCurve !== undefined ? schedule.transitionCurve : (schedule.TransitionCurve || "Linear");
                             var recurrence = schedule.recurrence !== undefined ? schedule.recurrence : schedule.Recurrence;
                             var effect = schedule.effect !== undefined ? schedule.effect : (schedule.Effect || "Solid");
                             var effectSpeed = schedule.effectSpeedPercent !== undefined ? schedule.effectSpeedPercent : (schedule.EffectSpeedPercent || 100);
@@ -4988,7 +5012,7 @@
                             option.value = id;
                             var durationLabel = Number(duration) > 0 ? ' · ' + Number(duration) + 's' : '';
                             var transitionLabel = (Number(transition) > 0 || Number(transitionOut) > 0)
-                                ? ' · fade ' + Number(transition || 0) + 's/' + Number(transitionOut || 0) + 's'
+                                ? ' · ' + String(transitionCurve) + ' fade ' + Number(transition || 0) + 's/' + Number(transitionOut || 0) + 's'
                                 : '';
                             var effectLabel = ' · ' + String(effect) + ' · speed ' + Number(effectSpeed || 100) + '%';
                             option.textContent = name + (time ? ' · ' + time : '') + effectLabel + durationLabel + transitionLabel + priorityLabel + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate) + dateRange + exclusionLabel + skipLabel;
@@ -5176,6 +5200,7 @@
                             var playlistPlaybackOrder = HueConfigurationPage.readStatusField(schedule, "PlaylistPlaybackOrder", "Sequential");
                             var transition = HueConfigurationPage.readStatusField(schedule, "TransitionSeconds", 0);
                             var transitionOut = HueConfigurationPage.readStatusField(schedule, "TransitionOutSeconds", 0);
+                            var transitionCurve = HueConfigurationPage.readStatusField(schedule, "TransitionCurve", "Linear");
                             var recurrence = HueConfigurationPage.readStatusField(schedule, "Recurrence", "Weekly");
                             var recurrenceInterval = HueConfigurationPage.readStatusField(schedule, "RecurrenceInterval", 1);
                             var dayOfMonth = HueConfigurationPage.readStatusField(schedule, "DayOfMonth", 0);
@@ -5240,7 +5265,7 @@
                                     ? formatMonthlyWeekday(weekOfMonth, dayOfWeek)
                                     : (recurrenceMode === "daily" ? "daily" : daysForMask(mask))));
                             var transitionLabel = (Number(transition) > 0 || Number(transitionOut) > 0)
-                                ? " · fade " + Number(transition || 0) + "s/" + Number(transitionOut || 0) + "s"
+                                ? " · " + String(transitionCurve) + " fade " + Number(transition || 0) + "s/" + Number(transitionOut || 0) + "s"
                                 : "";
                             var scheduleTimeLabel = String(timeMode).toLowerCase() === "fixed"
                                 ? String(time || "—")
@@ -5590,9 +5615,10 @@
                             var occurrenceSpeed = Number(HueConfigurationPage.readStatusField(occurrence, "EffectSpeedPercent", 100));
                             var occurrenceTransition = Number(HueConfigurationPage.readStatusField(occurrence, "TransitionSeconds", 0));
                             var occurrenceTransitionOut = Number(HueConfigurationPage.readStatusField(occurrence, "TransitionOutSeconds", 0));
+                            var occurrenceTransitionCurve = String(HueConfigurationPage.readStatusField(occurrence, "TransitionCurve", "Linear"));
                             var occurrencePlaybackOrder = String(HueConfigurationPage.readStatusField(occurrence, "PlaylistPlaybackOrder", "Sequential"));
                             addCell(occurrenceName + (String(HueConfigurationPage.readStatusField(occurrence, "PlaylistName", "")) ? " · " + (occurrencePlaybackOrder.toLowerCase() === "shuffle" ? "shuffle" : "saved order") : "") + " · " + occurrenceEffect + " · speed " + occurrenceSpeed + "%" + (occurrencePriority > 0 ? " · priority " + occurrencePriority : "") + ((occurrenceTransition > 0 || occurrenceTransitionOut > 0)
-                                ? " · fade " + occurrenceTransition + "s/" + occurrenceTransitionOut + "s"
+                                ? " · " + occurrenceTransitionCurve + " fade " + occurrenceTransition + "s/" + occurrenceTransitionOut + "s"
                                 : ""));
                             addCell(String(HueConfigurationPage.readStatusField(occurrence, "TargetLabel", "Default bridge target")));
                             addCell(formatCueLocal(HueConfigurationPage.readStatusField(occurrence, "LocalTime", null)));
@@ -8419,7 +8445,8 @@
                         values.transitionSeconds,
                         values.transitionOutSeconds,
                         values.effect,
-                        values.effectSpeedPercent);
+                        values.effectSpeedPercent,
+                        values.transitionCurve);
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request

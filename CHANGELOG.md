@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.196] - 2026-08-23
+
+### Added
+- **Configurable transition curves**: saved scenes and direct previews now support Linear, SmoothStep, EaseIn, EaseOut, and EaseInOut easing for fade-in and fade-out transitions, with Linear preserved for legacy configurations
+- **End-to-end transition parity**: carry the normalized curve through playlist/scheduled execution, runtime/history/status/occurrence metadata, API/UI responses, CSV/iCalendar exports, duplication, and credential-free backup/restore
+- **Regression coverage**: validate supported curves and deterministic easing math while preserving the original linear preview contract
+
 ## [1.5.195] - 2026-08-23
 
 ### Added

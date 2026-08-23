@@ -77,6 +77,52 @@ internal interface IHueTargetScopedStreamTester
 }
 
 /// <summary>
+/// Optional transition-curve preview capability. Keeping this additive preserves the
+/// original stream-tester contract for extensions and test doubles that predate easing
+/// curves; callers fall back to the original linear preview when it is unavailable.
+/// </summary>
+internal interface IHueTransitionCurveStreamTester
+{
+    Task<HueStreamProbeResult> PreviewAsyncWithTransitionCurve(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        int red,
+        int green,
+        int blue,
+        int brightnessPercent,
+        int durationSeconds,
+        CancellationToken cancellationToken = default,
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+        string effect = PluginConfiguration.ColorPresetEffectSolid,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+        string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear);
+
+    Task<HueStreamProbeResult> PreviewAsyncForTargetWithTransitionCurve(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        int red,
+        int green,
+        int blue,
+        int brightnessPercent,
+        int durationSeconds,
+        CancellationToken cancellationToken = default,
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+        string effect = PluginConfiguration.ColorPresetEffectSolid,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+        string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear);
+}
+
+/// <summary>
 /// Result of a DTLS stream probe. No bridge credentials are included.
 /// </summary>
 public sealed class HueStreamProbeResult
@@ -90,7 +136,7 @@ public sealed class HueStreamProbeResult
 /// Opens the same activate/DTLS/send/deactivate lifecycle used by playback, using a
 /// very low-intensity probe color and the selected area's real channel IDs.
 /// </summary>
-public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTester
+public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTester, IHueTransitionCurveStreamTester
 {
     private const int EntertainmentAreaActivationDelayMs = 200;
     private const int PreviewTransitionRefreshIntervalMs = 100;
@@ -329,6 +375,45 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
             transitionOutSeconds,
             effect,
             effectSpeedPercent,
+            PluginConfiguration.ColorPresetTransitionCurveLinear,
+            cancellationToken,
+            resourceKey: null);
+
+    public Task<HueStreamProbeResult> PreviewAsyncWithTransitionCurve(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        int red,
+        int green,
+        int blue,
+        int brightnessPercent,
+        int durationSeconds,
+        CancellationToken cancellationToken = default,
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+        string effect = PluginConfiguration.ColorPresetEffectSolid,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+        string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear)
+        => RunPreviewAsync(
+            bridgeIp,
+            appKey,
+            clientKey,
+            areaId,
+            areaConfiguration,
+            channelIds,
+            red,
+            green,
+            blue,
+            brightnessPercent,
+            durationSeconds,
+            transitionSeconds,
+            transitionOutSeconds,
+            effect,
+            effectSpeedPercent,
+            transitionCurve,
             cancellationToken,
             resourceKey: null);
 
@@ -370,6 +455,45 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
             transitionOutSeconds,
             effect,
             effectSpeedPercent,
+            PluginConfiguration.ColorPresetTransitionCurveLinear,
+            cancellationToken,
+            HueSyncService.GetPlaybackResourceKey(bridgeIp, areaId));
+
+    public Task<HueStreamProbeResult> PreviewAsyncForTargetWithTransitionCurve(
+        string bridgeIp,
+        string appKey,
+        string clientKey,
+        string areaId,
+        JsonElement areaConfiguration,
+        IReadOnlySet<int>? channelIds,
+        int red,
+        int green,
+        int blue,
+        int brightnessPercent,
+        int durationSeconds,
+        CancellationToken cancellationToken = default,
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+        string effect = PluginConfiguration.ColorPresetEffectSolid,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+        string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear)
+        => RunPreviewAsync(
+            bridgeIp,
+            appKey,
+            clientKey,
+            areaId,
+            areaConfiguration,
+            channelIds,
+            red,
+            green,
+            blue,
+            brightnessPercent,
+            durationSeconds,
+            transitionSeconds,
+            transitionOutSeconds,
+            effect,
+            effectSpeedPercent,
+            transitionCurve,
             cancellationToken,
             HueSyncService.GetPlaybackResourceKey(bridgeIp, areaId));
 
@@ -389,6 +513,7 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
         int transitionOutSeconds,
         string effect,
         int effectSpeedPercent,
+        string transitionCurve,
         CancellationToken cancellationToken,
         string? resourceKey)
         => RunSerializedAsync(operationCancellation => PreviewCoreAsync(
@@ -407,6 +532,7 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
             transitionOutSeconds,
             effect,
             effectSpeedPercent,
+            transitionCurve,
             operationCancellation), cancellationToken, resourceKey);
 
     private async Task<HueStreamProbeResult> PreviewCoreAsync(
@@ -425,12 +551,17 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
         int transitionOutSeconds,
         string effect,
         int effectSpeedPercent,
+        string transitionCurve,
         CancellationToken cancellationToken)
     {
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
             return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, or Starlight.");
 
         effect = normalizedEffect;
+        if (!PluginConfiguration.TryNormalizeColorPresetTransitionCurve(transitionCurve, out var normalizedTransitionCurve))
+            return Failure("Preview transition curve must be Linear, SmoothStep, EaseIn, EaseOut, or EaseInOut.");
+
+        transitionCurve = normalizedTransitionCurve;
         if (cancellationToken.IsCancellationRequested)
             return Failure($"The {effect.ToLowerInvariant()} preview request was canceled.");
 
@@ -583,7 +714,7 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
                         durationSeconds,
                         effectSpeedPercent);
                     if (transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds)
-                        frame = BuildTransitionColors(frame, 0);
+                        frame = BuildTransitionColors(frame, 0, transitionCurve);
                     var sent = await streamer.SendColors(
                         areaId,
                         frame,
@@ -616,7 +747,8 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
                             var elapsedSeconds = (DateTime.UtcNow - previewStartedAt).TotalSeconds;
                             frame = BuildTransitionColors(
                                 BuildEffectColors(channelColors, effect, elapsedSeconds, durationSeconds, effectSpeedPercent),
-                                progress);
+                                progress,
+                                transitionCurve);
                             if (!await streamer.SendColors(
                                     areaId,
                                     frame,
@@ -672,7 +804,8 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
                                         (DateTime.UtcNow - previewStartedAt).TotalSeconds,
                                         durationSeconds,
                                         effectSpeedPercent),
-                                    1d - fadeOutProgress);
+                                    1d - fadeOutProgress,
+                                    transitionCurve);
                                 if (!await streamer.SendColors(
                                         areaId,
                                         frame,
@@ -727,7 +860,8 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
                                 areaId,
                                 BuildTransitionColors(
                                     BuildEffectColors(channelColors, effect, durationSeconds, durationSeconds, effectSpeedPercent),
-                                    0),
+                                    0,
+                                    transitionCurve),
                                 cancellationToken: cancellationToken).ConfigureAwait(false))
                         {
                             transitionFailed = true;
@@ -738,11 +872,11 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
                         {
                             var transitionMessage = transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds &&
                                 transitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds
-                                ? $" with a {transitionSeconds}-second fade-in and a {transitionOutSeconds}-second fade-out."
+                                ? $" with a {transitionSeconds}-second {transitionCurve} fade-in and a {transitionOutSeconds}-second {transitionCurve} fade-out."
                                 : transitionSeconds > PluginConfiguration.MinColorPresetTransitionSeconds
-                                    ? $" with a {transitionSeconds}-second fade-in."
+                                    ? $" with a {transitionSeconds}-second {transitionCurve} fade-in."
                                     : transitionOutSeconds > PluginConfiguration.MinColorPresetTransitionOutSeconds
-                                        ? $" with a {transitionOutSeconds}-second fade-out."
+                                        ? $" with a {transitionOutSeconds}-second {transitionCurve} fade-out."
                                         : ".";
                             var effectDescription = string.Equals(
                                 effect,
@@ -881,9 +1015,22 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
     internal static Dictionary<int, byte[]> BuildTransitionColors(
         IReadOnlyDictionary<int, byte[]> targetColors,
         double progress)
+        => BuildTransitionColors(
+            targetColors,
+            progress,
+            PluginConfiguration.ColorPresetTransitionCurveLinear);
+
+    internal static Dictionary<int, byte[]> BuildTransitionColors(
+        IReadOnlyDictionary<int, byte[]> targetColors,
+        double progress,
+        string transitionCurve)
     {
         ArgumentNullException.ThrowIfNull(targetColors);
         var boundedProgress = Math.Clamp(progress, 0d, 1d);
+        if (!PluginConfiguration.TryNormalizeColorPresetTransitionCurve(transitionCurve, out var normalizedCurve))
+            throw new ArgumentException("Transition curve must be Linear, SmoothStep, EaseIn, EaseOut, or EaseInOut.", nameof(transitionCurve));
+
+        boundedProgress = ApplyTransitionCurve(boundedProgress, normalizedCurve);
         var colors = new Dictionary<int, byte[]>(targetColors.Count);
         foreach (var (channelId, target) in targetColors)
         {
@@ -903,6 +1050,24 @@ public sealed class HueStreamTester : IHueStreamTester, IHueTargetScopedStreamTe
         }
 
         return colors;
+    }
+
+    internal static double ApplyTransitionCurve(double progress, string transitionCurve)
+    {
+        var boundedProgress = Math.Clamp(progress, 0d, 1d);
+        if (!PluginConfiguration.TryNormalizeColorPresetTransitionCurve(transitionCurve, out var normalizedCurve))
+            throw new ArgumentException("Transition curve must be Linear, SmoothStep, EaseIn, EaseOut, or EaseInOut.", nameof(transitionCurve));
+
+        return normalizedCurve switch
+        {
+            PluginConfiguration.ColorPresetTransitionCurveSmoothStep => boundedProgress * boundedProgress * (3d - (2d * boundedProgress)),
+            PluginConfiguration.ColorPresetTransitionCurveEaseIn => boundedProgress * boundedProgress,
+            PluginConfiguration.ColorPresetTransitionCurveEaseOut => 1d - Math.Pow(1d - boundedProgress, 2d),
+            PluginConfiguration.ColorPresetTransitionCurveEaseInOut => boundedProgress < 0.5d
+                ? 2d * boundedProgress * boundedProgress
+                : 1d - (Math.Pow((-2d * boundedProgress) + 2d, 2d) / 2d),
+            _ => boundedProgress
+        };
     }
 
     /// <summary>
