@@ -1984,16 +1984,17 @@ public sealed class HueSceneAutomationService : BackgroundService
         DateTime? runAtUtcOverride = null,
         IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride = null)
     {
+        var normalizedTargetRoutesOverride = NormalizeTargetRoutes(targetRoutesOverride);
         var config = Plugin.Instance?.Configuration;
         if (config == null)
-            return PlaylistFailure(playlist, "Scene playlist configuration is unavailable.");
+            return PlaylistFailure(playlist, "Scene playlist configuration is unavailable.", normalizedTargetRoutesOverride);
 
         if (playlist == null)
-            return PlaylistFailure(null, "The scene playlist is unavailable.");
+            return PlaylistFailure(null, "The scene playlist is unavailable.", normalizedTargetRoutesOverride);
 
         var validationErrors = PluginConfiguration.ValidateScenePlaylist(playlist, config);
         if (validationErrors.Count > 0)
-            return PlaylistFailure(playlist, string.Join(" ", validationErrors));
+            return PlaylistFailure(playlist, string.Join(" ", validationErrors), normalizedTargetRoutesOverride);
 
         var presets = (playlist.PresetNames ?? new List<string>())
             .Select(name => config.ColorPresets?.FirstOrDefault(candidate =>
@@ -2001,7 +2002,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                 string.Equals(candidate.Name?.Trim(), name?.Trim(), StringComparison.OrdinalIgnoreCase)))
             .ToList();
         if (presets.Any(preset => preset == null))
-            return PlaylistFailure(playlist, "The scene playlist references a saved scene that no longer exists.");
+            return PlaylistFailure(
+                playlist,
+                "The scene playlist references a saved scene that no longer exists.",
+                normalizedTargetRoutesOverride);
         var resolvedPresets = presets.Select(preset => preset!).ToArray();
 
         var normalizedTargetUserIdsOverride = targetUserIdsOverride?
@@ -2009,7 +2013,6 @@ public sealed class HueSceneAutomationService : BackgroundService
             .Select(value => value.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var normalizedTargetRoutesOverride = NormalizeTargetRoutes(targetRoutesOverride);
         var hasTargetOverride = includeDefaultTargetOverride ||
             (normalizedTargetUserIdsOverride?.Count > 0) ||
             normalizedTargetRoutesOverride.Count > 0;
@@ -2041,7 +2044,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 out var resolvedTargets,
                 out var targetError,
                 normalizedTargetRoutesOverride))
-            return PlaylistFailure(playlist, targetError);
+            return PlaylistFailure(playlist, targetError, normalizedTargetRoutesOverride);
 
         var repeatCount = Math.Clamp(
             playlist.RepeatCount,
@@ -2567,7 +2570,8 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private static HueScenePlaylistRunResult PlaylistFailure(
         HueScenePlaylist? playlist,
-        string message)
+        string message,
+        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutes = null)
     {
         return new HueScenePlaylistRunResult
         {
@@ -2588,6 +2592,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = playlist?.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
+            TargetRoutes = NormalizeTargetRoutes(targetRoutes),
             IncludeDefaultTarget = playlist?.IncludeDefaultTarget == true,
             Succeeded = false,
             Message = message,

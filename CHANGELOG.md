@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.236] - 2026-08-24
+
+### Fixed
+- **Preview route failure parity**: playlist-preview failures and bulk-preview exception results now retain credential-free exact user/device route IDs alongside the existing target metadata.
+- **Preview API contract parity**: raw, saved-scene, and saved-playlist preview documentation now describes exact nested playback-device routes and the trusted build validates the endpoint/source contract.
+
+### Tests
+- **Route failure telemetry coverage**: verify malformed saved playlists retain normalized device-route metadata without credentials.
+
 ## [1.5.235] - 2026-08-24
 
 ### Fixed

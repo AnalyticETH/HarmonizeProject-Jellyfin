@@ -60,6 +60,9 @@ jobs:
     - name: Validate release documentation and package contract
       run: node scripts/validate-release-docs.mjs
 
+    - name: Validate preview API documentation and route contract
+      run: node scripts/validate-api-docs.mjs
+
     - name: Upload test results
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       if: always()

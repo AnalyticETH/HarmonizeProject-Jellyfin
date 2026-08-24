@@ -3147,6 +3147,18 @@ namespace Jellyfin.Plugin.Hue.Api
                             ? failedPlaybackOrder
                             : PluginConfiguration.ScenePlaylistOrderSequential,
                         TargetAllEnabledMappings = playlist.TargetAllEnabledMappings,
+                        TargetUserIds = selectedTargetOverride
+                            ? targetUserIds ?? new List<string>()
+                            : playlist.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
+                                .Select(value => value.Trim())
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToArray() ?? Array.Empty<string>(),
+                        TargetRoutes = selectedTargetOverride
+                            ? targetRoutes
+                            : Array.Empty<HueSceneAutomationTargetRoute>(),
+                        IncludeDefaultTarget = selectedTargetOverride
+                            ? includeDefaultTarget
+                            : playlist.IncludeDefaultTarget,
                         Succeeded = false,
                         Message = "The scene playlist preview failed unexpectedly.",
                         RunAtUtc = DateTime.UtcNow
