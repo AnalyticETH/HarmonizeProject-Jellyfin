@@ -7956,6 +7956,74 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetSceneScheduleOccurrences_PreservesTargetSelectionMetadataWithoutSecrets()
+    {
+        var cueTime = DateTime.Now.AddMinutes(10).ToString("HH:mm", CultureInfo.InvariantCulture);
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "occurrence-target-app-secret",
+            HueClientKey = "occurrence-target-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Target metadata scene", DurationSeconds = 5 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "all-targets-cue",
+                    Name = "All targets cue",
+                    PresetName = "Target metadata scene",
+                    TargetAllEnabledMappings = true,
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    DaysOfWeekMask = 127
+                },
+                new()
+                {
+                    Id = "selected-targets-cue",
+                    Name = "Selected targets cue",
+                    PresetName = "Target metadata scene",
+                    TargetUserIds = new List<string> { "mapping-user" },
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "mapping-user", DeviceId = "living-room-tv" }
+                    },
+                    IncludeDefaultTarget = true,
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    DaysOfWeekMask = 127
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var allAction = controller.GetSceneScheduleOccurrences(limit: 1, days: 7, scheduleId: "all-targets-cue");
+        var allResponse = Assert.IsType<OkObjectResult>(allAction.Result);
+        var allOccurrence = Assert.Single(Assert.IsType<HueSceneScheduleOccurrencesResult>(allResponse.Value).Occurrences);
+        Assert.True(allOccurrence.TargetAllEnabledMappings);
+        Assert.Empty(allOccurrence.TargetUserIds);
+        Assert.Empty(allOccurrence.TargetRoutes);
+        Assert.False(allOccurrence.IncludeDefaultTarget);
+
+        var selectedAction = controller.GetSceneScheduleOccurrences(limit: 1, days: 7, scheduleId: "selected-targets-cue");
+        var selectedResponse = Assert.IsType<OkObjectResult>(selectedAction.Result);
+        var selectedOccurrence = Assert.Single(Assert.IsType<HueSceneScheduleOccurrencesResult>(selectedResponse.Value).Occurrences);
+        Assert.False(selectedOccurrence.TargetAllEnabledMappings);
+        Assert.Equal(new[] { "mapping-user" }, selectedOccurrence.TargetUserIds);
+        var selectedRoute = Assert.Single(selectedOccurrence.TargetRoutes);
+        Assert.Equal("mapping-user", selectedRoute.UserId);
+        Assert.Equal("living-room-tv", selectedRoute.DeviceId);
+        Assert.True(selectedOccurrence.IncludeDefaultTarget);
+
+        var serialized = JsonSerializer.Serialize(new[] { allOccurrence, selectedOccurrence });
+        Assert.DoesNotContain("occurrence-target-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("occurrence-target-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetSceneScheduleOccurrences_ExpandsPlaylistStepPlanAndExportsIt()
     {
         var cueTime = DateTime.Now.AddMinutes(10).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);

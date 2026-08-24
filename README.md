@@ -433,7 +433,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.250 (Current)
+### Version 1.5.251 (Current)
+- **Upcoming-target UI parity**: administrator occurrence rows now distinguish all-enabled targets, default-bridge inclusion, selected mapping IDs, and nested user/device routes while preserving legacy labels.
+- **Occurrence target contract**: safe rendering and exact target-selection metadata are covered without exposing bridge credentials.
+
+### Version 1.5.250
 - **Active-cue update guard**: existing scheduled cues cannot be replaced while their restorative run is active; the API returns `409 Conflict` and preserves the original definition.
 - **Schedule lifecycle coverage**: in-flight update rejection and configuration preservation are covered through the controller path.
 

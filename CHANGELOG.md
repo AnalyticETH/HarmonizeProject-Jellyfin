@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.251] - 2026-08-24
+
+### Added
+- **Upcoming-target UI parity**: administrator occurrence rows now distinguish all-enabled targets, default-bridge inclusion, selected mapping IDs, and nested user/device routes while preserving legacy labels.
+
+### Tests
+- **Occurrence target contract**: validate safe target metadata rendering and exact API target selection without exposing bridge credentials.
+
 ## [1.5.250] - 2026-08-24
 
 ### Security
