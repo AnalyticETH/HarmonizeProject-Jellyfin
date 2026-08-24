@@ -11079,6 +11079,7 @@ public sealed class HueApiControllerTests : IDisposable
         var import = controller.ImportConfiguration(new HueConfigurationImportRequest
         {
             Configuration = HuePluginConfigurationSettings.From(configuration),
+            ReplaceColorPresets = false,
             SceneSchedules = new List<HueSceneScheduleRequest>
             {
                 new()
@@ -11098,6 +11099,7 @@ public sealed class HueApiControllerTests : IDisposable
         var invalid = controller.ImportConfiguration(new HueConfigurationImportRequest
         {
             Configuration = HuePluginConfigurationSettings.From(configuration),
+            ReplaceColorPresets = false,
             SceneSchedules = new List<HueSceneScheduleRequest>
             {
                 new()
