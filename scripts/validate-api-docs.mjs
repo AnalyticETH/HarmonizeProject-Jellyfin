@@ -41,6 +41,23 @@ for (const marker of ["targetUserIds", "targetRoutes", "userId", "deviceId", "in
     }
 }
 
+const calendarRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/SceneSchedules/Calendar?"));
+if (!calendarRow) {
+    throw new Error("README.md is missing the scheduled-calendar endpoint contract");
+}
+for (const marker of [
+    "X-HUE-TARGET-ALL-ENABLED-MAPPINGS",
+    "X-HUE-TARGET-USER-IDS",
+    "X-HUE-TARGET-ROUTES",
+    "userId",
+    "deviceId",
+    "X-HUE-INCLUDE-DEFAULT-TARGET"
+]) {
+    if (!calendarRow.includes(marker)) {
+        throw new Error(`README.md scheduled-calendar contract is missing target metadata: ${marker}`);
+    }
+}
+
 for (const endpoint of previewEndpoints) {
     const row = readme.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
     if (!row) {
@@ -71,7 +88,11 @@ for (const marker of [
     "run.IncludeDefaultTarget",
     "JsonSerializer.Serialize(occurrence.TargetUserIds",
     "JsonSerializer.Serialize((occurrence.TargetRoutes",
-    "occurrence.IncludeDefaultTarget"
+    "occurrence.IncludeDefaultTarget",
+    "X-HUE-TARGET-ALL-ENABLED-MAPPINGS",
+    "X-HUE-TARGET-USER-IDS",
+    "X-HUE-TARGET-ROUTES",
+    "X-HUE-INCLUDE-DEFAULT-TARGET"
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API bridge registration support is missing source marker: ${marker}`);

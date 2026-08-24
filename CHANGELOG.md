@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.244] - 2026-08-24
+
+### Added
+- **iCalendar target parity**: expose credential-free target-selection properties for all-enabled mappings, exact selected user IDs, nested playback-device routes, and default-target inclusion alongside the existing upcoming cue metadata.
+
+### Tests
+- **Calendar export coverage**: verify lower-camel route JSON, escaped iCalendar values, and absence of bridge credentials in the calendar feed.
+
 ## [1.5.243] - 2026-08-24
 
 ### Security

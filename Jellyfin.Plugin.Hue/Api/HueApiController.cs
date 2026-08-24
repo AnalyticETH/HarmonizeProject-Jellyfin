@@ -4105,6 +4105,15 @@ namespace Jellyfin.Plugin.Hue.Api
                     builder,
                     "DESCRIPTION",
                     $"{(string.IsNullOrWhiteSpace(occurrence.PlaylistName) ? $"Scene: {occurrence.PresetName}" : $"Playlist: {occurrence.PlaylistName}")}; Target: {occurrence.TargetLabel}; Time zone: {occurrence.TimeZoneDisplayName}; Timing: {FormatSceneScheduleTiming(occurrence)}");
+                AppendIcsLine(builder, "X-HUE-TARGET-ALL-ENABLED-MAPPINGS", occurrence.TargetAllEnabledMappings.ToString());
+                AppendIcsLine(builder, "X-HUE-TARGET-USER-IDS", JsonSerializer.Serialize(occurrence.TargetUserIds ?? Array.Empty<string>()));
+                AppendIcsLine(builder, "X-HUE-TARGET-ROUTES", JsonSerializer.Serialize((occurrence.TargetRoutes ?? Array.Empty<HueSceneScheduleTargetRoute>())
+                    .Select(route => new HueSceneAutomationTargetRoute
+                    {
+                        UserId = route.UserId,
+                        DeviceId = route.DeviceId
+                    }).ToArray()));
+                AppendIcsLine(builder, "X-HUE-INCLUDE-DEFAULT-TARGET", occurrence.IncludeDefaultTarget.ToString());
                 AppendIcsLine(builder, "X-HUE-TIMEZONE", occurrence.TimeZoneId);
                 AppendIcsLine(builder, "X-HUE-TIME-MODE", occurrence.TimeMode);
                 AppendIcsLine(builder, "X-HUE-SOLAR-OFFSET-MINUTES", occurrence.SolarOffsetMinutes.ToString(CultureInfo.InvariantCulture));

@@ -7989,6 +7989,12 @@ public sealed class HueApiControllerTests : IDisposable
                     Red = 101,
                     Green = 102,
                     Blue = 103,
+                    TargetUserIds = new List<string> { "mapping-user" },
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "mapping-user", DeviceId = "living-room-tv" }
+                    },
+                    IncludeDefaultTarget = true,
                     DaysOfWeekMask = 127
                 }
             }
@@ -8013,6 +8019,11 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("X-HUE-GREEN:102\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-BLUE:103\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-PRIORITY:64\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-TARGET-ALL-ENABLED-MAPPINGS:False\r\n", calendar, StringComparison.Ordinal);
+        var unfoldedCalendar = calendar.Replace("\r\n ", string.Empty, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-TARGET-USER-IDS:[\"mapping-user\"]\r\n", unfoldedCalendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-TARGET-ROUTES:[{\"userId\":\"mapping-user\"\\,\"deviceId\":\"living-room-tv\"}]\r\n", unfoldedCalendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-INCLUDE-DEFAULT-TARGET:True\r\n", calendar, StringComparison.Ordinal);
         var startText = calendar.Split("\r\n", StringSplitOptions.None)
             .Single(line => line.StartsWith("DTSTART:", StringComparison.Ordinal))
             .Substring("DTSTART:".Length);
