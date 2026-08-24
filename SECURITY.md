@@ -23,6 +23,10 @@ Every trusted `main` push runs the named self-hosted CI runner with:
 - Immutable commit-SHA references for third-party GitHub Actions
 - Bounded job timeouts that release a persistent runner when a restore, scanner, or release step stalls
 
+Bridge HTTP transport also disables automatic redirects and excludes raw bridge response bodies from
+registration/start/stop failure logs, preventing credential-shaped response fields from being sent to
+an unintended host or retained in Jellyfin logs.
+
 The repository-controlled weekly default-branch security workflow reruns the blocking Gitleaks and Semgrep gates. Both scanner jobs carry the same `refs/heads/main` guard, so pull-request and non-main code never reach the persistent runner.
 
 The identity split, host confinement, daily upstream-version monitor, and manual verified-update procedure are documented in [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md).

@@ -1068,6 +1068,25 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task RegisterWithBridge_FailureDoesNotLogBridgeResponseBody()
+    {
+        const string secretSentinel = "bridge-response-secret-username-clientkey";
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            $"[{{\"error\":{{\"type\":101,\"description\":\"{secretSentinel}\"}}}}]");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        Assert.Null(await client.RegisterWithBridge("192.168.1.100"));
+
+        var logText = string.Join(
+            "\n",
+            _loggerMock.Invocations.Select(invocation =>
+                string.Join(" ", invocation.Arguments.Select(argument => argument?.ToString() ?? string.Empty))));
+        Assert.DoesNotContain(secretSentinel, logText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RegisterWithBridge_WhenCanceled_PropagatesCancellation()
     {
         SetupHttpResponse(HttpStatusCode.OK, "[]");

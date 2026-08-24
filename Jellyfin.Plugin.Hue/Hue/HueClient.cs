@@ -272,7 +272,9 @@ namespace Jellyfin.Plugin.Hue.Hue
                         }
                     }
 
-                    _logger.LogWarning("Registration failed: {0}", json);
+                    // Never log the bridge response: registration failures may include
+                    // credential-shaped fields (or other private bridge metadata).
+                    _logger.LogWarning("Registration failed: Hue bridge returned an unsuccessful response.");
                     return null;
                 }, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
@@ -369,16 +371,15 @@ namespace Jellyfin.Plugin.Hue.Hue
                     using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
-                        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                         if (IsRetriableStatusCode(response.StatusCode))
                         {
                             throw new HttpRequestException(
-                                $"Hue bridge returned HTTP {(int)response.StatusCode} while starting area {areaId}: {body}",
+                                $"Hue bridge returned HTTP {(int)response.StatusCode} while starting area {areaId}.",
                                 null,
                                 response.StatusCode);
                         }
 
-                        _logger.LogError("Failed to start entertainment area {0}: HTTP {1} — {2}", areaId, (int)response.StatusCode, body);
+                        _logger.LogError("Failed to start entertainment area {0}: HTTP {1}", areaId, (int)response.StatusCode);
                         return false;
                     }
 
@@ -422,16 +423,15 @@ namespace Jellyfin.Plugin.Hue.Hue
                     using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
-                        var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                         if (IsRetriableStatusCode(response.StatusCode))
                         {
                             throw new HttpRequestException(
-                                $"Hue bridge returned HTTP {(int)response.StatusCode} while stopping area {areaId}: {body}",
+                                $"Hue bridge returned HTTP {(int)response.StatusCode} while stopping area {areaId}.",
                                 null,
                                 response.StatusCode);
                         }
 
-                        _logger.LogWarning("Failed to stop entertainment area {0}: HTTP {1} — {2}", areaId, (int)response.StatusCode, body);
+                        _logger.LogWarning("Failed to stop entertainment area {0}: HTTP {1}", areaId, (int)response.StatusCode);
                         return false;
                     }
 

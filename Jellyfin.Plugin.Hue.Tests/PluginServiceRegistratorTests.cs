@@ -50,6 +50,15 @@ public class PluginServiceRegistratorTests
     }
 
     [Fact]
+    public void CreateHueHttpClientHandler_DisablesRedirects()
+    {
+        using var handler = PluginServiceRegistrator.CreateHueHttpClientHandler();
+
+        Assert.False(handler.AllowAutoRedirect);
+        Assert.NotNull(handler.ServerCertificateCustomValidationCallback);
+    }
+
+    [Fact]
     public async Task RegisterServices_UsesConfiguredMediaEncoderForEnvironmentProbe()
     {
         var services = new ServiceCollection();

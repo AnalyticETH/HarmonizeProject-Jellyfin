@@ -84,6 +84,20 @@ public class HueClientEntertainmentAreaTests : IDisposable
     }
 
     [Fact]
+    public async Task StartEntertainmentArea_FailureDoesNotLogBridgeResponseBody()
+    {
+        const string secretSentinel = "start-response-secret";
+        SetupHttpResponse(
+            HttpStatusCode.Forbidden,
+            $"{{\"errors\":[{{\"description\":\"{secretSentinel}\"}}]}}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        Assert.False(await client.StartEntertainmentArea("192.168.1.100", "test-app-key", "area-uuid"));
+
+        Assert.DoesNotContain(secretSentinel, GetLoggerText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task StartEntertainmentArea_SendsPutWithActionStart()
     {
         // CRITICAL: The bridge requires PUT {"action":"start"} to activate streaming mode.
@@ -201,6 +215,26 @@ public class HueClientEntertainmentAreaTests : IDisposable
         Assert.False(result);
     }
 
+    [Fact]
+    public async Task StopEntertainmentAreaWithResult_FailureDoesNotLogBridgeResponseBody()
+    {
+        const string secretSentinel = "stop-response-secret";
+        SetupHttpResponse(
+            HttpStatusCode.BadRequest,
+            $"{{\"errors\":[{{\"description\":\"{secretSentinel}\"}}]}}");
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        Assert.False(await client.StopEntertainmentAreaWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            "area-uuid"));
+
+        Assert.DoesNotContain(secretSentinel, GetLoggerText(), StringComparison.Ordinal);
+    }
+
     #endregion
 
     #region Helper Methods
@@ -214,6 +248,14 @@ public class HueClientEntertainmentAreaTests : IDisposable
             {
                 Content = new StringContent(content, Encoding.UTF8, "application/json")
             });
+    }
+
+    private string GetLoggerText()
+    {
+        return string.Join(
+            "\n",
+            _loggerMock.Invocations.Select(invocation =>
+                string.Join(" ", invocation.Arguments.Select(argument => argument?.ToString() ?? string.Empty))));
     }
 
     #endregion

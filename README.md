@@ -426,7 +426,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.211 (Current)
+### Version 1.5.212 (Current)
+- **Redirect-safe bridge transport**: automatic HTTP redirects are disabled for Hue bridge clients, preventing bridge requests from being followed to an unintended host while retaining scoped local-certificate validation.
+- **Bridge response privacy**: registration, entertainment-area start, and stop failures retain only operation/status telemetry; raw bridge response bodies are never written to Jellyfin logs.
+
+### Version 1.5.211
 - **Bridge target validation**: loopback, unspecified, multicast, and broadcast addresses are rejected before bridge requests; private, link-local, unique-local, and `.local` Hue targets remain supported.
 
 ### Version 1.5.210

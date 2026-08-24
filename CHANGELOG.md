@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.212] - 2026-08-24
+
+### Security
+- **Redirect-safe bridge transport**: disable automatic HTTP redirects for Hue bridge clients so credential-bearing requests cannot be followed to an unintended host.
+
+### Tests
+- **Regression coverage**: verify the bridge HTTP handler keeps redirect following disabled while retaining scoped local-certificate validation.
+
 ## [1.5.211] - 2026-08-24
 
 ### Security

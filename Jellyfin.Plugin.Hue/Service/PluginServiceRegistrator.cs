@@ -20,10 +20,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // HTTPS endpoint still use the platform certificate trust store.
         // Note: AddHttpClient<T>() registers T as transient by default, using the configured handler
         serviceCollection.AddHttpClient<Hue.HueClient>()
-            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-            {
-                ServerCertificateCustomValidationCallback = HueBridgeCertificateValidation.ValidateServerCertificate
-            });
+            .ConfigurePrimaryHttpMessageHandler(CreateHueHttpClientHandler);
         serviceCollection.AddSingleton<HueBridgeLifecycleGate>();
         serviceCollection.AddSingleton<HueDiagnosticsCancellationGate>();
         serviceCollection.AddSingleton<IHueBridgeLocalDiscovery, HueBridgeMdnsDiscovery>();
@@ -35,6 +32,18 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             new HueEnvironmentProbe(mediaEncoder: serviceProvider.GetService<IMediaEncoder>()));
         serviceCollection.AddHostedService<HueSyncService>();
         serviceCollection.AddHostedService<HueSceneAutomationService>();
+    }
+
+    internal static HttpClientHandler CreateHueHttpClientHandler()
+    {
+        return new HttpClientHandler
+        {
+            // Hue bridge requests are scoped to the configured private/local host.
+            // Following a redirect could silently move a credential-bearing request
+            // to an attacker-controlled or public endpoint, so redirects fail closed.
+            AllowAutoRedirect = false,
+            ServerCertificateCustomValidationCallback = HueBridgeCertificateValidation.ValidateServerCertificate
+        };
     }
 }
 
