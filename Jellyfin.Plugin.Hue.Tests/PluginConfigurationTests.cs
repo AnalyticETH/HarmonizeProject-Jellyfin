@@ -21,6 +21,7 @@ public class PluginConfigurationTests
     {
         var config = new PluginConfiguration
         {
+            SyncEnabled = true,
             UserMappings = new List<UserBridgeMapping> { null! }
         };
 
