@@ -7113,11 +7113,12 @@ namespace Jellyfin.Plugin.Hue.Api
 
             var plan = BuildConfigurationImportPlan(config, request);
             var activePlayback = _syncService?.HasActivePlaybackSessions == true;
+            var activeScheduledCue = _sceneAutomationService?.HasActiveScheduleRuns == true;
             var valid = plan.ValidationErrors.Count == 0;
             return Ok(new HueConfigurationImportValidationResult
             {
                 Valid = valid,
-                CanImport = valid && !activePlayback,
+                CanImport = valid && !activePlayback && !activeScheduledCue,
                 ActivePlayback = activePlayback,
                 SchemaVersion = request.SchemaVersion,
                 ValidationErrors = plan.ValidationErrors,
@@ -7134,9 +7135,13 @@ namespace Jellyfin.Plugin.Hue.Api
                 MappingCredentialPairsPreserved = plan.MappingCredentialPairsPreserved,
                 Diff = plan.Diff,
                 Message = valid
-                    ? activePlayback
-                        ? "Configuration is valid, but active Hue playback must stop before import."
-                        : "Configuration is valid and ready to import."
+                    ? activePlayback && activeScheduledCue
+                        ? "Configuration is valid, but active Hue playback and scheduled scene cues must finish before import."
+                        : activePlayback
+                            ? "Configuration is valid, but active Hue playback must stop before import."
+                            : activeScheduledCue
+                                ? "Configuration is valid, but active scheduled scene cues must finish before import."
+                                : "Configuration is valid and ready to import."
                     : "Configuration import is invalid. No changes were applied."
             });
         }
@@ -7174,12 +7179,37 @@ namespace Jellyfin.Plugin.Hue.Api
             if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
-            var plan = BuildConfigurationImportPlan(config, request);
-            if (plan.ValidationErrors.Count > 0)
+            IDisposable? importLease = null;
+            if (_sceneAutomationService != null &&
+                !_sceneAutomationService.TryAcquireConfigurationMutation(
+                    out importLease,
+                    out var activeScheduleMessage))
             {
-                return BadRequest(new { message = "Configuration import is invalid.", errors = plan.ValidationErrors });
+                return Conflict(activeScheduleMessage);
             }
 
+            try
+            {
+                var plan = BuildConfigurationImportPlan(config, request);
+                if (plan.ValidationErrors.Count > 0)
+                {
+                    return BadRequest(new { message = "Configuration import is invalid.", errors = plan.ValidationErrors });
+                }
+
+                return ApplyConfigurationImport(plugin, config, request, plan);
+            }
+            finally
+            {
+                importLease?.Dispose();
+            }
+        }
+
+        private ActionResult<HueConfigurationImportResult> ApplyConfigurationImport(
+            Plugin plugin,
+            PluginConfiguration config,
+            HueConfigurationImportRequest request,
+            HueConfigurationImportPlan plan)
+        {
             var previousSettings = HuePluginConfigurationSettings.From(config);
             var previousAppKey = config.HueAppKey;
             var previousClientKey = config.HueClientKey;
@@ -7190,7 +7220,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var previousPersistedSessionHistory = (config.PersistedSessionHistory ?? new List<HueSessionHistoryEntry>()).ToList();
             var previousPersistedSceneScheduleHistory = (config.PersistedSceneScheduleHistory ?? new List<HueSceneScheduleHistoryEntry>()).ToList();
 
-            request.Configuration.ApplyTo(config);
+            request.Configuration!.ApplyTo(config);
             config.UserMappings = plan.CandidateMappings;
             config.ColorPresets = plan.CandidatePresets;
             config.ScenePlaylists = plan.CandidatePlaylists;

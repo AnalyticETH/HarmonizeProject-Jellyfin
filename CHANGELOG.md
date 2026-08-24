@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.252] - 2026-08-24
+
+### Security
+- **Active-cue import guard**: configuration validation and import now refuse to replace scheduled cues while a restorative run is active, returning credential-free diagnostics and preserving the live configuration.
+
+### Tests
+- **Import lifecycle coverage**: validation and conflict-import paths preserve an in-flight cue until its run completes, then allow the inactive import.
+
 ## [1.5.251] - 2026-08-24
 
 ### Added

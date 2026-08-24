@@ -77,6 +77,44 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Reports whether any scheduled cue currently owns an active run. The check is
+    /// synchronized with the runtime state used by scheduled cue mutations and imports.
+    /// </summary>
+    public bool HasActiveScheduleRuns
+    {
+        get
+        {
+            lock (_runtimeStateLock)
+            {
+                return _runtimeStates.Values.Any(state => state.ActiveRuns > 0);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reserves the runtime-state lock for a configuration import. The returned lease
+    /// prevents a cue from starting until the caller finishes its configuration transaction.
+    /// </summary>
+    public bool TryAcquireConfigurationMutation(
+        out IDisposable? lease,
+        out string message)
+    {
+        lease = null;
+        message = string.Empty;
+
+        Monitor.Enter(_runtimeStateLock);
+        if (_runtimeStates.Values.Any(state => state.ActiveRuns > 0))
+        {
+            Monitor.Exit(_runtimeStateLock);
+            message = "Configuration import cannot proceed while a scheduled scene cue is running.";
+            return false;
+        }
+
+        lease = new ConfigurationMutationLease(this);
+        return true;
+    }
+
+    /// <summary>
     /// Resets a cue's persisted execution counter and re-enables it. The operation refuses
     /// to mutate an active cue so a reset cannot race with a running bridge lifecycle.
     /// Retained history is intentionally preserved as an audit trail; only the live counter
@@ -4883,6 +4921,26 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             state.ActiveRuns++;
             return true;
+        }
+    }
+
+    private void ReleaseConfigurationMutation()
+    {
+        Monitor.Exit(_runtimeStateLock);
+    }
+
+    private sealed class ConfigurationMutationLease : IDisposable
+    {
+        private HueSceneAutomationService? _owner;
+
+        public ConfigurationMutationLease(HueSceneAutomationService owner)
+        {
+            _owner = owner;
+        }
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _owner, null)?.ReleaseConfigurationMutation();
         }
     }
 

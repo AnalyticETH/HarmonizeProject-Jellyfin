@@ -9812,6 +9812,81 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task ConfigurationImport_RefusesActiveCueAndPreservesConfiguration()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "active-import-app-key",
+            HueClientKey = "active-import-client-key",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Active import scene", DurationSeconds = 8 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "active-import-cue",
+                    Name = "Active import cue",
+                    PresetName = "Active import scene",
+                    MaxRuns = 3
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new BlockingPreviewStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+        var importRequest = new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            ReplaceMappings = false,
+            ReplaceColorPresets = false,
+            ReplaceScenePlaylists = false,
+            ReplaceSceneSchedules = true
+        };
+        var runTask = service.RunScheduleAsync("active-import-cue");
+
+        await streamTester.PreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            var validation = controller.ValidateConfigurationImport(importRequest);
+
+            var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+            var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+            Assert.True(validationResult.Valid);
+            Assert.False(validationResult.CanImport);
+            Assert.Contains("scheduled scene cues", validationResult.Message, StringComparison.OrdinalIgnoreCase);
+
+            var action = controller.ImportConfiguration(importRequest);
+
+            var response = Assert.IsType<ConflictObjectResult>(action.Result);
+            Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+            Assert.Contains("scheduled scene cue", Assert.IsType<string>(response.Value), StringComparison.OrdinalIgnoreCase);
+            var unchanged = Assert.Single(configuration.SceneSchedules);
+            Assert.Equal("active-import-cue", unchanged.Id);
+            Assert.Equal("Active import cue", unchanged.Name);
+            Assert.Equal("Active import scene", unchanged.PresetName);
+        }
+        finally
+        {
+            streamTester.ReleasePreview.TrySetResult(true);
+            await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        var inactiveImport = controller.ImportConfiguration(importRequest);
+        Assert.IsType<OkObjectResult>(inactiveImport.Result);
+        Assert.Empty(configuration.SceneSchedules);
+    }
+
+    [Fact]
     public void ValidateConfigurationImport_ReturnsNormalizedObjectDiffWithoutCredentials()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
