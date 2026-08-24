@@ -49,9 +49,9 @@
       },
       "System.Text.Encodings.Web": {
         "type": "Direct",
-        "requested": "[8.0.0, )",
-        "resolved": "8.0.0",
-        "contentHash": "yev/k9GHAEGx2Rg3/tU6MQh4HGBXJs70y7j1LaM1i/ER9po+6nnQ6RRqTJn1E7Xu0fbIFK80Nh5EoODxrbxwBQ=="
+        "requested": "[10.0.11, )",
+        "resolved": "10.0.11",
+        "contentHash": "R7H2/Oqr3onFff/JKDpfRjwxcQZlocF/eQ0ce8go/OTjqz+6LEp/fZK8j1YnDobtysChATEg7krVq4hQJ3IoeQ=="
       },
       "BenchmarkDotNet.Annotations": {
         "type": "Transitive",
@@ -390,7 +390,7 @@
       "jellyfin.plugin.hue": {
         "type": "Project",
         "dependencies": {
-          "System.Text.Encodings.Web": "[8.0.0, )",
+          "System.Text.Encodings.Web": "[10.0.11, )",
           "System.Text.Json": "[8.0.6, )"
         }
       }
