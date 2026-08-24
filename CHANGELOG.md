@@ -15,6 +15,9 @@ No unreleased changes.
 - **Device-route preview parity**: normal, saved-scene, bulk saved-scene, and playlist previews now accept credential-free `{userId, deviceId}` routes and resolve nested device bridge profiles without exposing secrets or changing persisted target selections.
 - **Administrator target controls**: expose nested device routes in preview selectors while preserving legacy default, user-mapping, and all-target behavior.
 
+### Security
+- **Fail-closed route validation**: malformed or incomplete device-route payloads are rejected before any credential-bearing fallback, device IDs remain case-sensitive, and single-playlist previews preflight selected routes like bulk previews.
+
 ### Tests
 - **Regression coverage**: verify nested device-route credentials, channel profiles, labels, and preview request plumbing.
 

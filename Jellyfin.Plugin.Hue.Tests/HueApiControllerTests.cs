@@ -2354,6 +2354,35 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PreviewColorPreset_MalformedDeviceRouteFailsClosed()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "malformed-route-app-secret",
+            HueClientKey = "malformed-route-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Malformed Route Scene", DurationSeconds = 1 }
+            }
+        });
+
+        var action = await CreateController().PreviewColorPreset(
+            "Malformed Route Scene",
+            new HueSavedColorPresetPreviewRequest
+            {
+                TargetRoutes = new List<HueCurrentLightColorTargetRoute>
+                {
+                    new() { UserId = " ", DeviceId = "device-tv" }
+                }
+            });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("user mapping ID", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task PreviewColorPresetsBulk_SelectedTargetsAreAppliedToEveryScene()
     {
         InstallConfiguration(new PluginConfiguration

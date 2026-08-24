@@ -1952,7 +1952,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     out var normalizedTransitionCurve)
                 ? normalizedTransitionCurve
                 : GetEffectiveTransitionCurve(preset),
-            TargetLabel = ResolveTargetLabel(config, schedule),
+            TargetLabel = ResolveTargetLabel(config, schedule, targetRoutesOverride),
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
@@ -2168,7 +2168,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistName = playlist.Name?.Trim() ?? string.Empty,
             RepeatCount = repeatCount,
             PlaybackOrder = playbackOrder,
-            TargetLabel = ResolveTargetLabel(config, targetSchedule),
+            TargetLabel = ResolveTargetLabel(config, targetSchedule, normalizedTargetRoutesOverride),
             TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -2326,7 +2326,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistName = playlist.Name?.Trim() ?? string.Empty,
             RepeatCount = repeatCount,
             PlaybackOrder = playbackOrder,
-            TargetLabel = ResolveTargetLabel(config, targetSchedule),
+            TargetLabel = ResolveTargetLabel(config, targetSchedule, normalizedTargetRoutesOverride),
             TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -3467,6 +3467,14 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         var targetUserId = targetUserIdValue?.Trim() ?? string.Empty;
+        if (targetRoutes?.Any(route => route == null ||
+                string.IsNullOrWhiteSpace(route.UserId) ||
+                string.IsNullOrWhiteSpace(route.DeviceId)) == true)
+        {
+            error = "Selected scene cue target routes must contain both a user mapping ID and a device ID.";
+            return false;
+        }
+
         var selectedUserIds = (targetUserIds ?? Array.Empty<string>())
             .Select(value => value?.Trim() ?? string.Empty)
             .ToArray();
@@ -3695,7 +3703,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 var deviceTarget = mapping.DeviceTargets?.FirstOrDefault(candidate =>
                     candidate != null &&
-                    string.Equals(candidate.DeviceId?.Trim(), targetDeviceId, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(candidate.DeviceId?.Trim(), targetDeviceId, StringComparison.Ordinal));
                 if (deviceTarget == null)
                 {
                     error = "The selected device route no longer exists.";
@@ -3779,12 +3787,13 @@ public sealed class HueSceneAutomationService : BackgroundService
     private static IReadOnlyList<HueSceneAutomationTargetRoute> NormalizeTargetRoutes(
         IReadOnlyList<HueSceneAutomationTargetRoute>? routes)
         => routes?
-            .Where(route => route != null && !string.IsNullOrWhiteSpace(route.UserId))
-            .Select(route => new HueSceneAutomationTargetRoute
-            {
-                UserId = route.UserId.Trim(),
-                DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
-            })
+            .Select(route => route == null
+                ? new HueSceneAutomationTargetRoute()
+                : new HueSceneAutomationTargetRoute
+                {
+                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
+                })
             .ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>();
 
     private static HashSet<int> GetValidChannelIds(JsonElement areaConfiguration)
@@ -5304,12 +5313,17 @@ public sealed class HueSceneAutomationService : BackgroundService
         };
     }
 
-    internal static string ResolveTargetLabel(PluginConfiguration? config, HueSceneSchedule schedule)
+    internal static string ResolveTargetLabel(
+        PluginConfiguration? config,
+        HueSceneSchedule schedule,
+        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutes = null)
     {
         if (schedule.TargetAllEnabledMappings)
             return "All enabled targets";
 
-        var selectedTargetCount = schedule.TargetUserIds?.Count(value => !string.IsNullOrWhiteSpace(value)) ?? 0;
+        var selectedUserTargetCount = schedule.TargetUserIds?.Count(value => !string.IsNullOrWhiteSpace(value)) ?? 0;
+        var selectedRouteCount = targetRoutes?.Count ?? 0;
+        var selectedTargetCount = selectedUserTargetCount + selectedRouteCount;
         if (schedule.IncludeDefaultTarget || selectedTargetCount > 0)
         {
             return schedule.IncludeDefaultTarget

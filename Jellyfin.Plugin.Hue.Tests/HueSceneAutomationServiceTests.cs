@@ -4074,6 +4074,18 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("192.168.1.102", target.BridgeIp);
         Assert.Equal("device-area", target.EntertainmentAreaId);
         Assert.Equal(new[] { 7, 8 }, target.ChannelIds!.OrderBy(id => id));
+
+        Assert.False(HueSceneAutomationService.TryResolveTargets(
+            config,
+            schedule,
+            out _,
+            out var duplicateError,
+            new[]
+            {
+                routes[0],
+                new HueSceneAutomationTargetRoute { UserId = "user-1", DeviceId = "device-bedroom" }
+            }));
+        Assert.Contains("more than once", duplicateError, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

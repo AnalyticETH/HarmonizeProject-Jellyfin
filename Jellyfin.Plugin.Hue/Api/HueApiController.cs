@@ -2849,6 +2849,29 @@ namespace Jellyfin.Plugin.Hue.Api
                 });
             }
 
+            var targetSchedule = new HueSceneSchedule
+            {
+                Id = "scene-playlist-preview",
+                Name = playlist.Name?.Trim() ?? string.Empty,
+                TargetUserId = playlist.TargetAllEnabledMappings ||
+                    playlist.IncludeDefaultTarget ||
+                    (playlist.TargetUserIds?.Count ?? 0) > 0
+                    ? string.Empty
+                    : playlist.TargetUserId?.Trim() ?? string.Empty,
+                TargetUserIds = playlist.TargetUserIds?.ToList() ?? new List<string>(),
+                IncludeDefaultTarget = playlist.IncludeDefaultTarget,
+                TargetAllEnabledMappings = playlist.TargetAllEnabledMappings
+            };
+            if (!HueSceneAutomationService.TryResolveTargets(
+                    config,
+                    targetSchedule,
+                    out _,
+                    out var targetError,
+                    hasSelectedTargetOverride ? targetRoutes : null))
+            {
+                return BadRequest(targetError);
+            }
+
             if (_streamTester == null)
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
             if (_sceneAutomationService == null)
@@ -6476,12 +6499,13 @@ namespace Jellyfin.Plugin.Hue.Api
         private static IReadOnlyList<HueSceneAutomationTargetRoute> NormalizeSceneAutomationTargetRoutes(
             IEnumerable<HueCurrentLightColorTargetRoute>? routes)
             => routes?
-                .Where(route => route != null && !string.IsNullOrWhiteSpace(route.UserId))
-                .Select(route => new HueSceneAutomationTargetRoute
-                {
-                    UserId = route.UserId.Trim(),
-                    DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
-                })
+                .Select(route => route == null
+                    ? new HueSceneAutomationTargetRoute()
+                    : new HueSceneAutomationTargetRoute
+                    {
+                        UserId = route.UserId?.Trim() ?? string.Empty,
+                        DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
+                    })
                 .ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>();
 
         private static bool TryResolveCaptureTargets(
