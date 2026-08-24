@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.218] - 2026-08-24
+
+### Added
+- **Credential lifecycle control**: add a confirmation-gated administrator control to clear stored global Hue credentials without changing per-user or device-route secrets.
+
+### Security
+- **Malformed mapping resilience**: null user-mapping entries are ignored by runtime bridge, playback, override, and summary lookups instead of causing a playback-time exception.
+
+### Tests
+- **Regression coverage**: exercise null-safe runtime mapping resolution and the credential-clearing contract alongside the full configuration-page validation.
+
 ## [1.5.217] - 2026-08-24
 
 ### Added

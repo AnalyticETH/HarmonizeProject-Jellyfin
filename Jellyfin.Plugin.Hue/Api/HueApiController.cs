@@ -7685,6 +7685,7 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             var config = Plugin.Instance?.Configuration;
             var mappings = config?.UserMappings?
+                .Where(mapping => mapping != null)
                 .Select(UserBridgeMappingSummary.From)
                 ?? Enumerable.Empty<UserBridgeMappingSummary>();
             return Ok(mappings);
@@ -7936,6 +7937,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
             config.UserMappings ??= new List<UserBridgeMapping>();
             var existingMapping = config.UserMappings.FirstOrDefault(existing =>
+                existing != null &&
                 string.Equals(existing.UserId, mapping.UserId, StringComparison.OrdinalIgnoreCase));
 
             var inheritsDefaultBridge = string.IsNullOrWhiteSpace(mapping.HueBridgeIp);

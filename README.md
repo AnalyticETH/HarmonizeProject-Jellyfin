@@ -427,7 +427,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.217 (Current)
+### Version 1.5.218 (Current)
+- **Credential lifecycle control**: clear stored global Hue credentials from the administrator page behind an explicit confirmation, without touching per-user or device-route secrets.
+- **Malformed mapping resilience**: runtime bridge, playback, override, and summary lookups ignore null mapping entries safely.
+
+### Version 1.5.217
 - **Device-route current-light capture**: select an explicit per-user device route from the dedicated capture target control, capture device-only mappings, and review redacted device identity in single or batch results without exposing bridge credentials.
 
 ### Version 1.5.216

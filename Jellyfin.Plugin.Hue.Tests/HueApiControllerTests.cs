@@ -45,6 +45,49 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void UserMappingSummariesAndExportsIgnoreNullEntries()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                null!,
+                new() { UserId = "valid-user", UserName = "Viewer", SyncEnabled = false }
+            }
+        });
+        var controller = CreateController();
+
+        var mappingsAction = controller.GetUserMappings();
+        var mappingsResponse = Assert.IsType<OkObjectResult>(mappingsAction.Result);
+        var mappings = Assert.IsAssignableFrom<IEnumerable<UserBridgeMappingSummary>>(mappingsResponse.Value).ToArray();
+        Assert.Collection(mappings, mapping => Assert.Equal("valid-user", mapping.UserId));
+
+        var exportAction = controller.ExportConfiguration();
+        var exportResponse = Assert.IsType<OkObjectResult>(exportAction.Result);
+        var export = Assert.IsType<HueConfigurationExportDocument>(exportResponse.Value);
+        Assert.Collection(export.UserMappings, mapping => Assert.Equal("valid-user", mapping.UserId));
+    }
+
+    [Fact]
+    public void SaveUserMappingWithNullExistingEntryDoesNotThrow()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { null! }
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "new-user",
+            SyncEnabled = false
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Equal("new-user", mapping.UserId);
+    }
+
+    [Fact]
     public async Task DiscoverBridge_ReturnsDiscoveredAddress()
     {
         SetupHttpResponse(HttpStatusCode.OK, "[{\"internalipaddress\":\"192.168.1.100\"}]");

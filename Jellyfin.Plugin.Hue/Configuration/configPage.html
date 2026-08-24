@@ -204,6 +204,13 @@
                             <input id="hueClientKey" name="hueClientKey" type="text" is="emby-input" />
                             <div class="fieldDescription">Stored securely on the server. Leave blank to keep the stored key; use Link Bridge to replace it. Test Connection uses it for a short DTLS stream probe.</div>
                         </div>
+                        <div class="inputContainer" style="margin-top: 0.75em;">
+                            <label style="display: flex; gap: 0.6em; align-items: center;">
+                                <input id="clearStoredCredentials" type="checkbox" is="emby-checkbox" />
+                                <span>Clear stored global Hue credentials on save</span>
+                            </label>
+                            <div class="fieldDescription">This removes the stored global App Key and Client Key. It does not change per-user mapping or device-route credentials. A confirmation is required.</div>
+                        </div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -1791,6 +1798,7 @@
                         page.querySelector('#hueBridgeIp').value = HueConfigurationPage.globalBridgeIp;
                         page.querySelector('#hueAppKey').value = '';
                         page.querySelector('#hueClientKey').value = '';
+                        page.querySelector('#clearStoredCredentials').checked = false;
                         page.querySelector('#hueAppKey').placeholder = HueConfigurationPage.globalHasAppKey
                             ? 'Stored securely; leave blank to keep'
                             : 'Enter Hue App Key';
@@ -1866,7 +1874,21 @@
                         Dashboard.hideLoadingMsg();
                     });
                 },
-                saveConfiguration: function (page) {
+                saveConfiguration: function (page, clearConfirmationComplete) {
+                    var clearCredentialsCheckbox = page && page.querySelector('#clearStoredCredentials');
+                    if (clearCredentialsCheckbox && clearCredentialsCheckbox.checked && !clearConfirmationComplete) {
+                        Dashboard.confirm(
+                            "Clear the stored global Hue App Key and Client Key? This cannot be undone from the configuration page.",
+                            "Clear Stored Credentials",
+                            function (confirmed) {
+                                if (confirmed) {
+                                    HueConfigurationPage.saveConfiguration(page, true);
+                                } else {
+                                    clearCredentialsCheckbox.checked = false;
+                                }
+                            });
+                        return Promise.resolve();
+                    }
                     Dashboard.showLoadingMsg();
                     var parseNumberOrDefault = function (selector, fallback) {
                         var value = parseInt(page.querySelector(selector).value, 10);
@@ -1881,6 +1903,7 @@
                         HueBridgeIp: page.querySelector('#hueBridgeIp').value,
                         HueAppKey: page.querySelector('#hueAppKey').value,
                         HueClientKey: page.querySelector('#hueClientKey').value,
+                        ClearStoredCredentials: !!(clearCredentialsCheckbox && clearCredentialsCheckbox.checked),
                         EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
                         ChannelIds: page.querySelector('#channelIds').value,
                         PlaybackMediaFilter: page.querySelector('#playbackMediaFilter').value,
@@ -1952,6 +1975,7 @@
                         HueConfigurationPage.globalBridgeIp = String(response.hueBridgeIp || response.HueBridgeIp || page.querySelector('#hueBridgeIp').value || '').trim();
                         HueConfigurationPage.globalHasAppKey = response.hasAppKey !== undefined ? !!response.hasAppKey : !!response.HasAppKey;
                         HueConfigurationPage.globalHasClientKey = response.hasClientKey !== undefined ? !!response.hasClientKey : !!response.HasClientKey;
+                        if (clearCredentialsCheckbox) clearCredentialsCheckbox.checked = false;
                         HueConfigurationPage.refreshStatus(page, "Configuration saved.", "success");
                     }).catch(function (err) {
                         console.error("Failed to save Hue configuration:", err);

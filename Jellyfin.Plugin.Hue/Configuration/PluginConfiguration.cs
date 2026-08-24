@@ -1733,13 +1733,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
         public int NetworkRetryAttempts { get; set; } = 3; // Number of retry attempts for Hue REST and DTLS recovery
 
+        private UserBridgeMapping? FindUserMapping(Guid userId)
+        {
+            var userIdText = userId.ToString();
+            return UserMappings?.Find(mapping =>
+                mapping != null &&
+                string.Equals(mapping.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+        }
+
         /// <summary>
         /// Gets the bridge configuration for a specific user, or falls back to default
         /// </summary>
         public (string BridgeIp, string AppKey, string ClientKey, string AreaId) GetBridgeConfigForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             if (mapping != null && !string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
             {
                 return (mapping.HueBridgeIp, mapping.HueAppKey, mapping.HueClientKey, mapping.EntertainmentAreaId);
@@ -1782,8 +1789,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public bool IsSyncEnabledForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return mapping?.SyncEnabled ?? true;
         }
 
@@ -1793,8 +1799,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public string? GetPlaybackMediaFilterOverrideForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return NormalizeOptionalPlaybackMediaFilter(mapping?.PlaybackMediaFilterOverride);
         }
 
@@ -1805,8 +1810,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int GetAudioSensitivityPercentForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return Math.Clamp(
                 mapping?.AudioSensitivityPercentOverride ?? AudioSensitivityPercent,
                 MinAudioSensitivityPercent,
@@ -1819,8 +1823,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int GetAudioNoiseGatePercentForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return Math.Clamp(
                 mapping?.AudioNoiseGatePercentOverride ?? AudioNoiseGatePercent,
                 MinAudioNoiseGatePercent,
@@ -1834,8 +1837,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public (int LowGainPercent, int MidGainPercent, int HighGainPercent) GetAudioBandGainsForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return (
                 Math.Clamp(mapping?.AudioLowGainPercentOverride ?? AudioLowGainPercent, MinAudioBandGainPercent, MaxAudioBandGainPercent),
                 Math.Clamp(mapping?.AudioMidGainPercentOverride ?? AudioMidGainPercent, MinAudioBandGainPercent, MaxAudioBandGainPercent),
@@ -1849,8 +1851,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int GetAudioResponseSmoothingPercentForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return Math.Clamp(
                 mapping?.AudioResponseSmoothingPercentOverride ?? AudioResponseSmoothingPercent,
                 MinAudioResponseSmoothingPercent,
@@ -1863,8 +1864,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int GetAudioBandSpreadPercentForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return Math.Clamp(
                 mapping?.AudioBandSpreadPercentOverride ?? AudioBandSpreadPercent,
                 MinAudioBandSpreadPercent,
@@ -1878,8 +1878,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int GetAudioBeatPulsePercentForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return Math.Clamp(
                 mapping?.AudioBeatPulsePercentOverride ?? AudioBeatPulsePercent,
                 MinAudioBeatPulsePercent,
@@ -1893,8 +1892,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int GetAudioBeatPulseDecayPercentForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return Math.Clamp(
                 mapping?.AudioBeatPulseDecayPercentOverride ?? AudioBeatPulseDecayPercent,
                 MinAudioBeatPulseDecayPercent,
@@ -1908,8 +1906,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int GetAudioBeatPulseThresholdPercentForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return Math.Clamp(
                 mapping?.AudioBeatPulseThresholdPercentOverride ?? AudioBeatPulseThresholdPercent,
                 MinAudioBeatPulseThresholdPercent,
@@ -1924,8 +1921,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public string GetAudioColorPaletteForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             var overridePalette = NormalizeOptionalAudioColorPalette(mapping?.AudioColorPaletteOverride);
             if (overridePalette != null && TryNormalizeAudioColorPalette(overridePalette, out var normalizedOverride))
                 return normalizedOverride;
@@ -1942,8 +1938,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public string GetAudioSpatialModeForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             var overrideMode = NormalizeOptionalAudioSpatialMode(mapping?.AudioSpatialModeOverride);
             if (overrideMode != null && TryNormalizeAudioSpatialMode(overrideMode, out var normalizedOverride))
                 return normalizedOverride;
@@ -1960,8 +1955,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public string GetAudioChannelModeForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             var overrideMode = NormalizeOptionalAudioChannelMode(mapping?.AudioChannelModeOverride);
             if (overrideMode != null && TryNormalizeAudioChannelMode(overrideMode, out var normalizedOverride))
                 return normalizedOverride;
@@ -1978,8 +1972,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public (int LowFrequencyHz, int MidFrequencyHz, int HighFrequencyHz) GetAudioFrequenciesForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return NormalizeAudioFrequencyProfile(
                 mapping?.AudioLowFrequencyHzOverride ?? AudioLowFrequencyHz,
                 mapping?.AudioMidFrequencyHzOverride ?? AudioMidFrequencyHz,
@@ -2032,8 +2025,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             int? BrightnessDimLevel,
             bool? RestoreLightState) GetPlaybackOverridesForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return mapping == null
                 ? (null, null, null)
                 : (mapping.UseCinemaModeOverride, mapping.BrightnessDimLevelOverride, mapping.RestoreLightStateOverride);
@@ -2045,8 +2037,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public string? GetPauseBehaviorOverrideForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             var pauseBehavior = mapping?.PauseBehaviorOverride?.Trim();
             return string.IsNullOrWhiteSpace(pauseBehavior) ? null : pauseBehavior;
         }
@@ -2058,8 +2049,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public (int? BrightnessBoost, int? ColorSaturation, int? HueShiftDegrees, int? OutputBrightnessPercent, double? GammaCorrection, int? ContrastPercent, int? ColorTemperatureKelvin)
             GetColorProcessingOverridesForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return mapping == null
                 ? (null, null, null, null, null, null, null)
                 : (
@@ -2078,8 +2068,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public (int? RedGain, int? GreenGain, int? BlueGain) GetColorChannelGainOverridesForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return mapping == null
                 ? (null, null, null)
                 : (mapping.RedGainOverride, mapping.GreenGainOverride, mapping.BlueGainOverride);
@@ -2091,8 +2080,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public (int? BlackoutThreshold, int? ColorChangeThreshold) GetColorThresholdOverridesForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return mapping == null
                 ? (null, null)
                 : (mapping.BlackoutThresholdOverride, mapping.ColorChangeThresholdOverride);
@@ -2104,8 +2092,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public string? GetBlackoutBehaviorOverrideForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return NormalizeOptionalBlackoutBehavior(mapping?.BlackoutBehaviorOverride);
         }
 
@@ -2138,8 +2125,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             string? SpatialOrientation,
             int? ColorSmoothingPercent) GetPerformanceOverridesForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return mapping == null
                 ? (null, null, null, null, null, null, null, null)
                 : (
@@ -2163,8 +2149,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             int? FfmpegStallTimeoutSeconds,
             int? NetworkRetryAttempts) GetExecutionOverridesForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return mapping == null
                 ? (null, null, null, null)
                 : (
@@ -2180,8 +2165,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public IReadOnlySet<int>? GetChannelIdsOverrideForUser(Guid userId)
         {
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(m => string.Equals(m.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             if (mapping == null || !TryParseChannelIds(mapping.ChannelIdsOverride, out var channelIds) || channelIds.Count == 0)
                 return null;
 
@@ -2230,9 +2214,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (string.IsNullOrWhiteSpace(normalizedDeviceId))
                 return null;
 
-            var userIdText = userId.ToString();
-            var mapping = UserMappings?.Find(candidate =>
-                string.Equals(candidate.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            var mapping = FindUserMapping(userId);
             return mapping?.DeviceTargets?.FirstOrDefault(target =>
                 target != null &&
                 string.Equals(target.DeviceId?.Trim(), normalizedDeviceId, StringComparison.Ordinal));

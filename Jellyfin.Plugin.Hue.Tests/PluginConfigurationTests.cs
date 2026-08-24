@@ -31,6 +31,56 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void RuntimeUserMappingLookupsIgnoreNullEntriesBeforeValidMapping()
+    {
+        var userId = Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            EntertainmentAreaId = "global-area",
+            PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterMovies,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                null!,
+                new()
+                {
+                    UserId = userId.ToString(),
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-key",
+                    HueClientKey = "mapping-client-key",
+                    EntertainmentAreaId = "mapping-area",
+                    PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterEpisodes,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-app-key",
+                            HueClientKey = "device-client-key",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    }
+                }
+            }
+        };
+
+        var userTarget = config.GetBridgeConfigForUser(userId);
+        var deviceTarget = config.GetBridgeConfigForPlayback(userId, "living-room-tv");
+
+        Assert.Equal("192.168.1.101", userTarget.BridgeIp);
+        Assert.Equal("mapping-area", userTarget.AreaId);
+        Assert.Equal("192.168.1.102", deviceTarget.BridgeIp);
+        Assert.Equal("device-area", deviceTarget.AreaId);
+        Assert.True(config.HasDeviceTargetForPlayback(userId, "living-room-tv"));
+        Assert.True(config.IsSyncEnabledForUser(userId));
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterEpisodes, config.GetPlaybackMediaFilterForUser(userId));
+    }
+
+    [Fact]
     public void Validate_AllowsSyncWithOnlyACompleteDeviceTarget()
     {
         var config = new PluginConfiguration
