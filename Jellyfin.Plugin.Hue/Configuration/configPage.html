@@ -1969,6 +1969,19 @@
                         });
                     });
                 },
+                isConfiguredDeviceRouteReady: function (deviceTarget) {
+                    if (!deviceTarget || typeof deviceTarget !== 'object') return false;
+                    var read = function (source, camel, pascal) {
+                        return source[camel] !== undefined ? source[camel] : source[pascal];
+                    };
+                    var deviceBridgeIp = read(deviceTarget, 'hueBridgeIp', 'HueBridgeIp');
+                    var deviceAreaId = read(deviceTarget, 'entertainmentAreaId', 'EntertainmentAreaId');
+                    var deviceHasAppKey = read(deviceTarget, 'hasAppKey', 'HasAppKey');
+                    var deviceHasClientKey = read(deviceTarget, 'hasClientKey', 'HasClientKey');
+                    return !!String(deviceBridgeIp || '').trim() &&
+                        !!String(deviceAreaId || '').trim() &&
+                        deviceHasAppKey === true && deviceHasClientKey === true;
+                },
                 markSceneScheduleMetadataUnavailable: function (page, message) {
                     if (!page) return;
                     page._hueSceneScheduleMetadataState = {
@@ -3462,12 +3475,16 @@
                                 ? response
                                 : response && Array.isArray(response.data)
                                     ? response.data
-                                    : [];
+                                    : null;
                             var mappings = Array.isArray(mappingResponse)
                                 ? mappingResponse
                                 : mappingResponse && Array.isArray(mappingResponse.data)
                                     ? mappingResponse.data
-                                    : [];
+                                    : null;
+                            if (!Array.isArray(presets) || !Array.isArray(mappings) ||
+                                !HueConfigurationPage.isSceneScheduleMappingMetadataValid(mappings)) {
+                                throw new Error("Malformed preview target metadata response");
+                            }
                             selectEl.innerHTML = '<option value="">Choose a saved scene...</option>';
                             if (bulkSelect) bulkSelect.innerHTML = '';
                             presets.forEach(function (preset) {
@@ -3522,10 +3539,17 @@
                                             var deviceId = deviceTarget.deviceId !== undefined ? deviceTarget.deviceId : deviceTarget.DeviceId;
                                             if (!deviceId) return;
                                             var deviceName = deviceTarget.deviceName !== undefined ? deviceTarget.deviceName : deviceTarget.DeviceName;
+                                            var deviceReady = HueConfigurationPage.isConfiguredDeviceRouteReady(deviceTarget);
                                             var deviceOption = document.createElement('option');
                                             deviceOption.value = HueConfigurationPage.encodeCurrentLightDeviceTarget(userId, deviceId);
-                                            deviceOption.textContent = "↳ " + (deviceName || deviceId) + " — " + (userName || userId) + (enabled ? "" : " (disabled)");
-                                            deviceOption.disabled = !enabled;
+                                            deviceOption.textContent = "↳ " + (deviceName || deviceId) + " — " + (userName || userId) +
+                                                (enabled ? (deviceReady ? "" : " (unavailable)") : " (disabled)");
+                                            deviceOption.disabled = !enabled || !deviceReady;
+                                            if (deviceOption.disabled) {
+                                                deviceOption.title = enabled
+                                                    ? "This device route is unavailable or incomplete."
+                                                    : "This mapping is disabled.";
+                                            }
                                             previewTargetSelect.appendChild(deviceOption);
                                         });
                                     }
@@ -4133,9 +4157,13 @@
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets")),
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings"))
                     ]).then(function (responses) {
-                        var playlists = Array.isArray(responses[0]) ? responses[0] : [];
-                        var presets = Array.isArray(responses[1]) ? responses[1] : [];
-                        var mappings = Array.isArray(responses[2]) ? responses[2] : [];
+                        var playlists = Array.isArray(responses[0]) ? responses[0] : null;
+                        var presets = Array.isArray(responses[1]) ? responses[1] : null;
+                        var mappings = Array.isArray(responses[2]) ? responses[2] : null;
+                        if (!Array.isArray(playlists) || !Array.isArray(presets) || !Array.isArray(mappings) ||
+                            !HueConfigurationPage.isSceneScheduleMappingMetadataValid(mappings)) {
+                            throw new Error("Malformed preview target metadata response");
+                        }
                         page._hueScenePlaylists = playlists;
                         page._hueScenePlaylistPresets = presets;
                         playlistSelect.innerHTML = '<option value="">Choose a saved playlist...</option>';
@@ -4224,10 +4252,17 @@
                                         var deviceId = deviceTarget.deviceId !== undefined ? deviceTarget.deviceId : deviceTarget.DeviceId;
                                         if (!deviceId) return;
                                         var deviceName = deviceTarget.deviceName !== undefined ? deviceTarget.deviceName : deviceTarget.DeviceName;
+                                        var deviceReady = HueConfigurationPage.isConfiguredDeviceRouteReady(deviceTarget);
                                         var deviceOption = document.createElement('option');
                                         deviceOption.value = HueConfigurationPage.encodeCurrentLightDeviceTarget(userId, deviceId);
-                                        deviceOption.textContent = "↳ " + (deviceName || deviceId) + " — " + (userName || userId) + (enabled ? "" : " (disabled)");
-                                        deviceOption.disabled = !enabled;
+                                        deviceOption.textContent = "↳ " + (deviceName || deviceId) + " — " + (userName || userId) +
+                                            (enabled ? (deviceReady ? "" : " (unavailable)") : " (disabled)");
+                                        deviceOption.disabled = !enabled || !deviceReady;
+                                        if (deviceOption.disabled) {
+                                            deviceOption.title = enabled
+                                                ? "This device route is unavailable or incomplete."
+                                                : "This mapping is disabled.";
+                                        }
                                         select.appendChild(deviceOption);
                                     });
                                 }
@@ -6294,13 +6329,7 @@
                                     var deviceId = deviceTarget.deviceId !== undefined ? deviceTarget.deviceId : deviceTarget.DeviceId;
                                     if (!deviceId) return;
                                     var deviceName = deviceTarget.deviceName !== undefined ? deviceTarget.deviceName : deviceTarget.DeviceName;
-                                    var deviceBridgeIp = deviceTarget.hueBridgeIp !== undefined ? deviceTarget.hueBridgeIp : deviceTarget.HueBridgeIp;
-                                    var deviceAreaId = deviceTarget.entertainmentAreaId !== undefined ? deviceTarget.entertainmentAreaId : deviceTarget.EntertainmentAreaId;
-                                    var deviceHasAppKey = deviceTarget.hasAppKey !== undefined ? deviceTarget.hasAppKey : deviceTarget.HasAppKey;
-                                    var deviceHasClientKey = deviceTarget.hasClientKey !== undefined ? deviceTarget.hasClientKey : deviceTarget.HasClientKey;
-                                    var deviceReady = !!String(deviceBridgeIp || '').trim() &&
-                                        !!String(deviceAreaId || '').trim() &&
-                                        deviceHasAppKey === true && deviceHasClientKey === true;
+                                    var deviceReady = HueConfigurationPage.isConfiguredDeviceRouteReady(deviceTarget);
                                     var deviceOption = document.createElement('option');
                                     deviceOption.value = HueConfigurationPage.encodeCurrentLightDeviceTarget(userId, deviceId);
                                     deviceOption.textContent = '↳ ' + (deviceName || deviceId) + ' — ' + label +

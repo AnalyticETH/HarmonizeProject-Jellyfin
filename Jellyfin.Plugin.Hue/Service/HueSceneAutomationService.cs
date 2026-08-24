@@ -1870,15 +1870,24 @@ public sealed class HueSceneAutomationService : BackgroundService
         string? effectOverride,
         IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride)
     {
+        var normalizedTargetRoutesOverride = NormalizeTargetRoutes(targetRoutesOverride);
         var config = Plugin.Instance?.Configuration;
         if (config == null)
-            return Failure(schedule?.Id, "Scene automation configuration is unavailable.", schedule);
+            return Failure(
+                schedule?.Id,
+                "Scene automation configuration is unavailable.",
+                schedule,
+                targetRoutes: normalizedTargetRoutesOverride);
 
         if (schedule == null || preset == null)
-            return Failure(schedule?.Id, "The preview configuration is unavailable.", schedule);
+            return Failure(
+                schedule?.Id,
+                "The preview configuration is unavailable.",
+                schedule,
+                targetRoutes: normalizedTargetRoutesOverride);
 
-        if (!TryResolveTargets(config, schedule, out var targets, out var targetError, targetRoutesOverride))
-            return Failure(schedule.Id, targetError, schedule);
+        if (!TryResolveTargets(config, schedule, out var targets, out var targetError, normalizedTargetRoutesOverride))
+            return Failure(schedule.Id, targetError, schedule, targetRoutes: normalizedTargetRoutesOverride);
 
         var effect = !string.IsNullOrWhiteSpace(effectOverride) &&
             PluginConfiguration.TryNormalizeColorPresetEffect(effectOverride, out var normalizedEffectOverride)
@@ -1958,7 +1967,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
-            TargetRoutes = targetRoutesOverride ?? GetScheduleTargetRoutes(schedule),
+            TargetRoutes = normalizedTargetRoutesOverride.Count > 0
+                ? normalizedTargetRoutesOverride
+                : GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule.IncludeDefaultTarget,
             Succeeded = targetResults.Count > 0 && succeededCount == targetResults.Count,
             Message = BuildAggregateRunMessage(targetResults, succeededCount),
@@ -5852,7 +5863,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         string? scheduleId,
         string message,
         HueSceneSchedule? schedule = null,
-        string? targetLabel = null)
+        string? targetLabel = null,
+        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutes = null)
     {
         return new HueSceneAutomationRunResult
         {
@@ -5868,7 +5880,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = schedule?.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
-            TargetRoutes = GetScheduleTargetRoutes(schedule),
+            TargetRoutes = targetRoutes ?? GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule?.IncludeDefaultTarget ?? false,
             Succeeded = false,
             Message = message,

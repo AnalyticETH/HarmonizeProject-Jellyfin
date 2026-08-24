@@ -275,6 +275,7 @@ const requiredScript = [
     "hasSceneScheduleMetadata: function",
     "setSceneScheduleMetadataState: function",
     "isSceneScheduleMappingMetadataValid: function",
+    "isConfiguredDeviceRouteReady: function",
     "markSceneScheduleMetadataUnavailable: function",
     "updateSceneScheduleMetadataControls: function",
     "requireSceneScheduleMetadata: function",
@@ -589,6 +590,19 @@ for (const functionName of ["exportSceneScheduleConflicts", "exportSceneSchedule
     }
 }
 
+{
+    const start = scriptMatch[1].indexOf("isConfiguredDeviceRouteReady: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("deviceBridgeIp") ||
+        !functionBody.includes("deviceAreaId") ||
+        !functionBody.includes("deviceHasAppKey === true") ||
+        !functionBody.includes("deviceHasClientKey === true") ||
+        !functionBody.includes("!!String(deviceBridgeIp || '').trim()")) {
+        throw new Error(`${file} isConfiguredDeviceRouteReady must keep the scheduled-cue device readiness contract`);
+    }
+}
+
 for (const [functionName, source] of [["loadColorPresets", "colorPresets"], ["loadScenePlaylists", "scenePlaylists"]]) {
     const start = scriptMatch[1].indexOf(`${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
@@ -598,6 +612,33 @@ for (const [functionName, source] of [["loadColorPresets", "colorPresets"], ["lo
         !functionBody.includes("markPreviewTargetMetadataUnavailable(page)") ||
         !functionBody.includes("updatePreviewTargetMetadataControls(page)")) {
         throw new Error(`${file} ${functionName} must fail closed when target metadata loading fails`);
+    }
+}
+
+for (const [functionName, markers] of [
+    ["loadColorPresets", [
+        "if (!Array.isArray(presets) || !Array.isArray(mappings) ||",
+        "!HueConfigurationPage.isSceneScheduleMappingMetadataValid(mappings)",
+        "var deviceReady = HueConfigurationPage.isConfiguredDeviceRouteReady(deviceTarget)",
+        "deviceOption.disabled = !enabled || !deviceReady",
+        "(deviceReady ? \"\" : \" (unavailable)\")"
+    ]],
+    ["loadScenePlaylists", [
+        "var playlists = Array.isArray(responses[0]) ? responses[0] : null;",
+        "if (!Array.isArray(playlists) || !Array.isArray(presets) || !Array.isArray(mappings) ||",
+        "!HueConfigurationPage.isSceneScheduleMappingMetadataValid(mappings)",
+        "var deviceReady = HueConfigurationPage.isConfiguredDeviceRouteReady(deviceTarget)",
+        "deviceOption.disabled = !enabled || !deviceReady",
+        "(deviceReady ? \"\" : \" (unavailable)\")"
+    ]]
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of markers) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing fail-closed preview target metadata contract: ${marker}`);
+        }
     }
 }
 
@@ -635,6 +676,7 @@ for (const [functionName, markers] of [
         "HueConfigurationPage.isSceneScheduleMappingMetadataValid(responses[3])",
         "page._hueSceneScheduleMappings = mappings",
         "deviceOption.value = HueConfigurationPage.encodeCurrentLightDeviceTarget(userId, deviceId)",
+        "HueConfigurationPage.isConfiguredDeviceRouteReady(deviceTarget)",
         "deviceOption.disabled = !enabled || !deviceReady",
         "HueConfigurationPage.setSceneScheduleMetadataState(page, source, true)",
         "HueConfigurationPage.markSceneScheduleMetadataUnavailable(page"

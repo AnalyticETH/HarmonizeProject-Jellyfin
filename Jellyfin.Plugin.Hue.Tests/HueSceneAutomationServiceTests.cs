@@ -4289,6 +4289,45 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunPreview_FailurePreservesExplicitDeviceRoutesWithoutCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration());
+
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(new HttpClient(new AreaConfigurationHandler()), Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPreviewAsync(
+            new HueSceneSchedule
+            {
+                Id = "direct-preview-route-failure",
+                Name = "Direct preview route failure"
+            },
+            new HueColorPreset
+            {
+                Name = "Direct preview scene",
+                DurationSeconds = 1
+            },
+            new[]
+            {
+                new HueSceneAutomationTargetRoute
+                {
+                    UserId = " user-device ",
+                    DeviceId = " living-room-tv "
+                }
+            });
+
+        Assert.False(result.Succeeded);
+        var route = Assert.Single(result.TargetRoutes);
+        Assert.Equal("user-device", route.UserId);
+        Assert.Equal("living-room-tv", route.DeviceId);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunPlaylistPreview_UsesPersistedSelectedTargetsAndPreservesTargetTelemetry()
     {
         var configuration = new PluginConfiguration

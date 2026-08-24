@@ -1130,6 +1130,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 (selectedTargetUserIds?.Count > 0) ||
                 selectedTargetRoutes.Count > 0;
             var multiTarget = broadcast || hasSelectedTargetOverride;
+            if (request != null && !string.IsNullOrWhiteSpace(request.UserId) && multiTarget)
+            {
+                return BadRequest(
+                    "A raw preview cannot combine a specific user mapping with broadcast or selected targets.");
+            }
             if (request == null ||
                 (!multiTarget &&
                  (!HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
@@ -1698,11 +1703,15 @@ namespace Jellyfin.Plugin.Hue.Api
                     previews.Add(new HueColorPresetBulkPreviewItem
                     {
                         Name = source.Name?.Trim() ?? string.Empty,
-                        Preview = new HuePreviewResult
-                        {
-                            Succeeded = false,
-                            Message = "The saved-scene preview failed unexpectedly."
-                        }
+                        Preview = BuildPreviewResult(
+                            new HueSceneAutomationRunResult
+                            {
+                                Succeeded = false,
+                                Message = "The saved-scene preview failed unexpectedly."
+                            },
+                            previewSchedule,
+                            previewPreset,
+                            targetRoutes)
                     });
                 }
             }

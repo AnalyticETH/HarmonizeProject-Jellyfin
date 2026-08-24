@@ -2596,6 +2596,32 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_MixedLegacyAndSelectedTargetModesFailClosedWithoutContactingBridge()
+    {
+        var streamTester = new Mock<IHueStreamTester>();
+        var controller = CreateController(streamTester.Object);
+
+        var selected = await controller.Preview(new HuePreviewRequest
+        {
+            UserId = "legacy-user",
+            TargetUserIds = new List<string> { "selected-user" }
+        });
+        var selectedResponse = Assert.IsType<BadRequestObjectResult>(selected.Result);
+        Assert.Contains("cannot combine", selectedResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+
+        var broadcast = await controller.Preview(new HuePreviewRequest
+        {
+            UserId = "legacy-user",
+            TargetAllEnabledMappings = true
+        });
+        var broadcastResponse = Assert.IsType<BadRequestObjectResult>(broadcast.Result);
+        Assert.Contains("cannot combine", broadcastResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+
+        streamTester.VerifyNoOtherCalls();
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task PreviewColorPreset_BlankTargetUserIdFailsClosedWithoutContactingBridge()
     {
         InstallConfiguration(new PluginConfiguration

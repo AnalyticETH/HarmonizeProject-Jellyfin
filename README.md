@@ -432,7 +432,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.237 (Current)
+### Version 1.5.238 (Current)
+- **Preview target safety**: ambiguous legacy `userId` plus broadcast/selected-target requests fail closed before bridge activity, direct and bulk preview failures retain credential-free route metadata, and malformed/incomplete nested device routes stay unavailable in the administrator selectors.
+
+### Version 1.5.237
 - **Scheduled-route telemetry labels**: status, occurrence, history, and preview surfaces now show exact credential-free `userId / deviceId` route identifiers for nested playback-device selections.
 
 ### Version 1.5.236

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.238] - 2026-08-24
+
+### Fixed
+- **Raw preview target-mode safety**: reject ambiguous requests that combine the legacy specific user mapping with broadcast or selected target modes before any bridge activity.
+- **Failure telemetry parity**: direct preview resolution failures and bulk saved-scene exception results retain normalized credential-free user/device routes and selected-target metadata.
+- **Preview selector readiness**: malformed metadata and incomplete nested device routes now keep saved-scene, playlist, and current-light preview selectors unavailable instead of allowing stale bridge requests.
+
+### Tests
+- **Mixed-target regression coverage**: verify raw preview rejects legacy/selected combinations and direct route failures preserve exact route IDs without credentials.
+
 ## [1.5.237] - 2026-08-24
 
 ### Fixed
