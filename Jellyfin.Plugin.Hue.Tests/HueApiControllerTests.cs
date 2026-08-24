@@ -4230,6 +4230,7 @@ public sealed class HueApiControllerTests : IDisposable
             ExcludedDates = new List<string> { "2026-12-31", " 2026-12-24 ", "2026-12-31" },
             DaysOfWeekMask = 1 | 32,
             DurationSeconds = 12,
+            BrightnessPercent = 25,
             Red = 101,
             Green = 102,
             Blue = 103,
@@ -4250,6 +4251,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("2026-12-31", savedResult.EndDate);
         Assert.Equal(new[] { "2026-12-24", "2026-12-31" }, savedResult.ExcludedDates);
         Assert.Equal(12, savedResult.DurationSeconds);
+        Assert.Equal(25, savedResult.BrightnessPercent);
         Assert.Equal(3, savedResult.MaxRuns);
         Assert.Equal(0, savedResult.RunCount);
         Assert.Equal(4, savedResult.TransitionSeconds);
@@ -4260,6 +4262,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(103, savedResult.Blue);
         Assert.Equal(new[] { "2026-12-24", "2026-12-31" }, configuration.SceneSchedules[0].ExcludedDates);
         Assert.Equal(12, configuration.SceneSchedules[0].DurationSeconds);
+        Assert.Equal(25, configuration.SceneSchedules[0].BrightnessPercent);
         Assert.Equal(101, configuration.SceneSchedules[0].Red);
         Assert.Equal(102, configuration.SceneSchedules[0].Green);
         Assert.Equal(103, configuration.SceneSchedules[0].Blue);
@@ -4286,6 +4289,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(101, configuration.SceneSchedules[0].Red);
         Assert.Equal(102, configuration.SceneSchedules[0].Green);
         Assert.Equal(103, configuration.SceneSchedules[0].Blue);
+        Assert.Equal(12, configuration.SceneSchedules[0].DurationSeconds);
+        Assert.Equal(25, configuration.SceneSchedules[0].BrightnessPercent);
 
         var cleared = controller.SaveSceneSchedule(new HueSceneScheduleRequest
         {
@@ -4297,12 +4302,14 @@ public sealed class HueApiControllerTests : IDisposable
             Red = null,
             Green = null,
             Blue = null,
+            BrightnessPercent = null,
             Enabled = false
         });
         Assert.IsType<OkObjectResult>(cleared.Result);
         Assert.Null(configuration.SceneSchedules[0].Red);
         Assert.Null(configuration.SceneSchedules[0].Green);
         Assert.Null(configuration.SceneSchedules[0].Blue);
+        Assert.Null(configuration.SceneSchedules[0].BrightnessPercent);
 
         var list = controller.GetSceneSchedules();
         var listResponse = Assert.IsType<OkObjectResult>(list.Result);
@@ -5088,6 +5095,46 @@ public sealed class HueApiControllerTests : IDisposable
 
         var response = Assert.IsType<BadRequestObjectResult>(action.Result);
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Empty(configuration.SceneSchedules);
+    }
+
+    [Fact]
+    public void SceneSchedules_RejectInvalidBrightnessAndPlaylistBrightnessOverridesWithoutSaving()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-1", Name = "Evening sequence", PresetNames = new List<string> { "Evening" } }
+            }
+        });
+        var controller = CreateController();
+
+        var invalidDirect = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Broken brightness cue",
+            PresetName = "Evening",
+            TimeOfDay = "20:00",
+            BrightnessPercent = 101,
+            DaysOfWeekMask = 127
+        });
+
+        var invalidDirectResponse = Assert.IsType<BadRequestObjectResult>(invalidDirect.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, invalidDirectResponse.StatusCode);
+        Assert.Empty(configuration.SceneSchedules);
+
+        var invalidPlaylist = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Playlist brightness cue",
+            PlaylistName = "Evening sequence",
+            TimeOfDay = "20:00",
+            BrightnessPercent = 50,
+            DaysOfWeekMask = 127
+        });
+
+        var invalidPlaylistResponse = Assert.IsType<BadRequestObjectResult>(invalidPlaylist.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, invalidPlaylistResponse.StatusCode);
         Assert.Empty(configuration.SceneSchedules);
     }
 
@@ -6023,6 +6070,7 @@ public sealed class HueApiControllerTests : IDisposable
                     ScheduleName = "CSV, \"Cue\"",
                     PresetName = "CSV scene",
                     TargetLabel = "Living Room",
+                    BrightnessPercent = 48,
                     Red = 41,
                     Green = 42,
                     Blue = 43,
@@ -6049,6 +6097,7 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeZoneId = TimeZoneInfo.Local.Id,
                     Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
                     DaysOfWeekMask = 0,
+                    BrightnessPercent = 47,
                     Red = 51,
                     Green = 52,
                     Blue = 53,
@@ -6082,6 +6131,8 @@ public sealed class HueApiControllerTests : IDisposable
         var occurrenceCsv = ReadCsv(occurrenceFile);
         Assert.StartsWith("\"scheduleId\",\"scheduleName\"", occurrenceCsv, StringComparison.Ordinal);
         Assert.Contains("\"red\",\"green\",\"blue\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"brightnessPercent\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"47\"", occurrenceCsv, StringComparison.Ordinal);
         Assert.Contains("\"51\"", occurrenceCsv, StringComparison.Ordinal);
         Assert.Contains("\"52\"", occurrenceCsv, StringComparison.Ordinal);
         Assert.Contains("\"53\"", occurrenceCsv, StringComparison.Ordinal);
@@ -6099,6 +6150,8 @@ public sealed class HueApiControllerTests : IDisposable
         var historyCsv = ReadCsv(historyFile);
         Assert.StartsWith("\"scheduleId\",\"scheduleName\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"red\",\"green\",\"blue\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"brightnessPercent\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"48\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"41\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"42\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"43\"", historyCsv, StringComparison.Ordinal);
@@ -6549,6 +6602,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
                     DayOfMonth = 20,
                     DurationSeconds = 9,
+                    BrightnessPercent = 46,
                     DaysOfWeekMask = 127,
                     Enabled = true
                 }
@@ -6576,6 +6630,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(20, schedule.DayOfMonth);
         Assert.Equal(9, schedule.DurationSeconds);
         Assert.Equal(135, schedule.EffectSpeedPercent);
+        Assert.Equal(46, schedule.BrightnessPercent);
         Assert.NotNull(schedule.NextRunLocal);
         var serialized = System.Text.Json.JsonSerializer.Serialize(status);
         Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);
@@ -6612,6 +6667,7 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeOfDay = cueTime,
                     TimeZoneId = TimeZoneInfo.Local.Id,
                     DurationSeconds = 7,
+                    BrightnessPercent = 44,
                     Red = 101,
                     Green = 102,
                     Blue = 103,
@@ -6643,6 +6699,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.TransitionOutSeconds == 3);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Effect == PluginConfiguration.ColorPresetEffectPulse);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.EffectSpeedPercent == 175);
+        Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.BrightnessPercent == 44);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Red == 101 && occurrence.Green == 102 && occurrence.Blue == 103);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Recurrence == PluginConfiguration.SceneScheduleRecurrenceWeekly);
         Assert.Contains(result.Occurrences, occurrence => occurrence.TargetLabel == "Living Room");
@@ -6864,6 +6921,7 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeOfDay = cueTime,
                     TimeZoneId = TimeZoneInfo.Local.Id,
                     DurationSeconds = 4,
+                    BrightnessPercent = 55,
                     Red = 101,
                     Green = 102,
                     Blue = 103,
@@ -6886,6 +6944,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("DTEND:", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-EFFECT:Rainbow\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-EFFECT-SPEED-PERCENT:225\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-BRIGHTNESS-PERCENT:55\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-RED:101\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-GREEN:102\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-BLUE:103\r\n", calendar, StringComparison.Ordinal);
@@ -8032,6 +8091,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Recurrence = PluginConfiguration.SceneScheduleRecurrenceMonthly,
                     DayOfMonth = 31,
                     DurationSeconds = 11,
+                    BrightnessPercent = 62,
                     MaxRuns = 4,
                     RunCount = 2,
                     SkipNextOccurrence = true,
@@ -8083,6 +8143,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthly, document.SceneSchedules[0].Recurrence);
         Assert.Equal(31, document.SceneSchedules[0].DayOfMonth);
         Assert.Equal(11, document.SceneSchedules[0].DurationSeconds);
+        Assert.Equal(62, document.SceneSchedules[0].BrightnessPercent);
         Assert.Equal(4, document.SceneSchedules[0].MaxRuns);
         Assert.Equal(2, document.SceneSchedules[0].RunCount);
         Assert.True(document.SceneSchedules[0].SkipNextOccurrence);
@@ -8579,6 +8640,7 @@ public sealed class HueApiControllerTests : IDisposable
                     WeekOfMonth = PluginConfiguration.SceneScheduleLastWeekOfMonth,
                     DayOfWeek = (int)DayOfWeek.Friday,
                     DurationSeconds = 10,
+                    BrightnessPercent = 39,
                     DaysOfWeekMask = 0
                 }
             }
@@ -8587,6 +8649,7 @@ public sealed class HueApiControllerTests : IDisposable
         var exported = HueConfigurationExportDocument.From(configuration);
         var exportedCue = Assert.Single(exported.SceneSchedules);
         Assert.Equal("2026-12-24", exportedCue.RunDate);
+        Assert.Equal(39, exportedCue.BrightnessPercent);
         Assert.Equal(PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday, exportedCue.Recurrence);
         Assert.Equal(PluginConfiguration.SceneScheduleLastWeekOfMonth, exportedCue.WeekOfMonth);
         Assert.Equal((int)DayOfWeek.Friday, exportedCue.DayOfWeek);
@@ -8615,6 +8678,7 @@ public sealed class HueApiControllerTests : IDisposable
                     WeekOfMonth = exportedCue.WeekOfMonth,
                     DayOfWeek = exportedCue.DayOfWeek,
                     DurationSeconds = exportedCue.DurationSeconds,
+                    BrightnessPercent = exportedCue.BrightnessPercent,
                     MaxRuns = exportedCue.MaxRuns,
                     RunCount = exportedCue.RunCount,
                     DaysOfWeekMask = exportedCue.DaysOfWeekMask,
@@ -8630,6 +8694,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.SceneScheduleLastWeekOfMonth, importedCue.WeekOfMonth);
         Assert.Equal((int)DayOfWeek.Friday, importedCue.DayOfWeek);
         Assert.Equal(exportedCue.DurationSeconds, importedCue.DurationSeconds);
+        Assert.Equal(exportedCue.BrightnessPercent, importedCue.BrightnessPercent);
         Assert.Equal(exportedCue.Priority, importedCue.Priority);
         Assert.Equal(exportedCue.MaxRuns, importedCue.MaxRuns);
         Assert.Equal(exportedCue.RunCount, importedCue.RunCount);

@@ -891,7 +891,7 @@ public class PluginConfigurationTests
     }
 
     [Fact]
-    public void ValidateSceneSchedules_ValidatesDirectRgbOverridesAndRejectsPlaylistOverrides()
+    public void ValidateSceneSchedules_ValidatesDirectColorOverridesAndRejectsPlaylistOverrides()
     {
         var config = new PluginConfiguration
         {
@@ -910,6 +910,7 @@ public class PluginConfigurationTests
                     Red = 0,
                     Green = 128,
                     Blue = 255,
+                    BrightnessPercent = 0,
                     TimeOfDay = "07:05",
                     TimeZoneId = TimeZoneInfo.Utc.Id,
                     Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
@@ -926,11 +927,21 @@ public class PluginConfigurationTests
             config.ValidateSceneSchedules());
 
         config.SceneSchedules[0].Red = null;
+        config.SceneSchedules[0].BrightnessPercent = 101;
+        Assert.Contains(
+            "Scene schedule 1 brightness must be between 0 and 100, or null (inherit)",
+            config.ValidateSceneSchedules());
+
+        config.SceneSchedules[0].BrightnessPercent = null;
         config.SceneSchedules[0].PresetName = string.Empty;
         config.SceneSchedules[0].PlaylistName = "Evening sequence";
+        config.SceneSchedules[0].BrightnessPercent = 50;
         config.SceneSchedules[0].Green = 1;
         Assert.Contains(
             "Scene schedule 1 playlist RGB overrides must be omitted; playlist steps keep their saved colors",
+            config.ValidateSceneSchedules());
+        Assert.Contains(
+            "Scene schedule 1 playlist brightness override must be omitted; playlist steps keep their saved brightness",
             config.ValidateSceneSchedules());
     }
 

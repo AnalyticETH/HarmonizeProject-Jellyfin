@@ -588,6 +588,11 @@
                                 </div>
                                 <div id="sceneScheduleColorDescription" class="fieldDescription">Blank channels inherit the saved scene's RGB values; explicit channels are bounded to 0-255. Playlist cues use their saved per-step colors.</div>
                             </div>
+                            <div id="sceneScheduleBrightnessContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="sceneScheduleBrightness">Brightness override (optional)</label>
+                                <input id="sceneScheduleBrightness" type="number" min="0" max="100" is="emby-input" placeholder="Scene" aria-label="Scheduled scene brightness override" />
+                                <div id="sceneScheduleBrightnessDescription" class="fieldDescription">Blank inherits the saved scene brightness; explicit values are bounded to 0-100%. Playlist cues use each step's saved brightness.</div>
+                            </div>
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleMaxRuns">Maximum executions</label>
                                 <input id="sceneScheduleMaxRuns" type="number" min="0" max="365" value="0" is="emby-input" placeholder="Unlimited" />
@@ -5653,6 +5658,8 @@
                             if (!id || !name) return;
                             var time = formatScheduleTime(schedule);
                             var duration = schedule.durationSeconds !== undefined ? schedule.durationSeconds : schedule.DurationSeconds;
+                            var schedulePlaylistName = schedule.playlistName !== undefined ? schedule.playlistName : schedule.PlaylistName;
+                            var brightness = schedule.brightnessPercent !== undefined ? schedule.brightnessPercent : schedule.BrightnessPercent;
                             var priority = schedule.priority !== undefined ? schedule.priority : schedule.Priority;
                             var transition = schedule.transitionSeconds !== undefined ? schedule.transitionSeconds : schedule.TransitionSeconds;
                             var transitionOut = schedule.transitionOutSeconds !== undefined ? schedule.transitionOutSeconds : schedule.TransitionOutSeconds;
@@ -5690,11 +5697,14 @@
                             var option = document.createElement('option');
                             option.value = id;
                             var durationLabel = Number(duration) > 0 ? ' · ' + Number(duration) + 's' : '';
+                            var brightnessLabel = !schedulePlaylistName && brightness !== null && brightness !== undefined
+                                ? ' · brightness ' + Number(brightness) + '%'
+                                : '';
                             var transitionLabel = (Number(transition) > 0 || Number(transitionOut) > 0)
                                 ? ' · ' + String(transitionCurve) + ' fade ' + Number(transition || 0) + 's/' + Number(transitionOut || 0) + 's'
                                 : '';
                             var effectLabel = ' · ' + String(effect) + ' · speed ' + Number(effectSpeed || 100) + '%';
-                            option.textContent = name + (time ? ' · ' + time : '') + effectLabel + durationLabel + transitionLabel + priorityLabel + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate) + dateRange + exclusionLabel + skipLabel;
+                            option.textContent = name + (time ? ' · ' + time : '') + effectLabel + brightnessLabel + durationLabel + transitionLabel + priorityLabel + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate) + dateRange + exclusionLabel + skipLabel;
                             scheduleSelect.appendChild(option);
                         });
 
@@ -5874,6 +5884,7 @@
                             var effect = HueConfigurationPage.readStatusField(schedule, "Effect", "Solid");
                             var effectSpeed = HueConfigurationPage.readStatusField(schedule, "EffectSpeedPercent", 100);
                             var duration = HueConfigurationPage.readStatusField(schedule, "DurationSeconds", 0);
+                            var brightness = HueConfigurationPage.readStatusField(schedule, "BrightnessPercent", null);
                             var playlistStepCount = HueConfigurationPage.readStatusField(schedule, "PlaylistStepCount", 0);
                             var playlistRepeatCount = HueConfigurationPage.readStatusField(schedule, "PlaylistRepeatCount", 1);
                             var playlistPlaybackOrder = HueConfigurationPage.readStatusField(schedule, "PlaylistPlaybackOrder", "Sequential");
@@ -5949,7 +5960,10 @@
                             var scheduleTimeLabel = String(timeMode).toLowerCase() === "fixed"
                                 ? String(time || "—")
                                 : String(timeMode) + (solarOffset === 0 ? "" : (solarOffset > 0 ? " +" : " ") + String(solarOffset) + "m");
-                            addCell(String(contentName) + (playlist ? " · " + Number(playlistStepCount || 0) + " steps × " + Number(playlistRepeatCount || 1) + " pass" + (Number(playlistRepeatCount || 1) === 1 ? "" : "es") + " · " + (String(playlistPlaybackOrder).toLowerCase() === "shuffle" ? "shuffle" : "saved order") : "") + " · " + String(effect) + " · speed " + String(Number(effectSpeed || 100)) + "% · " + scheduleTimeLabel + " · " + String(duration || 0) + "s" + transitionLabel + (Number(priority || 0) > 0 ? " · priority " + String(Number(priority)) : "") + " · playback " + String(playbackPolicy) + (String(playbackPolicyOverride).toLowerCase() !== "inherit" ? " (override)" : "") + " · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
+                            var brightnessLabel = !playlist && brightness !== null && brightness !== undefined
+                                ? " · brightness " + String(Number(brightness)) + "%"
+                                : "";
+                            addCell(String(contentName) + (playlist ? " · " + Number(playlistStepCount || 0) + " steps × " + Number(playlistRepeatCount || 1) + " pass" + (Number(playlistRepeatCount || 1) === 1 ? "" : "es") + " · " + (String(playlistPlaybackOrder).toLowerCase() === "shuffle" ? "shuffle" : "saved order") : "") + " · " + String(effect) + " · speed " + String(Number(effectSpeed || 100)) + "%" + brightnessLabel + " · " + scheduleTimeLabel + " · " + String(duration || 0) + "s" + transitionLabel + (Number(priority || 0) > 0 ? " · priority " + String(Number(priority)) : "") + " · playback " + String(playbackPolicy) + (String(playbackPolicyOverride).toLowerCase() !== "inherit" ? " (override)" : "") + " · " + String(timeZone) + dateRange + exclusionLabel + (runDate ? " · one-time" : " · " + recurrenceLabel + formatRecurrenceInterval(recurrence, recurrenceInterval, runDate)));
                             addCell((ready ? "Ready" : (enabled ? "Not ready" : "Disabled")) + " — " + String(readinessMessage),
                                 ready ? "#8bc34a" : (enabled ? "#d9534f" : "#aaa"));
                             addCell(deferredPending
@@ -6296,6 +6310,7 @@
                             var occurrenceRed = Number(HueConfigurationPage.readStatusField(occurrence, "Red", 0));
                             var occurrenceGreen = Number(HueConfigurationPage.readStatusField(occurrence, "Green", 0));
                             var occurrenceBlue = Number(HueConfigurationPage.readStatusField(occurrence, "Blue", 0));
+                            var occurrenceBrightness = HueConfigurationPage.readStatusField(occurrence, "BrightnessPercent", null);
                             var occurrenceTransition = Number(HueConfigurationPage.readStatusField(occurrence, "TransitionSeconds", 0));
                             var occurrenceTransitionOut = Number(HueConfigurationPage.readStatusField(occurrence, "TransitionOutSeconds", 0));
                             var occurrenceTransitionCurve = String(HueConfigurationPage.readStatusField(occurrence, "TransitionCurve", "Linear"));
@@ -6321,7 +6336,10 @@
                                     return "#" + stepIndex + " " + stepName + " · rgb " + stepRed + "," + stepGreen + "," + stepBlue + " · " + stepEffect + " · brightness " + stepBrightness + "% · speed " + stepSpeed + "% · hold " + stepDuration + "s · " + stepCurve + " fade " + stepTransition + "/" + stepTransitionOut + "s @" + stepOffset + "s" + (stepRepeat > 1 ? " (pass " + stepRepeat + ")" : "");
                                 }).join(" → ")
                                 : "";
-                            addCell(occurrenceName + (occurrencePlaylistName ? " · " + (occurrencePlaybackOrder.toLowerCase() === "shuffle" ? "shuffle" : "saved order") : " · rgb " + occurrenceRed + "," + occurrenceGreen + "," + occurrenceBlue) + " · " + occurrenceEffect + " · speed " + occurrenceSpeed + "%" + occurrencePlan + (occurrencePriority > 0 ? " · priority " + occurrencePriority : "") + ((occurrenceTransition > 0 || occurrenceTransitionOut > 0)
+                            var occurrenceBrightnessLabel = !occurrencePlaylistName && occurrenceBrightness !== null && occurrenceBrightness !== undefined
+                                ? " · brightness " + Number(occurrenceBrightness) + "%"
+                                : "";
+                            addCell(occurrenceName + (occurrencePlaylistName ? " · " + (occurrencePlaybackOrder.toLowerCase() === "shuffle" ? "shuffle" : "saved order") : " · rgb " + occurrenceRed + "," + occurrenceGreen + "," + occurrenceBlue + occurrenceBrightnessLabel) + " · " + occurrenceEffect + " · speed " + occurrenceSpeed + "%" + occurrencePlan + (occurrencePriority > 0 ? " · priority " + occurrencePriority : "") + ((occurrenceTransition > 0 || occurrenceTransitionOut > 0)
                                 ? " · " + occurrenceTransitionCurve + " fade " + occurrenceTransition + "s/" + occurrenceTransitionOut + "s"
                                 : ""));
                             addCell(String(HueConfigurationPage.readStatusField(occurrence, "TargetLabel", "Default bridge target")));
@@ -6542,6 +6560,7 @@
                             var runRed = Number(HueConfigurationPage.readStatusField(run, "Red", 0));
                             var runGreen = Number(HueConfigurationPage.readStatusField(run, "Green", 0));
                             var runBlue = Number(HueConfigurationPage.readStatusField(run, "Blue", 0));
+                            var runBrightness = HueConfigurationPage.readStatusField(run, "BrightnessPercent", null);
                             var targetLabel = HueConfigurationPage.readStatusField(run, "TargetLabel", "Default bridge target");
                             var succeeded = HueConfigurationPage.readStatusField(run, "Succeeded", false);
                             var skipped = HueConfigurationPage.readStatusField(run, "Skipped", false);
@@ -6562,7 +6581,10 @@
                             };
                             addCell(runAt ? new Date(runAt).toLocaleString() : "—");
                             addCell(cueName);
-                            addCell(String(runContentName) + (playlistName ? " · " + (Array.isArray(playlistSteps) ? playlistSteps.length : 0) + " expanded steps × " + Number(playlistRepeatCount || 1) + " pass" + (Number(playlistRepeatCount || 1) === 1 ? "" : "es") + " · " + (String(playlistPlaybackOrder).toLowerCase() === "shuffle" ? "shuffle" : "saved order") + historyPlan : " · rgb " + runRed + "," + runGreen + "," + runBlue) + " · " + String(runEffect) + " · speed " + String(runSpeed || 100) + "%");
+                            var runBrightnessLabel = !playlistName && runBrightness !== null && runBrightness !== undefined
+                                ? " · brightness " + Number(runBrightness) + "%"
+                                : "";
+                            addCell(String(runContentName) + (playlistName ? " · " + (Array.isArray(playlistSteps) ? playlistSteps.length : 0) + " expanded steps × " + Number(playlistRepeatCount || 1) + " pass" + (Number(playlistRepeatCount || 1) === 1 ? "" : "es") + " · " + (String(playlistPlaybackOrder).toLowerCase() === "shuffle" ? "shuffle" : "saved order") + historyPlan : " · rgb " + runRed + "," + runGreen + "," + runBlue + runBrightnessLabel) + " · " + String(runEffect) + " · speed " + String(runSpeed || 100) + "%");
                             addCell(targetLabel);
                             var historyResult = skipped ? "Skipped" : (succeeded ? "Succeeded" : "Failed");
                             if (wasCatchUp) historyResult = "Recovered · " + historyResult;
@@ -6734,6 +6756,9 @@
                     var colorContainer = page.querySelector('#sceneScheduleColorContainer');
                     var colorControls = ['#sceneScheduleRed', '#sceneScheduleGreen', '#sceneScheduleBlue']
                         .map(function (selector) { return page.querySelector(selector); });
+                    var brightnessContainer = page.querySelector('#sceneScheduleBrightnessContainer');
+                    var brightnessDescription = page.querySelector('#sceneScheduleBrightnessDescription');
+                    var brightness = page.querySelector('#sceneScheduleBrightness');
                     if (presetContainer) presetContainer.style.display = isPlaylist ? 'none' : '';
                     if (playlistContainer) playlistContainer.style.display = isPlaylist ? '' : 'none';
                     if (presetSelect) presetSelect.disabled = !!isPlaylist;
@@ -6754,6 +6779,16 @@
                             if (isPlaylist) control.value = '';
                         }
                     });
+                    if (brightnessContainer) brightnessContainer.style.opacity = isPlaylist ? '0.6' : '';
+                    if (brightness) {
+                        brightness.disabled = !!isPlaylist;
+                        if (isPlaylist) brightness.value = '';
+                    }
+                    if (brightnessDescription) {
+                        brightnessDescription.textContent = isPlaylist
+                            ? "Playlist cues use each step's saved brightness; clear the cue brightness override before saving."
+                            : "Blank inherits the saved scene brightness; explicit values are bounded to 0-100%.";
+                    }
                 },
                 updateSceneScheduleTimeMode: function (page) {
                     if (!page) return;
@@ -6907,6 +6942,7 @@
                     page.querySelector('#sceneScheduleRed').value = get('Red', 'red', '') ?? '';
                     page.querySelector('#sceneScheduleGreen').value = get('Green', 'green', '') ?? '';
                     page.querySelector('#sceneScheduleBlue').value = get('Blue', 'blue', '') ?? '';
+                    page.querySelector('#sceneScheduleBrightness').value = get('BrightnessPercent', 'brightnessPercent', '') ?? '';
                     page.querySelector('#sceneScheduleDuration').value = get('DurationSeconds', 'durationSeconds', 0) || '';
                     page.querySelector('#sceneScheduleMaxRuns').value = get('MaxRuns', 'maxRuns', 0) || '';
                     page.querySelector('#sceneSchedulePriority').value = get('Priority', 'priority', 0) || '0';
@@ -6984,6 +7020,7 @@
                     page.querySelector('#sceneScheduleRed').value = '';
                     page.querySelector('#sceneScheduleGreen').value = '';
                     page.querySelector('#sceneScheduleBlue').value = '';
+                    page.querySelector('#sceneScheduleBrightness').value = '';
                     page.querySelector('#sceneScheduleDuration').value = '';
                     page.querySelector('#sceneScheduleMaxRuns').value = '';
                     page.querySelector('#sceneSchedulePriority').value = '0';
@@ -7030,6 +7067,8 @@
                     var red = redText ? Number(redText) : null;
                     var green = greenText ? Number(greenText) : null;
                     var blue = blueText ? Number(blueText) : null;
+                    var brightnessText = page.querySelector('#sceneScheduleBrightness').value.trim();
+                    var brightness = brightnessText ? Number(brightnessText) : null;
                     var durationText = page.querySelector('#sceneScheduleDuration').value.trim();
                     var durationSeconds = durationText ? Number(durationText) : 0;
                     var maxRunsText = page.querySelector('#sceneScheduleMaxRuns').value.trim();
@@ -7096,6 +7135,14 @@
                     }
                     if (colorOverrides.some(function (channel) { return channel.value !== null && (!Number.isInteger(channel.value) || channel.value < 0 || channel.value > 255); })) {
                         Dashboard.alert("Cue RGB overrides must be blank or whole numbers from 0 to 255.");
+                        return;
+                    }
+                    if (sourceType === 'playlist' && brightness !== null) {
+                        Dashboard.alert("Playlist cues use each step's saved brightness; clear the cue brightness override first.");
+                        return;
+                    }
+                    if (brightness !== null && (!Number.isInteger(brightness) || brightness < 0 || brightness > 100)) {
+                        Dashboard.alert("Cue brightness override must be blank or a whole number from 0 to 100.");
                         return;
                     }
                     if (!Number.isInteger(maxRuns) || maxRuns < 0 || maxRuns > 365) {
@@ -7179,6 +7226,7 @@
                             red: red,
                             green: green,
                             blue: blue,
+                            brightnessPercent: brightness,
                             durationSeconds: durationSeconds,
                             maxRuns: maxRuns,
                             priority: priority,

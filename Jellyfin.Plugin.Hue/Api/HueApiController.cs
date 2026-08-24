@@ -666,6 +666,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 EffectSpeedPercent = isPlaylist || preset == null
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                     : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                BrightnessPercent = isPlaylist ? null : schedule.BrightnessPercent,
                 Red = isPlaylist ? null : schedule.Red,
                 Green = isPlaylist ? null : schedule.Green,
                 Blue = isPlaylist ? null : schedule.Blue,
@@ -759,6 +760,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 WeekOfMonth = schedule.WeekOfMonth,
                 DayOfWeek = schedule.DayOfWeek,
                 DurationSeconds = schedule.DurationSeconds,
+                BrightnessPercent = schedule.BrightnessPercent,
                 Red = schedule.Red,
                 Green = schedule.Green,
                 Blue = schedule.Blue,
@@ -3672,6 +3674,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 "priority",
                 "effect",
                 "effectSpeedPercent",
+                "brightnessPercent",
                 "red",
                 "green",
                 "blue",
@@ -3707,6 +3710,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     occurrence.Priority,
                     occurrence.Effect,
                     occurrence.EffectSpeedPercent,
+                    occurrence.BrightnessPercent,
                     occurrence.Red,
                     occurrence.Green,
                     occurrence.Blue,
@@ -3826,6 +3830,12 @@ namespace Jellyfin.Plugin.Hue.Api
                             transitionCurve: isPlaylist
                                 ? PluginConfiguration.ColorPresetTransitionCurveLinear
                                 : HueSceneAutomationService.GetEffectiveTransitionCurve(preset),
+                            brightnessOverride: isPlaylist || preset == null
+                                ? null
+                                : Math.Clamp(
+                                    schedule.BrightnessPercent ?? preset.BrightnessPercent,
+                                    PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                                    PluginConfiguration.MaxScenePlaylistStepBrightnessPercent),
                             redOverride: isPlaylist ? null : effectiveRed,
                             greenOverride: isPlaylist ? null : effectiveGreen,
                             blueOverride: isPlaylist ? null : effectiveBlue)
@@ -3856,6 +3866,7 @@ namespace Jellyfin.Plugin.Hue.Api
                             EffectSpeedPercent = isPlaylist || preset == null
                                 ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                                 : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                            BrightnessPercent = occurrence.BrightnessPercent,
                             Red = isPlaylist || preset == null
                                 ? 0
                                 : Math.Clamp(
@@ -3959,6 +3970,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "X-HUE-PLAYLIST-ORDER", occurrence.PlaylistPlaybackOrder);
                 AppendIcsLine(builder, "X-HUE-PLAYLIST-STEP-PLAN", JsonSerializer.Serialize(occurrence.PlaylistSteps));
                 AppendIcsLine(builder, "X-HUE-EFFECT-SPEED-PERCENT", occurrence.EffectSpeedPercent.ToString(CultureInfo.InvariantCulture));
+                AppendIcsLine(builder, "X-HUE-BRIGHTNESS-PERCENT", occurrence.BrightnessPercent.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-RED", occurrence.Red.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-GREEN", occurrence.Green.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-BLUE", occurrence.Blue.ToString(CultureInfo.InvariantCulture));
@@ -4140,6 +4152,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 "playlistPlaybackOrder",
                 "effect",
                 "effectSpeedPercent",
+                "brightnessPercent",
                 "red",
                 "green",
                 "blue",
@@ -4167,6 +4180,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     run.PlaylistPlaybackOrder,
                     run.Effect,
                     run.EffectSpeedPercent,
+                    run.BrightnessPercent,
                     run.Red,
                     run.Green,
                     run.Blue,
@@ -4275,6 +4289,10 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.Green = candidateSchedules[existingIndex].Green;
                 if (!request.BlueSpecified)
                     schedule.Blue = candidateSchedules[existingIndex].Blue;
+                if (!request.BrightnessSpecified)
+                    schedule.BrightnessPercent = candidateSchedules[existingIndex].BrightnessPercent;
+                if (!request.DurationSeconds.HasValue)
+                    schedule.DurationSeconds = candidateSchedules[existingIndex].DurationSeconds;
                 if (!request.TargetAllEnabledMappings.HasValue)
                     schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
                 if (request.TargetUserIds == null)
@@ -7025,6 +7043,10 @@ namespace Jellyfin.Plugin.Hue.Api
                         schedule.Green = candidateSchedules[existingIndex].Green;
                     if (scheduleRequest != null && !scheduleRequest.BlueSpecified)
                         schedule.Blue = candidateSchedules[existingIndex].Blue;
+                    if (scheduleRequest != null && !scheduleRequest.BrightnessSpecified)
+                        schedule.BrightnessPercent = candidateSchedules[existingIndex].BrightnessPercent;
+                    if (scheduleRequest != null && !scheduleRequest.DurationSeconds.HasValue)
+                        schedule.DurationSeconds = candidateSchedules[existingIndex].DurationSeconds;
                     if (scheduleRequest != null && !scheduleRequest.TargetAllEnabledMappings.HasValue)
                         schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
                     if (scheduleRequest?.TargetUserIds == null)
@@ -9885,7 +9907,9 @@ namespace Jellyfin.Plugin.Hue.Api
     /// duration or a bounded per-cue override; the saved scene's optional fade-in and fade-out
     /// are inherited and clamped to that effective duration. MaxRuns is zero for unlimited
     /// execution or a bounded number of attempts; RunCount is optional so normal edits preserve
-    /// the persisted finite-cue counter. Bridge credentials are intentionally not accepted.
+    /// the persisted finite-cue counter. BrightnessPercent is null to inherit the saved scene
+    /// brightness or a bounded 0-100 override for direct scene cues; playlist cues keep their
+    /// per-step brightness. Bridge credentials are intentionally not accepted.
     /// </summary>
     public sealed class HueSceneScheduleRequest
     {
@@ -9956,14 +9980,30 @@ namespace Jellyfin.Plugin.Hue.Api
         public int DayOfWeek { get; set; } = -1;
 
         [JsonPropertyName("durationSeconds")]
-        public int DurationSeconds { get; set; }
+        public int? DurationSeconds { get; set; }
 
+        private int? _brightnessPercent;
         private int? _red;
         private int? _green;
         private int? _blue;
+        private bool _brightnessSpecified;
         private bool _redSpecified;
         private bool _greenSpecified;
         private bool _blueSpecified;
+
+        [JsonPropertyName("brightnessPercent")]
+        public int? BrightnessPercent
+        {
+            get => _brightnessPercent;
+            set
+            {
+                _brightnessSpecified = true;
+                _brightnessPercent = value;
+            }
+        }
+
+        [JsonIgnore]
+        public bool BrightnessSpecified => _brightnessSpecified;
 
         [JsonPropertyName("red")]
         public int? Red
@@ -10064,7 +10104,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 MonthOfYear = MonthOfYear,
                 WeekOfMonth = WeekOfMonth,
                 DayOfWeek = DayOfWeek,
-                DurationSeconds = DurationSeconds,
+                DurationSeconds = DurationSeconds ?? 0,
+                BrightnessPercent = BrightnessPercent,
                 Red = Red,
                 Green = Green,
                 Blue = Blue,
@@ -10382,6 +10423,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("effectSpeedPercent")]
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
+        [JsonPropertyName("brightnessPercent")]
+        public int? BrightnessPercent { get; set; }
+
         [JsonPropertyName("red")]
         public int? Red { get; set; }
 
@@ -10522,6 +10566,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("effectSpeedPercent")]
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
+        [JsonPropertyName("brightnessPercent")]
+        public int BrightnessPercent { get; set; }
 
         [JsonPropertyName("red")]
         public int Red { get; set; }

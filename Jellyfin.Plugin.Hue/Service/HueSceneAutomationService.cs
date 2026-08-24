@@ -910,6 +910,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                 EffectSpeedPercent = isPlaylist || preset == null
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                     : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                BrightnessPercent = isPlaylist || preset == null
+                    ? null
+                    : Math.Clamp(
+                        schedule.BrightnessPercent ?? preset.BrightnessPercent,
+                        PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                        PluginConfiguration.MaxScenePlaylistStepBrightnessPercent),
                 Red = isPlaylist || preset == null
                     ? 0
                     : Math.Clamp(schedule.Red ?? preset.Red, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
@@ -1346,6 +1352,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
         int durationSeconds = -1,
         string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear,
+        int? brightnessOverride = null,
         int? redOverride = null,
         int? greenOverride = null,
         int? blueOverride = null)
@@ -1493,6 +1500,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                 SolarLongitude = schedule.SolarLongitude,
                 Effect = PluginConfiguration.ColorPresetEffectSolid,
                 EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(effectSpeedPercent),
+                BrightnessPercent = brightnessOverride.HasValue
+                    ? Math.Clamp(
+                        brightnessOverride.Value,
+                        PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                        PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
+                    : 0,
                 Red = redOverride.HasValue
                     ? Math.Clamp(redOverride.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
                     : 0,
@@ -3176,6 +3189,13 @@ public sealed class HueSceneAutomationService : BackgroundService
             return new HueSceneScheduleReadiness(false, "The cue duration override is invalid.");
         }
 
+        if (schedule.BrightnessPercent.HasValue &&
+            (schedule.BrightnessPercent.Value < PluginConfiguration.MinScenePlaylistStepBrightnessPercent ||
+             schedule.BrightnessPercent.Value > PluginConfiguration.MaxScenePlaylistStepBrightnessPercent))
+        {
+            return new HueSceneScheduleReadiness(false, "The cue brightness override is invalid.");
+        }
+
         if (!PluginConfiguration.TryNormalizeSceneAutomationSchedulePlaybackPolicy(
                 schedule.PlaybackPolicy,
                 out _))
@@ -3261,6 +3281,9 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         if (!string.IsNullOrWhiteSpace(schedule.PlaylistName))
         {
+            if (schedule.BrightnessPercent.HasValue)
+                return new HueSceneScheduleReadiness(false, "Playlist cues must inherit brightness from their saved steps.");
+
             var playlist = config.ScenePlaylists?.FirstOrDefault(candidate =>
                 candidate != null &&
                 string.Equals(candidate.Name?.Trim(), schedule.PlaylistName.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -4138,6 +4161,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 target,
                 cancellationToken,
                 targetScopedPlayback,
+                brightnessPercentOverride: schedule.BrightnessPercent,
                 redOverride: schedule.Red,
                 greenOverride: schedule.Green,
                 blueOverride: schedule.Blue).ConfigureAwait(false);
@@ -4160,7 +4184,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Effect = effect,
             EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
             BrightnessPercent = Math.Clamp(
-                preset.BrightnessPercent,
+                schedule.BrightnessPercent ?? preset.BrightnessPercent,
                 PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                 PluginConfiguration.MaxScenePlaylistStepBrightnessPercent),
             Red = schedule.Red.HasValue
@@ -5491,6 +5515,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             WeekOfMonth = source.WeekOfMonth,
             DayOfWeek = source.DayOfWeek,
             DurationSeconds = source.DurationSeconds,
+            BrightnessPercent = source.BrightnessPercent,
             Red = source.Red,
             Green = source.Green,
             Blue = source.Blue,
@@ -6000,6 +6025,9 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("effectSpeedPercent")]
     public int EffectSpeedPercent { get; init; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
+    [JsonPropertyName("brightnessPercent")]
+    public int BrightnessPercent { get; init; }
+
     [JsonPropertyName("red")]
     public int Red { get; init; }
 
@@ -6137,6 +6165,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("effectSpeedPercent")]
     public int EffectSpeedPercent { get; init; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
+    [JsonPropertyName("brightnessPercent")]
+    public int? BrightnessPercent { get; init; }
 
     [JsonPropertyName("red")]
     public int Red { get; init; }

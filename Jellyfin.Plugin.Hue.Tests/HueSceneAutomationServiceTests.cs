@@ -4103,7 +4103,7 @@ public sealed class HueSceneAutomationServiceTests
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
-                new() { Id = "cue-1", Name = "Evening cue", PresetName = "evening" }
+                new() { Id = "cue-1", Name = "Evening cue", PresetName = "evening", BrightnessPercent = 33 }
             }
         });
 
@@ -4121,7 +4121,7 @@ public sealed class HueSceneAutomationServiceTests
                 12,
                 34,
                 56,
-                75,
+                33,
                 8,
                 It.IsAny<CancellationToken>(),
                 2,
@@ -4146,6 +4146,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("Evening", result.PresetName);
         Assert.Equal(PluginConfiguration.ColorPresetEffectPulse, result.Effect);
         Assert.Equal(150, result.EffectSpeedPercent);
+        Assert.Equal(33, result.BrightnessPercent);
         Assert.Equal("Default bridge target", result.TargetLabel);
         Assert.Equal(1, result.RunCount);
         var persisted = Assert.Single(Plugin.Instance!.Configuration.PersistedSceneScheduleHistory);
@@ -4162,6 +4163,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(2, runtime.TransitionSeconds);
         Assert.Equal(1, runtime.TransitionOutSeconds);
         Assert.Equal(PluginConfiguration.ColorPresetEffectPulse, runtime.Effect);
+        Assert.Equal(33, runtime.BrightnessPercent);
         Assert.Equal(string.Empty, runtime.TimeZoneId);
         Assert.Contains("Server local", runtime.TimeZoneDisplayName, StringComparison.Ordinal);
         Assert.NotNull(runtime.NextRunUtc);

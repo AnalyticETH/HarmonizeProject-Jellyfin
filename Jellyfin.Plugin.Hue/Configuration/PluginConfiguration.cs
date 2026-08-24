@@ -233,6 +233,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// calendar days, weeks, months, or years; intervals greater than one use StartDate
     /// as the cadence anchor. A cue can optionally override the saved scene's hold duration
     /// for this event only (single-scene cues; playlists retain each scene's saved duration)
+    /// and optionally override the saved scene's brightness for this event only
+    /// (single-scene cues; playlists retain their per-step brightness values)
     /// or stop after a bounded number of executions.
     /// The target is resolved from the global bridge, a persisted user mapping, or a bounded
     /// selected mapping subset when the cue runs; credentials are never stored here.
@@ -358,6 +360,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? Red { get; set; }
         public int? Green { get; set; }
         public int? Blue { get; set; }
+        /// <summary>
+        /// Optional brightness override for direct saved-scene cues. A missing value
+        /// inherits the referenced scene's brightness. Playlist cues keep their
+        /// per-step brightness and must not set this field.
+        /// </summary>
+        public int? BrightnessPercent { get; set; }
         /// <summary>
         /// Maximum number of executions for this cue. Zero means unlimited. The persisted
         /// <see cref="RunCount"/> is incremented for every completed execution, including
@@ -3083,6 +3091,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
                 if (schedule.Red.HasValue || schedule.Green.HasValue || schedule.Blue.HasValue)
                     errors.Add($"{label} playlist RGB overrides must be omitted; playlist steps keep their saved colors");
+
+                if (schedule.BrightnessPercent.HasValue)
+                    errors.Add($"{label} playlist brightness override must be omitted; playlist steps keep their saved brightness");
             }
             else if (schedule.DurationSeconds != 0 &&
                      (schedule.DurationSeconds < MinPreviewDurationSeconds ||
@@ -3105,6 +3116,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 {
                     errors.Add($"{label} {channel.Name} channel must be between {MinScenePlaylistStepColorValue} and {MaxScenePlaylistStepColorValue}, or null (inherit)");
                 }
+            }
+
+            if (schedule.BrightnessPercent.HasValue &&
+                (schedule.BrightnessPercent.Value < MinScenePlaylistStepBrightnessPercent ||
+                 schedule.BrightnessPercent.Value > MaxScenePlaylistStepBrightnessPercent))
+            {
+                errors.Add($"{label} brightness must be between {MinScenePlaylistStepBrightnessPercent} and {MaxScenePlaylistStepBrightnessPercent}, or null (inherit)");
             }
 
             if (schedule.MaxRuns < 0 || schedule.MaxRuns > MaxSceneScheduleRuns)
