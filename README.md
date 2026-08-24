@@ -433,7 +433,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.241 (Current)
+### Version 1.5.242 (Current)
+- **Bridge registration retry hardening**: Link Button registration is single-attempt, preventing generic network retries from repeating credential-creation requests after transient transport failures.
+- **Registration retry coverage**: transient registration failures are verified to make exactly one request even when normal Hue retry attempts are enabled.
+
+### Version 1.5.241
 - **Scheduled-occurrence CSV target parity**: upcoming-occurrence exports now preserve exact selected user IDs, nested `userId`/`deviceId` routes, and default-target inclusion as credential-free JSON fields.
 
 ### Version 1.5.240

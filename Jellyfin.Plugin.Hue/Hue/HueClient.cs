@@ -276,7 +276,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     // credential-shaped fields (or other private bridge metadata).
                     _logger.LogWarning("Registration failed: Hue bridge returned an unsuccessful response.");
                     return null;
-                }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                }, maxRetries: 0, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

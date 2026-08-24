@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.242] - 2026-08-24
+
+### Security
+- **Non-retriable bridge registration**: Link Button registration now performs a single transport attempt, preventing generic network retries from repeating a non-idempotent credential-creation request after a transient failure.
+
+### Tests
+- **Registration retry coverage**: verify transient registration failure results in exactly one bridge request even when normal retry attempts are configured.
+
 ## [1.5.241] - 2026-08-24
 
 ### Added

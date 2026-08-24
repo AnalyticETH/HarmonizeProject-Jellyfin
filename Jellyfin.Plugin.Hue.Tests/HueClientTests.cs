@@ -1068,6 +1068,28 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task RegisterWithBridge_TransientFailureDoesNotRetryNonIdempotentLinkButtonRequest()
+    {
+        var requestCount = 0;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((_, _) => requestCount++)
+            .ThrowsAsync(new HttpRequestException("transient registration failure"));
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 3
+        };
+
+        Assert.Null(await client.RegisterWithBridge("192.168.1.100"));
+        Assert.Equal(1, requestCount);
+    }
+
+    [Fact]
     public async Task RegisterWithBridge_FailureDoesNotLogBridgeResponseBody()
     {
         const string secretSentinel = "bridge-response-secret-username-clientkey";
