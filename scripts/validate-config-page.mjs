@@ -223,6 +223,7 @@ const requiredScript = [
     "getMappingValue('AudioSpatialModeOverride', 'audioSpatialModeOverride')",
     "getMappingValue('AudioChannelModeOverride', 'audioChannelModeOverride')",
     "HueConfigurationPage.cancelPreview(e.target)",
+    "var activeCancelButton = page.querySelector('#cancelPreviewBtn')",
     "ClearStoredCredentials: !!(clearCredentialsCheckbox && clearCredentialsCheckbox.checked)",
     "Clear Stored Credentials",
     '["Solid", "Pulse", "Rainbow", "Candle", "Temperature", "Aurora", "Fire", "Ocean", "Lightning", "Starlight"]',

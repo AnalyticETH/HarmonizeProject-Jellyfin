@@ -2665,6 +2665,10 @@
                         }
                     }).finally(function () {
                         page._huePreviewCancellationRequest = null;
+                        if (page._huePreviewRequest) {
+                            var activeCancelButton = page.querySelector('#cancelPreviewBtn');
+                            if (activeCancelButton) activeCancelButton.disabled = false;
+                        }
                     });
                 },
                 previewDefaultColor: function (page) {
