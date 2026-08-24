@@ -2265,6 +2265,95 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PreviewColorPreset_ExplicitDeviceRouteUsesNestedTargetCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "device-global-app-secret",
+            HueClientKey = "device-global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Device Glow", Red = 40, Green = 80, Blue = 120, DurationSeconds = 1 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-bedroom",
+                    UserName = "Bedroom",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "device-mapping-app-secret",
+                    HueClientKey = "device-mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "device-tv",
+                            DeviceName = "Bedroom TV",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-route-app-secret",
+                            HueClientKey = "device-route-client-secret",
+                            EntertainmentAreaId = "device-area",
+                            ChannelIdsOverride = "2"
+                        }
+                    }
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":2}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(), 40, 80, 120, 100, 1, It.IsAny<CancellationToken>(), 0, 0,
+                PluginConfiguration.ColorPresetEffectSolid, 100))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Device scene preview completed." });
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(streamTester.Object, hostedServices: new[] { service });
+
+        var action = await controller.PreviewColorPreset(
+            "Device Glow",
+            new HueSavedColorPresetPreviewRequest
+            {
+                TargetRoutes = new List<HueCurrentLightColorTargetRoute>
+                {
+                    new() { UserId = " user-bedroom ", DeviceId = " device-tv " }
+                }
+            });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HuePreviewResult>(response.Value);
+        var target = Assert.Single(result.TargetResults);
+        Assert.Equal("Bedroom / Bedroom TV", target.TargetLabel);
+        streamTester.Verify(tester => tester.PreviewAsync(
+            "192.168.1.102",
+            "device-route-app-secret",
+            "device-route-client-secret",
+            "device-area",
+            It.IsAny<JsonElement>(),
+            It.Is<IReadOnlySet<int>?>(ids => ids != null && ids.SetEquals(new[] { 2 })),
+            40,
+            80,
+            120,
+            100,
+            1,
+            It.IsAny<CancellationToken>(),
+            0,
+            0,
+            PluginConfiguration.ColorPresetEffectSolid,
+            100), Times.Once);
+    }
+
+    [Fact]
     public async Task PreviewColorPresetsBulk_SelectedTargetsAreAppliedToEveryScene()
     {
         InstallConfiguration(new PluginConfiguration

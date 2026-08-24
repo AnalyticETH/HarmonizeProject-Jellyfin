@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.220] - 2026-08-24
+
+### Added
+- **Device-route preview parity**: normal, saved-scene, bulk saved-scene, and playlist previews now accept credential-free `{userId, deviceId}` routes and resolve nested device bridge profiles without exposing secrets or changing persisted target selections.
+- **Administrator target controls**: expose nested device routes in preview selectors while preserving legacy default, user-mapping, and all-target behavior.
+
+### Tests
+- **Regression coverage**: verify nested device-route credentials, channel profiles, labels, and preview request plumbing.
+
 ## [1.5.219] - 2026-08-24
 
 ### Security

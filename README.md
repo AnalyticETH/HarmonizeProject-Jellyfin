@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.219 (Current)
+### Version 1.5.220 (Current)
+- **Device-route preview parity**: normal, saved-scene, bulk saved-scene, and playlist previews accept credential-free `{userId, deviceId}` routes and resolve nested device bridge profiles without exposing secrets or changing persisted target selections. Preview selectors expose nested device routes while preserving legacy default, user-mapping, and all-target behavior.
+
+### Version 1.5.219
 - **Malformed nested-target resilience**: configuration-import matching ignores null persisted device targets, validation runs even when global sync is disabled, and mapping identity comparisons normalize whitespace before replacement.
 
 ### Version 1.5.218

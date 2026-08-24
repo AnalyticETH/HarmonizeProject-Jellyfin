@@ -4023,6 +4023,60 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TryResolveTargets_ExplicitDeviceRouteUsesNestedCredentialsAndChannelProfile()
+    {
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ChannelIds = "1,2",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Living Room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area",
+                    ChannelIdsOverride = "3,4",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "device-bedroom",
+                            DeviceName = "Bedroom TV",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-app-secret",
+                            HueClientKey = "device-client-secret",
+                            EntertainmentAreaId = "device-area",
+                            ChannelIdsOverride = "7,8"
+                        }
+                    }
+                }
+            }
+        };
+
+        var schedule = new HueSceneSchedule();
+        var routes = new[]
+        {
+            new HueSceneAutomationTargetRoute { UserId = " user-1 ", DeviceId = " device-bedroom " }
+        };
+
+        Assert.True(HueSceneAutomationService.TryResolveTargets(config, schedule, out var targets, out var error, routes));
+        Assert.Empty(error);
+        var target = Assert.Single(targets);
+        Assert.Equal("Living Room / Bedroom TV", target.TargetLabel);
+        Assert.Equal("192.168.1.102", target.BridgeIp);
+        Assert.Equal("device-area", target.EntertainmentAreaId);
+        Assert.Equal(new[] { 7, 8 }, target.ChannelIds!.OrderBy(id => id));
+    }
+
+    [Fact]
     public async Task RunPlaylistPreview_UsesPersistedSelectedTargetsAndPreservesTargetTelemetry()
     {
         var configuration = new PluginConfiguration

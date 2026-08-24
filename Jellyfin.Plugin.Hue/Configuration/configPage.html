@@ -331,7 +331,7 @@
                                 <span>Cancel Active Preview</span>
                             </button>
                         </div>
-                        <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override. Current-light capture has its own target selector so an individual user device route can be sampled without changing preview behavior. Captures update the color and brightness fields from the aggregate when samples are available and report per-target results without changing bridge state.</div>
+                        <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override. Nested ↳ device rows send only credential-free user/device route identifiers, so an individual mapped device can be previewed without changing bridge credentials or saved mappings. Current-light capture has its own target selector and reports per-target results without changing bridge state.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 1em;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="previewPresetSelect">Saved Scene</label>
@@ -390,12 +390,12 @@
                             </div>
                             <div id="previewPresetBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select saved scenes to preview sequentially with restorative state cleanup. The Saved Scene Preview Targets selection above applies to bulk previews; the All Targets button is an explicit broadcast override. Duplicate independent copies or delete selected scenes together. Any playlist or scheduled-cue reference blocks deletion.</div>
                         </div>
-                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Choose the default bridge, all enabled targets, or a deliberate subset of enabled mappings (optionally including the default bridge) in Saved Scene Preview Targets. Preview Saved Scene uses that selection; Preview Saved Scene on All Targets is an explicit broadcast override. Use Duplicate Scene to create a safe editable variant, enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically, or use View References before changing/deleting a scene. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
+                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Choose the default bridge, all enabled targets, a mapped user, or a nested ↳ device route in Saved Scene Preview Targets; route requests carry only the user and device identifiers. Preview Saved Scene uses that selection; Preview Saved Scene on All Targets is an explicit broadcast override. Use Duplicate Scene to create a safe editable variant, enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically, or use View References before changing/deleting a scene. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
                         <legend>Saved Scene Playlists</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into a playlist. Each step inherits its saved scene's RGB color, brightness, effect speed, fade transitions, and fade curve unless you set explicit 0-255 red/green/blue channel values, 0-100% brightness, 25-400% effect speed, 0-30 second fade-in, 0-30 second fade-out, or Linear/SmoothStep/EaseIn/EaseOut/EaseInOut curve overrides; blank fields and Inherited scene curves preserve the saved scene. Its hold duration inherits the scene by default or can use a bounded per-step override from 1-30 seconds (0 means inherit). Choose Saved order or a stable date-seeded Shuffle for each restorative preview pass. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, all enabled targets, or a deliberate subset of enabled mappings and optionally include the default bridge. Playlist definitions contain only scene names, per-step duration/RGB/brightness/effect-speed/transition/curve overrides, repeat count, playback order, and credential-free target selection, never bridge credentials. Preview Targets can override one preview run without changing the saved playlist; Preview Playlist on All Targets remains an explicit broadcast override. Renaming a playlist automatically updates scheduled cues that use it; use View References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into a playlist. Each step inherits its saved scene's RGB color, brightness, effect speed, fade transitions, and fade curve unless you set explicit 0-255 red/green/blue channel values, 0-100% brightness, 25-400% effect speed, 0-30 second fade-in, 0-30 second fade-out, or Linear/SmoothStep/EaseIn/EaseOut/EaseInOut curve overrides; blank fields and Inherited scene curves preserve the saved scene. Its hold duration inherits the scene by default or can use a bounded per-step override from 1-30 seconds (0 means inherit). Choose Saved order or a stable date-seeded Shuffle for each restorative preview pass. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, all enabled targets, or a deliberate subset of enabled mappings and optionally include the default bridge. Playlist definitions contain only scene names, per-step duration/RGB/brightness/effect-speed/transition/curve overrides, repeat count, playback order, and credential-free target selection, never bridge credentials. Preview Targets can override one preview run with mapped users or nested ↳ device routes without changing the saved playlist; Preview Playlist on All Targets remains an explicit broadcast override. Renaming a playlist automatically updates scheduled cues that use it; use View References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="scenePlaylistSelect">Saved Playlist</label>
@@ -2379,7 +2379,8 @@
                 fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId, transitionSeconds, transitionOutSeconds, effect, effectSpeedPercent, transitionCurve, targetAllEnabledMappings, targetSelection) {
                     targetSelection = targetSelection || {};
                     var selectedTargetIds = Array.isArray(targetSelection.targetUserIds) ? targetSelection.targetUserIds : [];
-                    var multiTarget = !!targetAllEnabledMappings || !!targetSelection.targetAllEnabledMappings || !!targetSelection.includeDefaultTarget || selectedTargetIds.length > 0;
+                    var selectedTargetRoutes = Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : [];
+                    var multiTarget = !!targetAllEnabledMappings || !!targetSelection.targetAllEnabledMappings || !!targetSelection.includeDefaultTarget || selectedTargetIds.length > 0 || selectedTargetRoutes.length > 0;
                     var payload = {
                         ipAddress: multiTarget ? "" : bridgeIp,
                         appKey: multiTarget ? "" : appKey,
@@ -2400,6 +2401,7 @@
                     if (multiTarget) {
                         payload.targetAllEnabledMappings = !!(targetAllEnabledMappings || targetSelection.targetAllEnabledMappings);
                         payload.targetUserIds = selectedTargetIds;
+                        payload.targetRoutes = selectedTargetRoutes;
                         payload.includeDefaultTarget = !!targetSelection.includeDefaultTarget;
                     }
                     if (!multiTarget && channelIds && channelIds.trim()) {
@@ -2451,6 +2453,7 @@
                             targetUserId: targetSelection.targetAllEnabledMappings ? "" : (targetSelection.targetUserId || ""),
                             targetAllEnabledMappings: !!targetSelection.targetAllEnabledMappings,
                             targetUserIds: targetSelection.targetUserIds || [],
+                            targetRoutes: Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : [],
                             includeDefaultTarget: !!targetSelection.includeDefaultTarget
                         }),
                         contentType: "application/json",
@@ -2464,6 +2467,7 @@
                         payload.targetUserId = targetSelection.targetUserId || "";
                         payload.targetAllEnabledMappings = !!targetSelection.targetAllEnabledMappings;
                         payload.targetUserIds = targetSelection.targetUserIds;
+                        payload.targetRoutes = Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : [];
                         payload.includeDefaultTarget = targetSelection.includeDefaultTarget;
                     }
                     return ApiClient.ajax({
@@ -2678,7 +2682,7 @@
                     var values;
                     var targetSelection = HueConfigurationPage.getColorPreviewTargetSelection(page);
                     var usesMultiTargetSelection = targetSelection.targetAllEnabledMappings ||
-                        targetSelection.includeDefaultTarget || targetSelection.targetUserIds.length > 0;
+                        targetSelection.includeDefaultTarget || targetSelection.targetUserIds.length > 0 || targetSelection.targetRoutes.length > 0;
 
                     var canUseStoredCredentials = HueConfigurationPage.canUseStoredGlobalCredentials(page, bridgeIp, true);
                     if (!usesMultiTargetSelection && (!bridgeIp || (!appKey && !canUseStoredCredentials) || (!clientKey && !canUseStoredCredentials) || !areaId)) {
@@ -2914,15 +2918,18 @@
                     var all = selected.indexOf('__all_enabled_targets__') >= 0;
                     var defaultTarget = selected.indexOf('__default_target__') >= 0;
                     var mappingIds = selected.filter(function (value) {
-                        return value !== '__all_enabled_targets__' && value !== '__default_target__';
+                        return value !== '__all_enabled_targets__' && value !== '__default_target__' && !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
+                    var deviceTargetValues = selected.filter(function (value) {
+                        return !!HueConfigurationPage.parseCurrentLightDeviceTarget(value);
                     });
                     var normalized;
                     if (all) {
                         normalized = ['__all_enabled_targets__'];
                     } else if (defaultTarget) {
-                        normalized = ['__default_target__'].concat(mappingIds);
-                    } else if (mappingIds.length) {
-                        normalized = mappingIds;
+                        normalized = ['__default_target__'].concat(mappingIds, deviceTargetValues);
+                    } else if (mappingIds.length || deviceTargetValues.length) {
+                        normalized = mappingIds.concat(deviceTargetValues);
                     } else {
                         normalized = ['__default_target__'];
                     }
@@ -2938,13 +2945,23 @@
                         .filter(Boolean);
                     var all = selected.indexOf('__all_enabled_targets__') >= 0;
                     var includeDefaultTarget = selected.indexOf('__default_target__') >= 0;
+                    var targetRoutes = all ? [] : selected
+                        .map(HueConfigurationPage.parseCurrentLightDeviceTarget)
+                        .filter(Boolean)
+                        .map(function (route) {
+                            return { userId: route.userId, deviceId: route.deviceId };
+                        });
+                    var targetUserIds = all ? [] : selected.filter(function (value) {
+                        return value !== '__default_target__' && !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
                     return {
                         targetAllEnabledMappings: all,
                         includeDefaultTarget: !all && includeDefaultTarget,
-                        targetUserIds: all ? [] : selected.filter(function (value) {
-                            return value !== '__default_target__';
-                        }),
-                        targetUserId: all || includeDefaultTarget || selected.length !== 1 ? '' : selected[0]
+                        targetUserIds: targetUserIds,
+                        targetRoutes: targetRoutes,
+                        targetUserId: all || includeDefaultTarget || targetRoutes.length > 0 || targetUserIds.length !== 1
+                            ? ''
+                            : targetUserIds[0]
                     };
                 },
                 encodeCurrentLightDeviceTarget: function (userId, deviceId) {
@@ -3028,15 +3045,18 @@
                     var all = selected.indexOf('__all_enabled_targets__') >= 0;
                     var defaultTarget = selected.indexOf('__default_target__') >= 0;
                     var mappingIds = selected.filter(function (value) {
-                        return value !== '__all_enabled_targets__' && value !== '__default_target__';
+                        return value !== '__all_enabled_targets__' && value !== '__default_target__' && !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
+                    var deviceTargetValues = selected.filter(function (value) {
+                        return !!HueConfigurationPage.parseCurrentLightDeviceTarget(value);
                     });
                     var normalized;
                     if (all) {
                         normalized = ['__all_enabled_targets__'];
                     } else if (defaultTarget) {
-                        normalized = ['__default_target__'].concat(mappingIds);
-                    } else if (mappingIds.length) {
-                        normalized = mappingIds;
+                        normalized = ['__default_target__'].concat(mappingIds, deviceTargetValues);
+                    } else if (mappingIds.length || deviceTargetValues.length) {
+                        normalized = mappingIds.concat(deviceTargetValues);
                     } else {
                         normalized = ['__default_target__'];
                     }
@@ -3052,12 +3072,20 @@
                         .filter(Boolean);
                     var all = selected.indexOf('__all_enabled_targets__') >= 0;
                     var includeDefaultTarget = selected.indexOf('__default_target__') >= 0;
+                    var targetRoutes = all ? [] : selected
+                        .map(HueConfigurationPage.parseCurrentLightDeviceTarget)
+                        .filter(Boolean)
+                        .map(function (route) {
+                            return { userId: route.userId, deviceId: route.deviceId };
+                        });
+                    var targetUserIds = all ? [] : selected.filter(function (value) {
+                        return value !== '__default_target__' && !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
                     return {
                         targetAllEnabledMappings: all,
                         includeDefaultTarget: !all && includeDefaultTarget,
-                        targetUserIds: all ? [] : selected.filter(function (value) {
-                            return value !== '__default_target__';
-                        })
+                        targetUserIds: targetUserIds,
+                        targetRoutes: targetRoutes
                     };
                 },
                 previewSavedPreset: function (page, allTargets) {
@@ -3076,7 +3104,7 @@
                     }
 
                     var targetSelection = allTargets
-                        ? { targetAllEnabledMappings: true, targetUserIds: [], includeDefaultTarget: false, targetUserId: '' }
+                        ? { targetAllEnabledMappings: true, targetUserIds: [], targetRoutes: [], includeDefaultTarget: false, targetUserId: '' }
                         : HueConfigurationPage.getSavedPresetTargetSelection(page);
                     if (button) button.disabled = true;
                     page._huePreviewStatusElement = statusEl;
@@ -3084,7 +3112,7 @@
                         ? "Saving each target's light state and previewing the saved scene sequentially..."
                         : targetSelection.targetAllEnabledMappings
                             ? "Saving each target's light state and previewing the saved scene sequentially..."
-                            : targetSelection.targetUserIds.length || targetSelection.includeDefaultTarget
+                            : targetSelection.targetUserIds.length || targetSelection.targetRoutes.length || targetSelection.includeDefaultTarget
                                 ? "Saving the selected target states and previewing the saved scene sequentially..."
                                 : "Saving the default target's light state and previewing the saved scene...";
                     statusEl.style.color = "";
@@ -3094,7 +3122,7 @@
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request
                         .then(function (response) {
-                            var result = HueConfigurationPage.previewMessage(response, allTargets || targetSelection.targetAllEnabledMappings || targetSelection.targetUserIds.length > 0 || targetSelection.includeDefaultTarget);
+                            var result = HueConfigurationPage.previewMessage(response, allTargets || targetSelection.targetAllEnabledMappings || targetSelection.targetUserIds.length > 0 || targetSelection.targetRoutes.length > 0 || targetSelection.includeDefaultTarget);
                             statusEl.textContent = result.text;
                             statusEl.style.color = result.tone === "success" ? "#8bc34a" : "#d9534f";
                         })
@@ -3102,7 +3130,7 @@
                             console.error("Saved color preview error:", err);
                             statusEl.textContent = allTargets || targetSelection.targetAllEnabledMappings
                                 ? "Saved-scene preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying."
-                                : targetSelection.targetUserIds.length || targetSelection.includeDefaultTarget
+                                : targetSelection.targetUserIds.length || targetSelection.targetRoutes.length || targetSelection.includeDefaultTarget
                                     ? "Saved-scene preview failed. Verify each selected target in System Diagnostics and stop active playback before retrying."
                                     : "Saved-scene preview failed. Verify the default target in System Diagnostics and stop active playback before retrying.";
                             statusEl.style.color = "#d9534f";
@@ -3183,8 +3211,8 @@
                                 }
                             });
                             [
-                                { select: targetSelect, previousValues: previousTargetValues, normalize: HueConfigurationPage.normalizeSavedPresetTargetSelection, includeDeviceRoutes: false },
-                                { select: colorTargetSelect, previousValues: previousColorTargetValues, normalize: HueConfigurationPage.normalizeColorPreviewTargetSelection, includeDeviceRoutes: false },
+                                { select: targetSelect, previousValues: previousTargetValues, normalize: HueConfigurationPage.normalizeSavedPresetTargetSelection, includeDeviceRoutes: true },
+                                { select: colorTargetSelect, previousValues: previousColorTargetValues, normalize: HueConfigurationPage.normalizeColorPreviewTargetSelection, includeDeviceRoutes: true },
                                 { select: captureTargetSelect, previousValues: previousCaptureTargetValues, normalize: HueConfigurationPage.normalizeCurrentLightCaptureTargetSelection, includeDeviceRoutes: true }
                             ].forEach(function (targetDefinition) {
                                 var previewTargetSelect = targetDefinition.select;
@@ -3319,11 +3347,11 @@
                     }
 
                     var targetSelection = allTargets
-                        ? { targetAllEnabledMappings: true, targetUserIds: [], includeDefaultTarget: false, targetUserId: '' }
+                        ? { targetAllEnabledMappings: true, targetUserIds: [], targetRoutes: [], includeDefaultTarget: false, targetUserId: '' }
                         : HueConfigurationPage.getSavedPresetTargetSelection(page);
                     var targetSummary = allTargets || targetSelection.targetAllEnabledMappings
                         ? "on every enabled target"
-                        : targetSelection.targetUserIds.length || targetSelection.includeDefaultTarget
+                        : targetSelection.targetUserIds.length || targetSelection.targetRoutes.length || targetSelection.includeDefaultTarget
                             ? "on the selected targets"
                             : "on the default target";
 
@@ -3339,7 +3367,7 @@
                                     ? "Saving each target's light state and previewing the selected scenes sequentially..."
                                     : targetSelection.targetAllEnabledMappings
                                         ? "Saving each target's light state and previewing the selected scenes sequentially..."
-                                        : targetSelection.targetUserIds.length || targetSelection.includeDefaultTarget
+                                        : targetSelection.targetUserIds.length || targetSelection.targetRoutes.length || targetSelection.includeDefaultTarget
                                             ? "Saving the selected target states and previewing the selected scenes sequentially..."
                                             : "Saving the default target's light state and previewing the selected scenes sequentially...";
                                 statusEl.style.color = '';
@@ -3353,6 +3381,7 @@
                                     presetNames: names,
                                     targetUserId: targetSelection.targetUserId || "",
                                     targetUserIds: targetSelection.targetUserIds || [],
+                                    targetRoutes: Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : [],
                                     includeDefaultTarget: !!targetSelection.includeDefaultTarget,
                                     targetAllEnabledMappings: !!(allTargets || targetSelection.targetAllEnabledMappings)
                                 }),
@@ -3384,7 +3413,7 @@
                                 if (statusEl) {
                                     statusEl.textContent = allTargets || targetSelection.targetAllEnabledMappings
                                         ? "Bulk saved-scene preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying."
-                                        : targetSelection.targetUserIds.length || targetSelection.includeDefaultTarget
+                                        : targetSelection.targetUserIds.length || targetSelection.targetRoutes.length || targetSelection.includeDefaultTarget
                                             ? "Bulk saved-scene preview failed. Verify each selected target in System Diagnostics and stop active playback before retrying."
                                             : "Bulk saved-scene preview failed. Verify the default target in System Diagnostics and stop active playback before retrying.";
                                     statusEl.style.color = "#d9534f";
@@ -3879,12 +3908,14 @@
                             {
                                 select: previewTargetSelect,
                                 prefix: '<option value="__saved_target__">Each playlist\'s saved target</option><option value="__default_target__">Default bridge target</option><option value="__all_enabled_targets__">All enabled targets</option>',
-                                previousValues: previousPreviewTargetValues
+                                previousValues: previousPreviewTargetValues,
+                                includeDeviceRoutes: true
                             },
                             {
                                 select: bulkPreviewTargetSelect,
                                 prefix: '<option value="__saved_target__">Each playlist\'s saved target</option><option value="__default_target__">Default bridge target</option><option value="__all_enabled_targets__">All enabled targets</option>',
-                                previousValues: previousBulkPreviewTargetValues
+                                previousValues: previousBulkPreviewTargetValues,
+                                includeDeviceRoutes: true
                             }
                         ].forEach(function (targetDefinition) {
                             var select = targetDefinition.select;
@@ -3899,6 +3930,21 @@
                                 option.value = userId;
                                 option.textContent = (userName || userId) + (enabled ? "" : " (disabled)");
                                 select.appendChild(option);
+                                if (targetDefinition.includeDeviceRoutes) {
+                                    var deviceTargets = mapping.deviceTargets !== undefined ? mapping.deviceTargets : mapping.DeviceTargets;
+                                    deviceTargets = Array.isArray(deviceTargets) ? deviceTargets : [];
+                                    deviceTargets.forEach(function (deviceTarget) {
+                                        if (!deviceTarget) return;
+                                        var deviceId = deviceTarget.deviceId !== undefined ? deviceTarget.deviceId : deviceTarget.DeviceId;
+                                        if (!deviceId) return;
+                                        var deviceName = deviceTarget.deviceName !== undefined ? deviceTarget.deviceName : deviceTarget.DeviceName;
+                                        var deviceOption = document.createElement('option');
+                                        deviceOption.value = HueConfigurationPage.encodeCurrentLightDeviceTarget(userId, deviceId);
+                                        deviceOption.textContent = "↳ " + (deviceName || deviceId) + " — " + (userName || userId) + (enabled ? "" : " (disabled)");
+                                        deviceOption.disabled = !enabled;
+                                        select.appendChild(deviceOption);
+                                    });
+                                }
                             });
                             if (targetDefinition.previousValues.length) {
                                 Array.prototype.forEach.call(select.options || [], function (option) {
@@ -4766,15 +4812,18 @@
                     var all = selected.indexOf('__all_enabled_targets__') >= 0;
                     var defaultTarget = selected.indexOf('__default_target__') >= 0;
                     var mappingIds = selected.filter(function (value) {
-                        return value !== '__saved_target__' && value !== '__all_enabled_targets__' && value !== '__default_target__';
+                        return value !== '__saved_target__' && value !== '__all_enabled_targets__' && value !== '__default_target__' && !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
+                    var deviceTargetValues = selected.filter(function (value) {
+                        return !!HueConfigurationPage.parseCurrentLightDeviceTarget(value);
                     });
                     var normalized;
                     if (saved) {
                         normalized = ['__saved_target__'];
                     } else if (all) {
                         normalized = ['__all_enabled_targets__'];
-                    } else if (defaultTarget || mappingIds.length) {
-                        normalized = (defaultTarget ? ['__default_target__'] : []).concat(mappingIds);
+                    } else if (defaultTarget || mappingIds.length || deviceTargetValues.length) {
+                        normalized = (defaultTarget ? ['__default_target__'] : []).concat(mappingIds, deviceTargetValues);
                     } else {
                         normalized = ['__saved_target__'];
                     }
@@ -4797,13 +4846,20 @@
                     var saved = selected.indexOf('__saved_target__') >= 0;
                     var all = selected.indexOf('__all_enabled_targets__') >= 0;
                     var includeDefaultTarget = selected.indexOf('__default_target__') >= 0;
+                    var targetRoutes = saved || all ? null : selected
+                        .map(HueConfigurationPage.parseCurrentLightDeviceTarget)
+                        .filter(Boolean)
+                        .map(function (route) {
+                            return { userId: route.userId, deviceId: route.deviceId };
+                        });
                     return {
                         preserveSavedTarget: saved,
                         targetAllEnabledMappings: saved ? null : all,
                         includeDefaultTarget: saved ? null : !all && includeDefaultTarget,
                         targetUserIds: saved ? null : all ? null : selected.filter(function (value) {
-                            return value !== '__saved_target__' && value !== '__default_target__' && value !== '__all_enabled_targets__';
+                            return value !== '__saved_target__' && value !== '__default_target__' && value !== '__all_enabled_targets__' && !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
                         }),
+                        targetRoutes: targetRoutes,
                         targetUserId: ''
                     };
                 },
@@ -4877,10 +4933,11 @@
                         return;
                     }
                     var targetSelection = allTargets
-                        ? { preserveSavedTarget: false, targetAllEnabledMappings: true, targetUserIds: null, includeDefaultTarget: false, targetUserId: '' }
+                        ? { preserveSavedTarget: false, targetAllEnabledMappings: true, targetUserIds: null, targetRoutes: [], includeDefaultTarget: false, targetUserId: '' }
                         : HueConfigurationPage.getScenePlaylistPreviewTargetSelection(page);
                     var includeTargetDetails = allTargets || targetSelection.targetAllEnabledMappings ||
                         (Array.isArray(targetSelection.targetUserIds) && targetSelection.targetUserIds.length > 0) ||
+                        (Array.isArray(targetSelection.targetRoutes) && targetSelection.targetRoutes.length > 0) ||
                         targetSelection.includeDefaultTarget;
                     page._huePreviewStatusElement = status;
                     status.textContent = allTargets || targetSelection.targetAllEnabledMappings
@@ -4928,7 +4985,7 @@
                     }
 
                     var targetSelection = allTargets
-                        ? { preserveSavedTarget: false, targetAllEnabledMappings: true, targetUserIds: null, includeDefaultTarget: false, targetUserId: '' }
+                        ? { preserveSavedTarget: false, targetAllEnabledMappings: true, targetUserIds: null, targetRoutes: [], includeDefaultTarget: false, targetUserId: '' }
                         : HueConfigurationPage.getScenePlaylistBulkPreviewTargetSelection(page);
                     var targetSummary = allTargets || targetSelection.targetAllEnabledMappings
                         ? "on every enabled target"
@@ -4962,6 +5019,7 @@
                                     playlistIds: ids,
                                     targetUserId: targetSelection.targetUserId || "",
                                     targetUserIds: targetSelection.targetUserIds,
+                                    targetRoutes: Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : [],
                                     includeDefaultTarget: targetSelection.includeDefaultTarget,
                                     targetAllEnabledMappings: targetSelection.targetAllEnabledMappings
                                 }),

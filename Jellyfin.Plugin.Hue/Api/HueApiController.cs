@@ -1107,8 +1107,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())
                 .ToList();
+            var selectedTargetRoutes = NormalizeSceneAutomationTargetRoutes(request?.TargetRoutes);
             var includeDefaultTarget = request?.IncludeDefaultTarget == true;
-            var hasSelectedTargetOverride = includeDefaultTarget || (selectedTargetUserIds?.Count > 0);
+            var hasSelectedTargetOverride = includeDefaultTarget ||
+                (selectedTargetUserIds?.Count > 0) ||
+                selectedTargetRoutes.Count > 0;
             var multiTarget = broadcast || hasSelectedTargetOverride;
             if (request == null ||
                 (!multiTarget &&
@@ -1229,7 +1232,12 @@ namespace Jellyfin.Plugin.Hue.Api
                     TargetAllEnabledMappings = broadcast && !hasSelectedTargetOverride,
                     DurationSeconds = request.DurationSeconds
                 };
-                if (!HueSceneAutomationService.TryResolveTargets(config, previewSchedule, out _, out var targetError))
+                if (!HueSceneAutomationService.TryResolveTargets(
+                        config,
+                        previewSchedule,
+                        out _,
+                        out var targetError,
+                        selectedTargetRoutes))
                 {
                     return BadRequest(targetError);
                 }
@@ -1251,6 +1259,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 var broadcastResult = await _sceneAutomationService.RunPreviewAsync(
                     previewSchedule,
                     previewPreset,
+                    selectedTargetRoutes,
                     cancellationToken).ConfigureAwait(false);
                 return Ok(BuildPreviewResult(
                     broadcastResult,
@@ -1440,8 +1449,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())
                 .ToList();
+            var targetRoutes = NormalizeSceneAutomationTargetRoutes(request.TargetRoutes);
             var includeDefaultTarget = request.IncludeDefaultTarget == true;
-            var hasSelectedTargetOverride = includeDefaultTarget || (targetUserIds?.Count > 0);
+            var hasSelectedTargetOverride = includeDefaultTarget ||
+                (targetUserIds?.Count > 0) ||
+                targetRoutes.Count > 0;
             if (request.TargetAllEnabledMappings && (!string.IsNullOrWhiteSpace(targetUserId) || hasSelectedTargetOverride))
                 return BadRequest("A saved-scene preview cannot select all enabled targets and a specific user mapping together.");
             if (!string.IsNullOrWhiteSpace(targetUserId) && hasSelectedTargetOverride)
@@ -1467,7 +1479,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetAllEnabledMappings = request.TargetAllEnabledMappings && !hasSelectedTargetOverride,
                 DurationSeconds = 0
             };
-            if (!HueSceneAutomationService.TryResolveTargets(config, previewSchedule, out _, out var targetError))
+            if (!HueSceneAutomationService.TryResolveTargets(
+                    config,
+                    previewSchedule,
+                    out _,
+                    out var targetError,
+                    targetRoutes))
                 return BadRequest(targetError);
 
             var previewPreset = CloneColorPreset(preset);
@@ -1476,6 +1493,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var previewResult = await _sceneAutomationService.RunPreviewAsync(
                 previewSchedule,
                 previewPreset,
+                targetRoutes,
                 cancellationToken).ConfigureAwait(false);
             return Ok(BuildPreviewResult(
                 previewResult,
@@ -1560,8 +1578,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())
                 .ToList();
+            var targetRoutes = NormalizeSceneAutomationTargetRoutes(request.TargetRoutes);
             var includeDefaultTarget = request.IncludeDefaultTarget == true;
-            var hasSelectedTargetOverride = includeDefaultTarget || (targetUserIds?.Count > 0);
+            var hasSelectedTargetOverride = includeDefaultTarget ||
+                (targetUserIds?.Count > 0) ||
+                targetRoutes.Count > 0;
             if (request.TargetAllEnabledMappings && (!string.IsNullOrWhiteSpace(targetUserId) || hasSelectedTargetOverride))
             {
                 return BadRequest(
@@ -1589,7 +1610,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 IncludeDefaultTarget = includeDefaultTarget,
                 TargetAllEnabledMappings = request.TargetAllEnabledMappings && !hasSelectedTargetOverride
             };
-            if (!HueSceneAutomationService.TryResolveTargets(config, targetSchedule, out _, out var targetError))
+            if (!HueSceneAutomationService.TryResolveTargets(
+                    config,
+                    targetSchedule,
+                    out _,
+                    out var targetError,
+                    targetRoutes))
                 return BadRequest(targetError);
 
             var previews = new List<HueColorPresetBulkPreviewItem>(selectedPresets.Length);
@@ -1615,6 +1641,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     var run = await _sceneAutomationService.RunPreviewAsync(
                         previewSchedule,
                         previewPreset,
+                        targetRoutes,
                         cancellationToken).ConfigureAwait(false);
                     previews.Add(new HueColorPresetBulkPreviewItem
                     {
@@ -2778,8 +2805,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Select(value => value.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+            var targetRoutes = NormalizeSceneAutomationTargetRoutes(request.TargetRoutes);
             var includeDefaultTarget = request.IncludeDefaultTarget == true;
-            var hasSelectedTargetOverride = includeDefaultTarget || (targetUserIds?.Count > 0);
+            var hasSelectedTargetOverride = includeDefaultTarget ||
+                (targetUserIds?.Count > 0) ||
+                targetRoutes.Count > 0;
             if ((request.TargetAllEnabledMappings == true || !string.IsNullOrWhiteSpace(targetUserId)) &&
                 hasSelectedTargetOverride)
             {
@@ -2830,7 +2860,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 playlist,
                 cancellationToken,
                 hasSelectedTargetOverride ? targetUserIds ?? new List<string>() : null,
-                hasSelectedTargetOverride && includeDefaultTarget).ConfigureAwait(false);
+                hasSelectedTargetOverride && includeDefaultTarget,
+                targetRoutesOverride: hasSelectedTargetOverride ? targetRoutes : null).ConfigureAwait(false);
             return Ok(result);
         }
 
@@ -2900,8 +2931,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Select(value => value.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+            var targetRoutes = NormalizeSceneAutomationTargetRoutes(request.TargetRoutes);
             var includeDefaultTarget = request.IncludeDefaultTarget == true;
-            var selectedTargetOverride = includeDefaultTarget || (targetUserIds?.Count > 0);
+            var selectedTargetOverride = includeDefaultTarget ||
+                (targetUserIds?.Count > 0) ||
+                targetRoutes.Count > 0;
             if ((request.TargetAllEnabledMappings == true || !string.IsNullOrWhiteSpace(targetUserId)) &&
                 selectedTargetOverride)
             {
@@ -2969,7 +3003,12 @@ namespace Jellyfin.Plugin.Hue.Api
                         : playlist.IncludeDefaultTarget,
                     TargetAllEnabledMappings = !hasSelectedTargets && playlist.TargetAllEnabledMappings
                 };
-                if (!HueSceneAutomationService.TryResolveTargets(config, targetSchedule, out _, out var targetError))
+                if (!HueSceneAutomationService.TryResolveTargets(
+                        config,
+                        targetSchedule,
+                        out _,
+                        out var targetError,
+                        selectedTargetOverride ? targetRoutes : null))
                 {
                     validationErrors.Add($"Scene playlist '{playlist.Name?.Trim() ?? string.Empty}' target: {targetError}");
                 }
@@ -3002,7 +3041,8 @@ namespace Jellyfin.Plugin.Hue.Api
                         playlist,
                         cancellationToken,
                         selectedTargetOverride ? targetUserIds ?? new List<string>() : null,
-                        selectedTargetOverride && includeDefaultTarget).ConfigureAwait(false);
+                        selectedTargetOverride && includeDefaultTarget,
+                        targetRoutesOverride: selectedTargetOverride ? targetRoutes : null).ConfigureAwait(false);
                     results.Add(result);
                     if (!result.Succeeded && HueSceneAutomationService.IndicatesCancellation(result))
                     {
@@ -6433,6 +6473,17 @@ namespace Jellyfin.Plugin.Hue.Api
                       string.Equals(candidate.DeviceId, normalizedDeviceId, StringComparison.OrdinalIgnoreCase)));
         }
 
+        private static IReadOnlyList<HueSceneAutomationTargetRoute> NormalizeSceneAutomationTargetRoutes(
+            IEnumerable<HueCurrentLightColorTargetRoute>? routes)
+            => routes?
+                .Where(route => route != null && !string.IsNullOrWhiteSpace(route.UserId))
+                .Select(route => new HueSceneAutomationTargetRoute
+                {
+                    UserId = route.UserId.Trim(),
+                    DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
+                })
+                .ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>();
+
         private static bool TryResolveCaptureTargets(
             PluginConfiguration config,
             HueCurrentLightColorBatchRequest? request,
@@ -9313,6 +9364,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("targetUserIds")]
         public List<string>? TargetUserIds { get; set; }
 
+        [JsonPropertyName("targetRoutes")]
+        public List<HueCurrentLightColorTargetRoute>? TargetRoutes { get; set; }
+
         [JsonPropertyName("includeDefaultTarget")]
         public bool? IncludeDefaultTarget { get; set; }
     }
@@ -9332,6 +9386,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetUserIds")]
         public List<string>? TargetUserIds { get; set; }
+
+        [JsonPropertyName("targetRoutes")]
+        public List<HueCurrentLightColorTargetRoute>? TargetRoutes { get; set; }
 
         [JsonPropertyName("includeDefaultTarget")]
         public bool? IncludeDefaultTarget { get; set; }
@@ -9561,6 +9618,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetUserIds")]
         public List<string>? TargetUserIds { get; set; }
+
+        [JsonPropertyName("targetRoutes")]
+        public List<HueCurrentLightColorTargetRoute>? TargetRoutes { get; set; }
 
         [JsonPropertyName("includeDefaultTarget")]
         public bool? IncludeDefaultTarget { get; set; }
@@ -10208,6 +10268,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("targetUserIds")]
         public List<string>? TargetUserIds { get; set; }
 
+        [JsonPropertyName("targetRoutes")]
+        public List<HueCurrentLightColorTargetRoute>? TargetRoutes { get; set; }
+
         [JsonPropertyName("includeDefaultTarget")]
         public bool? IncludeDefaultTarget { get; set; }
     }
@@ -10230,6 +10293,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetUserIds")]
         public List<string>? TargetUserIds { get; set; }
+
+        [JsonPropertyName("targetRoutes")]
+        public List<HueCurrentLightColorTargetRoute>? TargetRoutes { get; set; }
 
         [JsonPropertyName("includeDefaultTarget")]
         public bool? IncludeDefaultTarget { get; set; }
