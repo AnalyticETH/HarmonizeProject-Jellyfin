@@ -7037,6 +7037,8 @@ namespace Jellyfin.Plugin.Hue.Api
             var previousPresets = config.ColorPresets ?? new List<HueColorPreset>();
             var previousPlaylists = config.ScenePlaylists ?? new List<HueScenePlaylist>();
             var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
+            var previousPersistedSessionHistory = (config.PersistedSessionHistory ?? new List<HueSessionHistoryEntry>()).ToList();
+            var previousPersistedSceneScheduleHistory = (config.PersistedSceneScheduleHistory ?? new List<HueSceneScheduleHistoryEntry>()).ToList();
 
             request.Configuration.ApplyTo(config);
             config.UserMappings = plan.CandidateMappings;
@@ -7059,6 +7061,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 config.ColorPresets = previousPresets;
                 config.ScenePlaylists = previousPlaylists;
                 config.SceneSchedules = previousSchedules;
+                config.PersistedSessionHistory = previousPersistedSessionHistory;
+                config.PersistedSceneScheduleHistory = previousPersistedSceneScheduleHistory;
                 // Keep the response credential-free while retaining the exception in the
                 // server log for the administrator's normal Jellyfin diagnostics.
                 _logger?.LogError(ex, "Could not persist imported Hue configuration");

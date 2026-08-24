@@ -9964,6 +9964,44 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ImportConfiguration_WhenPersistenceFailsRestoresRetainedHistory()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("import persistence failed"));
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            PersistSessionHistory = true,
+            PersistSceneScheduleHistory = true,
+            PersistedSessionHistory = new List<HueSessionHistoryEntry>
+            {
+                new() { Item = "Private title" }
+            },
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new() { ScheduleId = "private-cue", ScheduleName = "Private cue" }
+            }
+        }, serializer.Object);
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = new HuePluginConfigurationSettings
+            {
+                PersistSessionHistory = false,
+                PersistSceneScheduleHistory = false
+            }
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.True(configuration.PersistSessionHistory);
+        Assert.True(configuration.PersistSceneScheduleHistory);
+        Assert.Equal("Private title", Assert.Single(configuration.PersistedSessionHistory).Item);
+        Assert.Equal("private-cue", Assert.Single(configuration.PersistedSceneScheduleHistory).ScheduleId);
+    }
+
+    [Fact]
     public void SaveConfiguration_UpdatesSettingsWithoutReplacingUserMappings()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
