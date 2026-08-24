@@ -432,7 +432,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.238 (Current)
+### Version 1.5.239 (Current)
+- **Audio capability probe resilience**: the real FFmpeg PCM startup check keeps a bounded 10-second budget, reducing false unavailable diagnostics during busy self-hosted runner startup.
+
+### Version 1.5.238
 - **Preview target safety**: ambiguous legacy `userId` plus broadcast/selected-target requests fail closed before bridge activity, direct and bulk preview failures retain credential-free route metadata, and malformed/incomplete nested device routes stay unavailable in the administrator selectors.
 
 ### Version 1.5.237

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.239] - 2026-08-24
+
+### Fixed
+- **Audio capability probe resilience**: allow the bounded FFmpeg PCM startup probe more headroom on busy self-hosted hosts so diagnostics do not report a false unavailable state while preserving a hard timeout.
+
+### Tests
+- **Self-hosted environment verification**: retain the real FFmpeg PCM capture assertion in the full runner gate.
+
 ## [1.5.238] - 2026-08-24
 
 ### Fixed

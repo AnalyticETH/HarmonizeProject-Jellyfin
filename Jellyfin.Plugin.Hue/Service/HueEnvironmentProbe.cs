@@ -23,7 +23,11 @@ public interface IHueEnvironmentProbe
 public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
 {
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan AudioProbeTimeout = TimeSpan.FromSeconds(5);
+    // The probe launches the configured playback encoder and captures a short PCM
+    // stream. On a busy self-hosted Jellyfin host, process startup can legitimately
+    // exceed the normal version-check budget; keep the diagnostic bounded while
+    // avoiding a false unavailable result during runner contention.
+    private static readonly TimeSpan AudioProbeTimeout = TimeSpan.FromSeconds(10);
     private const int MinimumAudioProbeBytes = 800;
     private const int AudioProbeSampleRate = 8000;
     private const int AudioProbeChannels = 2;
