@@ -8279,7 +8279,26 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public ActionResult SaveUserMapping([FromBody] UserBridgeMapping mapping)
+        public ActionResult SaveUserMapping([FromBody] HueUserMappingRequest? request)
+        {
+            if (request == null)
+            {
+                return BadRequest("Mapping is required.");
+            }
+
+            return SaveUserMappingCore(request.ToConfigurationMapping());
+        }
+
+        // Keep the strongly typed helper available to the existing in-process callers
+        // while the HTTP action uses a write-only request contract. UserBridgeMapping
+        // intentionally ignores bridge keys during JSON deserialization so that its
+        // summaries and generic configuration payloads cannot leak them; binding that
+        // type directly here would therefore make manually entered mapping keys vanish.
+        [NonAction]
+        internal ActionResult SaveUserMapping(UserBridgeMapping mapping)
+            => SaveUserMappingCore(mapping);
+
+        private ActionResult SaveUserMappingCore(UserBridgeMapping mapping)
         {
             if (mapping == null)
             {
@@ -9583,6 +9602,101 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool GlobalClientKeyPreserved { get; set; }
         public int MappingCredentialPairsPreserved { get; set; }
         public HueConfigurationImportDiff Diff { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Write-only request contract for a per-user mapping. The persisted mapping types
+    /// mark bridge credentials with <see cref="JsonIgnoreAttribute"/> so their generic
+    /// JSON representation is safe to return; using those types directly for this POST
+    /// would also discard credentials sent by the configuration page. Unknown fields are
+    /// retained here so the non-secret mapping profile stays in one canonical model.
+    /// </summary>
+    public sealed class HueUserMappingRequest
+    {
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement>? Values { get; set; }
+
+        internal UserBridgeMapping ToConfigurationMapping()
+        {
+            var values = Values ?? new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+            var mapping = JsonSerializer.Deserialize<UserBridgeMapping>(
+                JsonSerializer.Serialize(values),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new UserBridgeMapping();
+
+            mapping.HueAppKey = ReadString(values, "HueAppKey") ?? string.Empty;
+            mapping.HueClientKey = ReadString(values, "HueClientKey") ?? string.Empty;
+
+            if (TryGetValue(values, "DeviceTargets", out var deviceTargets) &&
+                deviceTargets.ValueKind == JsonValueKind.Array)
+            {
+                mapping.DeviceTargets = new List<UserDeviceBridgeTarget>();
+                foreach (var deviceTargetElement in deviceTargets.EnumerateArray())
+                {
+                    if (deviceTargetElement.ValueKind == JsonValueKind.Null)
+                    {
+                        mapping.DeviceTargets.Add(null!);
+                        continue;
+                    }
+
+                    var deviceTarget = JsonSerializer.Deserialize<UserDeviceBridgeTarget>(
+                        deviceTargetElement.GetRawText(),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new UserDeviceBridgeTarget();
+                    deviceTarget.HueAppKey = ReadString(deviceTargetElement, "HueAppKey") ?? string.Empty;
+                    deviceTarget.HueClientKey = ReadString(deviceTargetElement, "HueClientKey") ?? string.Empty;
+                    mapping.DeviceTargets.Add(deviceTarget);
+                }
+            }
+
+            return mapping;
+        }
+
+        private static string? ReadString(
+            IReadOnlyDictionary<string, JsonElement> values,
+            string propertyName)
+        {
+            return TryGetValue(values, propertyName, out var value)
+                ? ReadString(value)
+                : null;
+        }
+
+        private static string? ReadString(JsonElement value)
+            => value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined
+                ? null
+                : value.ValueKind == JsonValueKind.String
+                    ? value.GetString()
+                    : value.ToString();
+
+        private static string? ReadString(JsonElement value, string propertyName)
+        {
+            if (value.ValueKind != JsonValueKind.Object)
+                return null;
+
+            foreach (var property in value.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                    return ReadString(property.Value);
+            }
+
+            return null;
+        }
+
+        private static bool TryGetValue(
+            IReadOnlyDictionary<string, JsonElement> values,
+            string propertyName,
+            out JsonElement value)
+        {
+            foreach (var pair in values)
+            {
+                if (string.Equals(pair.Key, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = pair.Value;
+                    return true;
+                }
+            }
+
+            value = default;
+            return false;
+        }
     }
 
     public class HueRegistrationRequest

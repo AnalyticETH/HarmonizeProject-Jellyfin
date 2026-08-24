@@ -440,7 +440,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.257 (Current)
+### Version 1.5.258 (Current)
+- **Skip retry safety**: failed `SkipNextOccurrence` persistence releases the in-memory occurrence slot and preserves deferred state for a safe retry.
+- **Mapping credential writes**: JSON user-mapping POSTs preserve explicitly entered top-level and nested device bridge keys while read models remain credential-free.
+- **Structured dependency gate**: the self-hosted NuGet check validates JSON output and blocks on top-level or transitive vulnerability entries.
+- **Failure-path coverage**: scheduler retry, mapping credential round-trip/redaction, and structured vulnerability-report contracts are covered.
+
+### Version 1.5.257
 - **Session restart isolation**: canceled video/audio capture loops are awaited before shared FFmpeg and Hue streamers are reused, preventing stale predecessor colors from crossing a playback restart.
 - **IPv6 bridge discovery**: local mDNS discovery queries scoped IPv6 multicast on each multicast-capable interface, alongside the existing IPv4 path.
 - **Lifecycle and discovery coverage**: gated restart and ULA/link-local AAAA contracts cover the new runtime and discovery boundaries.

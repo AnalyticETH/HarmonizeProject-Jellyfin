@@ -141,6 +141,51 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMappingJsonRequestPreservesEnteredCredentialsWithoutMakingReadModelsSecretBearing()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>("""
+            {
+              "UserId": "user-json",
+              "UserName": "JSON Viewer",
+              "SyncEnabled": true,
+              "HueBridgeIp": "192.168.1.101",
+              "HueAppKey": "mapping-app-key",
+              "HueClientKey": "mapping-client-key",
+              "EntertainmentAreaId": "area-json",
+              "DeviceTargets": [
+                {
+                  "DeviceId": "living-room-tv",
+                  "DeviceName": "Living Room TV",
+                  "HueBridgeIp": "192.168.1.102",
+                  "HueAppKey": "device-app-key",
+                  "HueClientKey": "device-client-key",
+                  "EntertainmentAreaId": "area-device"
+                }
+              ]
+            }
+            """)!;
+
+        var action = CreateController().SaveUserMapping(request);
+
+        Assert.IsType<OkObjectResult>(action);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Equal("mapping-app-key", mapping.HueAppKey);
+        Assert.Equal("mapping-client-key", mapping.HueClientKey);
+        var deviceTarget = Assert.Single(mapping.DeviceTargets);
+        Assert.Equal("device-app-key", deviceTarget.HueAppKey);
+        Assert.Equal("device-client-key", deviceTarget.HueClientKey);
+
+        var serializedMapping = JsonSerializer.Serialize(mapping);
+        Assert.DoesNotContain("mapping-app-key", serializedMapping, StringComparison.Ordinal);
+        Assert.DoesNotContain("mapping-client-key", serializedMapping, StringComparison.Ordinal);
+        Assert.DoesNotContain("device-app-key", serializedMapping, StringComparison.Ordinal);
+        Assert.DoesNotContain("device-client-key", serializedMapping, StringComparison.Ordinal);
+        Assert.DoesNotContain("HueAppKey", serializedMapping, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HueClientKey", serializedMapping, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task DiscoverBridge_ReturnsDiscoveredAddress()
     {
         SetupHttpResponse(HttpStatusCode.OK, "[{\"internalipaddress\":\"192.168.1.100\"}]");

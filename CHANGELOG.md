@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.258] - 2026-08-24
+
+### Reliability
+- **Skip retry safety**: a failed `SkipNextOccurrence` persistence no longer consumes the in-memory occurrence slot or removes deferred state, so the same cue can retry safely on the next scheduler pass.
+- **Mapping credential writes**: the user-mapping POST contract now preserves explicitly entered top-level and nested device bridge keys while keeping persisted/read models credential-free.
+
+### Security
+- **Structured dependency gate**: the self-hosted NuGet vulnerability check now validates the SDK JSON schema and blocks on both top-level and transitive vulnerability entries instead of parsing human-readable output.
+
+### Tests
+- **Failure-path coverage**: scheduler persistence retry, JSON mapping credential round-trip/redaction, and structured vulnerability-report contracts are covered by focused checks.
+
 ## [1.5.257] - 2026-08-24
 
 ### Reliability

@@ -3657,6 +3657,67 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_WhenSkipPersistenceFails_ReleasesSlotForSameOccurrenceRetry()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .SetupSequence(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated first scheduler persistence failure"))
+            .Pass();
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "skip-retry-app-secret",
+            HueClientKey = "skip-retry-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Skip retry scene", DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "skip-retry-cue",
+                    Name = "Skip retry cue",
+                    PresetName = "Skip retry scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    SkipNextOccurrence = true,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var dueLocalNow = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        await service.RunDueSchedulesAsync(dueLocalNow, CancellationToken.None);
+
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+        Assert.Empty(service.GetHistory());
+
+        await service.RunDueSchedulesAsync(dueLocalNow, CancellationToken.None);
+
+        streamTester.VerifyNoOtherCalls();
+        Assert.False(configuration.SceneSchedules[0].SkipNextOccurrence);
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.Skipped);
+        Assert.Equal(0, history.RunCount);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_WhenOneTimeCompletionPersistenceFails_RestoresEnabledState()
     {
         var serializer = new Mock<IXmlSerializer>();

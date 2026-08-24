@@ -4250,9 +4250,6 @@ public sealed class HueSceneAutomationService : BackgroundService
             if (!TryClaimRunSlot(schedule.Id, slot))
                 continue;
 
-            if (hasDeferredRun)
-                RemoveDeferredRun(schedule.Id);
-
             if (TryConsumeSkippedOccurrence(config, schedule, out var skippedResult, out var skipPersistenceFailed))
             {
                 if (skippedResult != null)
@@ -4261,15 +4258,24 @@ public sealed class HueSceneAutomationService : BackgroundService
                     skippedResult.WasDeferred = hasDeferredRun;
                     skippedResult.WasDeferredRestored = wasDeferredRestored;
                 }
+                if (hasDeferredRun)
+                    RemoveDeferredRun(schedule.Id);
                 RecordSkippedOccurrence(config, schedule, skippedResult!);
                 continue;
             }
 
             // A pending skip is an explicit administrator instruction. If clearing it
             // could not be persisted, do not fall through and run the cue anyway. The
-            // marker remains intact so the next eligible occurrence can retry safely.
+            // marker remains intact so the same occurrence can retry safely. Release the
+            // slot claimed above; otherwise the slot guard would suppress that retry.
             if (skipPersistenceFailed)
+            {
+                ReleaseRunSlot(schedule.Id, slot);
                 continue;
+            }
+
+            if (hasDeferredRun)
+                RemoveDeferredRun(schedule.Id);
 
             var result = await RunScheduleTrackedAsync(
                 config,
@@ -6271,6 +6277,15 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             _lastRunSlots[scheduleId] = slot;
             return true;
+        }
+    }
+
+    private void ReleaseRunSlot(string scheduleId, DateTime slot)
+    {
+        lock (_runSlotLock)
+        {
+            if (_lastRunSlots.TryGetValue(scheduleId, out var claimedSlot) && claimedSlot == slot)
+                _lastRunSlots.Remove(scheduleId);
         }
     }
 

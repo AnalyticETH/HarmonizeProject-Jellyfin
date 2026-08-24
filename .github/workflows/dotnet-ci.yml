@@ -148,10 +148,14 @@ jobs:
 
     - name: Security scan with .NET tools
       run: |
-        set -o pipefail
-        dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerable-packages.txt
-        if grep -q "has the following vulnerable packages" vulnerable-packages.txt; then
-          echo "Vulnerable packages detected; see vulnerable-packages.txt for details." >&2
+        set -euo pipefail
+        dotnet list Jellyfin.Plugin.Hue.sln package --vulnerable --include-transitive --format json --output-version 1 > vulnerable-packages.json
+        test -s vulnerable-packages.json
+        jq -e 'type == "object" and .version == 1 and (.projects | type == "array" and length > 0)' vulnerable-packages.json >/dev/null
+        vulnerable_count=$(jq '[.projects[]?.frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | select((.vulnerabilities // []) | length > 0)] | length' vulnerable-packages.json)
+        echo "NuGet vulnerable package entries: $vulnerable_count" >> "$GITHUB_STEP_SUMMARY"
+        if [ "$vulnerable_count" -ne 0 ]; then
+          echo "Vulnerable packages detected; see vulnerable-packages.json for details." >&2
           exit 1
         fi
 
@@ -160,7 +164,7 @@ jobs:
       if: always()
       with:
         name: security-scan
-        path: vulnerable-packages.txt
+        path: vulnerable-packages.json
         retention-days: 30
 
   security-analysis:
