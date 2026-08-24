@@ -1708,7 +1708,7 @@ namespace Jellyfin.Plugin.Hue.Api
             HueSceneAutomationRunResult run,
             HueSceneSchedule schedule,
             HueColorPreset preset,
-            IReadOnlyList<HueCurrentLightColorTargetRoute>? targetRoutes = null)
+            IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutes = null)
         {
             PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
             var targetResults = run.TargetResults
@@ -2029,7 +2029,7 @@ namespace Jellyfin.Plugin.Hue.Api
                                 sourceName,
                                 StringComparison.OrdinalIgnoreCase)
                             ? targetName
-                            : presetName)
+                            : presetName!)
                         .ToList();
                     return clone;
                 })

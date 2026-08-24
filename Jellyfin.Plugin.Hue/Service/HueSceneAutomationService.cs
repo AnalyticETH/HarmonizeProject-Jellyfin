@@ -5943,9 +5943,6 @@ public sealed class HueSceneAutomationRunResult
     [JsonPropertyName("targetUserIds")]
     public IReadOnlyList<string> TargetUserIds { get; init; } = Array.Empty<string>();
 
-    [JsonPropertyName("targetRoutes")]
-    public IReadOnlyList<HueSceneAutomationTargetRoute> TargetRoutes { get; init; } = Array.Empty<HueSceneAutomationTargetRoute>();
-
     [JsonPropertyName("includeDefaultTarget")]
     public bool IncludeDefaultTarget { get; init; }
 
@@ -6011,6 +6008,9 @@ public sealed class HueScenePlaylistRunResult
 
     [JsonPropertyName("targetUserIds")]
     public IReadOnlyList<string> TargetUserIds { get; init; } = Array.Empty<string>();
+
+    [JsonPropertyName("targetRoutes")]
+    public IReadOnlyList<HueSceneAutomationTargetRoute> TargetRoutes { get; init; } = Array.Empty<HueSceneAutomationTargetRoute>();
 
     [JsonPropertyName("includeDefaultTarget")]
     public bool IncludeDefaultTarget { get; init; }
