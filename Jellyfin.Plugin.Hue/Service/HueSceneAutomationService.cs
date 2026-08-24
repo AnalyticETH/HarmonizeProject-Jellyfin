@@ -2174,6 +2174,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
+            TargetRoutes = normalizedTargetRoutesOverride,
             IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
             Succeeded = steps.Count == totalStepCount && succeededCount == totalStepCount,
             Message = message,
@@ -2333,6 +2334,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
+            TargetRoutes = targetRoutes,
             IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
             Succeeded = succeeded,
             Message = message,
@@ -5873,7 +5875,10 @@ internal sealed class HueSceneScheduleReadiness
 /// </summary>
 public sealed class HueSceneAutomationTargetRoute
 {
+    [JsonPropertyName("userId")]
     public string UserId { get; init; } = string.Empty;
+
+    [JsonPropertyName("deviceId")]
     public string? DeviceId { get; init; }
 }
 
@@ -5937,6 +5942,9 @@ public sealed class HueSceneAutomationRunResult
 
     [JsonPropertyName("targetUserIds")]
     public IReadOnlyList<string> TargetUserIds { get; init; } = Array.Empty<string>();
+
+    [JsonPropertyName("targetRoutes")]
+    public IReadOnlyList<HueSceneAutomationTargetRoute> TargetRoutes { get; init; } = Array.Empty<HueSceneAutomationTargetRoute>();
 
     [JsonPropertyName("includeDefaultTarget")]
     public bool IncludeDefaultTarget { get; init; }

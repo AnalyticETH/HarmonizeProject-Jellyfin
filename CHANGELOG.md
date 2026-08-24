@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.221] - 2026-08-24
+
+### Added
+- **Preview route telemetry**: return sanitized explicit `{userId, deviceId}` selections in normal, saved-scene, and playlist preview results so device-specific outcomes remain identifiable without exposing credentials.
+- **Cancellation recovery**: re-enable the administrator preview Cancel control when a cancellation request fails or reports no active operation, allowing a safe retry while the original request is still running.
+
+### Security
+- **Malformed playlist resilience**: reject null saved-scene references during color-preset rename validation instead of throwing from the migration path.
+
+### Tests
+- **Regression coverage**: verify route telemetry remains credential-free and malformed playlist references return a validation response without mutating configuration.
+
 ## [1.5.220] - 2026-08-24
 
 ### Added

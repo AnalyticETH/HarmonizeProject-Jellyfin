@@ -1266,7 +1266,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 return Ok(BuildPreviewResult(
                     broadcastResult,
                     previewSchedule,
-                    previewPreset));
+                    previewPreset,
+                    selectedTargetRoutes));
             }
 
             HashSet<int>? requestedChannelIds = null;
@@ -1502,7 +1503,8 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(BuildPreviewResult(
                 previewResult,
                 previewSchedule,
-                previewPreset));
+                previewPreset,
+                targetRoutes));
         }
 
         /// <summary>
@@ -1655,7 +1657,8 @@ namespace Jellyfin.Plugin.Hue.Api
                         Preview = BuildPreviewResult(
                             run,
                             previewSchedule,
-                            previewPreset)
+                            previewPreset,
+                            targetRoutes)
                     });
                     if (!run.Succeeded && run.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
                     {
@@ -1704,7 +1707,8 @@ namespace Jellyfin.Plugin.Hue.Api
         private static HuePreviewResult BuildPreviewResult(
             HueSceneAutomationRunResult run,
             HueSceneSchedule schedule,
-            HueColorPreset preset)
+            HueColorPreset preset,
+            IReadOnlyList<HueCurrentLightColorTargetRoute>? targetRoutes = null)
         {
             PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var effect);
             var targetResults = run.TargetResults
@@ -1727,6 +1731,17 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                     .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                     ?? Array.Empty<string>(),
+                TargetRoutes = targetRoutes?
+                    .Where(route => route != null &&
+                        !string.IsNullOrWhiteSpace(route.UserId) &&
+                        !string.IsNullOrWhiteSpace(route.DeviceId))
+                    .Select(route => new HueCurrentLightColorTargetRoute
+                    {
+                        UserId = route.UserId.Trim(),
+                        DeviceId = route.DeviceId!.Trim()
+                    })
+                    .ToArray()
+                    ?? Array.Empty<HueCurrentLightColorTargetRoute>(),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
                 TargetResults = targetResults,
                 Red = preset.Red,
@@ -2009,7 +2024,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 {
                     var clone = CloneScenePlaylist(playlist);
                     clone.PresetNames = (clone.PresetNames ?? new List<string>())
-                        .Select(presetName => string.Equals(
+                        .Select(presetName => presetName != null && string.Equals(
                                 presetName.Trim(),
                                 sourceName,
                                 StringComparison.OrdinalIgnoreCase)
@@ -9599,6 +9614,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetUserIds")]
         public IReadOnlyList<string> TargetUserIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("targetRoutes")]
+        public IReadOnlyList<HueCurrentLightColorTargetRoute> TargetRoutes { get; set; } = Array.Empty<HueCurrentLightColorTargetRoute>();
 
         [JsonPropertyName("includeDefaultTarget")]
         public bool IncludeDefaultTarget { get; set; }

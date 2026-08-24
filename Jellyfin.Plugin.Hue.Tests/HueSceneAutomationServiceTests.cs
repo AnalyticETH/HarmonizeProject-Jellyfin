@@ -4089,6 +4089,82 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunPlaylistPreview_ReportsExplicitDeviceRoutesWithoutCredentials()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Device scene", Red = 20, Green = 40, Blue = 60, DurationSeconds = 1 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    UserName = "Device room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "device-panel",
+                            DeviceName = "Wall panel",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-app-secret",
+                            HueClientKey = "device-client-secret",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    }
+                }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "device-playlist",
+                    Name = "Device playlist",
+                    PresetNames = new List<string> { "Device scene" }
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(
+            configuration.ScenePlaylists[0],
+            targetRoutesOverride: new[]
+            {
+                new HueSceneAutomationTargetRoute { UserId = " user-device ", DeviceId = " device-panel " }
+            });
+
+        Assert.True(result.Succeeded);
+        var route = Assert.Single(result.TargetRoutes);
+        Assert.Equal("user-device", route.UserId);
+        Assert.Equal("device-panel", route.DeviceId);
+        Assert.Equal("Device room / Wall panel", result.TargetLabel);
+        Assert.Equal(new[] { 20 }, streamTester.Reds);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("global-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("device-app-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunPlaylistPreview_UsesPersistedSelectedTargetsAndPreservesTargetTelemetry()
     {
         var configuration = new PluginConfiguration

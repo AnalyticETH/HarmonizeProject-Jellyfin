@@ -2334,6 +2334,9 @@ public sealed class HueApiControllerTests : IDisposable
         var result = Assert.IsType<HuePreviewResult>(response.Value);
         var target = Assert.Single(result.TargetResults);
         Assert.Equal("Bedroom / Bedroom TV", target.TargetLabel);
+        var returnedRoute = Assert.Single(result.TargetRoutes);
+        Assert.Equal("user-bedroom", returnedRoute.UserId);
+        Assert.Equal("device-tv", returnedRoute.DeviceId);
         streamTester.Verify(tester => tester.PreviewAsync(
             "192.168.1.102",
             "device-route-app-secret",
@@ -4135,6 +4138,36 @@ public sealed class HueApiControllerTests : IDisposable
         var collisionResponse = Assert.IsType<ConflictObjectResult>(collision.Result);
         Assert.Equal(StatusCodes.Status409Conflict, collisionResponse.StatusCode);
         Assert.Equal(new[] { "Original", "Existing" }, configuration.ColorPresets.Select(preset => preset.Name));
+    }
+
+    [Fact]
+    public void RenameColorPreset_ReturnsValidationErrorForNullPlaylistSceneReference()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Original", Red = 10 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-null-scene",
+                    Name = "Malformed playlist",
+                    PresetNames = new List<string> { null!, "Original" }
+                }
+            }
+        });
+
+        var action = CreateController().RenameColorPreset(
+            "Original",
+            new HueColorPresetRenameRequest { NewName = "Renamed" });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("scene 1 is required", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Original", Assert.Single(configuration.ColorPresets).Name);
+        Assert.Null(configuration.ScenePlaylists[0].PresetNames[0]);
     }
 
     [Fact]

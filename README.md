@@ -427,7 +427,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.220 (Current)
+### Version 1.5.221 (Current)
+- **Preview route telemetry**: normal, saved-scene, and playlist preview results now return sanitized explicit `{userId, deviceId}` selections so device-specific outcomes remain identifiable without exposing credentials. The administrator Cancel control recovers for safe retries when cancellation fails or reports no active operation.
+- **Malformed playlist resilience**: color-preset rename validates null saved-scene references and returns a safe validation response without mutating configuration.
+
+### Version 1.5.220
 - **Device-route preview parity**: normal, saved-scene, bulk saved-scene, and playlist previews accept credential-free `{userId, deviceId}` routes and resolve nested device bridge profiles without exposing secrets or changing persisted target selections. Preview selectors expose nested device routes while preserving legacy default, user-mapping, and all-target behavior.
 - **Fail-closed validation**: malformed route payloads are rejected before credential-bearing fallback, device IDs remain case-sensitive, and single-playlist previews preflight selected routes.
 
