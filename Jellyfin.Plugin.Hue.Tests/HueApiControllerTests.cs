@@ -6729,7 +6729,7 @@ public sealed class HueApiControllerTests : IDisposable
         var action = CreateController().GetSceneScheduleTimeZones();
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var zones = Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleTimeZoneResult>>(response.Value);
-        var utcZone = Assert.Single(zones.Where(zone => zone.Id == TimeZoneInfo.Utc.Id));
+        var utcZone = Assert.Single(zones, zone => zone.Id == TimeZoneInfo.Utc.Id);
         Assert.Equal("Etc/UTC", utcZone.TimeZoneIanaId);
         var easternZone = zones.FirstOrDefault(zone =>
             string.Equals(zone.Id, "America/New_York", StringComparison.Ordinal) ||
