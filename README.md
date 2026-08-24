@@ -440,7 +440,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.256 (Current)
+### Version 1.5.257 (Current)
+- **Session restart isolation**: canceled video/audio capture loops are awaited before shared FFmpeg and Hue streamers are reused, preventing stale predecessor colors from crossing a playback restart.
+- **IPv6 bridge discovery**: local mDNS discovery queries scoped IPv6 multicast on each multicast-capable interface, alongside the existing IPv4 path.
+- **Lifecycle and discovery coverage**: gated restart and ULA/link-local AAAA contracts cover the new runtime and discovery boundaries.
+
+### Version 1.5.256
 - **Self-hosted checkout isolation**: all CI/security/release checkouts disable persisted GitHub credentials; only the release tag step receives an explicit scoped auth header for its tag operation.
 - **Tested-artifact release integrity**: release packaging consumes the exact publish artifact produced by the tested build job instead of rebuilding a separate DLL.
 - **Reproducible SDK**: CI and repository tooling use the pinned .NET 8.0.424 SDK from `global.json`.

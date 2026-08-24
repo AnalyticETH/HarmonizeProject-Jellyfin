@@ -73,6 +73,10 @@ namespace Jellyfin.Plugin.Hue.Service
         private HueStreamer? _hueStreamer;
         private readonly HueClient _hueClient;
         private CancellationTokenSource? _syncCts;
+        // The capture loop owns the current FFmpeg stream and Hue streamer. Keep its
+        // task so a canceled predecessor cannot continue sending through those shared
+        // instances after a replacement playback session starts.
+        private Task? _syncLoopTask;
         private readonly ILoggerFactory _loggerFactory;
         private string? _currentPlaySessionId;
         private string? _recoveredSessionId;
@@ -417,7 +421,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     var bridgeConfig = _currentBridgeConfig;
                     var areaAlreadyDeactivated = _bridgeAreaDeactivated;
                     var savedLightStates = _savedLightStates;
-                    StopSync(deactivateArea: false);
+                    await StopSyncAsync(deactivateArea: false).ConfigureAwait(false);
                     _currentBridgeConfig = null;
                     _currentFrameResolution = null;
                     _currentVideoScalingMode = null;
@@ -524,7 +528,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 var config = Plugin.Instance?.Configuration;
                 var bridgeConfig = _currentBridgeConfig;
                 var savedLightStates = _savedLightStates;
-                StopSync(deactivateArea: false, expectedPlaySessionId: activePlaySessionId, clearSession: false);
+                await StopSyncAsync(
+                    deactivateArea: false,
+                    expectedPlaySessionId: activePlaySessionId,
+                    clearSession: false).ConfigureAwait(false);
                 _currentBridgeConfig = null;
                 _currentFrameResolution = null;
                 _currentVideoScalingMode = null;
@@ -1750,7 +1757,10 @@ namespace Jellyfin.Plugin.Hue.Service
             var config = Plugin.Instance?.Configuration;
             var bridgeConfig = _currentBridgeConfig;
             var savedLightStates = _savedLightStates;
-            StopSync(deactivateArea: false, expectedPlaySessionId: e.PlaySessionId, clearSession: false);
+            await StopSyncAsync(
+                deactivateArea: false,
+                expectedPlaySessionId: e.PlaySessionId,
+                clearSession: false).ConfigureAwait(false);
             _currentBridgeConfig = null;
             _currentFrameResolution = null;
             _currentVideoScalingMode = null;
@@ -2017,7 +2027,9 @@ namespace Jellyfin.Plugin.Hue.Service
                     activePauseBehavior ?? config?.PauseBehavior);
                 var bridgeConfig = _currentBridgeConfig;
                 var savedLightStates = restoreOnPause || dimOnPause ? _savedLightStates : null;
-                StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId);
+                await StopSyncAsync(
+                    deactivateArea: false,
+                    expectedPlaySessionId: playSessionId).ConfigureAwait(false);
 
                 if (restoreOnPause)
                 {
@@ -2105,9 +2117,13 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private void StopSync(bool deactivateArea = true, string? expectedPlaySessionId = null, bool clearSession = true)
+        private async Task StopSyncAsync(
+            bool deactivateArea = true,
+            string? expectedPlaySessionId = null,
+            bool clearSession = true)
         {
             CancellationTokenSource? syncCts;
+            Task? syncLoopTask;
             lock (_syncLock)
             {
                 if (expectedPlaySessionId != null &&
@@ -2118,7 +2134,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 syncCts = _syncCts;
+                syncLoopTask = _syncLoopTask;
                 _syncCts = null;
+                _syncLoopTask = null;
                 if (clearSession)
                 {
                     _currentPlaySessionId = null;
@@ -2129,12 +2147,33 @@ namespace Jellyfin.Plugin.Hue.Service
             syncCts?.Cancel();
             _ffmpegStreamer?.Stop();
             _hueStreamer?.StopStream();
+
+            // Stop() closes the underlying streams and cancellation causes the loop's
+            // read/send operations to unwind. Do not dispose the CTS or start another
+            // session until the predecessor has actually exited; the loop uses the
+            // shared streamer/FFmpeg fields and could otherwise write stale colors into
+            // the replacement playback session.
+            if (syncLoopTask != null)
+            {
+                try
+                {
+                    await syncLoopTask.ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "The canceled Hue sync loop ended with an exception during shutdown");
+                }
+            }
+
             syncCts?.Dispose();
 
             if (deactivateArea && _currentBridgeConfig != null && !_bridgeAreaDeactivated)
             {
                 var cfg = _currentBridgeConfig.Value;
-                ObserveTask(_hueClient.StopEntertainmentArea(cfg.BridgeIp, cfg.AppKey, cfg.AreaId));
+                await _hueClient.StopEntertainmentAreaWithResult(
+                    cfg.BridgeIp,
+                    cfg.AppKey,
+                    cfg.AreaId).ConfigureAwait(false);
             }
         }
 
@@ -4173,7 +4212,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 var config = Plugin.Instance?.Configuration;
                 var bridgeConfig = _currentBridgeConfig;
                 var savedLightStates = _savedLightStates;
-                StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId, clearSession: false);
+                await StopSyncAsync(
+                    deactivateArea: false,
+                    expectedPlaySessionId: playSessionId,
+                    clearSession: false).ConfigureAwait(false);
                 _currentBridgeConfig = null;
                 _currentFrameResolution = null;
                 _currentVideoScalingMode = null;
@@ -4513,7 +4555,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
             }
 
-            StopSync();
+            await StopSyncAsync().ConfigureAwait(false);
             var syncCts = CancellationTokenSource.CreateLinkedTokenSource(startupToken);
             var syncStatePublished = false;
             var syncLoopStarted = false;
@@ -4821,7 +4863,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         : "Streaming video colors to Hue.");
                 if (isAudioPlayback)
                 {
-                    _ = Task.Run(() => RunAudioSyncLoop(
+                    var syncLoopTask = Task.Run(() => RunAudioSyncLoop(
                         videoStream!,
                         lights,
                         areaId,
@@ -4844,10 +4886,15 @@ namespace Jellyfin.Plugin.Hue.Service
                         performanceSettings.SpatialOrientation,
                         performanceSettings.ColorSmoothingPercent,
                         colorProcessingSettings));
+                    lock (_syncLock)
+                    {
+                        if (ReferenceEquals(_syncCts, syncCts))
+                            _syncLoopTask = syncLoopTask;
+                    }
                 }
                 else
                 {
-                    _ = Task.Run(() => RunSyncLoopWithSampling(
+                    var syncLoopTask = Task.Run(() => RunSyncLoopWithSampling(
                         videoStream!,
                         lights,
                         areaId,
@@ -4860,6 +4907,11 @@ namespace Jellyfin.Plugin.Hue.Service
                         frameResolution,
                         performanceSettings.ColorSmoothingPercent,
                         colorProcessingSettings));
+                    lock (_syncLock)
+                    {
+                        if (ReferenceEquals(_syncCts, syncCts))
+                            _syncLoopTask = syncLoopTask;
+                    }
                 }
                 syncLoopStarted = true;
             }
@@ -5220,14 +5272,19 @@ namespace Jellyfin.Plugin.Hue.Service
 
             if (pauseCleanupPending)
             {
-                StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId, clearSession: false);
+                await StopSyncAsync(
+                    deactivateArea: false,
+                    expectedPlaySessionId: playSessionId,
+                    clearSession: false).ConfigureAwait(false);
                 return;
             }
 
             var config = Plugin.Instance?.Configuration;
             var bridgeConfig = _currentBridgeConfig;
             var savedLightStates = _savedLightStates;
-            StopSync(deactivateArea: false, expectedPlaySessionId: playSessionId);
+            await StopSyncAsync(
+                deactivateArea: false,
+                expectedPlaySessionId: playSessionId).ConfigureAwait(false);
             _currentBridgeConfig = null;
             _currentFrameResolution = null;
             _currentVideoScalingMode = null;

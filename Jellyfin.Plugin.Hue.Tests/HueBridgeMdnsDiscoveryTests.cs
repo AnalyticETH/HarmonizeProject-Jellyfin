@@ -46,6 +46,47 @@ public sealed class HueBridgeMdnsDiscoveryTests
     }
 
     [Fact]
+    public void ParseResponse_ResolvesUniqueLocalAddressFromPtrSrvAndAaaaRecords()
+    {
+        var response = BuildResponse("fd12:3456:789a::50");
+
+        var addresses = HueBridgeMdnsDiscovery.ParseResponse(response);
+
+        Assert.Contains("fd12:3456:789a::50", addresses);
+    }
+
+    [Fact]
+    public void ParseResponse_ResolvesLinkLocalAddressFromPtrSrvAndAaaaRecords()
+    {
+        var response = BuildResponse("fe80::50");
+
+        var addresses = HueBridgeMdnsDiscovery.ParseResponse(response);
+
+        Assert.Contains("fe80::50", addresses);
+    }
+
+    [Fact]
+    public void ParseResponse_RejectsGlobalIpv6Addresses()
+    {
+        var response = BuildResponse("2001:db8::50");
+
+        var addresses = HueBridgeMdnsDiscovery.ParseResponse(response);
+
+        Assert.Empty(addresses);
+    }
+
+    [Fact]
+    public void CreateIpv6MulticastEndpoint_UsesPerInterfaceScope()
+    {
+        var endpoint = HueBridgeMdnsDiscovery.CreateIpv6MulticastEndpoint(42);
+
+        Assert.Equal(System.Net.Sockets.AddressFamily.InterNetworkV6, endpoint.AddressFamily);
+        Assert.Equal("ff02::fb", endpoint.Address.ToString().Split('%')[0]);
+        Assert.Equal(42, endpoint.Address.ScopeId);
+        Assert.Equal(5353, endpoint.Port);
+    }
+
+    [Fact]
     public void ParseResponse_RejectsPublicAddresses()
     {
         var response = BuildResponse("8.8.8.8");
@@ -112,11 +153,15 @@ public sealed class HueBridgeMdnsDiscoveryTests
         response.AddRange(host);
 
         AppendName(response, "hue-bridge.local");
-        AppendUInt16(response, 1); // A
+        var parsedAddress = IPAddress.Parse(address);
+        AppendUInt16(
+            response,
+            parsedAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 28 : 1);
         AppendUInt16(response, 1); // IN
         AppendUInt32(response, 120);
-        AppendUInt16(response, 4);
-        response.AddRange(IPAddress.Parse(address).GetAddressBytes());
+        var addressBytes = parsedAddress.GetAddressBytes();
+        AppendUInt16(response, addressBytes.Length);
+        response.AddRange(addressBytes);
 
         return response.ToArray();
     }

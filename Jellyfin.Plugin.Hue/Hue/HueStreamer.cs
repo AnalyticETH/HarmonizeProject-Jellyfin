@@ -464,7 +464,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
         }
 
-        public void StopStream()
+        public virtual void StopStream()
             => StopStream(cancelPendingReconnect: true);
 
         private void StopStream(bool cancelPendingReconnect)
@@ -592,7 +592,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="colorChangeThreshold">Minimum per-channel color change to trigger update (0 to disable)</param>
         /// <param name="cancellationToken">Cancels the send or any reconnect attempt.</param>
         /// <returns>True when the packet was sent or intentionally skipped by the change threshold; otherwise false.</returns>
-        public async Task<bool> SendColors(
+        public virtual async Task<bool> SendColors(
             string areaId,
             Dictionary<int, byte[]> channelColors,
             int colorChangeThreshold = 0,

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.257] - 2026-08-24
+
+### Reliability
+- **Session restart isolation**: canceled video/audio capture loops are now awaited before shared FFmpeg and Hue streamers are reused, preventing stale colors from a predecessor playback session from reaching a replacement session.
+- **IPv6 bridge discovery**: local mDNS discovery now queries scoped IPv6 multicast on each multicast-capable interface, so IPv6-only Hue bridges can be discovered alongside existing IPv4 results.
+
+### Tests
+- **Lifecycle and discovery coverage**: gated stop-to-restart streaming coverage and ULA/link-local AAAA mDNS contracts verify the new boundaries without exposing credentials.
+
 ## [1.5.256] - 2026-08-24
 
 ### Security

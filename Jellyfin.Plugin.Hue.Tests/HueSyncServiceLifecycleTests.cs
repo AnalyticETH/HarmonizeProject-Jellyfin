@@ -998,6 +998,90 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task StopSyncAsync_AwaitsPredecessorLoopBeforeReplacementCanSend()
+    {
+        using var httpClient = new HttpClient(new BlockingHueHandler());
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var streamer = new GatedHueStreamer();
+        SetPrivateField(service, "_hueStreamer", streamer);
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-old");
+        SetPrivateField(
+            service,
+            "_currentBridgeConfig",
+            new ValueTuple<string, string, string, string>(
+                "192.168.1.100",
+                "app-key",
+                "client-key",
+                "old-area"));
+
+        const int frameSize = 160 * 90 * 3;
+        var runLoopMethod = typeof(HueSyncService).GetMethod(
+            "RunSyncLoop",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var oldCts = Assert.IsType<CancellationTokenSource>(GetPrivateField(service, "_syncCts"));
+        var oldLoop = Assert.IsAssignableFrom<Task>(runLoopMethod.Invoke(service, new object?[]
+        {
+            new MemoryStream(new byte[frameSize]),
+            new Dictionary<int, (double x, double z)> { [1] = (0, 0) },
+            "old-area",
+            50,
+            oldCts,
+            "session-old"
+        }));
+        SetPrivateField(service, "_syncLoopTask", oldLoop);
+
+        await streamer.FirstSendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var stopMethod = typeof(HueSyncService).GetMethod(
+            "StopSyncAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var stopTask = Assert.IsAssignableFrom<Task>(stopMethod.Invoke(service, new object?[]
+        {
+            false,
+            "session-old",
+            false
+        }));
+
+        await streamer.FirstSendCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(stopTask.IsCompleted);
+        streamer.ReleaseFirstSend.TrySetResult(true);
+        await stopTask;
+        await oldLoop;
+
+        var newCts = new CancellationTokenSource();
+        SetPrivateField(service, "_syncCts", newCts);
+        SetPrivateField(service, "_currentPlaySessionId", "session-new");
+        var newLoop = Assert.IsAssignableFrom<Task>(runLoopMethod.Invoke(service, new object?[]
+        {
+            new MemoryStream(new byte[frameSize]),
+            new Dictionary<int, (double x, double z)> { [1] = (0, 0) },
+            "new-area",
+            50,
+            newCts,
+            "session-new"
+        }));
+        SetPrivateField(service, "_syncLoopTask", newLoop);
+        await streamer.SecondSendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        newCts.Cancel();
+        await newLoop;
+
+        Assert.Equal(new[] { "old-area", "new-area" }, streamer.Areas);
+
+        var finishNewStop = Assert.IsAssignableFrom<Task>(stopMethod.Invoke(service, new object?[]
+        {
+            false,
+            "session-new",
+            true
+        }));
+        await finishNewStop;
+        SetPrivateField(service, "_currentBridgeConfig", null);
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PlaybackPause_QueuesImmediateResumeUntilDeactivationCompletes()
     {
         var handler = new BlockingHueHandler();
@@ -1322,6 +1406,57 @@ public sealed class HueSyncServiceLifecycleTests
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private sealed class GatedHueStreamer : HueStreamer
+    {
+        private readonly object _areaLock = new();
+        private int _sendCount;
+
+        public GatedHueStreamer()
+            : base(Mock.Of<ILogger<HueStreamer>>())
+        {
+        }
+
+        public TaskCompletionSource<bool> FirstSendStarted { get; } = NewSignal();
+        public TaskCompletionSource<bool> FirstSendCanceled { get; } = NewSignal();
+        public TaskCompletionSource<bool> ReleaseFirstSend { get; } = NewSignal();
+        public TaskCompletionSource<bool> SecondSendStarted { get; } = NewSignal();
+        public List<string> Areas { get; } = new();
+
+        public override void StopStream()
+        {
+        }
+
+        public override async Task<bool> SendColors(
+            string areaId,
+            Dictionary<int, byte[]> channelColors,
+            int colorChangeThreshold = 0,
+            CancellationToken cancellationToken = default)
+        {
+            var sendNumber = Interlocked.Increment(ref _sendCount);
+            lock (_areaLock)
+            {
+                Areas.Add(areaId);
+            }
+
+            if (sendNumber == 1)
+            {
+                FirstSendStarted.TrySetResult(true);
+                using var cancellationRegistration = cancellationToken.Register(
+                    () => FirstSendCanceled.TrySetResult(true));
+                await ReleaseFirstSend.Task.ConfigureAwait(false);
+            }
+            else if (sendNumber == 2)
+            {
+                SecondSendStarted.TrySetResult(true);
+            }
+
+            return true;
+        }
+
+        private static TaskCompletionSource<bool> NewSignal() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private sealed class BlockingHueHandler : HttpMessageHandler

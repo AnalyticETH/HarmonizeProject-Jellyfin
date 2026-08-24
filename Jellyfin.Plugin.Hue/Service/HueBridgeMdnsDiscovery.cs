@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -35,6 +36,7 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
     private const int MdnsPort = 5353;
     private const int MaxRecords = 256;
     private static readonly IPAddress MdnsAddress = IPAddress.Parse("224.0.0.251");
+    private static readonly IPAddress MdnsIpv6Address = IPAddress.Parse("ff02::fb");
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(1.5);
 
     private readonly TimeSpan _timeout;
@@ -53,42 +55,55 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(_timeout);
 
+        try
+        {
+            // Keep IPv4 and IPv6 discovery independent. A host can have no IPv6
+            // multicast-capable interface (or a firewall can reject the IPv6 socket)
+            // without making the existing IPv4 discovery fail.
+            var results = await Task.WhenAll(
+                    DiscoverIpv4Async(timeoutSource.Token, cancellationToken),
+                    DiscoverIpv6Async(timeoutSource.Token, cancellationToken))
+                .ConfigureAwait(false);
+
+            return results
+                .SelectMany(addresses => addresses)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Array.Empty<string>();
+        }
+        catch (InvalidOperationException)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private async Task<IReadOnlyList<string>> DiscoverIpv4Async(
+        CancellationToken timeoutCancellationToken,
+        CancellationToken callerCancellationToken)
+    {
         UdpClient? client = null;
         try
         {
             client = CreateClient(out var requestedUnicastResponse);
             var query = BuildQuery(requestedUnicastResponse);
             var endpoint = new IPEndPoint(MdnsAddress, MdnsPort);
-            await client.SendAsync(query, endpoint).AsTask().WaitAsync(timeoutSource.Token).ConfigureAwait(false);
+            await client.SendAsync(query, endpoint).AsTask().WaitAsync(timeoutCancellationToken).ConfigureAwait(false);
 
-            var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            while (!timeoutSource.IsCancellationRequested)
-            {
-                UdpReceiveResult response;
-                try
-                {
-                    response = await client.ReceiveAsync().WaitAsync(timeoutSource.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    break;
-                }
-
-                foreach (var address in ParseResponse(response.Buffer))
-                    addresses.Add(address);
-            }
-
-            return addresses.ToArray();
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return Array.Empty<string>();
+            return await ReceiveAddressesAsync(client, timeoutCancellationToken, callerCancellationToken)
+                .ConfigureAwait(false);
         }
         catch (SocketException)
         {
             return Array.Empty<string>();
         }
         catch (ObjectDisposedException)
+        {
+            return Array.Empty<string>();
+        }
+        catch (OperationCanceledException) when (!callerCancellationToken.IsCancellationRequested)
         {
             return Array.Empty<string>();
         }
@@ -100,6 +115,106 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
         {
             client?.Dispose();
         }
+    }
+
+    private async Task<IReadOnlyList<string>> DiscoverIpv6Async(
+        CancellationToken timeoutCancellationToken,
+        CancellationToken callerCancellationToken)
+    {
+        IReadOnlyList<int> interfaceIndexes;
+        try
+        {
+            interfaceIndexes = GetIpv6MulticastInterfaceIndexes();
+        }
+        catch (NetworkInformationException)
+        {
+            return Array.Empty<string>();
+        }
+        catch (SocketException)
+        {
+            return Array.Empty<string>();
+        }
+        catch (InvalidOperationException)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (interfaceIndexes.Count == 0)
+            return Array.Empty<string>();
+
+        UdpClient? client = null;
+        try
+        {
+            client = CreateIpv6Client(interfaceIndexes, out var requestedUnicastResponse);
+            var query = BuildQuery(requestedUnicastResponse);
+            var sentQuery = false;
+            foreach (var interfaceIndex in interfaceIndexes)
+            {
+                try
+                {
+                    // Link-local multicast requires a scope ID. Sending once per
+                    // interface also avoids relying on the process-wide default route.
+                    var endpoint = CreateIpv6MulticastEndpoint(interfaceIndex);
+                    await client.SendAsync(query, endpoint).AsTask().WaitAsync(timeoutCancellationToken)
+                        .ConfigureAwait(false);
+                    sentQuery = true;
+                }
+                catch (SocketException)
+                {
+                    // One interface can disappear between enumeration and send. Keep
+                    // querying the remaining interfaces rather than dropping IPv6
+                    // discovery altogether.
+                }
+            }
+
+            return sentQuery
+                ? await ReceiveAddressesAsync(client, timeoutCancellationToken, callerCancellationToken)
+                    .ConfigureAwait(false)
+                : Array.Empty<string>();
+        }
+        catch (SocketException)
+        {
+            return Array.Empty<string>();
+        }
+        catch (ObjectDisposedException)
+        {
+            return Array.Empty<string>();
+        }
+        catch (OperationCanceledException) when (!callerCancellationToken.IsCancellationRequested)
+        {
+            return Array.Empty<string>();
+        }
+        catch (InvalidOperationException)
+        {
+            return Array.Empty<string>();
+        }
+        finally
+        {
+            client?.Dispose();
+        }
+    }
+
+    private static async Task<IReadOnlyList<string>> ReceiveAddressesAsync(
+        UdpClient client,
+        CancellationToken timeoutCancellationToken,
+        CancellationToken callerCancellationToken)
+    {
+        var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (!timeoutCancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var response = await client.ReceiveAsync().WaitAsync(timeoutCancellationToken).ConfigureAwait(false);
+                foreach (var address in ParseResponse(response.Buffer))
+                    addresses.Add(address);
+            }
+            catch (OperationCanceledException) when (!callerCancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+        }
+
+        return addresses.ToArray();
     }
 
     /// <summary>
@@ -224,6 +339,112 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
             requestedUnicastResponse = true;
             return new UdpClient(0);
         }
+    }
+
+    private static UdpClient CreateIpv6Client(
+        IReadOnlyList<int> interfaceIndexes,
+        out bool requestedUnicastResponse)
+    {
+        UdpClient? client = null;
+        try
+        {
+            client = new UdpClient(AddressFamily.InterNetworkV6)
+            {
+                ExclusiveAddressUse = false
+            };
+            client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            client.Client.Bind(new IPEndPoint(IPAddress.IPv6Any, MdnsPort));
+            var joinedInterface = false;
+            foreach (var interfaceIndex in interfaceIndexes)
+            {
+                try
+                {
+                    client.JoinMulticastGroup(interfaceIndex, MdnsIpv6Address);
+                    joinedInterface = true;
+                }
+                catch (SocketException)
+                {
+                    // Continue with interfaces that are still available.
+                }
+                catch (InvalidOperationException)
+                {
+                    // Continue with interfaces that are still available.
+                }
+            }
+
+            if (!joinedInterface)
+            {
+                client.Dispose();
+                client = null;
+                requestedUnicastResponse = true;
+                return new UdpClient(AddressFamily.InterNetworkV6);
+            }
+
+            requestedUnicastResponse = false;
+            return client;
+        }
+        catch (SocketException)
+        {
+            client?.Dispose();
+            requestedUnicastResponse = true;
+            return new UdpClient(AddressFamily.InterNetworkV6);
+        }
+        catch (InvalidOperationException)
+        {
+            client?.Dispose();
+            requestedUnicastResponse = true;
+            return new UdpClient(AddressFamily.InterNetworkV6);
+        }
+    }
+
+    private static IReadOnlyList<int> GetIpv6MulticastInterfaceIndexes()
+    {
+        var indexes = new HashSet<int>();
+        foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (networkInterface.OperationalStatus != OperationalStatus.Up ||
+                !networkInterface.SupportsMulticast)
+            {
+                continue;
+            }
+
+            try
+            {
+                var properties = networkInterface.GetIPProperties();
+                if (!properties.UnicastAddresses.Any(address =>
+                        address.Address.AddressFamily == AddressFamily.InterNetworkV6 &&
+                        !IPAddress.IsLoopback(address.Address) &&
+                        !address.Address.Equals(IPAddress.IPv6Any)))
+                {
+                    continue;
+                }
+
+                var ipv6Properties = properties.GetIPv6Properties();
+                if (ipv6Properties is { Index: > 0 })
+                    indexes.Add(ipv6Properties.Index);
+            }
+            catch (NetworkInformationException)
+            {
+                // Interface state can change while it is being inspected. A failed
+                // interface must not prevent discovery on the rest of the host.
+            }
+            catch (SocketException)
+            {
+                // Some platforms surface a disappearing interface as a socket error.
+            }
+        }
+
+        return indexes.ToArray();
+    }
+
+    internal static IPEndPoint CreateIpv6MulticastEndpoint(int interfaceIndex)
+    {
+        if (interfaceIndex <= 0)
+            throw new ArgumentOutOfRangeException(nameof(interfaceIndex));
+
+        return new IPEndPoint(
+            new IPAddress(MdnsIpv6Address.GetAddressBytes(), interfaceIndex),
+            MdnsPort);
     }
 
     private static bool IsHueServiceInstance(string name)
