@@ -7112,14 +7112,23 @@ namespace Jellyfin.Plugin.Hue.Api
                 return NotFound("Plugin configuration not available.");
 
             var plan = BuildConfigurationImportPlan(config, request);
-            var activePlayback = _syncService?.HasActivePlaybackSessions == true;
+            var activePlayback = _syncService?.HasActivePlaybackSessions == true ||
+                _bridgeLifecycleGate.IsPlaybackActive;
+            var activeDiagnostic = _bridgeLifecycleGate.IsDiagnosticActive;
+            var activeConfigurationMutation = _bridgeLifecycleGate.IsConfigurationMutationActive;
             var activeScheduledCue = _sceneAutomationService?.HasActiveScheduleRuns == true;
+            var activeScheduleEvaluation = _sceneAutomationService?.HasActiveScheduleEvaluation == true;
             var valid = plan.ValidationErrors.Count == 0;
             return Ok(new HueConfigurationImportValidationResult
             {
                 Valid = valid,
-                CanImport = valid && !activePlayback && !activeScheduledCue,
+                CanImport = valid && !activePlayback && !activeDiagnostic &&
+                    !activeConfigurationMutation && !activeScheduledCue,
                 ActivePlayback = activePlayback,
+                ActiveDiagnostic = activeDiagnostic,
+                ActiveConfigurationMutation = activeConfigurationMutation,
+                ActiveScheduledCue = activeScheduledCue,
+                ActiveScheduleEvaluation = activeScheduleEvaluation,
                 SchemaVersion = request.SchemaVersion,
                 ValidationErrors = plan.ValidationErrors,
                 MappingsImported = plan.ImportedMappingCount,
@@ -7134,16 +7143,42 @@ namespace Jellyfin.Plugin.Hue.Api
                 GlobalClientKeyPreserved = plan.GlobalClientKeyPreserved,
                 MappingCredentialPairsPreserved = plan.MappingCredentialPairsPreserved,
                 Diff = plan.Diff,
-                Message = valid
-                    ? activePlayback && activeScheduledCue
-                        ? "Configuration is valid, but active Hue playback and scheduled scene cues must finish before import."
-                        : activePlayback
-                            ? "Configuration is valid, but active Hue playback must stop before import."
-                            : activeScheduledCue
-                                ? "Configuration is valid, but active scheduled scene cues must finish before import."
-                                : "Configuration is valid and ready to import."
-                    : "Configuration import is invalid. No changes were applied."
+                Message = BuildConfigurationImportValidationMessage(
+                    valid,
+                    activePlayback,
+                    activeDiagnostic,
+                    activeConfigurationMutation,
+                    activeScheduledCue,
+                    activeScheduleEvaluation)
             });
+        }
+
+        private static string BuildConfigurationImportValidationMessage(
+            bool valid,
+            bool activePlayback,
+            bool activeDiagnostic,
+            bool activeConfigurationMutation,
+            bool activeScheduledCue,
+            bool activeScheduleEvaluation)
+        {
+            if (!valid)
+                return "Configuration import is invalid. No changes were applied.";
+
+            var blockers = new List<string>();
+            if (activePlayback)
+                blockers.Add("active Hue playback");
+            if (activeDiagnostic)
+                blockers.Add("an administrator diagnostic");
+            if (activeConfigurationMutation)
+                blockers.Add("another configuration import");
+            if (activeScheduledCue)
+                blockers.Add("active scheduled scene cues");
+            if (activeScheduleEvaluation)
+                blockers.Add("scheduled scene evaluation");
+
+            return blockers.Count == 0
+                ? "Configuration is valid and ready to import."
+                : $"Configuration is valid, but {string.Join(", ", blockers)} must finish before import.";
         }
 
         /// <summary>
@@ -7169,27 +7204,41 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest($"Unsupported configuration schema version {request.SchemaVersion}. Expected {HueConfigurationExportDocument.CurrentSchemaVersion}.");
             }
 
-            if (_syncService?.HasActivePlaybackSessions == true)
-            {
-                return Conflict("Stop all active Hue playback sessions before importing configuration.");
-            }
-
             var plugin = Plugin.Instance;
             var config = plugin?.Configuration;
             if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
             IDisposable? importLease = null;
-            if (_sceneAutomationService != null &&
-                !_sceneAutomationService.TryAcquireConfigurationMutation(
-                    out importLease,
-                    out var activeScheduleMessage))
+            if (_sceneAutomationService != null)
             {
-                return Conflict(activeScheduleMessage);
+                if (!_sceneAutomationService.TryAcquireConfigurationMutation(
+                        out importLease,
+                        out var activeScheduleMessage))
+                {
+                    return Conflict(activeScheduleMessage);
+                }
+            }
+            else
+            {
+                importLease = _bridgeLifecycleGate.TryEnterConfigurationMutation();
+                if (importLease == null)
+                {
+                    return Conflict("Configuration import cannot proceed while Hue playback or an administrator diagnostic is active.");
+                }
             }
 
             try
             {
+                // Keep the existing runtime-state check for defensive compatibility with
+                // test hosts or integrations that expose a playback service without using
+                // the shared lifecycle gate. The composite lease above closes the normal
+                // check-then-start race for the real hosted services.
+                if (_syncService?.HasActivePlaybackSessions == true)
+                {
+                    return Conflict("Stop all active Hue playback sessions before importing configuration.");
+                }
+
                 var plan = BuildConfigurationImportPlan(config, request);
                 if (plan.ValidationErrors.Count > 0)
                 {
@@ -9507,6 +9556,10 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool Valid { get; set; }
         public bool CanImport { get; set; }
         public bool ActivePlayback { get; set; }
+        public bool ActiveDiagnostic { get; set; }
+        public bool ActiveConfigurationMutation { get; set; }
+        public bool ActiveScheduledCue { get; set; }
+        public bool ActiveScheduleEvaluation { get; set; }
         public int SchemaVersion { get; set; }
         public IReadOnlyList<string> ValidationErrors { get; set; } = Array.Empty<string>();
         public int MappingsImported { get; set; }

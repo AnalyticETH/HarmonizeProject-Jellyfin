@@ -18,6 +18,7 @@ public sealed class HueBridgeLifecycleGate
     private readonly HashSet<string> _diagnosticResources = new(StringComparer.OrdinalIgnoreCase);
     private bool _unscopedPlaybackActive;
     private bool _unscopedDiagnosticActive;
+    private bool _configurationMutationActive;
 
     /// <summary>
     /// Gets whether a playback lifecycle currently owns at least one bridge resource.
@@ -63,6 +64,43 @@ public sealed class HueBridgeLifecycleGate
     }
 
     /// <summary>
+    /// Gets whether a configuration mutation currently owns the lifecycle gate. While
+    /// held, no new playback or diagnostic lifecycle may reserve a bridge resource.
+    /// </summary>
+    public bool IsConfigurationMutationActive
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _configurationMutationActive;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Attempts to reserve the process-wide lifecycle gate for an atomic configuration
+    /// mutation. The reservation succeeds only when no playback or diagnostic lifecycle
+    /// is active, and remains held until the returned lease is disposed. This closes the
+    /// check-then-start race where playback could begin after an import's active check.
+    /// </summary>
+    public IDisposable? TryEnterConfigurationMutation()
+    {
+        lock (_sync)
+        {
+            if (_configurationMutationActive ||
+                IsPlaybackActiveLocked() ||
+                IsDiagnosticActiveLocked())
+            {
+                return null;
+            }
+
+            _configurationMutationActive = true;
+            return new LifecycleLease(this, LifecycleKind.ConfigurationMutation, resourceKey: null);
+        }
+    }
+
+    /// <summary>
     /// Attempts to reserve the bridge for playback until the returned lease is disposed.
     /// This legacy overload reserves the entire process, preserving the behavior expected
     /// by callers that do not identify a bridge target.
@@ -78,6 +116,9 @@ public sealed class HueBridgeLifecycleGate
     {
         lock (_sync)
         {
+            if (_configurationMutationActive)
+                return null;
+
             var blockedByDiagnostic = resourceKey == null
                 ? IsDiagnosticActiveLocked()
                 : _unscopedDiagnosticActive || _diagnosticResources.Contains(resourceKey);
@@ -92,7 +133,7 @@ public sealed class HueBridgeLifecycleGate
             else
                 _playbackResources.Add(resourceKey);
 
-            return new LifecycleLease(this, isPlayback: true, resourceKey: resourceKey);
+            return new LifecycleLease(this, LifecycleKind.Playback, resourceKey);
         }
     }
 
@@ -113,6 +154,9 @@ public sealed class HueBridgeLifecycleGate
     {
         lock (_sync)
         {
+            if (_configurationMutationActive)
+                return null;
+
             var blockedByPlayback = resourceKey == null
                 ? IsPlaybackActiveLocked()
                 : _unscopedPlaybackActive || _playbackResources.Contains(resourceKey);
@@ -127,7 +171,7 @@ public sealed class HueBridgeLifecycleGate
             else
                 _diagnosticResources.Add(resourceKey);
 
-            return new LifecycleLease(this, isPlayback: false, resourceKey);
+            return new LifecycleLease(this, LifecycleKind.Diagnostic, resourceKey);
         }
     }
 
@@ -137,11 +181,15 @@ public sealed class HueBridgeLifecycleGate
     private bool IsDiagnosticActiveLocked() =>
         _unscopedDiagnosticActive || _diagnosticResources.Count > 0;
 
-    private void Exit(bool isPlayback, string? resourceKey)
+    private void Exit(LifecycleKind kind, string? resourceKey)
     {
         lock (_sync)
         {
-            if (isPlayback)
+            if (kind == LifecycleKind.ConfigurationMutation)
+            {
+                _configurationMutationActive = false;
+            }
+            else if (kind == LifecycleKind.Playback)
             {
                 if (resourceKey == null)
                     _unscopedPlaybackActive = false;
@@ -161,20 +209,27 @@ public sealed class HueBridgeLifecycleGate
     private sealed class LifecycleLease : IDisposable
     {
         private HueBridgeLifecycleGate? _owner;
-        private readonly bool _isPlayback;
+        private readonly LifecycleKind _kind;
         private readonly string? _resourceKey;
 
-        public LifecycleLease(HueBridgeLifecycleGate owner, bool isPlayback, string? resourceKey)
+        public LifecycleLease(HueBridgeLifecycleGate owner, LifecycleKind kind, string? resourceKey)
         {
             _owner = owner;
-            _isPlayback = isPlayback;
+            _kind = kind;
             _resourceKey = resourceKey;
         }
 
         public void Dispose()
         {
             var owner = Interlocked.Exchange(ref _owner, null);
-            owner?.Exit(_isPlayback, _resourceKey);
+            owner?.Exit(_kind, _resourceKey);
         }
+    }
+
+    private enum LifecycleKind
+    {
+        Playback,
+        Diagnostic,
+        ConfigurationMutation
     }
 }

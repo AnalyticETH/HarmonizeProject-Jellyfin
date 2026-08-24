@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.253] - 2026-08-24
+
+### Security
+- **Configuration lifecycle barrier**: imports now coordinate with the shared bridge lifecycle gate and scheduler evaluation barrier, refusing active playback, diagnostics, active cues, or in-flight scheduler evaluation before replacing configuration.
+- **Credential-safe readiness detail**: import validation exposes explicit diagnostic and configuration-mutation blockers without returning bridge credentials.
+
+### Tests
+- **Lifecycle race coverage**: gate, playback, diagnostic, active-cue, and scheduler-preflight tests verify conflict responses and unchanged configuration.
+
 ## [1.5.252] - 2026-08-24
 
 ### Security

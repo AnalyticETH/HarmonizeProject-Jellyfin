@@ -33,6 +33,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     private readonly Dictionary<string, CancellationTokenSource> _manualRunCancellations = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _runtimeStateLock = new();
     private readonly Dictionary<string, HueSceneScheduleRuntimeState> _runtimeStates = new(StringComparer.OrdinalIgnoreCase);
+    private int _schedulerEvaluationCount;
     private readonly object _historyLock = new();
     private readonly List<HueSceneAutomationRunResult> _runHistory = new();
     private bool _historyLoaded;
@@ -92,6 +93,22 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Reports whether an automatic scheduler pass has captured configuration and is
+    /// still evaluating, running, or finalizing scheduled cues. Configuration mutation
+    /// uses the same runtime-state lock and must not interleave with this window.
+    /// </summary>
+    internal bool HasActiveScheduleEvaluation
+    {
+        get
+        {
+            lock (_runtimeStateLock)
+            {
+                return _schedulerEvaluationCount > 0;
+            }
+        }
+    }
+
+    /// <summary>
     /// Reserves the runtime-state lock for a configuration import. The returned lease
     /// prevents a cue from starting until the caller finishes its configuration transaction.
     /// </summary>
@@ -102,16 +119,43 @@ public sealed class HueSceneAutomationService : BackgroundService
         lease = null;
         message = string.Empty;
 
-        Monitor.Enter(_runtimeStateLock);
-        if (_runtimeStates.Values.Any(state => state.ActiveRuns > 0))
+        // Reserve the process-wide bridge lifecycle gate before checking playback or
+        // diagnostics. The lease prevents a new bridge lifecycle from starting after
+        // the point-in-time check and remains held through the configuration transaction.
+        var bridgeLifecycleLease = _bridgeLifecycleGate.TryEnterConfigurationMutation();
+        if (bridgeLifecycleLease == null)
         {
-            Monitor.Exit(_runtimeStateLock);
-            message = "Configuration import cannot proceed while a scheduled scene cue is running.";
+            message = "Configuration import cannot proceed while Hue playback or an administrator diagnostic is active.";
             return false;
         }
 
-        lease = new ConfigurationMutationLease(this);
-        return true;
+        var runtimeStateLockHeld = false;
+        try
+        {
+            Monitor.Enter(_runtimeStateLock);
+            runtimeStateLockHeld = true;
+            var activeScheduleRun = _runtimeStates.Values.Any(state => state.ActiveRuns > 0);
+            if (_schedulerEvaluationCount > 0 || activeScheduleRun)
+            {
+                Monitor.Exit(_runtimeStateLock);
+                runtimeStateLockHeld = false;
+                bridgeLifecycleLease.Dispose();
+                message = activeScheduleRun
+                    ? "Configuration import cannot proceed while a scheduled scene cue is running."
+                    : "Configuration import cannot proceed while scheduled scene evaluation is in progress.";
+                return false;
+            }
+
+            lease = new ConfigurationMutationLease(this, bridgeLifecycleLease);
+            return true;
+        }
+        catch
+        {
+            if (runtimeStateLockHeld)
+                Monitor.Exit(_runtimeStateLock);
+            bridgeLifecycleLease.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
@@ -4005,6 +4049,7 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     internal async Task RunDueSchedulesAsync(DateTime localNow, CancellationToken cancellationToken)
     {
+        using var schedulerEvaluation = BeginSchedulerEvaluation();
         EnsureDeferredRunsLoaded();
         var config = Plugin.Instance?.Configuration;
         if (config == null || !config.SceneAutomationEnabled)
@@ -4924,23 +4969,68 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
-    private void ReleaseConfigurationMutation()
+    private IDisposable BeginSchedulerEvaluation()
     {
-        Monitor.Exit(_runtimeStateLock);
+        lock (_runtimeStateLock)
+        {
+            _schedulerEvaluationCount++;
+        }
+
+        return new SchedulerEvaluationLease(this);
     }
 
-    private sealed class ConfigurationMutationLease : IDisposable
+    private void EndSchedulerEvaluation()
+    {
+        lock (_runtimeStateLock)
+        {
+            _schedulerEvaluationCount = Math.Max(0, _schedulerEvaluationCount - 1);
+        }
+    }
+
+    private sealed class SchedulerEvaluationLease : IDisposable
     {
         private HueSceneAutomationService? _owner;
 
-        public ConfigurationMutationLease(HueSceneAutomationService owner)
+        public SchedulerEvaluationLease(HueSceneAutomationService owner)
         {
             _owner = owner;
         }
 
         public void Dispose()
         {
-            Interlocked.Exchange(ref _owner, null)?.ReleaseConfigurationMutation();
+            Interlocked.Exchange(ref _owner, null)?.EndSchedulerEvaluation();
+        }
+    }
+
+    private void ReleaseConfigurationMutation(IDisposable bridgeLifecycleLease)
+    {
+        try
+        {
+            Monitor.Exit(_runtimeStateLock);
+        }
+        finally
+        {
+            bridgeLifecycleLease.Dispose();
+        }
+    }
+
+    private sealed class ConfigurationMutationLease : IDisposable
+    {
+        private HueSceneAutomationService? _owner;
+        private readonly IDisposable _bridgeLifecycleLease;
+
+        public ConfigurationMutationLease(
+            HueSceneAutomationService owner,
+            IDisposable bridgeLifecycleLease)
+        {
+            _owner = owner;
+            _bridgeLifecycleLease = bridgeLifecycleLease;
+        }
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _owner, null);
+            owner?.ReleaseConfigurationMutation(_bridgeLifecycleLease);
         }
     }
 

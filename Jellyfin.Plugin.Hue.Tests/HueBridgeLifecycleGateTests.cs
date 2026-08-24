@@ -90,4 +90,38 @@ public sealed class HueBridgeLifecycleGateTests
         bedroomDiagnostic!.Dispose();
         Assert.False(gate.IsDiagnosticActive);
     }
+
+    [Fact]
+    public void ConfigurationMutationBlocksNewLifecyclesUntilDisposed()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+
+        Assert.NotNull(mutation);
+        Assert.True(gate.IsConfigurationMutationActive);
+        Assert.Null(gate.TryEnterPlayback());
+        Assert.Null(gate.TryEnterPlayback("192.168.1.10|living-room"));
+        Assert.Null(gate.TryEnterDiagnostic());
+        Assert.Null(gate.TryEnterDiagnostic("192.168.1.10|living-room"));
+        Assert.Null(gate.TryEnterConfigurationMutation());
+
+        mutation!.Dispose();
+        Assert.False(gate.IsConfigurationMutationActive);
+        using var playback = gate.TryEnterPlayback();
+        Assert.NotNull(playback);
+    }
+
+    [Fact]
+    public void ConfigurationMutationRejectsExistingLifecycle()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var playback = gate.TryEnterPlayback("192.168.1.10|living-room");
+        Assert.NotNull(playback);
+        Assert.Null(gate.TryEnterConfigurationMutation());
+
+        playback!.Dispose();
+        using var diagnostic = gate.TryEnterDiagnostic("192.168.1.10|living-room");
+        Assert.NotNull(diagnostic);
+        Assert.Null(gate.TryEnterConfigurationMutation());
+    }
 }

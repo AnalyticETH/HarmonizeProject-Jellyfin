@@ -9812,6 +9812,64 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ConfigurationImport_ReportsAndRejectsActiveBridgeLifecycle()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            HueAppKey = "active-lifecycle-app-secret",
+            HueClientKey = "active-lifecycle-client-secret"
+        });
+        var gate = new HueBridgeLifecycleGate();
+        using var diagnostic = gate.TryEnterDiagnostic("192.168.1.100|area-1");
+        Assert.NotNull(diagnostic);
+        var controller = CreateController(bridgeLifecycleGate: gate);
+        var request = new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration)
+        };
+
+        var validation = controller.ValidateConfigurationImport(request);
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        Assert.True(validationResult.Valid);
+        Assert.False(validationResult.CanImport);
+        Assert.True(validationResult.ActiveDiagnostic);
+        Assert.Contains("diagnostic", validationResult.Message, StringComparison.OrdinalIgnoreCase);
+
+        var import = controller.ImportConfiguration(request);
+        var conflict = Assert.IsType<ConflictObjectResult>(import.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+        Assert.Contains("diagnostic", Assert.IsType<string>(conflict.Value), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("active-lifecycle-app-secret", configuration.HueAppKey);
+    }
+
+    [Fact]
+    public void ConfigurationImport_ReportsAndRejectsActivePlaybackLifecycle()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration { SyncEnabled = false });
+        var gate = new HueBridgeLifecycleGate();
+        using var playback = gate.TryEnterPlayback("192.168.1.100|area-1");
+        Assert.NotNull(playback);
+        var controller = CreateController(bridgeLifecycleGate: gate);
+        var request = new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration)
+        };
+
+        var validation = controller.ValidateConfigurationImport(request);
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        Assert.False(validationResult.CanImport);
+        Assert.True(validationResult.ActivePlayback);
+
+        var import = controller.ImportConfiguration(request);
+        var conflict = Assert.IsType<ConflictObjectResult>(import.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+        Assert.Contains("playback", Assert.IsType<string>(conflict.Value), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ConfigurationImport_RefusesActiveCueAndPreservesConfiguration()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -9863,6 +9921,8 @@ public sealed class HueApiControllerTests : IDisposable
             var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
             Assert.True(validationResult.Valid);
             Assert.False(validationResult.CanImport);
+            Assert.True(validationResult.ActiveScheduledCue);
+            Assert.False(validationResult.ActiveScheduleEvaluation);
             Assert.Contains("scheduled scene cues", validationResult.Message, StringComparison.OrdinalIgnoreCase);
 
             var action = controller.ImportConfiguration(importRequest);

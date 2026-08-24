@@ -1295,6 +1295,88 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_BlocksConfigurationMutationDuringPreflight()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "scheduler-barrier-app-secret",
+            HueClientKey = "scheduler-barrier-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Barrier scene", Red = 10, Green = 20, Blue = 30, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "scheduler-barrier-cue",
+                    Name = "Scheduler barrier cue",
+                    PresetName = "Barrier scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            new RecordingStreamTester(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var runSlotLock = typeof(HueSceneAutomationService)
+            .GetField("_runSlotLock", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(service)!;
+        Monitor.Enter(runSlotLock);
+        try
+        {
+            var schedulerRun = Task.Run(() => service.RunDueSchedulesAsync(
+                new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc),
+                CancellationToken.None));
+
+            Assert.True(SpinWait.SpinUntil(
+                () => service.HasActiveScheduleEvaluation,
+                TimeSpan.FromSeconds(5)));
+
+            var acquired = service.TryAcquireConfigurationMutation(out var lease, out var message);
+            try
+            {
+                Assert.False(acquired);
+                Assert.Null(lease);
+                Assert.Contains("evaluation", message, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                lease?.Dispose();
+            }
+
+            Monitor.Exit(runSlotLock);
+            await schedulerRun.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            // The normal path releases the lock before awaiting the scheduler. Keep the
+            // cleanup safe if a future assertion fails before that release.
+            try
+            {
+                Monitor.Exit(runSlotLock);
+            }
+            catch (SynchronizationLockException)
+            {
+                // Already released by the normal path.
+            }
+        }
+
+        Assert.Equal(1, Assert.Single(configuration.SceneSchedules).RunCount);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_RecoversLaterCueAfterLongCueWithoutConfiguredCatchUp()
     {
         var configuration = new PluginConfiguration
