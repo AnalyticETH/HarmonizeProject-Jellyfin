@@ -70,7 +70,7 @@ for (const marker of [
     "JsonSerializer.Serialize(run.TargetRoutes",
     "run.IncludeDefaultTarget",
     "JsonSerializer.Serialize(occurrence.TargetUserIds",
-    "JsonSerializer.Serialize(occurrence.TargetRoutes",
+    "JsonSerializer.Serialize((occurrence.TargetRoutes",
     "occurrence.IncludeDefaultTarget"
 ]) {
     if (!controller.includes(marker)) {

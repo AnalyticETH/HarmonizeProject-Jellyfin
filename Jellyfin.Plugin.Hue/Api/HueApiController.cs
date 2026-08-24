@@ -3864,7 +3864,12 @@ namespace Jellyfin.Plugin.Hue.Api
                     occurrence.TargetLabel,
                     occurrence.TargetAllEnabledMappings,
                     JsonSerializer.Serialize(occurrence.TargetUserIds ?? Array.Empty<string>()),
-                    JsonSerializer.Serialize(occurrence.TargetRoutes ?? Array.Empty<HueSceneScheduleTargetRoute>()),
+                    JsonSerializer.Serialize((occurrence.TargetRoutes ?? Array.Empty<HueSceneScheduleTargetRoute>())
+                        .Select(route => new HueSceneAutomationTargetRoute
+                        {
+                            UserId = route.UserId,
+                            DeviceId = route.DeviceId
+                        }).ToArray()),
                     occurrence.IncludeDefaultTarget,
                     occurrence.TimeZoneId,
                     occurrence.TimeZoneDisplayName,
