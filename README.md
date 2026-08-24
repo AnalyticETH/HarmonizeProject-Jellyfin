@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.214 (Current)
+### Version 1.5.215 (Current)
+- **Live device-route telemetry**: expose the active device identity and route-match state through the top-level status API and administrator live panel.
+
+### Version 1.5.214
 - **Import nullability hardening**: disabled or legacy mappings with absent nested route collections now normalize safely without compiler warnings.
 
 ### Version 1.5.213

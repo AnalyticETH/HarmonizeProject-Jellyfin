@@ -5622,6 +5622,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 CleanupWarning = runtime?.CleanupWarning,
                 ActiveUserId = runtime?.ActiveUserId,
                 ActiveUserName = runtime?.ActiveUserName,
+                ActiveDeviceId = runtime?.ActiveDeviceId,
+                ActiveDeviceName = runtime?.ActiveDeviceName,
+                ActiveDeviceRouteMatched = runtime?.ActiveDeviceRouteMatched,
                 ActivePlaybackMediaFilter = runtime?.ActivePlaybackMediaFilter,
                 ActiveBridgeIp = runtime?.ActiveBridgeIp,
                 ActiveEntertainmentAreaId = runtime?.ActiveEntertainmentAreaId,
@@ -10986,6 +10989,9 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? CleanupWarning { get; set; }
         public string? ActiveUserId { get; set; }
         public string? ActiveUserName { get; set; }
+        public string? ActiveDeviceId { get; set; }
+        public string? ActiveDeviceName { get; set; }
+        public bool? ActiveDeviceRouteMatched { get; set; }
         public string? ActivePlaybackMediaFilter { get; set; }
         public string? ActiveBridgeIp { get; set; }
         public string? ActiveEntertainmentAreaId { get; set; }

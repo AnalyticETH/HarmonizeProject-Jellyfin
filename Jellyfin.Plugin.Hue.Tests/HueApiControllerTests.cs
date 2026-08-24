@@ -6508,6 +6508,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("Unavailable", status.State);
         Assert.Null(status.ActiveBridgeIp);
         Assert.Null(status.ActiveEntertainmentAreaId);
+        Assert.Null(status.ActiveDeviceId);
+        Assert.Null(status.ActiveDeviceName);
+        Assert.Null(status.ActiveDeviceRouteMatched);
         Assert.Null(status.ActiveTargetFps);
         Assert.Null(status.ActiveAudioSensitivityPercent);
         Assert.Null(status.ActiveAudioLowFrequencyHz);

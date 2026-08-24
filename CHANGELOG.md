@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.215] - 2026-08-24
+
+### Fixed
+- **Live device-route telemetry**: map the active device identity and route-match state through the top-level status API so the administrator live panel reflects the effective playback route.
+
 ## [1.5.214] - 2026-08-24
 
 ### Fixed
