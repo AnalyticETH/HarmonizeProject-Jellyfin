@@ -440,7 +440,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.260 (Current)
+### Version 1.5.261 (Current)
+- **Health checks before threshold suppression**: static scenes now verify DTLS stream health and attempt reconnection before color-change threshold skips, preventing a dead OpenSSL process from remaining broken indefinitely.
+- **Static-scene recovery coverage**: verifies an unhealthy stream is not reported as a successful threshold skip.
+
+### Version 1.5.260
 - **Scoped IPv6 bridge discovery**: mDNS responses now retain the receiving interface scope on link-local AAAA addresses, so discovered `fe80::` bridges remain routable on the correct local interface.
 - **Scoped discovery coverage**: parser and bridge-registration URI regressions verify link-local zones are preserved without scoping unique-local addresses.
 

@@ -603,14 +603,10 @@ namespace Jellyfin.Plugin.Hue.Hue
             if (cancellationToken.IsCancellationRequested)
                 return false;
 
-            // Skip if colors haven't changed significantly
-            if (colorChangeThreshold > 0 && !HasSignificantColorChange(channelColors, colorChangeThreshold))
-            {
-                Interlocked.Increment(ref _packetsSkippedByThreshold);
-                return true;
-            }
-
-            // Check health and try to reconnect if needed
+            // Check health before applying the color-change threshold. A static scene can
+            // legitimately produce identical frames for a long time; suppressing the
+            // health check in that case would allow a dead DTLS process to remain broken
+            // indefinitely while every frame is reported as successfully skipped.
             if (!IsHealthy())
             {
                 _logger.LogWarning("DTLS stream unhealthy, attempting reconnect");
@@ -619,6 +615,14 @@ namespace Jellyfin.Plugin.Hue.Hue
                     _logger.LogError("Failed to reconnect DTLS stream after {0} attempts", MaxReconnectAttempts);
                     return RecordPacketSendFailure(cancellationToken);
                 }
+            }
+
+            // Skip if colors haven't changed significantly. This is safe only after the
+            // stream has been confirmed healthy (or successfully reconnected).
+            if (colorChangeThreshold > 0 && !HasSignificantColorChange(channelColors, colorChangeThreshold))
+            {
+                Interlocked.Increment(ref _packetsSkippedByThreshold);
+                return true;
             }
 
             Stream? stdinCopy;

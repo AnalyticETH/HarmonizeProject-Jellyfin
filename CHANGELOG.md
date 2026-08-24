@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.261] - 2026-08-24
+
+### Reliability
+- **Health checks before threshold suppression**: static scenes now verify DTLS stream health and attempt reconnection before color-change threshold skips, preventing a dead OpenSSL process from remaining broken indefinitely.
+
+### Tests
+- **Static-scene recovery coverage**: verifies an unhealthy stream is not reported as a successful threshold skip.
+
 ## [1.5.260] - 2026-08-24
 
 ### Reliability

@@ -97,6 +97,31 @@ public class HueStreamerTests
         Assert.Equal(0, _streamer.ReconnectAttempts);
     }
 
+    [Fact]
+    public async Task SendColors_WhenThresholdWouldSkipStillReconnectsAnUnhealthyStream()
+    {
+        var colors = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 10, 10, 20, 20, 30, 30 }
+        };
+
+        // A default Process has no started process and therefore reports unhealthy.
+        // Keep the prior colors identical so the threshold would suppress the send if
+        // health were checked after threshold filtering.
+        SetPrivateField(_streamer, "_opensslProcess", new System.Diagnostics.Process());
+        SetPrivateField(_streamer, "_stdin", new MemoryStream());
+        SetPrivateField(_streamer, "_lastSentColors", new Dictionary<int, byte[]>
+        {
+            [1] = (byte[])colors[1].Clone()
+        });
+
+        var sent = await _streamer.SendColors("area-id", colors, colorChangeThreshold: 1);
+
+        Assert.False(sent);
+        Assert.Equal(0, _streamer.PacketsSkippedByThreshold);
+        Assert.Equal(1, _streamer.PacketSendFailures);
+    }
+
     #region Color Encoding Tests
 
     [Theory]
