@@ -113,6 +113,7 @@ const requiredMarkup = [
     'value="Shuffle">Stable daily shuffle',
     'id="scenePlaylistPreviewTarget"',
     'id="scenePlaylistBulkPreviewTarget"',
+    'id="previewTargetMetadataStatus"',
     'id="applyConfigurationImportBtn" disabled',
     'id="previewSelectedScenePlaylistsBtn"',
     'id="previewSelectedScenePlaylistsAllBtn"',
@@ -262,6 +263,17 @@ const requiredScript = [
     "targetRoutes: Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : []",
     "HueSync/Preview/CaptureCurrentColors",
     "captureCurrentColor: function",
+    "initializePreviewTargetMetadata: function",
+    "hasPreviewTargetMetadata: function",
+    "setPreviewTargetMetadataState: function",
+    "markPreviewTargetMetadataUnavailable: function",
+    "updatePreviewTargetMetadataControls: function",
+    "requirePreviewTargetMetadata: function",
+    "page._huePreviewTargetMetadataReady",
+    "state.colorPresets && state.scenePlaylists",
+    "Preview targets unavailable; reload this page.",
+    "if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;",
+    "targetMetadataReady",
     "fetchColorPreview: function",
     "var selectedTargetRoutes = Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : []",
     "payload.targetRoutes = selectedTargetRoutes",
@@ -520,6 +532,58 @@ for (const functionName of ["exportSceneScheduleConflicts", "exportSceneSchedule
         !functionBody.includes("downloadJsonDocument") ||
         !functionBody.includes("_hueSupportBundleRequest")) {
         throw new Error(`${file} ${functionName} is missing support bundle export wiring`);
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("updatePreviewTargetMetadataControls: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("hasPreviewTargetMetadata(page)") ||
+        !functionBody.includes("select.disabled = true") ||
+        !functionBody.includes("button.disabled = true") ||
+        !functionBody.includes("previewTargetMetadataStatus")) {
+        throw new Error(`${file} updatePreviewTargetMetadataControls must keep target controls disabled until metadata is ready`);
+    }
+}
+
+for (const [functionName, source] of [["loadColorPresets", "colorPresets"], ["loadScenePlaylists", "scenePlaylists"]]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes(`setPreviewTargetMetadataState(page, "${source}", false`) ||
+        !functionBody.includes(`setPreviewTargetMetadataState(page, "${source}", true)`) ||
+        !functionBody.includes("markPreviewTargetMetadataUnavailable(page)") ||
+        !functionBody.includes("updatePreviewTargetMetadataControls(page)")) {
+        throw new Error(`${file} ${functionName} must fail closed when target metadata loading fails`);
+    }
+}
+
+for (const functionName of [
+    "previewDefaultColor",
+    "previewAllEnabledTargets",
+    "captureCurrentColor",
+    "previewSavedPreset",
+    "previewColorPresetsBulk",
+    "previewScenePlaylist",
+    "previewScenePlaylistsBulk",
+    "previewMappingColor"
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("requirePreviewTargetMetadata(page)")) {
+        throw new Error(`${file} ${functionName} must reject preview requests while target metadata is unavailable`);
+    }
+}
+
+for (const functionName of ["updateColorPresetBulkButtons", "updateScenePlaylistButtons", "updateScenePlaylistBulkButtons"]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("hasPreviewTargetMetadata(page)") ||
+        !functionBody.includes("targetMetadataReady")) {
+        throw new Error(`${file} ${functionName} must gate target-dependent controls on metadata readiness`);
     }
 }
 

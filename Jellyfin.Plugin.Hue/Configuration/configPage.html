@@ -332,6 +332,7 @@
                             </button>
                         </div>
                         <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override. Nested ↳ device rows send only credential-free user/device route identifiers, so an individual mapped device can be previewed without changing bridge credentials or saved mappings. Current-light capture has its own target selector and reports per-target results without changing bridge state.</div>
+                        <div id="previewTargetMetadataStatus" class="fieldDescription" role="status" aria-live="polite" style="margin-top: 0.5em;"></div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 1em;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="previewPresetSelect">Saved Scene</label>
@@ -1781,6 +1782,105 @@
                     return HueConfigurationPage.canUseStoredGlobalCredentials(page, target && target.bridgeIp, requireClientKey) ||
                         HueConfigurationPage.canUseStoredMappingCredentials(target, requireClientKey);
                 },
+                initializePreviewTargetMetadata: function (page) {
+                    if (!page) return;
+                    page._huePreviewTargetMetadataState = {
+                        colorPresets: false,
+                        scenePlaylists: false
+                    };
+                    page._huePreviewTargetMetadataReady = false;
+                    page._huePreviewTargetMetadataMessage = "Loading preview target profiles...";
+                    HueConfigurationPage.updatePreviewTargetMetadataControls(page);
+                },
+                hasPreviewTargetMetadata: function (page) {
+                    return !!(page && page._huePreviewTargetMetadataReady === true);
+                },
+                setPreviewTargetMetadataState: function (page, source, ready, message) {
+                    if (!page) return false;
+                    var state = page._huePreviewTargetMetadataState;
+                    if (!state) {
+                        state = {
+                            colorPresets: false,
+                            scenePlaylists: false
+                        };
+                        page._huePreviewTargetMetadataState = state;
+                    }
+                    if (source !== "colorPresets" && source !== "scenePlaylists") return false;
+                    state[source] = !!ready;
+                    if (message) page._huePreviewTargetMetadataMessage = message;
+                    page._huePreviewTargetMetadataReady = !!(state.colorPresets && state.scenePlaylists);
+                    if (page._huePreviewTargetMetadataReady) {
+                        page._huePreviewTargetMetadataMessage = "";
+                    }
+                    HueConfigurationPage.updatePreviewTargetMetadataControls(page);
+                    return page._huePreviewTargetMetadataReady;
+                },
+                markPreviewTargetMetadataUnavailable: function (page, message) {
+                    if (!page) return;
+                    var unavailableOption = '<option value="">Preview targets unavailable; reload this page.</option>';
+                    var targetSelectors = page.querySelectorAll('#scenePlaylistTarget, #previewSavedPresetTarget, #previewColorTarget, #captureColorTarget, #scenePlaylistPreviewTarget, #scenePlaylistBulkPreviewTarget');
+                    Array.prototype.forEach.call(targetSelectors, function (select) {
+                        select.innerHTML = unavailableOption;
+                        select.disabled = true;
+                    });
+                    if (message) page._huePreviewTargetMetadataMessage = message;
+                    HueConfigurationPage.updatePreviewTargetMetadataControls(page);
+                },
+                updatePreviewTargetMetadataControls: function (page) {
+                    if (!page) return;
+                    var ready = HueConfigurationPage.hasPreviewTargetMetadata(page);
+                    var busy = !!page._huePreviewRequest;
+                    var targetSelectors = page.querySelectorAll('#scenePlaylistTarget, #previewSavedPresetTarget, #previewColorTarget, #captureColorTarget, #scenePlaylistPreviewTarget, #scenePlaylistBulkPreviewTarget');
+                    var colorTargetSelectors = page.querySelectorAll('#previewSavedPresetTarget, #previewColorTarget, #captureColorTarget');
+                    var previewButtons = page.querySelectorAll('#previewColorBtn, #previewAllTargetsBtn, #captureCurrentColorBtn, #previewSavedPresetBtn, #previewSavedPresetAllBtn, #previewSelectedPreviewPresetsBtn, #previewSelectedPreviewPresetsAllBtn, #previewScenePlaylistBtn, #previewScenePlaylistAllBtn, #previewSelectedScenePlaylistsBtn, #previewSelectedScenePlaylistsAllBtn, #mappingPreviewColorBtn');
+                    if (!ready || busy) {
+                        Array.prototype.forEach.call(targetSelectors, function (select) {
+                            select.disabled = true;
+                        });
+                        Array.prototype.forEach.call(previewButtons, function (button) {
+                            button.disabled = true;
+                        });
+                    } else {
+                        Array.prototype.forEach.call(colorTargetSelectors, function (select) {
+                            select.disabled = false;
+                        });
+                        Array.prototype.forEach.call([
+                            page.querySelector('#scenePlaylistTarget'),
+                            page.querySelector('#previewColorBtn'),
+                            page.querySelector('#previewAllTargetsBtn'),
+                            page.querySelector('#captureCurrentColorBtn'),
+                            page.querySelector('#previewSavedPresetBtn'),
+                            page.querySelector('#previewSavedPresetAllBtn'),
+                            page.querySelector('#mappingPreviewColorBtn')
+                        ], function (control) {
+                            if (control) control.disabled = false;
+                        });
+                        HueConfigurationPage.updateColorPresetBulkButtons(page);
+                        HueConfigurationPage.updateScenePlaylistButtons(page);
+                        HueConfigurationPage.updateScenePlaylistBulkButtons(page);
+                    }
+                    var status = page.querySelector('#previewTargetMetadataStatus');
+                    if (status) {
+                        status.textContent = ready
+                            ? ""
+                            : (page._huePreviewTargetMetadataMessage || "Preview targets are unavailable. Reload this page before starting a preview.");
+                        status.style.color = ready ? "" : "#d9534f";
+                        status.style.display = ready ? "none" : "";
+                    }
+                },
+                requirePreviewTargetMetadata: function (page) {
+                    if (HueConfigurationPage.hasPreviewTargetMetadata(page)) return true;
+                    var message = page && page._huePreviewTargetMetadataMessage
+                        ? page._huePreviewTargetMetadataMessage
+                        : "Preview targets are unavailable. Reload this page before starting a preview.";
+                    var status = page && page.querySelector('#previewTargetMetadataStatus');
+                    if (status) {
+                        status.textContent = message;
+                        status.style.color = "#d9534f";
+                        status.style.display = "";
+                    }
+                    return false;
+                },
                 loadConfiguration: function (page) {
                     Dashboard.showLoadingMsg();
                     return ApiClient.getJSON(ApiClient.getUrl("HueSync/Configuration")).then(function (config) {
@@ -1869,6 +1969,9 @@
                         HueConfigurationPage.loadSceneSchedules(page);
                     }).catch(function (err) {
                         console.error("Failed to load Hue configuration:", err);
+                        HueConfigurationPage.setPreviewTargetMetadataState(page, "colorPresets", false, "Preview targets are unavailable because plugin configuration could not be loaded. Reload this page before starting a preview.");
+                        HueConfigurationPage.setPreviewTargetMetadataState(page, "scenePlaylists", false, "Preview targets are unavailable because plugin configuration could not be loaded. Reload this page before starting a preview.");
+                        HueConfigurationPage.markPreviewTargetMetadataUnavailable(page);
                         HueConfigurationPage.refreshStatus(page, "Unable to load plugin configuration.", "error");
                     }).finally(function () {
                         Dashboard.hideLoadingMsg();
@@ -2638,6 +2741,7 @@
                     if (!busy && page && HueConfigurationPage.updateScenePlaylistBulkButtons) {
                         HueConfigurationPage.updateScenePlaylistBulkButtons(page);
                     }
+                    HueConfigurationPage.updatePreviewTargetMetadataControls(page);
                 },
                 setDiagnosticBusy: function (page, busy) {
                     var defaultButton = page && page.querySelector('#testConnectionBtn');
@@ -2704,6 +2808,7 @@
                     });
                 },
                 previewDefaultColor: function (page) {
+                    if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                     if (page._huePreviewRequest) {
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
@@ -2786,6 +2891,7 @@
                         });
                 },
                 previewAllEnabledTargets: function (page) {
+                    if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                     if (page._huePreviewRequest) {
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
@@ -2848,6 +2954,7 @@
                 },
                 captureCurrentColor: function (page) {
                     if (!page) return;
+                    if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                     if (page._huePreviewRequest) {
                         Dashboard.alert("A preview or current-light capture is already running. Cancel it or wait for it to finish first.");
                         return;
@@ -3125,6 +3232,7 @@
                     };
                 },
                 previewSavedPreset: function (page, allTargets) {
+                    if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                     if (page._huePreviewRequest) {
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
@@ -3183,6 +3291,7 @@
                 loadColorPresets: function (page, selectedName) {
                     var selectEl = page.querySelector('#previewPresetSelect');
                     if (!selectEl) return Promise.resolve();
+                    HueConfigurationPage.setPreviewTargetMetadataState(page, "colorPresets", false, "Loading preview target profiles...");
                     var bulkSelect = page.querySelector('#previewPresetBulkSelect');
                     var targetSelect = page.querySelector('#previewSavedPresetTarget');
                     var colorTargetSelect = page.querySelector('#previewColorTarget');
@@ -3294,26 +3403,22 @@
                             }
                             HueConfigurationPage.updatePresetButtons(page);
                             HueConfigurationPage.updateColorPresetBulkButtons(page);
+                            HueConfigurationPage.setPreviewTargetMetadataState(page, "colorPresets", true);
                         })
                         .catch(function (err) {
                             console.error("Failed to load color presets:", err);
                             selectEl.innerHTML = '<option value="">Unable to load saved scenes</option>';
                             if (bulkSelect) bulkSelect.innerHTML = '';
-                            [targetSelect, colorTargetSelect, captureTargetSelect].forEach(function (previewTargetSelect) {
-                                if (!previewTargetSelect) return;
-                                previewTargetSelect.innerHTML = '<option value="__default_target__">Default bridge target</option>';
-                                previewTargetSelect.options[0].selected = true;
-                            });
+                            HueConfigurationPage.setPreviewTargetMetadataState(page, "colorPresets", false, "Preview targets are unavailable because saved scenes or mappings could not be loaded. Reload this page before starting a preview.");
+                            HueConfigurationPage.markPreviewTargetMetadataUnavailable(page);
                             HueConfigurationPage.updatePresetButtons(page);
                             HueConfigurationPage.updateColorPresetBulkButtons(page);
                         })
                         .finally(function () {
                             selectEl.disabled = false;
                             if (bulkSelect) bulkSelect.disabled = false;
-                            if (targetSelect) targetSelect.disabled = false;
-                            if (colorTargetSelect) colorTargetSelect.disabled = false;
-                            if (captureTargetSelect) captureTargetSelect.disabled = false;
                             HueConfigurationPage.updateColorPresetBulkButtons(page);
+                            HueConfigurationPage.updatePreviewTargetMetadataControls(page);
                         });
                 },
                 updatePresetButtons: function (page) {
@@ -3346,6 +3451,7 @@
                     var bulkSelect = page.querySelector('#previewPresetBulkSelect');
                     var selectedCount = HueConfigurationPage.getSelectedColorPresetBulkNames(page).length;
                     var hasOptions = !!bulkSelect && bulkSelect.options.length > 0;
+                    var targetMetadataReady = HueConfigurationPage.hasPreviewTargetMetadata(page);
                     var selectAllBtn = page.querySelector('#selectAllPreviewPresetsBtn');
                     var clearBtn = page.querySelector('#clearSelectedPreviewPresetsBtn');
                     var previewBtn = page.querySelector('#previewSelectedPreviewPresetsBtn');
@@ -3354,8 +3460,8 @@
                     var deleteBtn = page.querySelector('#deleteSelectedPreviewPresetsBtn');
                     if (selectAllBtn) selectAllBtn.disabled = !hasOptions || selectedCount === bulkSelect.options.length;
                     if (clearBtn) clearBtn.disabled = selectedCount === 0;
-                    if (previewBtn) previewBtn.disabled = selectedCount === 0;
-                    if (previewAllBtn) previewAllBtn.disabled = selectedCount === 0;
+                    if (previewBtn) previewBtn.disabled = selectedCount === 0 || !targetMetadataReady;
+                    if (previewAllBtn) previewAllBtn.disabled = selectedCount === 0 || !targetMetadataReady;
                     if (duplicateBtn) duplicateBtn.disabled = selectedCount === 0;
                     if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
                 },
@@ -3372,6 +3478,7 @@
                     HueConfigurationPage.updateColorPresetBulkButtons(page);
                 },
                 previewColorPresetsBulk: function (page, allTargets) {
+                    if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                     if (page._huePreviewRequest) {
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
@@ -3397,6 +3504,7 @@
                         allTargets ? "Preview Selected Scenes on All Targets" : "Preview Selected Scenes",
                         function (confirmed) {
                             if (!confirmed) return;
+                            if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                             var button = page.querySelector(allTargets ? '#previewSelectedPreviewPresetsAllBtn' : '#previewSelectedPreviewPresetsBtn');
                             if (button) button.disabled = true;
                             if (statusEl) {
@@ -3866,6 +3974,7 @@
                 loadScenePlaylists: function (page, selectedName) {
                     var playlistSelect = page && page.querySelector('#scenePlaylistSelect');
                     if (!playlistSelect) return Promise.resolve();
+                    HueConfigurationPage.setPreviewTargetMetadataState(page, "scenePlaylists", false, "Loading preview target profiles...");
                     var bulkSelect = page.querySelector('#scenePlaylistBulkSelect');
                     var previewTargetSelect = page.querySelector('#scenePlaylistPreviewTarget');
                     var bulkPreviewTargetSelect = page.querySelector('#scenePlaylistBulkPreviewTarget');
@@ -4000,17 +4109,19 @@
                         }
                         HueConfigurationPage.updateScenePlaylistButtons(page);
                         HueConfigurationPage.updateScenePlaylistBulkButtons(page);
+                        HueConfigurationPage.setPreviewTargetMetadataState(page, "scenePlaylists", true);
                     }).catch(function (err) {
                         console.error("Failed to load scene playlists:", err);
                         playlistSelect.innerHTML = '<option value="">Unable to load saved playlists</option>';
                         if (bulkSelect) bulkSelect.innerHTML = '';
                         HueConfigurationPage.clearScenePlaylist(page, false);
+                        HueConfigurationPage.setPreviewTargetMetadataState(page, "scenePlaylists", false, "Preview targets are unavailable because saved playlists or mappings could not be loaded. Reload this page before starting a preview.");
+                        HueConfigurationPage.markPreviewTargetMetadataUnavailable(page);
                     }).finally(function () {
                         playlistSelect.disabled = false;
                         if (bulkSelect) bulkSelect.disabled = false;
-                        if (previewTargetSelect) previewTargetSelect.disabled = false;
-                        if (bulkPreviewTargetSelect) bulkPreviewTargetSelect.disabled = false;
                         HueConfigurationPage.updateScenePlaylistBulkButtons(page);
+                        HueConfigurationPage.updatePreviewTargetMetadataControls(page);
                     });
                 },
                 renderScenePlaylistItems: function (page) {
@@ -4398,6 +4509,7 @@
                 updateScenePlaylistButtons: function (page) {
                     var select = page && page.querySelector('#scenePlaylistSelect');
                     var hasSelection = !!(select && select.value);
+                    var targetMetadataReady = HueConfigurationPage.hasPreviewTargetMetadata(page);
                     var source = page && page.querySelector('#scenePlaylistSourceSelect');
                     var items = Array.isArray(page && page._hueScenePlaylistItems) ? page._hueScenePlaylistItems : [];
                     var preview = page && page.querySelector('#previewScenePlaylistBtn');
@@ -4408,9 +4520,9 @@
                     var inspect = page && page.querySelector('#inspectScenePlaylistBtn');
                     var deleteButton = page && page.querySelector('#deleteScenePlaylistBtn');
                     var add = page && page.querySelector('#addScenePlaylistStepBtn');
-                    if (preview) preview.disabled = !hasSelection;
-                    if (previewAll) previewAll.disabled = !hasSelection;
-                    if (previewTargetSelect) previewTargetSelect.disabled = !hasSelection;
+                    if (preview) preview.disabled = !hasSelection || !targetMetadataReady;
+                    if (previewAll) previewAll.disabled = !hasSelection || !targetMetadataReady;
+                    if (previewTargetSelect) previewTargetSelect.disabled = !hasSelection || !targetMetadataReady;
                     if (duplicate) duplicate.disabled = !hasSelection;
                     if (rename) rename.disabled = !hasSelection;
                     if (inspect) inspect.disabled = !hasSelection;
@@ -4428,6 +4540,7 @@
                     var select = page && page.querySelector('#scenePlaylistBulkSelect');
                     var hasSelection = HueConfigurationPage.getSelectedScenePlaylistBulkIds(page).length > 0;
                     var hasPlaylists = !!(select && select.options && select.options.length);
+                    var targetMetadataReady = HueConfigurationPage.hasPreviewTargetMetadata(page);
                     var selectAll = page && page.querySelector('#selectAllScenePlaylistsBtn');
                     var clear = page && page.querySelector('#clearSelectedScenePlaylistsBtn');
                     var previewButton = page && page.querySelector('#previewSelectedScenePlaylistsBtn');
@@ -4437,9 +4550,9 @@
                     var deleteButton = page && page.querySelector('#deleteSelectedScenePlaylistsBtn');
                     if (selectAll) selectAll.disabled = !hasPlaylists;
                     if (clear) clear.disabled = !hasSelection;
-                    if (previewButton) previewButton.disabled = !hasSelection;
-                    if (previewAllButton) previewAllButton.disabled = !hasSelection;
-                    if (previewTargetSelect) previewTargetSelect.disabled = !hasPlaylists;
+                    if (previewButton) previewButton.disabled = !hasSelection || !targetMetadataReady;
+                    if (previewAllButton) previewAllButton.disabled = !hasSelection || !targetMetadataReady;
+                    if (previewTargetSelect) previewTargetSelect.disabled = !hasPlaylists || !targetMetadataReady;
                     if (duplicateButton) duplicateButton.disabled = !hasSelection;
                     if (deleteButton) deleteButton.disabled = !hasSelection;
                 },
@@ -4958,6 +5071,7 @@
                     return result;
                 },
                 previewScenePlaylist: function (page, allTargets) {
+                    if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                     if (page._huePreviewRequest) {
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
@@ -5010,6 +5124,7 @@
                     });
                 },
                 previewScenePlaylistsBulk: function (page, allTargets) {
+                    if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                     if (page._huePreviewRequest) {
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
@@ -5035,6 +5150,7 @@
                         allTargets ? "Preview Selected Playlists on All Targets" : "Preview Selected Playlists",
                         function (confirmed) {
                             if (!confirmed) return;
+                            if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                             var button = page.querySelector(allTargets ? '#previewSelectedScenePlaylistsAllBtn' : '#previewSelectedScenePlaylistsBtn');
                             if (button) button.disabled = true;
                             if (status) {
@@ -9526,6 +9642,7 @@
                 },
 
                 previewMappingColor: function (page) {
+                    if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                     if (page._huePreviewRequest) {
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
@@ -10964,6 +11081,7 @@
 
             document.addEventListener('pageshow', function (e) {
                 if (e.target.classList.contains('pluginConfigurationPage')) {
+                    HueConfigurationPage.initializePreviewTargetMetadata(e.target);
                     HueConfigurationPage.loadConfiguration(e.target);
                     HueConfigurationPage.loadUsers(e.target);
                     HueConfigurationPage.loadUserMappings(e.target);

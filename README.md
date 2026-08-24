@@ -427,7 +427,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.232 (Current)
+### Version 1.5.233 (Current)
+- **Fail-closed preview target metadata**: target selectors and preview, capture, and playlist controls remain disabled while saved-scene, playlist, or mapping metadata is unavailable; failed target lists show an explicit reload message instead of silently falling back to the default bridge, and direct preview entry points are guarded before any POST.
+- **Configuration-page contracts**: static validation covers separate scene/playlist metadata readiness, failure-state controls, unavailable-target messaging, and direct/bulk/saved-scene/playlist/capture/mapping preview guards.
+
+### Version 1.5.232
 - **Fail-closed bulk mapping deletion**: null or blank user mapping IDs are rejected before normalization or configuration mutation, preserving atomic bulk-delete behavior.
 - **Release artifact verification**: the release ZIP's SHA-256 sidecar is verified between the package and release runners and published for downstream integrity checks.
 

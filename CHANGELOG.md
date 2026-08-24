@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.233] - 2026-08-24
+
+### Fixed
+- **Fail-closed preview target metadata**: keep target selectors and preview, capture, and playlist controls disabled while saved-scene, playlist, or mapping metadata is unavailable, replace failed target lists with an explicit reload message instead of silently falling back to the default bridge, and gate direct preview entry points before any POST.
+
+### Tests
+- **Configuration-page target readiness contracts**: validate separate scene and playlist metadata readiness, disabled failure controls, explicit unavailable-target messaging, and guards across direct, bulk, saved-scene, playlist, capture, and mapping previews.
+
 ## [1.5.232] - 2026-08-24
 
 ### Security
