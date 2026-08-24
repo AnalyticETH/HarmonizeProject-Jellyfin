@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.221 (Current)
+### Version 1.5.222 (Current)
+- **Diagnostic cancellation recovery**: the administrator diagnostics Cancel control now re-enables for a safe retry when cancellation fails or reports no active operation while diagnostics remain active.
+
+### Version 1.5.221
 - **Preview route telemetry**: normal, saved-scene, and playlist preview results now return sanitized explicit `{userId, deviceId}` selections so device-specific outcomes remain identifiable without exposing credentials. The administrator Cancel control recovers for safe retries when cancellation fails or reports no active operation.
 - **Malformed playlist resilience**: color-preset rename validates null saved-scene references and returns a safe validation response without mutating configuration.
 

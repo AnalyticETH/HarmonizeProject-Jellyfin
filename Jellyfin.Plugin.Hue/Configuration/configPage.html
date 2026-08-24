@@ -8440,7 +8440,7 @@
                     if (supportButton) supportButton.disabled = !!page._hueSupportBundleRequest;
                     if (cancelButton) {
                         cancelButton.style.display = active ? "" : "none";
-                        cancelButton.disabled = !!page._hueDiagnosticsCancellationRequest || !!page._hueDiagnosticsCancellationRequested;
+                        cancelButton.disabled = !!page._hueDiagnosticsCancellationRequest;
                     }
                 },
                 cancelDiagnostics: function (page) {

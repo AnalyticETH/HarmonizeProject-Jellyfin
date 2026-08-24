@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.222] - 2026-08-24
+
+### Fixed
+- **Diagnostic cancellation recovery**: re-enable the administrator diagnostics Cancel control when a cancellation request fails or reports no active operation, allowing a safe retry while diagnostics remain active.
+
+### Tests
+- **Regression coverage**: extend the configuration-page contract validator to protect the diagnostic cancellation lifecycle.
+
 ## [1.5.221] - 2026-08-24
 
 ### Added

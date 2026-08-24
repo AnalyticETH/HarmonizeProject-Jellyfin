@@ -141,6 +141,7 @@ const requiredScript = [
     "data-userid=\"' + escapeAttribute(userId)",
     "setDiagnosticBusy: function",
     "setDiagnosticsBusy: function",
+    "cancelButton.disabled = !!page._hueDiagnosticsCancellationRequest",
     "exportSupportBundle: function",
     "HueConfigurationPage.cancelDiagnostics(e.target)",
     'url: ApiClient.getUrl("HueSync/Preview/Cancel")',
