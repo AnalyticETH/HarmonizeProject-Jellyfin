@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.218 (Current)
+### Version 1.5.219 (Current)
+- **Malformed nested-target resilience**: configuration-import matching ignores null persisted device targets, validation runs even when global sync is disabled, and mapping identity comparisons normalize whitespace before replacement.
+
+### Version 1.5.218
 - **Credential lifecycle control**: clear stored global Hue credentials from the administrator page behind an explicit confirmation, without touching per-user or device-route secrets.
 - **Malformed mapping resilience**: runtime bridge, playback, override, and summary lookups ignore null mapping entries safely.
 

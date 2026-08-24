@@ -3924,8 +3924,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 }
 
                 errors.AddRange(ValidateGlobalChannelIds(ChannelIds));
-                ValidateUserMappings(errors);
             }
+
+            // Mapping shape and per-user override validation must run even when
+            // global synchronization is disabled so malformed persisted entries
+            // cannot be silently accepted and carried into a later enablement.
+            ValidateUserMappings(errors);
 
             return errors;
         }

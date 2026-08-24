@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.219] - 2026-08-24
+
+### Security
+- **Malformed nested-target resilience**: configuration-import matching ignores null persisted device targets, mapping validation runs even when global synchronization is disabled, and user-mapping identity comparisons normalize whitespace before replacement.
+
+### Tests
+- **Regression coverage**: cover null nested import targets, disabled-global null mappings, whitespace-padded mapping replacement, and global credential clearing without touching per-user or device-route secrets.
+
 ## [1.5.218] - 2026-08-24
 
 ### Added

@@ -8727,6 +8727,73 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ValidateConfigurationImport_IgnoresNullExistingDeviceTargets()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "device-mapping",
+                    SyncEnabled = false,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        null!,
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "old-device-app",
+                            HueClientKey = "old-device-client",
+                            EntertainmentAreaId = "old-device-area"
+                        }
+                    }
+                }
+            }
+        });
+
+        var action = CreateController().ValidateConfigurationImport(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            UserMappings = new List<UserBridgeMappingImport>
+            {
+                new()
+                {
+                    UserId = "device-mapping",
+                    SyncEnabled = false,
+                    DeviceTargets = new List<UserDeviceBridgeTargetSummary>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueBridgeIp = "192.168.1.102",
+                            EntertainmentAreaId = "new-device-area"
+                        }
+                    },
+                    DeviceTargetCredentials = new List<UserDeviceBridgeTargetImport>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueAppKey = "new-device-app",
+                            HueClientKey = "new-device-client"
+                        }
+                    }
+                }
+            }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConfigurationImportValidationResult>(response.Value);
+        Assert.True(result.Valid);
+        Assert.True(result.CanImport);
+        Assert.Equal("old-device-app", configuration.UserMappings[0].DeviceTargets[1].HueAppKey);
+        Assert.Null(configuration.UserMappings[0].DeviceTargets[0]);
+    }
+
+    [Fact]
     public void ConfigurationExportAndImport_PreservesScenePlaylistsWithoutCredentials()
     {
         var sourceConfiguration = new PluginConfiguration
@@ -9559,7 +9626,30 @@ public sealed class HueApiControllerTests : IDisposable
         {
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "stored-app-key",
-            HueClientKey = "stored-client-key"
+            HueClientKey = "stored-client-key",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "mapping-1",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.110",
+                    HueAppKey = "mapping-app-key",
+                    HueClientKey = "mapping-client-key",
+                    EntertainmentAreaId = "mapping-area",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "player-1",
+                            HueBridgeIp = "192.168.1.111",
+                            HueAppKey = "device-app-key",
+                            HueClientKey = "device-client-key",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    }
+                }
+            }
         });
         var controller = CreateController();
 
@@ -9582,12 +9672,18 @@ public sealed class HueApiControllerTests : IDisposable
         var clearAction = controller.SaveConfiguration(new HuePluginConfigurationSettings
         {
             HueBridgeIp = "192.168.1.100",
+            HueAppKey = "submitted-app-key",
+            HueClientKey = "submitted-client-key",
             ClearStoredCredentials = true
         });
 
         Assert.IsType<OkObjectResult>(clearAction.Result);
         Assert.Empty(configuration.HueAppKey);
         Assert.Empty(configuration.HueClientKey);
+        Assert.Equal("mapping-app-key", configuration.UserMappings[0].HueAppKey);
+        Assert.Equal("mapping-client-key", configuration.UserMappings[0].HueClientKey);
+        Assert.Equal("device-app-key", configuration.UserMappings[0].DeviceTargets[0].HueAppKey);
+        Assert.Equal("device-client-key", configuration.UserMappings[0].DeviceTargets[0].HueClientKey);
     }
 
     [Fact]
@@ -9850,6 +9946,41 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.SamplingModeCenterPixel, mapping.SamplingModeOverride);
         Assert.Equal(PluginConfiguration.SpatialOrientationRotate180, mapping.SpatialOrientationOverride);
         Assert.Equal((int?)35, mapping.ColorSmoothingPercentOverride);
+    }
+
+    [Fact]
+    public void SaveUserMapping_TrimsIdentityAndReplacesWhitespacePaddedExistingMapping()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = " user-1 ",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.100",
+                    HueAppKey = "stored-app-key",
+                    HueClientKey = "stored-client-key",
+                    EntertainmentAreaId = "area-1"
+                }
+            }
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = " user-1 ",
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.101",
+            EntertainmentAreaId = "area-2"
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Equal("user-1", mapping.UserId);
+        Assert.Equal("stored-app-key", mapping.HueAppKey);
+        Assert.Equal("stored-client-key", mapping.HueClientKey);
+        Assert.Equal("192.168.1.101", mapping.HueBridgeIp);
     }
 
     [Fact]

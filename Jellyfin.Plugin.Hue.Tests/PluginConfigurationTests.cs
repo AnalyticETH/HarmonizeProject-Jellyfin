@@ -31,6 +31,20 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void Validate_ReportsNullUserMappingWhenGlobalSyncIsDisabled()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = false,
+            UserMappings = new List<UserBridgeMapping> { null! }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("User mapping 1 is required", errors);
+    }
+
+    [Fact]
     public void RuntimeUserMappingLookupsIgnoreNullEntriesBeforeValidMapping()
     {
         var userId = Guid.NewGuid();

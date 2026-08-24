@@ -7557,6 +7557,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 }
 
                 var existingDeviceTarget = existing?.DeviceTargets?.FirstOrDefault(candidate =>
+                    candidate != null &&
                     string.Equals(candidate.DeviceId?.Trim(), deviceTarget.DeviceId?.Trim(), StringComparison.Ordinal));
                 if (existingDeviceTarget != null &&
                     IsSameBridgeTarget(deviceTarget.HueBridgeIp, existingDeviceTarget.HueBridgeIp))
@@ -7880,6 +7881,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("User ID is required.");
             }
 
+            mapping.UserId = mapping.UserId.Trim();
+
             var overrideLabel = string.IsNullOrWhiteSpace(mapping.UserName)
                 ? "User mapping"
                 : $"User mapping for '{mapping.UserName.Trim()}'";
@@ -7938,7 +7941,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.UserMappings ??= new List<UserBridgeMapping>();
             var existingMapping = config.UserMappings.FirstOrDefault(existing =>
                 existing != null &&
-                string.Equals(existing.UserId, mapping.UserId, StringComparison.OrdinalIgnoreCase));
+                string.Equals(existing.UserId?.Trim(), mapping.UserId, StringComparison.OrdinalIgnoreCase));
 
             var inheritsDefaultBridge = string.IsNullOrWhiteSpace(mapping.HueBridgeIp);
 
@@ -8018,7 +8021,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(existing => existing != null)
                 .ToList();
             candidateMappings.RemoveAll(existing =>
-                string.Equals(existing.UserId, mapping.UserId, StringComparison.OrdinalIgnoreCase));
+                string.Equals(existing.UserId?.Trim(), mapping.UserId, StringComparison.OrdinalIgnoreCase));
             candidateMappings.Add(mapping);
             config.UserMappings = candidateMappings;
 
