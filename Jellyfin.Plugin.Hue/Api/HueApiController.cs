@@ -8488,7 +8488,17 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Mapping is required.");
             }
 
-            return SaveUserMappingCore(request.ToConfigurationMapping());
+            var mapping = request.ToConfigurationMapping();
+            if (!Guid.TryParse(mapping.UserId?.Trim(), out var parsedUserId))
+            {
+                return BadRequest("userId must be a valid Jellyfin user ID.");
+            }
+
+            // Jellyfin resolves user IDs using the canonical D-format text. Normalize
+            // every accepted GUID before persistence so brace/N-format inputs remain
+            // addressable by the runtime's Guid-based mapping lookup.
+            mapping.UserId = parsedUserId.ToString("D");
+            return SaveUserMappingCore(mapping);
         }
 
         // Keep the strongly typed helper available to the existing in-process callers

@@ -68,6 +68,11 @@ for (const endpoint of previewEndpoints) {
     }
 }
 
+const userMappingsRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET/POST /HueSync/UserMappings` |"));
+if (!userMappingsRow || !userMappingsRow.includes("valid Jellyfin user GUID") || !userMappingsRow.includes("before configuration mutation")) {
+    throw new Error("README.md user-mapping contract is missing GUID validation and fail-before-mutation markers");
+}
+
 for (const marker of [
     "public List<HueCurrentLightColorTargetRoute>? TargetRoutes",
     "public sealed class HueSavedColorPresetPreviewRequest",
@@ -78,6 +83,12 @@ for (const marker of [
     if (!controller.includes(marker)) {
         throw new Error(`Hue API preview route support is missing source marker: ${marker}`);
     }
+}
+
+if (!controller.includes("Guid.TryParse(mapping.UserId?.Trim(), out var parsedUserId)") ||
+    !controller.includes("mapping.UserId = parsedUserId.ToString(\"D\")") ||
+    !controller.includes("userId must be a valid Jellyfin user ID.")) {
+    throw new Error("Hue API user-mapping endpoint is missing Jellyfin GUID validation or canonicalization");
 }
 
 for (const marker of [

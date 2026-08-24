@@ -147,7 +147,7 @@ public sealed class HueApiControllerTests : IDisposable
         var configuration = InstallConfiguration(new PluginConfiguration());
         var request = JsonSerializer.Deserialize<HueUserMappingRequest>("""
             {
-              "UserId": "user-json",
+              "UserId": "{11111111-1111-1111-1111-111111111111}",
               "UserName": "JSON Viewer",
               "SyncEnabled": true,
               "HueBridgeIp": "192.168.1.101",
@@ -171,6 +171,7 @@ public sealed class HueApiControllerTests : IDisposable
 
         Assert.IsType<OkObjectResult>(action);
         var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Equal("11111111-1111-1111-1111-111111111111", mapping.UserId);
         Assert.Equal("mapping-app-key", mapping.HueAppKey);
         Assert.Equal("mapping-client-key", mapping.HueClientKey);
         var deviceTarget = Assert.Single(mapping.DeviceTargets);
@@ -184,6 +185,36 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("device-client-key", serializedMapping, StringComparison.Ordinal);
         Assert.DoesNotContain("HueAppKey", serializedMapping, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("HueClientKey", serializedMapping, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SaveUserMappingJsonRequest_RejectsMalformedUserIdWithoutMutation()
+    {
+        var existingMapping = new UserBridgeMapping
+        {
+            UserId = "22222222-2222-2222-2222-222222222222",
+            UserName = "Existing Viewer",
+            SyncEnabled = false
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { existingMapping }
+        });
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>("""
+            {
+              "UserId": "not-a-jellyfin-user-id",
+              "UserName": "Rejected Viewer",
+              "SyncEnabled": false
+            }
+            """)!;
+
+        var action = CreateController().SaveUserMapping(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Equal("userId must be a valid Jellyfin user ID.", response.Value);
+        Assert.Same(existingMapping, Assert.Single(configuration.UserMappings));
+        Assert.Equal("Existing Viewer", configuration.UserMappings[0].UserName);
     }
 
     [Fact]
