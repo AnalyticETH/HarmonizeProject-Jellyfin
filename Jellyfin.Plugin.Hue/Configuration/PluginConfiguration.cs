@@ -351,6 +351,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public int DurationSeconds { get; set; }
         /// <summary>
+        /// Optional RGB seed-color overrides for direct saved-scene cues. A missing
+        /// channel inherits the referenced scene's value. Playlist cues keep their
+        /// per-step colors and must not set these fields.
+        /// </summary>
+        public int? Red { get; set; }
+        public int? Green { get; set; }
+        public int? Blue { get; set; }
+        /// <summary>
         /// Maximum number of executions for this cue. Zero means unlimited. The persisted
         /// <see cref="RunCount"/> is incremented for every completed execution, including
         /// failed or canceled attempts, so a finite cue cannot retry forever after a broken
@@ -438,6 +446,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
         public int? BrightnessPercent { get; set; }
+        public int? Red { get; set; }
+        public int? Green { get; set; }
+        public int? Blue { get; set; }
         public string? TargetLabel { get; set; }
         public List<string> TargetUserIds { get; set; } = new List<string>();
         public bool IncludeDefaultTarget { get; set; }
@@ -3069,12 +3080,31 @@ namespace Jellyfin.Plugin.Hue.Configuration
             {
                 if (schedule.DurationSeconds != 0)
                     errors.Add($"{label} playlist duration override must be 0; each saved scene keeps its own duration");
+
+                if (schedule.Red.HasValue || schedule.Green.HasValue || schedule.Blue.HasValue)
+                    errors.Add($"{label} playlist RGB overrides must be omitted; playlist steps keep their saved colors");
             }
             else if (schedule.DurationSeconds != 0 &&
                      (schedule.DurationSeconds < MinPreviewDurationSeconds ||
                       schedule.DurationSeconds > MaxPreviewDurationSeconds))
             {
                 errors.Add($"{label} duration override must be 0 (inherit scene duration) or between {MinPreviewDurationSeconds} and {MaxPreviewDurationSeconds} seconds");
+            }
+
+            var scheduleChannels = new[]
+            {
+                (Name: "red", Value: schedule.Red),
+                (Name: "green", Value: schedule.Green),
+                (Name: "blue", Value: schedule.Blue)
+            };
+            foreach (var channel in scheduleChannels)
+            {
+                if (channel.Value.HasValue &&
+                    (channel.Value.Value < MinScenePlaylistStepColorValue ||
+                     channel.Value.Value > MaxScenePlaylistStepColorValue))
+                {
+                    errors.Add($"{label} {channel.Name} channel must be between {MinScenePlaylistStepColorValue} and {MaxScenePlaylistStepColorValue}, or null (inherit)");
+                }
             }
 
             if (schedule.MaxRuns < 0 || schedule.MaxRuns > MaxSceneScheduleRuns)

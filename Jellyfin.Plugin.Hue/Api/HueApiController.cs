@@ -666,6 +666,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 EffectSpeedPercent = isPlaylist || preset == null
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                     : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                Red = isPlaylist ? null : schedule.Red,
+                Green = isPlaylist ? null : schedule.Green,
+                Blue = isPlaylist ? null : schedule.Blue,
                 TransitionCurve = isPlaylist
                     ? PluginConfiguration.ColorPresetTransitionCurveLinear
                     : HueSceneAutomationService.GetEffectiveTransitionCurve(preset),
@@ -756,6 +759,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 WeekOfMonth = schedule.WeekOfMonth,
                 DayOfWeek = schedule.DayOfWeek,
                 DurationSeconds = schedule.DurationSeconds,
+                Red = schedule.Red,
+                Green = schedule.Green,
+                Blue = schedule.Blue,
                 MaxRuns = schedule.MaxRuns,
                 RunCount = schedule.RunCount,
                 RunDate = schedule.RunDate,
@@ -2626,6 +2632,115 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Renames one saved-scene playlist while migrating every scheduled-cue
+        /// reference that uses the old credential-free name. The complete candidate
+        /// playlist and cue configuration is validated before persistence.
+        /// </summary>
+        [HttpPost("ScenePlaylists/{name}/Rename")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult<HueScenePlaylistResult> RenameScenePlaylist(
+            string name,
+            [FromBody] HueScenePlaylistRenameRequest? request)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return NotFound("Scene playlist not found.");
+
+            if (request == null || string.IsNullOrWhiteSpace(request.NewName))
+                return BadRequest("A new scene playlist name is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var sourceName = name.Trim();
+            var targetName = request.NewName.Trim();
+            config.ScenePlaylists ??= new List<HueScenePlaylist>();
+            var source = config.ScenePlaylists.FirstOrDefault(playlist =>
+                playlist != null &&
+                string.Equals(playlist.Name?.Trim(), sourceName, StringComparison.OrdinalIgnoreCase));
+            if (source == null)
+                return NotFound("Scene playlist not found.");
+
+            if (string.Equals(source.Name?.Trim(), targetName, StringComparison.Ordinal))
+                return BadRequest("The new scene playlist name must differ from the current name.");
+
+            var collision = config.ScenePlaylists.Any(playlist =>
+                playlist != null &&
+                !ReferenceEquals(playlist, source) &&
+                string.Equals(playlist.Name?.Trim(), targetName, StringComparison.OrdinalIgnoreCase));
+            if (collision)
+                return Conflict("A scene playlist with the new name already exists.");
+
+            var previousPlaylists = config.ScenePlaylists;
+            var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
+            var candidatePlaylists = previousPlaylists
+                .Where(playlist => playlist != null)
+                .Select(CloneScenePlaylist)
+                .ToList();
+            var candidateSource = candidatePlaylists.First(playlist =>
+                string.Equals(playlist.Name?.Trim(), sourceName, StringComparison.OrdinalIgnoreCase));
+            candidateSource.Name = targetName;
+
+            var candidateSchedules = previousSchedules
+                .Where(schedule => schedule != null)
+                .Select(schedule =>
+                {
+                    var clone = CloneSceneSchedule(schedule);
+                    if (string.Equals(
+                            clone.PlaylistName?.Trim(),
+                            sourceName,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        clone.PlaylistName = targetName;
+                    }
+
+                    return clone;
+                })
+                .ToList();
+
+            var validationConfiguration = new PluginConfiguration
+            {
+                ColorPresets = config.ColorPresets ?? new List<HueColorPreset>(),
+                UserMappings = config.UserMappings ?? new List<UserBridgeMapping>(),
+                ScenePlaylists = candidatePlaylists,
+                SceneSchedules = candidateSchedules
+            };
+            var validationErrors = validationConfiguration.ValidateScenePlaylists();
+            validationErrors.AddRange(validationConfiguration.ValidateSceneSchedules());
+            if (validationErrors.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = "The renamed scene playlist configuration is invalid.",
+                    errors = validationErrors
+                });
+            }
+
+            config.ScenePlaylists = candidatePlaylists;
+            config.SceneSchedules = candidateSchedules;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.ScenePlaylists = previousPlaylists;
+                config.SceneSchedules = previousSchedules;
+                _logger?.LogError(ex, "Could not persist renamed Hue scene playlist {0}", sourceName);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The scene playlist rename could not be saved.");
+            }
+
+            return Ok(ToScenePlaylistResult(candidateSource, config));
+        }
+
+        /// <summary>
         /// Previews one saved-scene playlist sequentially. The optional request can select
         /// a different credential-free target mode for this run without changing the saved
         /// playlist; all target credentials and channel profiles stay server-side.
@@ -3557,6 +3672,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 "priority",
                 "effect",
                 "effectSpeedPercent",
+                "red",
+                "green",
+                "blue",
                 "recurrence",
                 "recurrenceInterval",
                 "timeMode",
@@ -3589,6 +3707,9 @@ namespace Jellyfin.Plugin.Hue.Api
                     occurrence.Priority,
                     occurrence.Effect,
                     occurrence.EffectSpeedPercent,
+                    occurrence.Red,
+                    occurrence.Green,
+                    occurrence.Blue,
                     occurrence.Recurrence,
                     occurrence.RecurrenceInterval,
                     occurrence.TimeMode,
@@ -3681,6 +3802,15 @@ namespace Jellyfin.Plugin.Hue.Api
                         : PluginConfiguration.TryNormalizeColorPresetEffect(preset?.Effect, out var normalizedEffect)
                             ? normalizedEffect
                             : PluginConfiguration.ColorPresetEffectSolid;
+                    var effectiveRed = !isPlaylist && preset != null
+                        ? Math.Clamp(schedule.Red ?? preset.Red, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                        : 0;
+                    var effectiveGreen = !isPlaylist && preset != null
+                        ? Math.Clamp(schedule.Green ?? preset.Green, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                        : 0;
+                    var effectiveBlue = !isPlaylist && preset != null
+                        ? Math.Clamp(schedule.Blue ?? preset.Blue, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                        : 0;
                     return HueSceneAutomationService.GetUpcomingOccurrences(
                             schedule,
                             serverLocalNow,
@@ -3695,7 +3825,10 @@ namespace Jellyfin.Plugin.Hue.Api
                             durationSeconds: effectiveDuration,
                             transitionCurve: isPlaylist
                                 ? PluginConfiguration.ColorPresetTransitionCurveLinear
-                                : HueSceneAutomationService.GetEffectiveTransitionCurve(preset))
+                                : HueSceneAutomationService.GetEffectiveTransitionCurve(preset),
+                            redOverride: isPlaylist ? null : effectiveRed,
+                            greenOverride: isPlaylist ? null : effectiveGreen,
+                            blueOverride: isPlaylist ? null : effectiveBlue)
                         .Select(occurrence => new HueSceneScheduleOccurrenceResult
                         {
                             ScheduleId = occurrence.ScheduleId,
@@ -3723,6 +3856,24 @@ namespace Jellyfin.Plugin.Hue.Api
                             EffectSpeedPercent = isPlaylist || preset == null
                                 ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                                 : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                            Red = isPlaylist || preset == null
+                                ? 0
+                                : Math.Clamp(
+                                    schedule.Red ?? preset.Red,
+                                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                                    PluginConfiguration.MaxScenePlaylistStepColorValue),
+                            Green = isPlaylist || preset == null
+                                ? 0
+                                : Math.Clamp(
+                                    schedule.Green ?? preset.Green,
+                                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                                    PluginConfiguration.MaxScenePlaylistStepColorValue),
+                            Blue = isPlaylist || preset == null
+                                ? 0
+                                : Math.Clamp(
+                                    schedule.Blue ?? preset.Blue,
+                                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                                    PluginConfiguration.MaxScenePlaylistStepColorValue),
                             TransitionCurve = isPlaylist
                                 ? PluginConfiguration.ColorPresetTransitionCurveLinear
                                 : HueSceneAutomationService.GetEffectiveTransitionCurve(preset),
@@ -3808,6 +3959,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "X-HUE-PLAYLIST-ORDER", occurrence.PlaylistPlaybackOrder);
                 AppendIcsLine(builder, "X-HUE-PLAYLIST-STEP-PLAN", JsonSerializer.Serialize(occurrence.PlaylistSteps));
                 AppendIcsLine(builder, "X-HUE-EFFECT-SPEED-PERCENT", occurrence.EffectSpeedPercent.ToString(CultureInfo.InvariantCulture));
+                AppendIcsLine(builder, "X-HUE-RED", occurrence.Red.ToString(CultureInfo.InvariantCulture));
+                AppendIcsLine(builder, "X-HUE-GREEN", occurrence.Green.ToString(CultureInfo.InvariantCulture));
+                AppendIcsLine(builder, "X-HUE-BLUE", occurrence.Blue.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-SECONDS", occurrence.TransitionSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-OUT-SECONDS", occurrence.TransitionOutSeconds.ToString(CultureInfo.InvariantCulture));
                 AppendIcsLine(builder, "X-HUE-TRANSITION-CURVE", occurrence.TransitionCurve);
@@ -3986,6 +4140,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 "playlistPlaybackOrder",
                 "effect",
                 "effectSpeedPercent",
+                "red",
+                "green",
+                "blue",
                 "targetLabel",
                 "succeeded",
                 "skipped",
@@ -4010,6 +4167,9 @@ namespace Jellyfin.Plugin.Hue.Api
                     run.PlaylistPlaybackOrder,
                     run.Effect,
                     run.EffectSpeedPercent,
+                    run.Red,
+                    run.Green,
+                    run.Blue,
                     run.TargetLabel,
                     run.Succeeded,
                     run.Skipped,
@@ -4109,6 +4269,12 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.Priority = candidateSchedules[existingIndex].Priority;
                 if (request.PlaybackPolicy == null)
                     schedule.PlaybackPolicy = candidateSchedules[existingIndex].PlaybackPolicy;
+                if (!request.RedSpecified)
+                    schedule.Red = candidateSchedules[existingIndex].Red;
+                if (!request.GreenSpecified)
+                    schedule.Green = candidateSchedules[existingIndex].Green;
+                if (!request.BlueSpecified)
+                    schedule.Blue = candidateSchedules[existingIndex].Blue;
                 if (!request.TargetAllEnabledMappings.HasValue)
                     schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
                 if (request.TargetUserIds == null)
@@ -6853,6 +7019,12 @@ namespace Jellyfin.Plugin.Hue.Api
                         schedule.Priority = candidateSchedules[existingIndex].Priority;
                     if (scheduleRequest != null && scheduleRequest.PlaybackPolicy == null)
                         schedule.PlaybackPolicy = candidateSchedules[existingIndex].PlaybackPolicy;
+                    if (scheduleRequest != null && !scheduleRequest.RedSpecified)
+                        schedule.Red = candidateSchedules[existingIndex].Red;
+                    if (scheduleRequest != null && !scheduleRequest.GreenSpecified)
+                        schedule.Green = candidateSchedules[existingIndex].Green;
+                    if (scheduleRequest != null && !scheduleRequest.BlueSpecified)
+                        schedule.Blue = candidateSchedules[existingIndex].Blue;
                     if (scheduleRequest != null && !scheduleRequest.TargetAllEnabledMappings.HasValue)
                         schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
                     if (scheduleRequest?.TargetUserIds == null)
@@ -9615,6 +9787,16 @@ namespace Jellyfin.Plugin.Hue.Api
     }
 
     /// <summary>
+    /// Request shape for renaming a saved-scene playlist. The response remains
+    /// credential-free; scheduled-cue references are migrated server-side.
+    /// </summary>
+    public sealed class HueScenePlaylistRenameRequest
+    {
+        [JsonPropertyName("newName")]
+        public string NewName { get; set; } = string.Empty;
+    }
+
+    /// <summary>
     /// Optional per-run target override for a saved-scene playlist preview. The persisted
     /// playlist remains unchanged.
     /// </summary>
@@ -9776,6 +9958,55 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("durationSeconds")]
         public int DurationSeconds { get; set; }
 
+        private int? _red;
+        private int? _green;
+        private int? _blue;
+        private bool _redSpecified;
+        private bool _greenSpecified;
+        private bool _blueSpecified;
+
+        [JsonPropertyName("red")]
+        public int? Red
+        {
+            get => _red;
+            set
+            {
+                _redSpecified = true;
+                _red = value;
+            }
+        }
+
+        [JsonIgnore]
+        public bool RedSpecified => _redSpecified;
+
+        [JsonPropertyName("green")]
+        public int? Green
+        {
+            get => _green;
+            set
+            {
+                _greenSpecified = true;
+                _green = value;
+            }
+        }
+
+        [JsonIgnore]
+        public bool GreenSpecified => _greenSpecified;
+
+        [JsonPropertyName("blue")]
+        public int? Blue
+        {
+            get => _blue;
+            set
+            {
+                _blueSpecified = true;
+                _blue = value;
+            }
+        }
+
+        [JsonIgnore]
+        public bool BlueSpecified => _blueSpecified;
+
         [JsonPropertyName("maxRuns")]
         public int? MaxRuns { get; set; }
 
@@ -9834,6 +10065,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 WeekOfMonth = WeekOfMonth,
                 DayOfWeek = DayOfWeek,
                 DurationSeconds = DurationSeconds,
+                Red = Red,
+                Green = Green,
+                Blue = Blue,
                 MaxRuns = MaxRuns ?? 0,
                 RunCount = RunCount ?? 0,
                 RunDate = RunDate?.Trim() ?? string.Empty,
@@ -10148,6 +10382,15 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("effectSpeedPercent")]
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
+        [JsonPropertyName("red")]
+        public int? Red { get; set; }
+
+        [JsonPropertyName("green")]
+        public int? Green { get; set; }
+
+        [JsonPropertyName("blue")]
+        public int? Blue { get; set; }
+
         [JsonPropertyName("transitionCurve")]
         public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
 
@@ -10279,6 +10522,15 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("effectSpeedPercent")]
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
+        [JsonPropertyName("red")]
+        public int Red { get; set; }
+
+        [JsonPropertyName("green")]
+        public int Green { get; set; }
+
+        [JsonPropertyName("blue")]
+        public int Blue { get; set; }
 
         [JsonPropertyName("transitionCurve")]
         public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;

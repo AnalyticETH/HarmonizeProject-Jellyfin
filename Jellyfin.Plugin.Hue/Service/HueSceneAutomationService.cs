@@ -910,6 +910,15 @@ public sealed class HueSceneAutomationService : BackgroundService
                 EffectSpeedPercent = isPlaylist || preset == null
                     ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                     : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+                Red = isPlaylist || preset == null
+                    ? 0
+                    : Math.Clamp(schedule.Red ?? preset.Red, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
+                Green = isPlaylist || preset == null
+                    ? 0
+                    : Math.Clamp(schedule.Green ?? preset.Green, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
+                Blue = isPlaylist || preset == null
+                    ? 0
+                    : Math.Clamp(schedule.Blue ?? preset.Blue, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
                 PlaylistStepCount = playlist?.PresetNames?.Count ?? 0,
                 PlaylistRepeatCount = playlist == null
                     ? PluginConfiguration.DefaultScenePlaylistRepeatCount
@@ -1336,7 +1345,10 @@ public sealed class HueSceneAutomationService : BackgroundService
         int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
         int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
         int durationSeconds = -1,
-        string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear)
+        string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear,
+        int? redOverride = null,
+        int? greenOverride = null,
+        int? blueOverride = null)
     {
         var occurrences = new List<HueSceneScheduleOccurrence>();
         var boundedOccurrences = Math.Clamp(
@@ -1481,6 +1493,15 @@ public sealed class HueSceneAutomationService : BackgroundService
                 SolarLongitude = schedule.SolarLongitude,
                 Effect = PluginConfiguration.ColorPresetEffectSolid,
                 EffectSpeedPercent = PluginConfiguration.ClampColorPresetEffectSpeedPercent(effectSpeedPercent),
+                Red = redOverride.HasValue
+                    ? Math.Clamp(redOverride.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                    : 0,
+                Green = greenOverride.HasValue
+                    ? Math.Clamp(greenOverride.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                    : 0,
+                Blue = blueOverride.HasValue
+                    ? Math.Clamp(blueOverride.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                    : 0,
                 TransitionCurve = PluginConfiguration.TryNormalizeColorPresetTransitionCurve(
                     transitionCurve,
                     out var normalizedTransitionCurve)
@@ -1866,6 +1887,15 @@ public sealed class HueSceneAutomationService : BackgroundService
                     preset.BrightnessPercent,
                     PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                     PluginConfiguration.MaxScenePlaylistStepBrightnessPercent),
+            Red = redOverride.HasValue
+                ? Math.Clamp(redOverride.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                : Math.Clamp(preset.Red, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Green = greenOverride.HasValue
+                ? Math.Clamp(greenOverride.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                : Math.Clamp(preset.Green, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Blue = blueOverride.HasValue
+                ? Math.Clamp(blueOverride.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                : Math.Clamp(preset.Blue, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
             TransitionCurve = !string.IsNullOrWhiteSpace(transitionCurveOverride) &&
                 PluginConfiguration.TryNormalizeColorPresetTransitionCurve(
                     transitionCurveOverride,
@@ -3975,6 +4005,24 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = isPlaylist || preset == null
                 ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                 : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+            Red = isPlaylist || preset == null
+                ? 0
+                : Math.Clamp(
+                    schedule.Red ?? preset.Red,
+                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                    PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Green = isPlaylist || preset == null
+                ? 0
+                : Math.Clamp(
+                    schedule.Green ?? preset.Green,
+                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                    PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Blue = isPlaylist || preset == null
+                ? 0
+                : Math.Clamp(
+                    schedule.Blue ?? preset.Blue,
+                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                    PluginConfiguration.MaxScenePlaylistStepColorValue),
             TargetLabel = ResolveTargetLabel(config, schedule),
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -4089,7 +4137,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                 preset,
                 target,
                 cancellationToken,
-                targetScopedPlayback).ConfigureAwait(false);
+                targetScopedPlayback,
+                redOverride: schedule.Red,
+                greenOverride: schedule.Green,
+                blueOverride: schedule.Blue).ConfigureAwait(false);
             targetResults.Add(targetResult);
         }
 
@@ -4112,6 +4163,15 @@ public sealed class HueSceneAutomationService : BackgroundService
                 preset.BrightnessPercent,
                 PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                 PluginConfiguration.MaxScenePlaylistStepBrightnessPercent),
+            Red = schedule.Red.HasValue
+                ? Math.Clamp(schedule.Red.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                : Math.Clamp(preset.Red, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Green = schedule.Green.HasValue
+                ? Math.Clamp(schedule.Green.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                : Math.Clamp(preset.Green, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Blue = schedule.Blue.HasValue
+                ? Math.Clamp(schedule.Blue.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
+                : Math.Clamp(preset.Blue, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
             TargetLabel = ResolveTargetLabel(config, schedule),
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -4747,6 +4807,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = result.EffectSpeedPercent,
             TransitionCurve = result.TransitionCurve,
             BrightnessPercent = result.BrightnessPercent,
+            Red = result.Red,
+            Green = result.Green,
+            Blue = result.Blue,
             TargetLabel = result.TargetLabel,
             TargetUserIds = result.TargetUserIds?.ToList() ?? new List<string>(),
             IncludeDefaultTarget = result.IncludeDefaultTarget,
@@ -4934,6 +4997,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                     PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
                 : null,
+            Red = Math.Clamp(source.Red ?? 0, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Green = Math.Clamp(source.Green ?? 0, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Blue = Math.Clamp(source.Blue ?? 0, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
             TransitionCurve = PluginConfiguration.TryNormalizeColorPresetTransitionCurve(
                 source.TransitionCurve,
                 out var sourceTransitionCurve)
@@ -4990,6 +5056,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                     PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
                 : null,
+            Red = Math.Clamp(entry.Red ?? 0, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Green = Math.Clamp(entry.Green ?? 0, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Blue = Math.Clamp(entry.Blue ?? 0, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
             TransitionCurve = PluginConfiguration.TryNormalizeColorPresetTransitionCurve(
                 entry.TransitionCurve,
                 out var entryTransitionCurve)
@@ -5031,6 +5100,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             Effect = source.Effect,
             EffectSpeedPercent = source.EffectSpeedPercent,
             BrightnessPercent = source.BrightnessPercent,
+            Red = source.Red,
+            Green = source.Green,
+            Blue = source.Blue,
             TransitionCurve = source.TransitionCurve,
             TargetLabel = source.TargetLabel,
             TargetUserIds = source.TargetUserIds?.ToArray() ?? Array.Empty<string>(),
@@ -5419,6 +5491,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             WeekOfMonth = source.WeekOfMonth,
             DayOfWeek = source.DayOfWeek,
             DurationSeconds = source.DurationSeconds,
+            Red = source.Red,
+            Green = source.Green,
+            Blue = source.Blue,
             MaxRuns = source.MaxRuns,
             RunCount = source.RunCount,
             RunDate = source.RunDate,
@@ -5483,6 +5558,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = schedule?.Name?.Trim() ?? string.Empty,
             PresetName = schedule?.PresetName?.Trim() ?? string.Empty,
             PlaylistName = schedule?.PlaylistName?.Trim() ?? string.Empty,
+            Red = schedule?.Red ?? 0,
+            Green = schedule?.Green ?? 0,
+            Blue = schedule?.Blue ?? 0,
             TargetLabel = targetLabel,
             TargetUserIds = schedule?.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -5618,6 +5696,15 @@ public sealed class HueSceneAutomationRunResult
 
     [JsonPropertyName("brightnessPercent")]
     public int? BrightnessPercent { get; init; }
+
+    [JsonPropertyName("red")]
+    public int Red { get; init; }
+
+    [JsonPropertyName("green")]
+    public int Green { get; init; }
+
+    [JsonPropertyName("blue")]
+    public int Blue { get; init; }
 
     [JsonPropertyName("transitionCurve")]
     public string TransitionCurve { get; init; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
@@ -5913,6 +6000,15 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("effectSpeedPercent")]
     public int EffectSpeedPercent { get; init; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
 
+    [JsonPropertyName("red")]
+    public int Red { get; init; }
+
+    [JsonPropertyName("green")]
+    public int Green { get; init; }
+
+    [JsonPropertyName("blue")]
+    public int Blue { get; init; }
+
     [JsonPropertyName("transitionCurve")]
     public string TransitionCurve { get; init; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
 
@@ -6041,6 +6137,15 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("effectSpeedPercent")]
     public int EffectSpeedPercent { get; init; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
+
+    [JsonPropertyName("red")]
+    public int Red { get; init; }
+
+    [JsonPropertyName("green")]
+    public int Green { get; init; }
+
+    [JsonPropertyName("blue")]
+    public int Blue { get; init; }
 
     [JsonPropertyName("transitionCurve")]
     public string TransitionCurve { get; init; } = PluginConfiguration.ColorPresetTransitionCurveLinear;

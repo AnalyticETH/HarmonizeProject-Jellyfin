@@ -891,6 +891,50 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_ValidatesDirectRgbOverridesAndRejectsPlaylistOverrides()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "playlist-1", Name = "Evening sequence", PresetNames = new List<string> { "Evening" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "rgb-cue",
+                    Name = "RGB cue",
+                    PresetName = "Evening",
+                    Red = 0,
+                    Green = 128,
+                    Blue = 255,
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+
+        config.SceneSchedules[0].Red = 256;
+        Assert.Contains(
+            "Scene schedule 1 red channel must be between 0 and 255, or null (inherit)",
+            config.ValidateSceneSchedules());
+
+        config.SceneSchedules[0].Red = null;
+        config.SceneSchedules[0].PresetName = string.Empty;
+        config.SceneSchedules[0].PlaylistName = "Evening sequence";
+        config.SceneSchedules[0].Green = 1;
+        Assert.Contains(
+            "Scene schedule 1 playlist RGB overrides must be omitted; playlist steps keep their saved colors",
+            config.ValidateSceneSchedules());
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_AllowsSolarCueAndNormalizesTimeMode()
     {
         var config = new PluginConfiguration

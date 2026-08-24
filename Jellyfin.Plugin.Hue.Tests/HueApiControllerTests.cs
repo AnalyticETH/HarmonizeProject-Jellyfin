@@ -2700,6 +2700,66 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void RenameScenePlaylist_MigratesCueReferencesAndReturnsCredentialFreeMetadata()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueAppKey = "playlist-rename-app-secret",
+            HueClientKey = "playlist-rename-client-secret",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Accent", DurationSeconds = 2 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "rename-playlist",
+                    Name = "Original sequence",
+                    PresetNames = new List<string> { "Accent" },
+                    StepRed = new List<int?> { 210 },
+                    StepGreen = new List<int?> { 120 },
+                    StepBlue = new List<int?> { 30 },
+                    RepeatCount = 2
+                },
+                new() { Id = "other-playlist", Name = "Existing sequence", PresetNames = new List<string> { "Accent" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "rename-cue", Name = "Renamed cue", PlaylistName = " original sequence " }
+            }
+        });
+        var controller = CreateController();
+
+        var renamed = controller.RenameScenePlaylist(
+            " ORIGINAL SEQUENCE ",
+            new HueScenePlaylistRenameRequest { NewName = " New sequence " });
+
+        var response = Assert.IsType<OkObjectResult>(renamed.Result);
+        var result = Assert.IsType<HueScenePlaylistResult>(response.Value);
+        Assert.Equal("New sequence", result.Name);
+        Assert.Equal(new int?[] { 210 }, result.StepRed);
+        Assert.Equal(new int?[] { 120 }, result.StepGreen);
+        Assert.Equal(new int?[] { 30 }, result.StepBlue);
+        Assert.Equal(2, result.RepeatCount);
+        Assert.Equal("New sequence", Assert.Single(configuration.SceneSchedules).PlaylistName);
+        Assert.DoesNotContain("playlist-rename-app-secret", JsonSerializer.Serialize(result), StringComparison.Ordinal);
+        Assert.DoesNotContain("playlist-rename-client-secret", JsonSerializer.Serialize(result), StringComparison.Ordinal);
+
+        var blank = controller.RenameScenePlaylist(
+            "New sequence",
+            new HueScenePlaylistRenameRequest { NewName = "  " });
+        Assert.IsType<BadRequestObjectResult>(blank.Result);
+
+        var collision = controller.RenameScenePlaylist(
+            "New sequence",
+            new HueScenePlaylistRenameRequest { NewName = " existing sequence " });
+        Assert.IsType<ConflictObjectResult>(collision.Result);
+        Assert.Equal("New sequence", configuration.ScenePlaylists[0].Name);
+        Assert.Equal("New sequence", configuration.SceneSchedules[0].PlaylistName);
+    }
+
+    [Fact]
     public void GetScenePlaylistDependencies_ReturnsCredentialFreeCueDetails()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -4170,6 +4230,9 @@ public sealed class HueApiControllerTests : IDisposable
             ExcludedDates = new List<string> { "2026-12-31", " 2026-12-24 ", "2026-12-31" },
             DaysOfWeekMask = 1 | 32,
             DurationSeconds = 12,
+            Red = 101,
+            Green = 102,
+            Blue = 103,
             MaxRuns = 3,
             Enabled = true
         });
@@ -4192,8 +4255,14 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(4, savedResult.TransitionSeconds);
         Assert.Equal(2, savedResult.TransitionOutSeconds);
         Assert.Equal(150, savedResult.EffectSpeedPercent);
+        Assert.Equal(101, savedResult.Red);
+        Assert.Equal(102, savedResult.Green);
+        Assert.Equal(103, savedResult.Blue);
         Assert.Equal(new[] { "2026-12-24", "2026-12-31" }, configuration.SceneSchedules[0].ExcludedDates);
         Assert.Equal(12, configuration.SceneSchedules[0].DurationSeconds);
+        Assert.Equal(101, configuration.SceneSchedules[0].Red);
+        Assert.Equal(102, configuration.SceneSchedules[0].Green);
+        Assert.Equal(103, configuration.SceneSchedules[0].Blue);
         Assert.Equal(42, configuration.SceneSchedules[0].Priority);
         Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, configuration.SceneSchedules[0].PlaybackPolicy);
         Assert.Single(configuration.SceneSchedules);
@@ -4214,11 +4283,31 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
         Assert.Equal(42, configuration.SceneSchedules[0].Priority);
         Assert.Equal(PluginConfiguration.SceneAutomationPlaybackPolicyDefer, configuration.SceneSchedules[0].PlaybackPolicy);
+        Assert.Equal(101, configuration.SceneSchedules[0].Red);
+        Assert.Equal(102, configuration.SceneSchedules[0].Green);
+        Assert.Equal(103, configuration.SceneSchedules[0].Blue);
+
+        var cleared = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = savedResult.Id,
+            Name = "Evening Cue Cleared",
+            PresetName = "Evening",
+            TimeOfDay = "21:45",
+            DaysOfWeekMask = 127,
+            Red = null,
+            Green = null,
+            Blue = null,
+            Enabled = false
+        });
+        Assert.IsType<OkObjectResult>(cleared.Result);
+        Assert.Null(configuration.SceneSchedules[0].Red);
+        Assert.Null(configuration.SceneSchedules[0].Green);
+        Assert.Null(configuration.SceneSchedules[0].Blue);
 
         var list = controller.GetSceneSchedules();
         var listResponse = Assert.IsType<OkObjectResult>(list.Result);
         var listed = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleResult>>(listResponse.Value));
-        Assert.Equal("Evening Cue Updated", listed.Name);
+        Assert.Equal("Evening Cue Cleared", listed.Name);
         Assert.Equal(42, listed.Priority);
         Assert.Equal(string.Empty, listed.TimeZoneId);
         var serialized = System.Text.Json.JsonSerializer.Serialize(listed);
@@ -5934,6 +6023,9 @@ public sealed class HueApiControllerTests : IDisposable
                     ScheduleName = "CSV, \"Cue\"",
                     PresetName = "CSV scene",
                     TargetLabel = "Living Room",
+                    Red = 41,
+                    Green = 42,
+                    Blue = 43,
                     Succeeded = true,
                     Message = "Message, with \"quotes\"",
                     CleanupWarning = "=FORMULA()",
@@ -5957,6 +6049,9 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeZoneId = TimeZoneInfo.Local.Id,
                     Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
                     DaysOfWeekMask = 0,
+                    Red = 51,
+                    Green = 52,
+                    Blue = 53,
                     Enabled = true
                 },
                 new()
@@ -5986,6 +6081,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("jellyfin-hue-scene-schedule-occurrences.csv", occurrenceFile.FileDownloadName);
         var occurrenceCsv = ReadCsv(occurrenceFile);
         Assert.StartsWith("\"scheduleId\",\"scheduleName\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"red\",\"green\",\"blue\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"51\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"52\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"53\"", occurrenceCsv, StringComparison.Ordinal);
         Assert.Contains("\"csv-cue\",\"CSV, \"\"Cue\"\"\"", occurrenceCsv, StringComparison.Ordinal);
         Assert.DoesNotContain("AppKey", occurrenceCsv, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("ClientKey", occurrenceCsv, StringComparison.OrdinalIgnoreCase);
@@ -5999,6 +6098,10 @@ public sealed class HueApiControllerTests : IDisposable
         var historyFile = Assert.IsType<FileContentResult>(controller.ExportSceneScheduleHistoryCsv(10, "csv-cue", "Succeeded"));
         var historyCsv = ReadCsv(historyFile);
         Assert.StartsWith("\"scheduleId\",\"scheduleName\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"red\",\"green\",\"blue\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"41\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"42\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"43\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"Message, with \"\"quotes\"\"\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"csv-cue\",\"CSV, \"\"Cue\"\"\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"'=FORMULA()\"", historyCsv, StringComparison.Ordinal);
@@ -6491,7 +6594,7 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "area-1",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Evening", Effect = PluginConfiguration.ColorPresetEffectPulse, EffectSpeedPercent = 175, TransitionSeconds = 2, TransitionOutSeconds = 3 }
+                new() { Name = "Evening", Effect = PluginConfiguration.ColorPresetEffectPulse, EffectSpeedPercent = 175, Red = 10, Green = 20, Blue = 30, TransitionSeconds = 2, TransitionOutSeconds = 3 }
             },
             UserMappings = new List<UserBridgeMapping>
             {
@@ -6509,6 +6612,9 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeOfDay = cueTime,
                     TimeZoneId = TimeZoneInfo.Local.Id,
                     DurationSeconds = 7,
+                    Red = 101,
+                    Green = 102,
+                    Blue = 103,
                     DaysOfWeekMask = 127
                 },
                 new()
@@ -6537,6 +6643,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.TransitionOutSeconds == 3);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Effect == PluginConfiguration.ColorPresetEffectPulse);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.EffectSpeedPercent == 175);
+        Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Red == 101 && occurrence.Green == 102 && occurrence.Blue == 103);
         Assert.Contains(result.Occurrences, occurrence => occurrence.ScheduleId == "cue-1" && occurrence.Recurrence == PluginConfiguration.SceneScheduleRecurrenceWeekly);
         Assert.Contains(result.Occurrences, occurrence => occurrence.TargetLabel == "Living Room");
         Assert.DoesNotContain(result.Occurrences, occurrence => occurrence.TargetLabel.Contains("secret", StringComparison.OrdinalIgnoreCase));
@@ -6744,7 +6851,7 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "area-1",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Evening", Effect = PluginConfiguration.ColorPresetEffectRainbow, EffectSpeedPercent = 225, DurationSeconds = 8, TransitionSeconds = 2, TransitionOutSeconds = 3 }
+                new() { Name = "Evening", Effect = PluginConfiguration.ColorPresetEffectRainbow, EffectSpeedPercent = 225, Red = 10, Green = 20, Blue = 30, DurationSeconds = 8, TransitionSeconds = 2, TransitionOutSeconds = 3 }
             },
             SceneSchedules = new List<HueSceneSchedule>
             {
@@ -6757,6 +6864,9 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeOfDay = cueTime,
                     TimeZoneId = TimeZoneInfo.Local.Id,
                     DurationSeconds = 4,
+                    Red = 101,
+                    Green = 102,
+                    Blue = 103,
                     DaysOfWeekMask = 127
                 }
             }
@@ -6776,6 +6886,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("DTEND:", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-EFFECT:Rainbow\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-EFFECT-SPEED-PERCENT:225\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-RED:101\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-GREEN:102\r\n", calendar, StringComparison.Ordinal);
+        Assert.Contains("X-HUE-BLUE:103\r\n", calendar, StringComparison.Ordinal);
         Assert.Contains("X-HUE-PRIORITY:64\r\n", calendar, StringComparison.Ordinal);
         var startText = calendar.Split("\r\n", StringSplitOptions.None)
             .Single(line => line.StartsWith("DTSTART:", StringComparison.Ordinal))

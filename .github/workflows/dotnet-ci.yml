@@ -23,6 +23,8 @@ jobs:
     name: Build and Test
     if: github.ref == 'refs/heads/main'
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
+    # Bound persistent-runner occupancy if a restore, test, or external tool stalls.
+    timeout-minutes: 20
 
     steps:
     - name: Checkout code
@@ -118,6 +120,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     needs: build-and-test
+    timeout-minutes: 15
 
     steps:
     - name: Checkout code
@@ -163,6 +166,7 @@ jobs:
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     needs: [build-and-test, code-quality, security-analysis]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 15
 
     steps:
     - name: Checkout code
@@ -234,6 +238,7 @@ jobs:
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]
     needs: create-release-package
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 10
     permissions:
       contents: write
 

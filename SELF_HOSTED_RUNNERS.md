@@ -21,7 +21,9 @@ default-branch security scans. Neither workflow exposes `workflow_dispatch`, pul
 or non-main push triggers, and every self-hosted job has a
 `github.ref == 'refs/heads/main'` guard as defense in depth. Pull-request and non-main code
 must not be routed to either identity. The release label is reserved for the single
-`contents:write` job.
+`contents:write` job. Every job also has a bounded `timeout-minutes` budget (20 minutes for
+build/test, 15 minutes for quality, security, and packaging, and 10 minutes for release
+publication) so a stalled network operation or tool cannot hold a persistent runner forever.
 
 ## Version maintenance
 

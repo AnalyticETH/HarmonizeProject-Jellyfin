@@ -189,6 +189,37 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void UpcomingOccurrences_ExposeClampedDirectRgbOverrides()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Id = "rgb-occurrence",
+            Name = "RGB occurrence",
+            Enabled = true,
+            PresetName = "Scene",
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            StartDate = "2026-08-17",
+            DaysOfWeekMask = 0
+        };
+
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            new DateTime(2026, 8, 17, 0, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 1,
+            horizonDays: 2,
+            redOverride: 300,
+            greenOverride: -10,
+            blueOverride: 42);
+
+        var occurrence = Assert.Single(occurrences);
+        Assert.Equal(255, occurrence.Red);
+        Assert.Equal(0, occurrence.Green);
+        Assert.Equal(42, occurrence.Blue);
+    }
+
+    [Fact]
     public void SolarNoonSchedule_UsesNoonTimeForDueAndUpcomingOccurrence()
     {
         var zone = TimeZoneInfo.FindSystemTimeZoneById(
@@ -1117,6 +1148,7 @@ public sealed class HueSceneAutomationServiceTests
             HueAppKey = "one-time-app-secret",
             HueClientKey = "one-time-client-secret",
             EntertainmentAreaId = "area-1",
+            PersistSceneScheduleHistory = true,
             ColorPresets = new List<HueColorPreset>
             {
                 new() { Name = "Evening", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 }
@@ -1132,6 +1164,9 @@ public sealed class HueSceneAutomationServiceTests
                     TimeZoneId = TimeZoneInfo.Utc.Id,
                     RunDate = "2026-08-18",
                     DurationSeconds = 7,
+                    Red = 101,
+                    Green = 102,
+                    Blue = 103,
                     DaysOfWeekMask = 0
                 }
             }
@@ -1148,9 +1183,9 @@ public sealed class HueSceneAutomationServiceTests
                 "area-1",
                 It.IsAny<JsonElement>(),
                 null,
-                10,
-                20,
-                30,
+                101,
+                102,
+                103,
                 80,
                 7,
                 It.IsAny<CancellationToken>(),
@@ -1174,8 +1209,15 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("2026-08-18", runtime.RunDate);
         Assert.False(runtime.Enabled);
         Assert.Equal(7, runtime.DurationSeconds);
+        Assert.Equal(101, runtime.Red);
+        Assert.Equal(102, runtime.Green);
+        Assert.Equal(103, runtime.Blue);
         Assert.Equal(1, runtime.RunCount);
         Assert.True(runtime.LastSucceeded);
+        var history = Assert.Single(service.GetHistory());
+        Assert.Equal(101, history.Red);
+        Assert.Equal(102, history.Green);
+        Assert.Equal(103, history.Blue);
         await service.RunDueSchedulesAsync(
             TimeZoneInfo.ConvertTimeFromUtc(dueUtc, TimeZoneInfo.Local),
             CancellationToken.None);

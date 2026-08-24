@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [1.5.205] - 2026-08-23
+
+### Added
+- **Explicit playlist rename workflow**: add a credential-free `POST /HueSync/ScenePlaylists/{name}/Rename` operation and administrator button that atomically migrates scheduled-cue references while preserving every playlist step, target, repeat, and playback-order setting.
+- **Direct scheduled-scene RGB overrides**: allow nullable `red`, `green`, and `blue` channel overrides on single-scene cues, with 0-255 validation and inherited saved-scene colors when omitted; explicit JSON null clears an existing override.
+- **Credential-free RGB telemetry**: carry effective scheduled-scene colors through runtime status, run results, upcoming occurrence JSON/CSV/iCalendar reports, and persisted history without exposing bridge credentials.
+
+### Security
+- **Bounded self-hosted jobs**: add documented timeout budgets to every build, code-quality, security-scan, package, and release-publication job.
+
+### Tests
+- **Regression coverage**: verify rename normalization, collision/blank-name rejection, metadata preservation, cue-reference migration, RGB inheritance/range rules, explicit null clearing, runtime payloads, exports, and credential-free responses.
+
 ## [1.5.204] - 2026-08-23
 
 ### Added

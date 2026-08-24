@@ -28,6 +28,8 @@ jobs:
     name: Secret scan (gitleaks)
     if: github.ref == 'refs/heads/main'
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
+    # Bound persistent-runner occupancy if an upstream download or scan stalls.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -85,6 +87,7 @@ jobs:
     name: Static analysis (semgrep)
     if: github.ref == 'refs/heads/main'
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install semgrep

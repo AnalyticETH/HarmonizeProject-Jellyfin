@@ -21,6 +21,7 @@ Every trusted `main` push runs the named self-hosted CI runner with:
 - Blocking Gitleaks history scanning with a redacted JSON artifact
 - Blocking Semgrep static analysis with the explicit `p/default` ruleset and a JSON artifact
 - Immutable commit-SHA references for third-party GitHub Actions
+- Bounded job timeouts that release a persistent runner when a restore, scanner, or release step stalls
 
 The repository-controlled weekly default-branch security workflow reruns the blocking Gitleaks and Semgrep gates. Both scanner jobs carry the same `refs/heads/main` guard, so pull-request and non-main code never reach the persistent runner.
 
