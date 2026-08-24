@@ -7447,7 +7447,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 mapping.EntertainmentAreaId = string.Empty;
                 mapping.EntertainmentAreaName = string.Empty;
                 if (!mapping.SyncEnabled)
-                    mapping.DeviceTargets.Clear();
+                    mapping.DeviceTargets = new List<UserDeviceBridgeTarget>();
             }
 
             return mapping;

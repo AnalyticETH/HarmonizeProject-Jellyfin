@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.213 (Current)
+### Version 1.5.214 (Current)
+- **Import nullability hardening**: disabled or legacy mappings with absent nested route collections now normalize safely without compiler warnings.
+
+### Version 1.5.213
 - **Automatic playback device routing**: configure bounded, exact-match per-user device routes with private bridge validation, device-over-user-over-global channel precedence, credential-safe summaries/imports, runtime/session telemetry, rollback-safe bulk mapping changes, and administrator JSON controls.
 
 ### Version 1.5.212

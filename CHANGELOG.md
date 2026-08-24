@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.214] - 2026-08-24
+
+### Fixed
+- **Import nullability hardening**: disabled or legacy mappings with absent nested route collections now normalize safely without a nullable dereference warning.
+
 ## [1.5.213] - 2026-08-24
 
 ### Added
