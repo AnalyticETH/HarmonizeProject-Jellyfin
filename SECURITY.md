@@ -16,6 +16,7 @@ Every trusted `main` push runs the named self-hosted CI runner with:
 
 - A dedicated, least-privileged `harmonize-runner` service account and isolated home directory
 - No `workflow_dispatch`, pull-request, or non-main push trigger, plus a job-level `refs/heads/main` guard and a separate release-runner identity for the `contents:write` publication job
+- Release packaging generates a SHA-256 sidecar, carries it with the inter-job artifact, verifies it on the isolated release runner, and publishes it beside the release ZIP
 - Locked-mode NuGet restores with committed dependency content hashes
 - NuGet vulnerability auditing through `dotnet list package --vulnerable --include-transitive`
 - Blocking Gitleaks history scanning with a redacted JSON artifact

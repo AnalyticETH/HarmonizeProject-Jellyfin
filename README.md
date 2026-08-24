@@ -366,7 +366,7 @@ doubles. A real bridge is only needed for an end-to-end playback check after ins
 Tests are automatically run in CI/CD on:
 - Trusted pushes to `main`
 
-Full CI runs locked restores, build/tests, formatting, dependency auditing, Gitleaks, and Semgrep on the named self-hosted runner. A repository-controlled weekly default-branch workflow reruns the blocking Gitleaks and Semgrep gates. Neither persistent-runner workflow accepts `workflow_dispatch`, pull-request, or non-main push events, and every self-hosted job also has a `refs/heads/main` guard. The runner is configured under the dedicated, least-privileged `harmonize-runner` service account with an isolated home. Release publication uses a separate least-privileged self-hosted identity so its short-lived `contents:write` token is never exposed to the build/test account, and fails closed when its version tag already exists. See `.github/workflows/dotnet-ci.yml` and [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md) for the full workflow and host runbook.
+Full CI runs locked restores, build/tests, formatting, dependency auditing, Gitleaks, and Semgrep on the named self-hosted runner. A repository-controlled weekly default-branch workflow reruns the blocking Gitleaks and Semgrep gates. Neither persistent-runner workflow accepts `workflow_dispatch`, pull-request, or non-main push events, and every self-hosted job also has a `refs/heads/main` guard. The runner is configured under the dedicated, least-privileged `harmonize-runner` service account with an isolated home. Release publication uses a separate least-privileged self-hosted identity so its short-lived `contents:write` token is never exposed to the build/test account, verifies the release ZIP's SHA-256 sidecar before publication, and fails closed when its version tag already exists. See `.github/workflows/dotnet-ci.yml` and [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md) for the full workflow and host runbook.
 
 ### Troubleshooting
 
@@ -429,6 +429,7 @@ Benchmarks measure:
 
 ### Version 1.5.232 (Current)
 - **Fail-closed bulk mapping deletion**: null or blank user mapping IDs are rejected before normalization or configuration mutation, preserving atomic bulk-delete behavior.
+- **Release artifact verification**: the release ZIP's SHA-256 sidecar is verified between the package and release runners and published for downstream integrity checks.
 
 ### Version 1.5.231
 - **Fail-closed preview target selection**: direct, saved-scene, bulk saved-scene, playlist, and bulk playlist previews reject blank target user IDs before default-bridge fallback or bridge activity.

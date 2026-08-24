@@ -13,6 +13,7 @@ No unreleased changes.
 
 ### Security
 - **Fail-closed bulk mapping deletion**: reject null or blank user mapping IDs before normalization or configuration mutation.
+- **Release artifact verification**: generate a SHA-256 sidecar for each release package, verify it on the isolated release runner, and publish it with the ZIP for downstream integrity checks.
 
 ### Tests
 - **Malformed bulk-delete coverage**: verify mixed valid, null, and blank selections return HTTP 400 and preserve every mapping.

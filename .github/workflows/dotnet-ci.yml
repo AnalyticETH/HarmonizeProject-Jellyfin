@@ -200,12 +200,15 @@ jobs:
         zip -q -r ../jellyfin-plugin-hue-release.zip .
         cd ..
         test "$(unzip -Z1 jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "Jellyfin.Plugin.Hue.dll meta.json "
+        sha256sum jellyfin-plugin-hue-release.zip > jellyfin-plugin-hue-release.zip.sha256
 
     - name: Upload release package
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: release-package
-        path: jellyfin-plugin-hue-release.zip
+        path: |
+          jellyfin-plugin-hue-release.zip
+          jellyfin-plugin-hue-release.zip.sha256
         retention-days: 90
 
     - name: Generate release notes
@@ -259,6 +262,11 @@ jobs:
       with:
         name: release-package
         path: ./
+
+    - name: Verify release package checksum
+      run: |
+        set -euo pipefail
+        sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
 
     - name: Extract changelog for current version
       id: changelog
@@ -349,6 +357,7 @@ jobs:
           - `meta.json` - Plugin metadata (required by Jellyfin)
         files: |
           jellyfin-plugin-hue-release.zip
+          jellyfin-plugin-hue-release.zip.sha256
         draft: false
         prerelease: false
         fail_on_unmatched_files: true
