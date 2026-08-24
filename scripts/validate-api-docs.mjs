@@ -30,12 +30,12 @@ const occurrenceCsvRow = readme.split("\n").find(line => line.startsWith("|") &&
 if (!occurrenceCsvRow) {
     throw new Error("README.md is missing the scheduled-occurrence CSV endpoint contract");
 }
-for (const marker of ["targetUserIds", "targetRoutes", "userId", "deviceId", "includeDefaultTarget"]) {
+for (const marker of ["targetAllEnabledMappings", "targetUserIds", "targetRoutes", "userId", "deviceId", "includeDefaultTarget"]) {
     if (!occurrenceCsvRow.includes(marker)) {
         throw new Error(`README.md scheduled-occurrence CSV contract is missing route field: ${marker}`);
     }
 }
-for (const marker of ["targetUserIds", "targetRoutes", "userId", "deviceId", "includeDefaultTarget"]) {
+for (const marker of ["targetAllEnabledMappings", "targetUserIds", "targetRoutes", "userId", "deviceId", "includeDefaultTarget"]) {
     if (!historyCsvRow.includes(marker)) {
         throw new Error(`README.md scheduled-history CSV contract is missing route field: ${marker}`);
     }
@@ -85,6 +85,7 @@ for (const marker of [
     "HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress)",
     "JsonSerializer.Serialize(run.TargetUserIds",
     "JsonSerializer.Serialize(run.TargetRoutes",
+    "run.TargetAllEnabledMappings",
     "run.IncludeDefaultTarget",
     "JsonSerializer.Serialize(occurrence.TargetUserIds",
     "JsonSerializer.Serialize((occurrence.TargetRoutes",

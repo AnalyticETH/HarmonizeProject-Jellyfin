@@ -1706,6 +1706,7 @@ namespace Jellyfin.Plugin.Hue.Api
                         Preview = BuildPreviewResult(
                             new HueSceneAutomationRunResult
                             {
+                                TargetAllEnabledMappings = previewSchedule.TargetAllEnabledMappings,
                                 Succeeded = false,
                                 Message = "The saved-scene preview failed unexpectedly."
                             },
@@ -4351,6 +4352,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 "green",
                 "blue",
                 "targetLabel",
+                "targetAllEnabledMappings",
                 "targetUserIds",
                 "targetRoutes",
                 "includeDefaultTarget",
@@ -4382,6 +4384,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     run.Green,
                     run.Blue,
                     run.TargetLabel,
+                    run.TargetAllEnabledMappings,
                     JsonSerializer.Serialize(run.TargetUserIds ?? Array.Empty<string>()),
                     JsonSerializer.Serialize(run.TargetRoutes ?? Array.Empty<HueSceneAutomationTargetRoute>()),
                     run.IncludeDefaultTarget,
@@ -4986,6 +4989,7 @@ namespace Jellyfin.Plugin.Hue.Api
                         ScheduleName = schedule.Name?.Trim() ?? string.Empty,
                         PresetName = schedule.PresetName?.Trim() ?? string.Empty,
                         PlaylistName = schedule.PlaylistName?.Trim() ?? string.Empty,
+                        TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                         Succeeded = false,
                         Message = "The scheduled scene cue failed unexpectedly.",
                         RunAtUtc = DateTime.UtcNow

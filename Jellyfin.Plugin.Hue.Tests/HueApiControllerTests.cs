@@ -7031,6 +7031,7 @@ public sealed class HueApiControllerTests : IDisposable
                     ScheduleName = "Evening cue",
                     PresetName = "Evening",
                     TargetLabel = "Living Room",
+                    TargetAllEnabledMappings = true,
                     Succeeded = true,
                     Message = "Displayed scene.",
                     RunAtUtc = DateTime.UtcNow,
@@ -7052,7 +7053,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(document.PersistenceEnabled);
         Assert.Equal("cue-1", document.ScheduleIdFilter);
         Assert.Equal(2, run.RunCount);
+        Assert.True(run.TargetAllEnabledMappings);
         var serialized = System.Text.Json.JsonSerializer.Serialize(document);
+        Assert.Contains("\"targetAllEnabledMappings\":true", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("AppKey", serialized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("ClientKey", serialized, StringComparison.OrdinalIgnoreCase);
 
@@ -7118,6 +7121,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("failed-cue", failedRun.ScheduleId);
         Assert.False(failedRun.Succeeded);
         Assert.False(failedRun.Skipped);
+        Assert.False(failedRun.TargetAllEnabledMappings);
 
         var skippedAction = controller.GetSceneScheduleHistory(outcome: "Skipped");
         var skippedResponse = Assert.IsType<OkObjectResult>(skippedAction.Result);
@@ -7167,6 +7171,7 @@ public sealed class HueApiControllerTests : IDisposable
                     Red = 41,
                     Green = 42,
                     Blue = 43,
+                    TargetAllEnabledMappings = true,
                     TargetUserIds = new List<string> { "mapping-user" },
                     TargetRoutes = new List<HueSceneScheduleTargetRoute>
                     {
@@ -7264,7 +7269,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("\"41\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"42\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"43\"", historyCsv, StringComparison.Ordinal);
-        Assert.Contains("\"targetUserIds\",\"targetRoutes\",\"includeDefaultTarget\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"targetAllEnabledMappings\",\"targetUserIds\",\"targetRoutes\",\"includeDefaultTarget\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"True\",\"[\"\"mapping-user\"\"]\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"[\"\"mapping-user\"\"]\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"[{\"\"userId\"\":\"\"mapping-user\"\",\"\"deviceId\"\":\"\"living-room-tv\"\"}]\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"True\"", historyCsv, StringComparison.Ordinal);

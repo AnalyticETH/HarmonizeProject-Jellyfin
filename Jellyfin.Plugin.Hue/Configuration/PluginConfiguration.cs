@@ -493,6 +493,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? Green { get; set; }
         public int? Blue { get; set; }
         public string? TargetLabel { get; set; }
+        public bool TargetAllEnabledMappings { get; set; }
         public List<string> TargetUserIds { get; set; } = new List<string>();
         public List<HueSceneScheduleTargetRoute> TargetRoutes { get; set; } = new List<HueSceneScheduleTargetRoute>();
         public bool IncludeDefaultTarget { get; set; }

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.247] - 2026-08-24
+
+### Added
+- **Scheduled-history target-mode parity**: retained cue history now preserves the credential-free `targetAllEnabledMappings` mode through in-memory results, persisted history, JSON exports, and CSV exports.
+
+### Tests
+- **History target-mode coverage**: verify all-enabled mode survives persistence/reload and CSV serialization while legacy entries default safely and secrets remain absent.
+
 ## [1.5.246] - 2026-08-24
 
 ### Security

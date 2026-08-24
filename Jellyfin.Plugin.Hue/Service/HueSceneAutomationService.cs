@@ -1964,6 +1964,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ? normalizedTransitionCurve
                 : GetEffectiveTransitionCurve(preset),
             TargetLabel = ResolveTargetLabel(config, schedule, targetRoutesOverride),
+            TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
@@ -4278,6 +4279,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PluginConfiguration.MinScenePlaylistStepColorValue,
                     PluginConfiguration.MaxScenePlaylistStepColorValue),
             TargetLabel = ResolveTargetLabel(config, schedule),
+            TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
@@ -4430,6 +4432,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ? Math.Clamp(schedule.Blue.Value, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue)
                 : Math.Clamp(preset.Blue, PluginConfiguration.MinScenePlaylistStepColorValue, PluginConfiguration.MaxScenePlaylistStepColorValue),
             TargetLabel = ResolveTargetLabel(config, schedule),
+            TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
@@ -4471,6 +4474,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = string.IsNullOrWhiteSpace(playlistRun.TargetLabel)
                 ? ResolveTargetLabel(config, schedule)
                 : playlistRun.TargetLabel,
+            TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
@@ -5070,6 +5074,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Green = result.Green,
             Blue = result.Blue,
             TargetLabel = result.TargetLabel,
+            TargetAllEnabledMappings = result.TargetAllEnabledMappings,
             TargetUserIds = result.TargetUserIds?.ToList() ?? new List<string>(),
             TargetRoutes = result.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneScheduleTargetRoute
@@ -5271,6 +5276,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ? sourceTransitionCurve
                 : PluginConfiguration.ColorPresetTransitionCurveLinear,
             TargetLabel = source.TargetLabel?.Trim(),
+            TargetAllEnabledMappings = source.TargetAllEnabledMappings,
             TargetUserIds = source.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
                 ?? new List<string>(),
@@ -5336,6 +5342,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ? entryTransitionCurve
                 : PluginConfiguration.ColorPresetTransitionCurveLinear,
             TargetLabel = entry.TargetLabel?.Trim(),
+            TargetAllEnabledMappings = entry.TargetAllEnabledMappings,
             TargetUserIds = entry.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
@@ -5382,6 +5389,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Blue = source.Blue,
             TransitionCurve = source.TransitionCurve,
             TargetLabel = source.TargetLabel,
+            TargetAllEnabledMappings = source.TargetAllEnabledMappings,
             TargetUserIds = source.TargetUserIds?.ToArray() ?? Array.Empty<string>(),
             TargetRoutes = source.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneAutomationTargetRoute
@@ -5877,6 +5885,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Green = schedule?.Green ?? 0,
             Blue = schedule?.Blue ?? 0,
             TargetLabel = targetLabel,
+            TargetAllEnabledMappings = schedule?.TargetAllEnabledMappings ?? false,
             TargetUserIds = schedule?.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
@@ -6054,6 +6063,9 @@ public sealed class HueSceneAutomationRunResult
 
     [JsonPropertyName("targetLabel")]
     public string? TargetLabel { get; init; }
+
+    [JsonPropertyName("targetAllEnabledMappings")]
+    public bool TargetAllEnabledMappings { get; init; }
 
     [JsonPropertyName("targetUserIds")]
     public IReadOnlyList<string> TargetUserIds { get; init; } = Array.Empty<string>();
