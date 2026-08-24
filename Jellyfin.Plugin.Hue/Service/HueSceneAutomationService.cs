@@ -4028,6 +4028,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = isPlaylist || preset == null
                 ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
                 : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent),
+            BrightnessPercent = GetEffectiveScheduleBrightness(config, schedule),
             Red = isPlaylist || preset == null
                 ? 0
                 : Math.Clamp(
@@ -5583,6 +5584,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             ScheduleName = schedule?.Name?.Trim() ?? string.Empty,
             PresetName = schedule?.PresetName?.Trim() ?? string.Empty,
             PlaylistName = schedule?.PlaylistName?.Trim() ?? string.Empty,
+            BrightnessPercent = GetEffectiveScheduleBrightness(Plugin.Instance?.Configuration, schedule),
             Red = schedule?.Red ?? 0,
             Green = schedule?.Green ?? 0,
             Blue = schedule?.Blue ?? 0,
@@ -5595,6 +5597,24 @@ public sealed class HueSceneAutomationService : BackgroundService
             Message = message,
             RunAtUtc = DateTime.UtcNow
         };
+    }
+
+    private static int? GetEffectiveScheduleBrightness(
+        PluginConfiguration? config,
+        HueSceneSchedule? schedule)
+    {
+        if (config == null || schedule == null || !string.IsNullOrWhiteSpace(schedule.PlaylistName))
+            return null;
+
+        var preset = config.ColorPresets?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
+        return preset == null
+            ? null
+            : Math.Clamp(
+                schedule.BrightnessPercent ?? preset.BrightnessPercent,
+                PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
+                PluginConfiguration.MaxScenePlaylistStepBrightnessPercent);
     }
 }
 

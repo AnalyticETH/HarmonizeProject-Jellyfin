@@ -4303,6 +4303,7 @@ public sealed class HueApiControllerTests : IDisposable
             Green = null,
             Blue = null,
             BrightnessPercent = null,
+            DurationSeconds = 0,
             Enabled = false
         });
         Assert.IsType<OkObjectResult>(cleared.Result);
@@ -4310,6 +4311,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(configuration.SceneSchedules[0].Green);
         Assert.Null(configuration.SceneSchedules[0].Blue);
         Assert.Null(configuration.SceneSchedules[0].BrightnessPercent);
+        Assert.Equal(0, configuration.SceneSchedules[0].DurationSeconds);
 
         var list = controller.GetSceneSchedules();
         var listResponse = Assert.IsType<OkObjectResult>(list.Result);

@@ -2773,6 +2773,7 @@ public sealed class HueSceneAutomationServiceTests
                     TimeZoneId = TimeZoneInfo.Utc.Id,
                     Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
                     DaysOfWeekMask = 0,
+                    BrightnessPercent = 42,
                     SkipNextOccurrence = true,
                     Enabled = true
                 }
@@ -3368,6 +3369,7 @@ public sealed class HueSceneAutomationServiceTests
         var skippedHistory = Assert.Single(service.GetHistory());
         Assert.True(skippedHistory.Skipped);
         Assert.False(skippedHistory.Succeeded);
+        Assert.Equal(42, skippedHistory.BrightnessPercent);
         Assert.Equal(0, skippedHistory.RunCount);
         Assert.Single(service.GetHistory(outcome: "Skipped"));
         Assert.Empty(service.GetHistory(outcome: "Failed"));

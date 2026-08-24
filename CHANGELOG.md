@@ -15,6 +15,7 @@ No unreleased changes.
 - **Direct scheduled-scene brightness overrides**: allow nullable `brightnessPercent` overrides on single-scene cues, with 0-100 validation and inherited saved-scene brightness when omitted; playlist cues retain each step's saved brightness.
 - **Credential-free brightness telemetry**: carry effective scheduled-scene brightness through runtime status, run results, upcoming occurrence JSON/CSV/iCalendar reports, persisted history, configuration backup/restore, and the administrator UI.
 - **Safe partial schedule edits**: preserve an existing cue's duration and brightness when an update omits those fields, while explicit JSON null continues to clear an override.
+- **Complete non-success telemetry**: retain effective direct-scene brightness on skipped and failed cue results so history and CSV reports stay accurate for every outcome.
 
 ### Tests
 - **Regression coverage**: verify brightness validation/inheritance, explicit null clearing, partial-update preservation, scheduler stream propagation, status/history/occurrence exports, backup portability, and configuration-page contracts.

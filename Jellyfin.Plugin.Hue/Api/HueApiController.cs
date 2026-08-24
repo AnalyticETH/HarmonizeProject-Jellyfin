@@ -4291,7 +4291,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.Blue = candidateSchedules[existingIndex].Blue;
                 if (!request.BrightnessSpecified)
                     schedule.BrightnessPercent = candidateSchedules[existingIndex].BrightnessPercent;
-                if (!request.DurationSeconds.HasValue)
+                if (!request.DurationSpecified)
                     schedule.DurationSeconds = candidateSchedules[existingIndex].DurationSeconds;
                 if (!request.TargetAllEnabledMappings.HasValue)
                     schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
@@ -7045,7 +7045,7 @@ namespace Jellyfin.Plugin.Hue.Api
                         schedule.Blue = candidateSchedules[existingIndex].Blue;
                     if (scheduleRequest != null && !scheduleRequest.BrightnessSpecified)
                         schedule.BrightnessPercent = candidateSchedules[existingIndex].BrightnessPercent;
-                    if (scheduleRequest != null && !scheduleRequest.DurationSeconds.HasValue)
+                    if (scheduleRequest != null && !scheduleRequest.DurationSpecified)
                         schedule.DurationSeconds = candidateSchedules[existingIndex].DurationSeconds;
                     if (scheduleRequest != null && !scheduleRequest.TargetAllEnabledMappings.HasValue)
                         schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
@@ -9979,8 +9979,22 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("dayOfWeek")]
         public int DayOfWeek { get; set; } = -1;
 
+        private int _durationSeconds;
+        private bool _durationSpecified;
+
         [JsonPropertyName("durationSeconds")]
-        public int? DurationSeconds { get; set; }
+        public int DurationSeconds
+        {
+            get => _durationSeconds;
+            set
+            {
+                _durationSpecified = true;
+                _durationSeconds = value;
+            }
+        }
+
+        [JsonIgnore]
+        public bool DurationSpecified => _durationSpecified;
 
         private int? _brightnessPercent;
         private int? _red;
@@ -10104,7 +10118,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 MonthOfYear = MonthOfYear,
                 WeekOfMonth = WeekOfMonth,
                 DayOfWeek = DayOfWeek,
-                DurationSeconds = DurationSeconds ?? 0,
+                DurationSeconds = DurationSeconds,
                 BrightnessPercent = BrightnessPercent,
                 Red = Red,
                 Green = Green,
