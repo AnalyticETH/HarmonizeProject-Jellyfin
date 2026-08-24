@@ -9870,6 +9870,41 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ConfigurationImport_ReportsAndRejectsSchedulerEvaluation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration { SyncEnabled = false });
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        SetPrivateField(service, "_schedulerEvaluationCount", 1);
+        try
+        {
+            var controller = CreateController(hostedServices: new[] { service });
+            var request = new HueConfigurationImportRequest
+            {
+                Configuration = HuePluginConfigurationSettings.From(configuration)
+            };
+
+            var validation = controller.ValidateConfigurationImport(request);
+            var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+            var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+            Assert.False(validationResult.CanImport);
+            Assert.True(validationResult.ActiveScheduleEvaluation);
+            Assert.Contains("evaluation", validationResult.Message, StringComparison.OrdinalIgnoreCase);
+
+            var import = controller.ImportConfiguration(request);
+            var conflict = Assert.IsType<ConflictObjectResult>(import.Result);
+            Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+            Assert.Contains("evaluation", Assert.IsType<string>(conflict.Value), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            SetPrivateField(service, "_schedulerEvaluationCount", 0);
+        }
+    }
+
+    [Fact]
     public async Task ConfigurationImport_RefusesActiveCueAndPreservesConfiguration()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

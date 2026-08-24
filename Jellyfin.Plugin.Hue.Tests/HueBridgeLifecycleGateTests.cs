@@ -124,4 +124,23 @@ public sealed class HueBridgeLifecycleGateTests
         Assert.NotNull(diagnostic);
         Assert.Null(gate.TryEnterConfigurationMutation());
     }
+
+    [Fact]
+    public void SchedulerEvaluationBlocksConfigurationMutationUntilDisposed()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var evaluation = gate.TryEnterSchedulerEvaluation();
+
+        Assert.NotNull(evaluation);
+        Assert.True(gate.IsSchedulerEvaluationActive);
+        Assert.Null(gate.TryEnterConfigurationMutation());
+        var secondEvaluation = gate.TryEnterSchedulerEvaluation();
+        Assert.NotNull(secondEvaluation);
+
+        secondEvaluation!.Dispose();
+        evaluation!.Dispose();
+        Assert.False(gate.IsSchedulerEvaluationActive);
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+    }
 }

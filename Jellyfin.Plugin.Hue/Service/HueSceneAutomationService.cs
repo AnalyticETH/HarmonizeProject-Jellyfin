@@ -34,6 +34,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     private readonly object _runtimeStateLock = new();
     private readonly Dictionary<string, HueSceneScheduleRuntimeState> _runtimeStates = new(StringComparer.OrdinalIgnoreCase);
     private int _schedulerEvaluationCount;
+    private int _scheduleLifecycleCount;
     private readonly object _historyLock = new();
     private readonly List<HueSceneAutomationRunResult> _runHistory = new();
     private bool _historyLoaded;
@@ -109,6 +110,21 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Reports whether a scheduled-cue lifecycle is still mutating runtime state or
+    /// persisting its final result. This remains active through post-run persistence.
+    /// </summary>
+    internal bool HasActiveScheduleLifecycle
+    {
+        get
+        {
+            lock (_runtimeStateLock)
+            {
+                return _scheduleLifecycleCount > 0;
+            }
+        }
+    }
+
+    /// <summary>
     /// Reserves the runtime-state lock for a configuration import. The returned lease
     /// prevents a cue from starting until the caller finishes its configuration transaction.
     /// </summary>
@@ -125,7 +141,11 @@ public sealed class HueSceneAutomationService : BackgroundService
         var bridgeLifecycleLease = _bridgeLifecycleGate.TryEnterConfigurationMutation();
         if (bridgeLifecycleLease == null)
         {
-            message = "Configuration import cannot proceed while Hue playback or an administrator diagnostic is active.";
+            message = _bridgeLifecycleGate.IsSchedulerEvaluationActive && HasActiveScheduleRuns
+                ? "Configuration import cannot proceed while a scheduled scene cue is running."
+                : _bridgeLifecycleGate.IsSchedulerEvaluationActive
+                    ? "Configuration import cannot proceed while scheduled scene evaluation is in progress."
+                : "Configuration import cannot proceed while Hue playback or an administrator diagnostic is active.";
             return false;
         }
 
@@ -135,14 +155,18 @@ public sealed class HueSceneAutomationService : BackgroundService
             Monitor.Enter(_runtimeStateLock);
             runtimeStateLockHeld = true;
             var activeScheduleRun = _runtimeStates.Values.Any(state => state.ActiveRuns > 0);
-            if (_schedulerEvaluationCount > 0 || activeScheduleRun)
+            var activeScheduleEvaluation = _schedulerEvaluationCount > 0;
+            var activeScheduleLifecycle = _scheduleLifecycleCount > 0;
+            if (activeScheduleEvaluation || activeScheduleLifecycle || activeScheduleRun)
             {
                 Monitor.Exit(_runtimeStateLock);
                 runtimeStateLockHeld = false;
                 bridgeLifecycleLease.Dispose();
                 message = activeScheduleRun
                     ? "Configuration import cannot proceed while a scheduled scene cue is running."
-                    : "Configuration import cannot proceed while scheduled scene evaluation is in progress.";
+                    : activeScheduleEvaluation
+                        ? "Configuration import cannot proceed while scheduled scene evaluation is in progress."
+                        : "Configuration import cannot proceed while a scheduled scene lifecycle is in progress.";
                 return false;
             }
 
@@ -4050,6 +4074,9 @@ public sealed class HueSceneAutomationService : BackgroundService
     internal async Task RunDueSchedulesAsync(DateTime localNow, CancellationToken cancellationToken)
     {
         using var schedulerEvaluation = BeginSchedulerEvaluation();
+        if (schedulerEvaluation == null)
+            return;
+
         EnsureDeferredRunsLoaded();
         var config = Plugin.Instance?.Configuration;
         if (config == null || !config.SceneAutomationEnabled)
@@ -4220,7 +4247,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     playbackScope,
                     PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
                     StringComparison.OrdinalIgnoreCase),
-                runAtUtcOverride: slot).ConfigureAwait(false);
+                runAtUtcOverride: slot,
+                schedulerBarrierHeld: true).ConfigureAwait(false);
             if (result.Succeeded)
             {
                 DisableCompletedOneTimeSchedule(config, schedule);
@@ -4868,8 +4896,24 @@ public sealed class HueSceneAutomationService : BackgroundService
         bool wasDeferred = false,
         bool wasDeferredRestored = false,
         bool targetScopedPlayback = false,
-        DateTime? runAtUtcOverride = null)
+        DateTime? runAtUtcOverride = null,
+        bool schedulerBarrierHeld = false)
     {
+        var manualSchedulerLease = schedulerBarrierHeld
+            ? null
+            : _bridgeLifecycleGate.TryEnterSchedulerEvaluation();
+        if (!schedulerBarrierHeld && manualSchedulerLease == null)
+        {
+            var blocked = Failure(
+                schedule.Id,
+                "The scheduled scene could not start while configuration is changing.",
+                schedule);
+            blocked.RunCount = Math.Max(0, schedule.RunCount);
+            return blocked;
+        }
+
+        using var schedulerLifecycle = manualSchedulerLease;
+        using var scheduleLifecycle = BeginScheduleLifecycle();
         if (!TryBeginRun(schedule, out var currentRunCount, out var alreadyRunning))
         {
             var exhausted = Failure(
@@ -4969,14 +5013,28 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
-    private IDisposable BeginSchedulerEvaluation()
+    private IDisposable? BeginSchedulerEvaluation()
     {
+        var bridgeLifecycleLease = _bridgeLifecycleGate.TryEnterSchedulerEvaluation();
+        if (bridgeLifecycleLease == null)
+            return null;
+
         lock (_runtimeStateLock)
         {
             _schedulerEvaluationCount++;
         }
 
-        return new SchedulerEvaluationLease(this);
+        return new SchedulerEvaluationLease(this, bridgeLifecycleLease);
+    }
+
+    private IDisposable BeginScheduleLifecycle()
+    {
+        lock (_runtimeStateLock)
+        {
+            _scheduleLifecycleCount++;
+        }
+
+        return new ScheduleLifecycleLease(this);
     }
 
     private void EndSchedulerEvaluation()
@@ -4987,18 +5045,56 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
+    private void EndScheduleLifecycle()
+    {
+        lock (_runtimeStateLock)
+        {
+            _scheduleLifecycleCount = Math.Max(0, _scheduleLifecycleCount - 1);
+        }
+    }
+
     private sealed class SchedulerEvaluationLease : IDisposable
     {
         private HueSceneAutomationService? _owner;
+        private readonly IDisposable _bridgeLifecycleLease;
 
-        public SchedulerEvaluationLease(HueSceneAutomationService owner)
+        public SchedulerEvaluationLease(
+            HueSceneAutomationService owner,
+            IDisposable bridgeLifecycleLease)
+        {
+            _owner = owner;
+            _bridgeLifecycleLease = bridgeLifecycleLease;
+        }
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _owner, null);
+            if (owner == null)
+                return;
+
+            try
+            {
+                owner.EndSchedulerEvaluation();
+            }
+            finally
+            {
+                _bridgeLifecycleLease.Dispose();
+            }
+        }
+    }
+
+    private sealed class ScheduleLifecycleLease : IDisposable
+    {
+        private HueSceneAutomationService? _owner;
+
+        public ScheduleLifecycleLease(HueSceneAutomationService owner)
         {
             _owner = owner;
         }
 
         public void Dispose()
         {
-            Interlocked.Exchange(ref _owner, null)?.EndSchedulerEvaluation();
+            Interlocked.Exchange(ref _owner, null)?.EndScheduleLifecycle();
         }
     }
 

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.254] - 2026-08-24
+
+### Security
+- **Configuration writer serialization**: administrator configuration writers now share the lifecycle gate with imports, while scheduler evaluation and manual cue lifecycles block stale writes and post-run persistence races.
+- **Import readiness contract**: canImport now correctly becomes false during scheduler evaluation and scheduled lifecycle finalization, with explicit credential-free blocker flags.
+
+### Tests
+- **Writer and barrier coverage**: scheduler-evaluation contention, lifecycle gate ownership, active playback/diagnostics, active cues, and import conflict paths are covered.
+
 ## [1.5.253] - 2026-08-24
 
 ### Security

@@ -19,6 +19,7 @@ public sealed class HueBridgeLifecycleGate
     private bool _unscopedPlaybackActive;
     private bool _unscopedDiagnosticActive;
     private bool _configurationMutationActive;
+    private int _schedulerEvaluationCount;
 
     /// <summary>
     /// Gets whether a playback lifecycle currently owns at least one bridge resource.
@@ -79,6 +80,20 @@ public sealed class HueBridgeLifecycleGate
     }
 
     /// <summary>
+    /// Gets whether an automatic scheduler evaluation currently owns the barrier.
+    /// </summary>
+    public bool IsSchedulerEvaluationActive
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _schedulerEvaluationCount > 0;
+            }
+        }
+    }
+
+    /// <summary>
     /// Attempts to reserve the process-wide lifecycle gate for an atomic configuration
     /// mutation. The reservation succeeds only when no playback or diagnostic lifecycle
     /// is active, and remains held until the returned lease is disposed. This closes the
@@ -89,6 +104,7 @@ public sealed class HueBridgeLifecycleGate
         lock (_sync)
         {
             if (_configurationMutationActive ||
+                _schedulerEvaluationCount > 0 ||
                 IsPlaybackActiveLocked() ||
                 IsDiagnosticActiveLocked())
             {
@@ -97,6 +113,23 @@ public sealed class HueBridgeLifecycleGate
 
             _configurationMutationActive = true;
             return new LifecycleLease(this, LifecycleKind.ConfigurationMutation, resourceKey: null);
+        }
+    }
+
+    /// <summary>
+    /// Attempts to reserve the scheduler evaluation side of the configuration barrier.
+    /// Automatic scheduler work may continue beside playback, but it cannot overlap a
+    /// configuration mutation; the returned lease remains held across asynchronous work.
+    /// </summary>
+    public IDisposable? TryEnterSchedulerEvaluation()
+    {
+        lock (_sync)
+        {
+            if (_configurationMutationActive)
+                return null;
+
+            _schedulerEvaluationCount++;
+            return new LifecycleLease(this, LifecycleKind.SchedulerEvaluation, resourceKey: null);
         }
     }
 
@@ -189,6 +222,10 @@ public sealed class HueBridgeLifecycleGate
             {
                 _configurationMutationActive = false;
             }
+            else if (kind == LifecycleKind.SchedulerEvaluation)
+            {
+                _schedulerEvaluationCount = Math.Max(0, _schedulerEvaluationCount - 1);
+            }
             else if (kind == LifecycleKind.Playback)
             {
                 if (resourceKey == null)
@@ -230,6 +267,7 @@ public sealed class HueBridgeLifecycleGate
     {
         Playback,
         Diagnostic,
-        ConfigurationMutation
+        ConfigurationMutation,
+        SchedulerEvaluation
     }
 }

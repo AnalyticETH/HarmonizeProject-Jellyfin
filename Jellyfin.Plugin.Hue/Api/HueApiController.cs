@@ -24,6 +24,7 @@ namespace Jellyfin.Plugin.Hue.Api
     [Route("HueSync")]
     [Authorize(Policy = "RequiresElevation")]
     [Produces(MediaTypeNames.Application.Json)]
+    [ServiceFilter(typeof(HueConfigurationMutationFilter))]
     public class HueApiController : ControllerBase
     {
         private readonly HueClient _hueClient;
@@ -7118,17 +7119,20 @@ namespace Jellyfin.Plugin.Hue.Api
             var activeConfigurationMutation = _bridgeLifecycleGate.IsConfigurationMutationActive;
             var activeScheduledCue = _sceneAutomationService?.HasActiveScheduleRuns == true;
             var activeScheduleEvaluation = _sceneAutomationService?.HasActiveScheduleEvaluation == true;
+            var activeScheduleLifecycle = _sceneAutomationService?.HasActiveScheduleLifecycle == true;
             var valid = plan.ValidationErrors.Count == 0;
             return Ok(new HueConfigurationImportValidationResult
             {
                 Valid = valid,
                 CanImport = valid && !activePlayback && !activeDiagnostic &&
-                    !activeConfigurationMutation && !activeScheduledCue,
+                    !activeConfigurationMutation && !activeScheduledCue &&
+                    !activeScheduleEvaluation && !activeScheduleLifecycle,
                 ActivePlayback = activePlayback,
                 ActiveDiagnostic = activeDiagnostic,
                 ActiveConfigurationMutation = activeConfigurationMutation,
                 ActiveScheduledCue = activeScheduledCue,
                 ActiveScheduleEvaluation = activeScheduleEvaluation,
+                ActiveScheduleLifecycle = activeScheduleLifecycle,
                 SchemaVersion = request.SchemaVersion,
                 ValidationErrors = plan.ValidationErrors,
                 MappingsImported = plan.ImportedMappingCount,
@@ -7149,7 +7153,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     activeDiagnostic,
                     activeConfigurationMutation,
                     activeScheduledCue,
-                    activeScheduleEvaluation)
+                    activeScheduleEvaluation,
+                    activeScheduleLifecycle)
             });
         }
 
@@ -7159,7 +7164,8 @@ namespace Jellyfin.Plugin.Hue.Api
             bool activeDiagnostic,
             bool activeConfigurationMutation,
             bool activeScheduledCue,
-            bool activeScheduleEvaluation)
+            bool activeScheduleEvaluation,
+            bool activeScheduleLifecycle)
         {
             if (!valid)
                 return "Configuration import is invalid. No changes were applied.";
@@ -7175,6 +7181,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 blockers.Add("active scheduled scene cues");
             if (activeScheduleEvaluation)
                 blockers.Add("scheduled scene evaluation");
+            else if (activeScheduleLifecycle && !activeScheduledCue)
+                blockers.Add("scheduled scene lifecycle");
 
             return blockers.Count == 0
                 ? "Configuration is valid and ready to import."
@@ -9560,6 +9568,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool ActiveConfigurationMutation { get; set; }
         public bool ActiveScheduledCue { get; set; }
         public bool ActiveScheduleEvaluation { get; set; }
+        public bool ActiveScheduleLifecycle { get; set; }
         public int SchemaVersion { get; set; }
         public IReadOnlyList<string> ValidationErrors { get; set; } = Array.Empty<string>();
         public int MappingsImported { get; set; }

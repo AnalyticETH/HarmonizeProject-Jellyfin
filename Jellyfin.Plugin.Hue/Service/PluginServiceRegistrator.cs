@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
+using Jellyfin.Plugin.Hue.Api;
 using Jellyfin.Plugin.Hue.Service;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaEncoding;
@@ -22,6 +23,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddHttpClient<Hue.HueClient>()
             .ConfigurePrimaryHttpMessageHandler(CreateHueHttpClientHandler);
         serviceCollection.AddSingleton<HueBridgeLifecycleGate>();
+        serviceCollection.AddScoped<HueConfigurationMutationFilter>();
         serviceCollection.AddSingleton<HueDiagnosticsCancellationGate>();
         serviceCollection.AddSingleton<IHueBridgeLocalDiscovery, HueBridgeMdnsDiscovery>();
         // The tester owns the process-wide diagnostic lifecycle gate. A singleton keeps
