@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.224 (Current)
+### Version 1.5.225 (Current)
+- **Release provenance**: release tags are created and verified at the exact workflow commit before publication, preventing serialized runs from attaching a package to a newer moving `main` tip.
+
+### Version 1.5.224
 - **Disabled target safety**: preview selectors disable disabled user mappings and discard restored selections that are no longer eligible, avoiding predictable preview failures.
 
 ### Version 1.5.223

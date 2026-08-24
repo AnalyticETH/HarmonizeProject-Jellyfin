@@ -254,29 +254,29 @@ jobs:
         echo "tag=v$VERSION" >> $GITHUB_OUTPUT
         echo "Detected version: $VERSION"
 
-    - name: Require an unused release tag
+    - name: Pin release tag to workflow commit
       env:
         RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        RELEASE_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
         TAG="$RELEASE_TAG"
-        set +e
-        git ls-remote --exit-code --refs origin "refs/tags/${TAG}" >/dev/null
-        tag_status=$?
-        set -e
-        case "$tag_status" in
-          0)
-            echo "Release tag ${TAG} already exists; bump the version before pushing main." >&2
+        SHA="$RELEASE_SHA"
+        remote_tag_sha="$(git ls-remote --refs origin "refs/tags/${TAG}" | awk 'NR == 1 { print $1 }' || true)"
+        if [ -n "$remote_tag_sha" ]; then
+          if [ "$remote_tag_sha" != "$SHA" ]; then
+            echo "Release tag ${TAG} already points to ${remote_tag_sha}, expected workflow commit ${SHA}; refusing to publish." >&2
             exit 1
-            ;;
-          2)
-            echo "Release tag ${TAG} is unused; release creation may proceed."
-            ;;
-          *)
-            echo "Could not verify whether release tag ${TAG} is unused (git ls-remote exit ${tag_status}); refusing to publish." >&2
-            exit "$tag_status"
-            ;;
-        esac
+          fi
+
+          echo "Release tag ${TAG} already points to workflow commit ${SHA}."
+        else
+          git tag --no-sign "$TAG" "$SHA"
+          git push origin "refs/tags/${TAG}"
+          created_tag_sha="$(git ls-remote --refs origin "refs/tags/${TAG}" | awk 'NR == 1 { print $1 }')"
+          test "$created_tag_sha" = "$SHA"
+          echo "Created release tag ${TAG} at workflow commit ${SHA}."
+        fi
 
     - name: Download release package
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -311,6 +311,7 @@ jobs:
       uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
       with:
         tag_name: ${{ steps.version.outputs.tag }}
+        target_commitish: ${{ github.sha }}
         name: Jellyfin Hue Sync v${{ steps.version.outputs.version }}
         body: |
           ## Jellyfin Philips Hue Sync Plugin v${{ steps.version.outputs.version }}

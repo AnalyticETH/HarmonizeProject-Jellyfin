@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.225] - 2026-08-24
+
+### Fixed
+- **Release provenance**: create and verify each release tag at the exact workflow commit before publishing, preventing serialized self-hosted runs from attaching a package to a newer moving `main` tip.
+
+### Tests
+- **Release-gate coverage**: pin the GitHub release action to the verified workflow commit and fail closed when an existing tag points elsewhere.
+
 ## [1.5.224] - 2026-08-24
 
 ### Fixed
