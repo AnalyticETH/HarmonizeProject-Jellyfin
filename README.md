@@ -427,10 +427,14 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.206 (Current)
+### Version 1.5.207 (Current)
+- **Complete non-success telemetry**: skipped and failed direct-scene cues retain effective brightness in runtime/history results and CSV exports.
+- **Stable schedule request API shape**: omitted duration fields preserve existing cues without changing the public integer request property; explicit zero clears a duration override.
+
+### Version 1.5.206
 - **Scheduled-scene brightness overrides**: optionally override brightness per single-scene cue from 0-100%; blank values inherit the saved scene and playlist cues retain per-step brightness.
 - **Credential-free brightness parity**: expose effective brightness in scheduler status, runtime/history telemetry, upcoming occurrence JSON/CSV/iCalendar exports, backup/restore, and the administrator editor.
-- **Safe partial schedule edits**: omitted duration or brightness fields preserve existing cue values while explicit zero/null clears an override; skipped and failed results retain effective brightness telemetry.
+- **Safe partial schedule edits**: omitted duration or brightness fields preserve existing cue values while explicit null clears an override.
 
 ### Version 1.5.205
 - **Credential-free playlist rename**: atomically migrate scheduled-cue references when renaming a saved-scene playlist, with collision validation, rollback-safe persistence, and administrator controls

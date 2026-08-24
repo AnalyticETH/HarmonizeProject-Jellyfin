@@ -9,13 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.207] - 2026-08-23
+
+### Fixed
+- **Complete non-success telemetry**: retain effective direct-scene brightness on skipped and failed cue results so history and CSV reports stay accurate for every outcome.
+- **Stable schedule request API shape**: keep `durationSeconds` an integer while tracking JSON presence separately, preserving omitted-field semantics without changing compiled consumers; explicit zero still clears a duration override.
+
+### Tests
+- **Regression coverage**: verify skipped-cue brightness history and explicit zero duration clearing alongside the scheduled brightness round-trip and export contracts.
+
 ## [1.5.206] - 2026-08-23
 
 ### Added
 - **Direct scheduled-scene brightness overrides**: allow nullable `brightnessPercent` overrides on single-scene cues, with 0-100 validation and inherited saved-scene brightness when omitted; playlist cues retain each step's saved brightness.
 - **Credential-free brightness telemetry**: carry effective scheduled-scene brightness through runtime status, run results, upcoming occurrence JSON/CSV/iCalendar reports, persisted history, configuration backup/restore, and the administrator UI.
 - **Safe partial schedule edits**: preserve an existing cue's duration and brightness when an update omits those fields, while explicit JSON null continues to clear an override.
-- **Complete non-success telemetry**: retain effective direct-scene brightness on skipped and failed cue results so history and CSV reports stay accurate for every outcome.
 
 ### Tests
 - **Regression coverage**: verify brightness validation/inheritance, explicit null clearing, partial-update preservation, scheduler stream propagation, status/history/occurrence exports, backup portability, and configuration-page contracts.
