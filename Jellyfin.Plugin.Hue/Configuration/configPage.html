@@ -1034,7 +1034,7 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="customFfmpegFlags">Additional FFmpeg Flags</label>
                             <input id="customFfmpegFlags" name="customFfmpegFlags" type="text" is="emby-input" />
-                            <div class="fieldDescription">Optional advanced flags appended to the ffmpeg command.</div>
+                            <div class="fieldDescription">Optional decoder, thread, and hardware flags (for example <code>-hwaccel vaapi -threads 2</code> or <code>-c:v h264_cuvid</code>). Extra inputs, outputs, protocols, headers, filters, scripts, and paths are rejected.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -1468,7 +1468,7 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="mappingCustomFfmpegFlagsOverride">Additional FFmpeg Flags Override</label>
                                     <input id="mappingCustomFfmpegFlagsOverride" type="text" is="emby-input" placeholder="Leave blank to inherit" />
-                                    <div class="fieldDescription">Optional per-user flags appended to FFmpeg (for example, a decoder or hardware-device flag). Blank inherits the global text.</div>
+                                    <div class="fieldDescription">Optional decoder, thread, and hardware flags (for example <code>-hwaccel_device /dev/dri/renderD128</code>). Extra inputs, outputs, protocols, headers, filters, scripts, and paths are rejected; blank inherits the global text.</div>
                                 </div>
 
                                 <div class="inputContainer">

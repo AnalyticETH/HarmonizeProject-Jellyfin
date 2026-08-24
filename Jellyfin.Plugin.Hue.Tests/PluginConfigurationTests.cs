@@ -2710,6 +2710,41 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void Validate_WhenCustomFfmpegFlagsAddInput_ReturnsCapabilityError()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "test-key",
+            HueClientKey = "test-key",
+            EntertainmentAreaId = "test-id",
+            CustomFfmpegFlags = "-i /tmp/extra-input.mkv"
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains(
+            "Custom FFmpeg flags are invalid: FFmpeg custom flag '-i' is not allowed; only decoder, thread, and hardware options are supported.",
+            errors);
+    }
+
+    [Fact]
+    public void ValidateExecutionOverrides_WhenCustomFfmpegFlagsAddNetworkHeaders_ReturnsCapabilityError()
+    {
+        var errors = PluginConfiguration.ValidateExecutionOverrides(
+            new UserBridgeMapping
+            {
+                CustomFfmpegFlagsOverride = "-headers Authorization:Bearer-secret"
+            },
+            "Bedroom mapping");
+
+        Assert.Contains(
+            "Bedroom mapping custom FFmpeg flags are invalid: FFmpeg custom flag '-headers' is not allowed; only decoder, thread, and hardware options are supported.",
+            errors);
+    }
+
+    [Fact]
     public void Validate_WithMultipleErrors_ReturnsAllErrors()
     {
         // Arrange

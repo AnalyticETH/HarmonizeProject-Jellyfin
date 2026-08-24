@@ -93,7 +93,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Dark Scene Behavior** | When a frame is below the blackout threshold, either **Blackout** lights (legacy default) or **KeepLastColors** to preserve the last streamed colors and avoid redundant writes. |
 | **Color Change Threshold** | Suppress Hue packets until the RGB16 color delta reaches 0-255 (default: 10). Lower values follow subtle changes; higher values reduce network traffic. |
 | **When Playback Is Paused** | Keep the last synced colors (default), restore the original light state captured at playback start, or dim each captured light to the configured cinema level while paused. Sync resumes automatically; final restoration still follows **Restore Light State After Sync**. |
-| **Custom Flags** | Add hardware acceleration flags here (e.g. `-hwaccel auto`). Values may use quoted groups and escaped quotes/backslashes; the configuration save validates the same tokenization used by FFmpeg playback and reports malformed quotes before a session starts. |
+| **Custom Flags** | Add only decoder, threading, or hardware-tuning flags here (for example `-hwaccel vaapi -threads 2` or `-c:v h264_cuvid`). Values may use quoted groups and escaped quotes/backslashes; configuration validation rejects extra inputs, outputs, protocols, headers, filters, scripts, paths, and network-capable options before playback starts. |
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
 | **Network Retry Attempts** | Number of retry attempts for Hue REST requests and DTLS stream recovery (0-10, default: 3). |
 | **Enable Real-time Sync** | Master toggle for the sync feature. |
@@ -426,7 +426,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.209 (Current)
+### Version 1.5.210 (Current)
+- **FFmpeg capability boundary**: custom flags are limited to decoder, thread, and hardware-tuning options with bounded values; alternate inputs/outputs, protocols, headers, filters, scripts, arbitrary paths, duplicates, option smuggling, and oversized text fail closed before playback.
+
+### Version 1.5.209
 - **Support-bundle FFmpeg redaction**: support documents omit global and per-user custom FFmpeg flag values while exposing only configured-state telemetry; intentional backup exports remain available for migration.
 - **POST-only entertainment-area loading**: the secret-bearing legacy GET route is removed so Hue app keys are not sent in URLs or access logs.
 

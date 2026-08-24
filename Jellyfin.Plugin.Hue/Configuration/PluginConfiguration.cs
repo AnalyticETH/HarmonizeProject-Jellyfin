@@ -2469,7 +2469,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             {
                 try
                 {
-                    _ = FfmpegStreamer.ParseCustomArguments(mapping.CustomFfmpegFlagsOverride);
+                    _ = FfmpegStreamer.ParseSafeCustomArguments(mapping.CustomFfmpegFlagsOverride);
                 }
                 catch (FormatException ex)
                 {
@@ -3796,7 +3796,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 {
                     try
                     {
-                        _ = FfmpegStreamer.ParseCustomArguments(CustomFfmpegFlags);
+                        _ = FfmpegStreamer.ParseSafeCustomArguments(CustomFfmpegFlags);
                     }
                     catch (FormatException ex)
                     {

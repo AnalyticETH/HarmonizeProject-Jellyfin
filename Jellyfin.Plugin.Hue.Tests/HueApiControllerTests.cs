@@ -7155,14 +7155,14 @@ public sealed class HueApiControllerTests : IDisposable
             HueAppKey = "support-app-secret",
             HueClientKey = "support-client-secret",
             EntertainmentAreaId = "area-1",
-            CustomFfmpegFlags = "-headers support-global-ffmpeg-secret",
+            CustomFfmpegFlags = "-hwaccel_device support-global-ffmpeg-secret",
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
                 {
                     UserId = "support-mapping-user",
                     UserName = "Support Mapping",
-                    CustomFfmpegFlagsOverride = "-i support-mapping-ffmpeg-secret",
+                    CustomFfmpegFlagsOverride = "-hwaccel_device support-mapping-ffmpeg-secret",
                     SyncEnabled = false
                 }
             }

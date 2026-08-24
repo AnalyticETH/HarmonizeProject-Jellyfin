@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.210] - 2026-08-24
+
+### Security
+- **FFmpeg capability boundary**: restrict custom flags to decoder, thread, and hardware-tuning options with bounded values; reject alternate inputs/outputs, protocols, headers, filters, scripts, arbitrary paths, option smuggling, duplicates, and oversized text before playback or import.
+
+### Tests
+- **Regression coverage**: verify safe hardware-device paths and decoder/thread options remain supported while capability-expanding flags and unsafe values fail closed in configuration and both FFmpeg builders.
+
 ## [1.5.209] - 2026-08-24
 
 ### Security

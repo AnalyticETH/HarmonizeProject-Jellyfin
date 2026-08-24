@@ -30,6 +30,16 @@ namespace Jellyfin.Plugin.Hue.Video
         private const int DefaultStallTimeoutSeconds = 5;
         private const int MinStallTimeoutSeconds = 1;
         private const int MaxStallTimeoutSeconds = 60;
+        private const int MaxCustomFlagTextLength = 768;
+        private static readonly HashSet<string> SafeCustomFlags = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "-c:v",
+            "-filter_threads",
+            "-hwaccel",
+            "-hwaccel_device",
+            "-hwaccel_output_format",
+            "-threads"
+        };
 
         public FfmpegStreamer(ILogger<FfmpegStreamer> logger)
         {
@@ -174,6 +184,119 @@ namespace Jellyfin.Plugin.Hue.Video
         }
 
         /// <summary>
+        /// Parses and validates administrator FFmpeg overrides against the deliberately
+        /// small execution-safe option set. Custom flags may tune decoder, threading,
+        /// and hardware acceleration behavior, but cannot add inputs,
+        /// outputs, protocols, filters, scripts, or arbitrary file/network access.
+        /// </summary>
+        internal static IReadOnlyList<string> ParseSafeCustomArguments(string? customFlags)
+        {
+            if (customFlags != null && customFlags.Length > MaxCustomFlagTextLength)
+            {
+                throw new FormatException("FFmpeg custom flags are too long; keep the option text to 768 characters or fewer.");
+            }
+
+            var arguments = ParseCustomArguments(customFlags);
+            if (arguments.Count > 12)
+            {
+                throw new FormatException("FFmpeg custom flags contain too many tokens; at most six option/value pairs are supported.");
+            }
+
+            var seenFlags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < arguments.Count; index++)
+            {
+                var flag = arguments[index];
+                if (!SafeCustomFlags.Contains(flag))
+                {
+                    throw new FormatException($"FFmpeg custom flag '{flag}' is not allowed; only decoder, thread, and hardware options are supported.");
+                }
+
+                if (!seenFlags.Add(flag))
+                {
+                    throw new FormatException($"FFmpeg custom flag '{flag}' may only be specified once.");
+                }
+
+                if (index + 1 >= arguments.Count || arguments[index + 1].StartsWith("-", StringComparison.Ordinal))
+                {
+                    throw new FormatException($"FFmpeg custom flag '{flag}' requires a value.");
+                }
+
+                var value = arguments[++index];
+                if (!IsSafeCustomFlagValue(flag, value))
+                {
+                    throw new FormatException($"FFmpeg custom flag '{flag}' has an unsafe value.");
+                }
+            }
+
+            return arguments;
+        }
+
+        private static bool IsSafeCustomFlagValue(string flag, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Length > 64)
+                return false;
+
+            if (string.Equals(flag, "-hwaccel_device", StringComparison.OrdinalIgnoreCase))
+            {
+                return IsSafeDeviceIdentifier(value) || IsSafeLinuxDeviceNode(value);
+            }
+
+            if (string.Equals(flag, "-threads", StringComparison.OrdinalIgnoreCase))
+                return int.TryParse(value, out var threads) && threads >= 0 && threads <= 256;
+
+            if (string.Equals(flag, "-filter_threads", StringComparison.OrdinalIgnoreCase))
+                return int.TryParse(value, out var filterThreads) && filterThreads >= 1 && filterThreads <= 256;
+
+            return IsSafeIdentifier(value, allowDash: false);
+        }
+
+        private static bool IsSafeDeviceIdentifier(string value)
+        {
+            return IsSafeIdentifier(value, allowDash: true);
+        }
+
+        private static bool IsSafeLinuxDeviceNode(string value)
+        {
+            const string prefix = "/dev/dri/";
+            if (!value.StartsWith(prefix, StringComparison.Ordinal) || value.Length == prefix.Length)
+                return false;
+
+            var node = value[prefix.Length..];
+            if (!(node.StartsWith("renderD", StringComparison.Ordinal) || node.StartsWith("card", StringComparison.Ordinal)))
+                return false;
+
+            var digitStart = node.StartsWith("renderD", StringComparison.Ordinal) ? "renderD".Length : "card".Length;
+            if (node.Length == digitStart || node.Length - digitStart > 3)
+                return false;
+
+            for (var index = digitStart; index < node.Length; index++)
+            {
+                if (node[index] < '0' || node[index] > '9')
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsSafeIdentifier(string value, bool allowDash)
+        {
+            if (value.Length == 0 || value.Length > 64)
+                return false;
+
+            foreach (var character in value)
+            {
+                var isAsciiLetter = (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z');
+                var isAsciiDigit = character >= '0' && character <= '9';
+                var isSafePunctuation = character == '_' ||
+                    (allowDash && (character == '.' || character == '-'));
+                if (!(isAsciiLetter || isAsciiDigit || isSafePunctuation))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Builds the complete FFmpeg argument list using one argument per token so
         /// media paths and administrator flags cannot change process parsing.
         /// </summary>
@@ -198,7 +321,7 @@ namespace Jellyfin.Plugin.Hue.Video
                 arguments.Add("auto");
             }
 
-            arguments.AddRange(ParseCustomArguments(customFlags));
+            arguments.AddRange(ParseSafeCustomArguments(customFlags));
             if (seekPositionSeconds > 1.0)
             {
                 arguments.Add("-ss");
@@ -249,7 +372,7 @@ namespace Jellyfin.Plugin.Hue.Video
                 arguments.Add("auto");
             }
 
-            arguments.AddRange(ParseCustomArguments(customFlags));
+            arguments.AddRange(ParseSafeCustomArguments(customFlags));
             if (seekPositionSeconds > 1.0)
             {
                 arguments.Add("-ss");
