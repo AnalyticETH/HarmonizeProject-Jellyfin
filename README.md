@@ -433,7 +433,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.242 (Current)
+### Version 1.5.243 (Current)
+- **Duplicate registration prevention**: global and per-user Link Bridge controls disable after confirmation, reject duplicate in-flight requests, and always recover their enabled state after failures.
+- **Credential-safe registration UX**: both registration surfaces keep status and error messages generic without logging bridge addresses, response bodies, or credentials.
+
+### Version 1.5.242
 - **Bridge registration retry hardening**: Link Button registration is single-attempt, preventing generic network retries from repeating credential-creation requests after transient transport failures.
 - **Registration retry coverage**: transient registration failures are verified to make exactly one request even when normal Hue retry attempts are enabled.
 

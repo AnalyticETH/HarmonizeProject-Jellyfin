@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.243] - 2026-08-24
+
+### Security
+- **Duplicate registration prevention**: disable global and per-user Link Bridge controls for each confirmed in-flight request, clear their busy state on synchronous or asynchronous failure, and keep registration errors credential-free.
+
+### Tests
+- **Configuration-page lifecycle coverage**: validate confirmation gating, in-flight guards, button re-enablement, and absence of raw registration logging for both registration surfaces.
+
 ## [1.5.242] - 2026-08-24
 
 ### Security

@@ -9353,42 +9353,62 @@
                         });
                 },
                 registerBridge: function (page) {
-                    var ip = page.querySelector('#hueBridgeIp').value;
+                    var button = page.querySelector('#registerBtn');
+                    var ip = page.querySelector('#hueBridgeIp').value.trim();
                     if (!ip) {
                         Dashboard.alert("Please enter a bridge address first.");
                         return;
                     }
+                    if (page._hueRegistrationRequest) {
+                        Dashboard.alert("Bridge registration is already running. Wait for it to finish first.");
+                        return;
+                    }
 
                     Dashboard.confirm("Please press the large LINK BUTTON on your Hue Bridge now, then click OK.", "Link Bridge", function (result) {
-                        if (result) {
-                            Dashboard.showLoadingMsg();
-                            ApiClient.ajax({
+                        if (!result || page._hueRegistrationRequest) return;
+                        if (button) button.disabled = true;
+                        Dashboard.showLoadingMsg();
+
+                        var request;
+                        try {
+                            request = Promise.resolve(ApiClient.ajax({
                                 type: "POST",
                                 url: ApiClient.getUrl("HueSync/Register"),
                                 data: JSON.stringify({ IpAddress: ip }),
                                 contentType: "application/json",
                                 dataType: "json"
-                            }).then(function (response) {
-                                Dashboard.hideLoadingMsg();
-
-                                // Handle both camelCase and PascalCase property names
-                                var appKey = response.username || response.Username || "";
-                                var clientKey = response.clientKey || response.ClientKey || "";
-
-                                if (appKey && clientKey) {
-                                    page.querySelector('#hueAppKey').value = appKey;
-                                    page.querySelector('#hueClientKey').value = clientKey;
-                                    Dashboard.alert("Registration Successful! Keys saved to form.");
-                                    HueConfigurationPage.refreshStatus(page, "Bridge linked. Entertainment areas ready to refresh.", "success");
-                                    HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
-                                } else {
-                                    Dashboard.alert("Registration returned without both required credentials. Press the bridge link button and try again.");
-                                }
-                            }).catch(function () {
-                                Dashboard.hideLoadingMsg();
-                                Dashboard.alert("Registration failed. Verify the bridge address and link-button prompt, then try again.");
-                            });
+                            }));
+                        } catch {
+                            if (button) button.disabled = false;
+                            Dashboard.hideLoadingMsg();
+                            Dashboard.alert("Registration failed. Verify the bridge address and link-button prompt, then try again.");
+                            return;
                         }
+
+                        page._hueRegistrationRequest = request;
+                        request.then(function (response) {
+                            // Handle both camelCase and PascalCase property names
+                            var appKey = response.username || response.Username || "";
+                            var clientKey = response.clientKey || response.ClientKey || "";
+
+                            if (appKey && clientKey) {
+                                page.querySelector('#hueAppKey').value = appKey;
+                                page.querySelector('#hueClientKey').value = clientKey;
+                                Dashboard.alert("Registration Successful! Keys saved to form.");
+                                HueConfigurationPage.refreshStatus(page, "Bridge linked. Entertainment areas ready to refresh.", "success");
+                                HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
+                            } else {
+                                Dashboard.alert("Registration returned without both required credentials. Press the bridge link button and try again.");
+                            }
+                        }).catch(function () {
+                            Dashboard.alert("Registration failed. Verify the bridge address and link-button prompt, then try again.");
+                        }).finally(function () {
+                            if (page._hueRegistrationRequest === request) {
+                                page._hueRegistrationRequest = null;
+                                if (button) button.disabled = false;
+                            }
+                            Dashboard.hideLoadingMsg();
+                        });
                     });
                 },
                 testDefaultConnection: function (page) {
@@ -10084,55 +10104,75 @@
                     var bridgeIpEl = document.getElementById('mappingBridgeIp');
                     var ip = bridgeIpEl ? bridgeIpEl.value.trim() : '';
                     var statusEl = document.getElementById('mappingBridgeStatus');
-
-                    console.log("registerMappingBridge - ip:", ip);
+                    var button = document.getElementById('mappingLinkBridgeBtn');
 
                     if (!ip) {
                         Dashboard.alert("Please enter a bridge address first.");
                         return;
                     }
+                    if (HueConfigurationPage._hueMappingRegistrationRequest) {
+                        Dashboard.alert("Bridge registration is already running. Wait for it to finish first.");
+                        return;
+                    }
 
                     Dashboard.confirm("Please press the large LINK BUTTON on your Hue Bridge now, then click OK.", "Link Bridge", function (result) {
-                        if (result) {
-                            if (statusEl) {
-                                statusEl.textContent = "Linking...";
-                                statusEl.style.background = "#3f51b5";
-                            }
+                        if (!result || HueConfigurationPage._hueMappingRegistrationRequest) return;
+                        if (button) button.disabled = true;
+                        if (statusEl) {
+                            statusEl.textContent = "Linking...";
+                            statusEl.style.background = "#3f51b5";
+                        }
 
-                            ApiClient.ajax({
+                        var request;
+                        try {
+                            request = Promise.resolve(ApiClient.ajax({
                                 type: "POST",
                                 url: ApiClient.getUrl("HueSync/Register"),
                                 data: JSON.stringify({ IpAddress: ip }),
                                 contentType: "application/json",
                                 dataType: "json"
-                            }).then(function (response) {
-                                var appKey = response.username || response.Username || "";
-                                var clientKey = response.clientKey || response.ClientKey || "";
+                            }));
+                        } catch {
+                            if (button) button.disabled = false;
+                            if (statusEl) {
+                                statusEl.textContent = "Registration failed. Verify the bridge address and link-button prompt, then try again.";
+                                statusEl.style.background = "#d9534f";
+                            }
+                            return;
+                        }
 
-                                if (appKey && clientKey) {
-                                    var appKeyEl = document.getElementById('mappingAppKey');
-                                    var clientKeyEl = document.getElementById('mappingClientKey');
-                                    if (appKeyEl) appKeyEl.value = appKey;
-                                    if (clientKeyEl) clientKeyEl.value = clientKey;
-                                    if (statusEl) {
-                                        statusEl.textContent = "Bridge linked successfully!";
-                                        statusEl.style.background = "#4caf50";
-                                    }
-                                    HueConfigurationPage.loadMappingAreas();
-                                } else {
-                                    if (statusEl) {
-                                        statusEl.textContent = "Registration returned but keys were empty.";
-                                        statusEl.style.background = "#d9534f";
-                                    }
-                                }
-                            }).catch(function (err) {
-                                console.error("Mapping bridge registration error:", err);
+                        HueConfigurationPage._hueMappingRegistrationRequest = request;
+                        request.then(function (response) {
+                            var appKey = response.username || response.Username || "";
+                            var clientKey = response.clientKey || response.ClientKey || "";
+
+                            if (appKey && clientKey) {
+                                var appKeyEl = document.getElementById('mappingAppKey');
+                                var clientKeyEl = document.getElementById('mappingClientKey');
+                                if (appKeyEl) appKeyEl.value = appKey;
+                                if (clientKeyEl) clientKeyEl.value = clientKey;
                                 if (statusEl) {
-                                    statusEl.textContent = "Registration failed: " + (err.message || err);
+                                    statusEl.textContent = "Bridge linked successfully!";
+                                    statusEl.style.background = "#4caf50";
+                                }
+                                HueConfigurationPage.loadMappingAreas();
+                            } else {
+                                if (statusEl) {
+                                    statusEl.textContent = "Registration returned but keys were empty.";
                                     statusEl.style.background = "#d9534f";
                                 }
-                            });
-                        }
+                            }
+                        }).catch(function () {
+                            if (statusEl) {
+                                statusEl.textContent = "Registration failed. Verify the bridge address and link-button prompt, then try again.";
+                                statusEl.style.background = "#d9534f";
+                            }
+                        }).finally(function () {
+                            if (HueConfigurationPage._hueMappingRegistrationRequest === request) {
+                                HueConfigurationPage._hueMappingRegistrationRequest = null;
+                                if (button) button.disabled = false;
+                            }
+                        });
                     });
                 },
 

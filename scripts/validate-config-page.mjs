@@ -12,6 +12,8 @@ if (!scriptMatch) {
 new vm.Script(scriptMatch[1], { filename: file });
 
 const requiredMarkup = [
+    'id="registerBtn"',
+    'id="mappingLinkBridgeBtn"',
     'id="cancelConnectionTestBtn"',
     'id="cancelMappingTestConnectionBtn"',
     'id="cancelPreviewBtn"',
@@ -393,6 +395,8 @@ const requiredScript = [
     "previewScenePlaylistsBulk: function",
     "HueSync/ScenePlaylists/BulkPreview",
     "HueConfigurationPage.previewMessage(result, true)",
+    "registerBridge: function",
+    "registerMappingBridge: function",
     "Registration returned without both required credentials.",
     "Registration failed. Verify the bridge address and link-button prompt, then try again.",
     "renameScenePlaylist: function",
@@ -473,14 +477,39 @@ for (const channel of ["Red", "Green", "Blue"]) {
     }
 }
 
-{
-    const functionName = "registerBridge";
-    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+for (const contract of [
+    {
+        functionName: "registerBridge",
+        buttonMarker: "page.querySelector('#registerBtn')",
+        inFlightMarker: "page._hueRegistrationRequest"
+    },
+    {
+        functionName: "registerMappingBridge",
+        buttonMarker: "document.getElementById('mappingLinkBridgeBtn')",
+        inFlightMarker: "HueConfigurationPage._hueMappingRegistrationRequest"
+    }
+]) {
+    const start = scriptMatch[1].indexOf(`${contract.functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
     if (!functionBody || /console\.(?:log|warn|error)\s*\(/.test(functionBody) ||
         /Check console|Registration response|Keys not found in response/.test(functionBody)) {
-        throw new Error(`${file} registerBridge must not log or direct administrators to raw registration responses`);
+        throw new Error(`${file} ${contract.functionName} must not log or direct administrators to raw registration responses`);
+    }
+    for (const marker of [
+        contract.buttonMarker,
+        contract.inFlightMarker,
+        `if (!result || ${contract.inFlightMarker}) return;`,
+        "if (button) button.disabled = true;",
+        "if (button) button.disabled = false;",
+        "Promise.resolve(ApiClient.ajax({",
+        ".finally(function ()",
+        "try {",
+        "catch {"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${contract.functionName} is missing registration lifecycle guard: ${marker}`);
+        }
     }
 }
 
