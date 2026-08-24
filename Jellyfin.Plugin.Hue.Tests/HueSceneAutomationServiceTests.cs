@@ -4156,7 +4156,8 @@ public sealed class HueSceneAutomationServiceTests
         var route = Assert.Single(result.TargetRoutes);
         Assert.Equal("user-device", route.UserId);
         Assert.Equal("device-panel", route.DeviceId);
-        Assert.Equal("Device room / Wall panel", result.TargetLabel);
+        Assert.Equal("1 selected target(s)", result.TargetLabel);
+        Assert.Equal("Device room / Wall panel", Assert.Single(result.TargetResults).TargetLabel);
         Assert.Equal(new[] { 20 }, streamTester.Reds);
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("global-app-secret", serialized, StringComparison.Ordinal);

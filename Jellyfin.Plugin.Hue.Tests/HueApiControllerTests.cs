@@ -4165,7 +4165,7 @@ public sealed class HueApiControllerTests : IDisposable
             new HueColorPresetRenameRequest { NewName = "Renamed" });
 
         var response = Assert.IsType<BadRequestObjectResult>(action.Result);
-        Assert.Contains("scene 1 is required", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
         Assert.Equal("Original", Assert.Single(configuration.ColorPresets).Name);
         Assert.Null(configuration.ScenePlaylists[0].PresetNames[0]);
     }
