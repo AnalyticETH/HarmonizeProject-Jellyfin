@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.211] - 2026-08-24
+
+### Security
+- **Bridge target validation**: reject loopback, unspecified, multicast, and broadcast IP addresses before certificate exceptions or bridge requests, while retaining private, link-local, unique-local, and `.local` Hue targets.
+
+### Tests
+- **Regression coverage**: verify reserved and non-routable address classes fail closed without changing supported private bridge discovery.
+
 ## [1.5.210] - 2026-08-24
 
 ### Security

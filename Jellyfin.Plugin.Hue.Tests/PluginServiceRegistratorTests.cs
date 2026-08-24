@@ -72,7 +72,6 @@ public class PluginServiceRegistratorTests
     [InlineData("10.0.0.15")]
     [InlineData("172.16.20.4")]
     [InlineData("169.254.1.20")]
-    [InlineData("127.0.0.1")]
     [InlineData("fc00::1234")]
     [InlineData("fe80::1234")]
     [InlineData("hue-bridge.local")]
@@ -88,7 +87,14 @@ public class PluginServiceRegistratorTests
     [InlineData("203.0.113.10")]
     [InlineData("discovery.meethue.com")]
     [InlineData("hue.example.com")]
-    public void IsLocalBridgeHost_PublicAddressesAreRejected(string host)
+    [InlineData("127.0.0.1")]
+    [InlineData("0.0.0.0")]
+    [InlineData("224.0.0.1")]
+    [InlineData("255.255.255.255")]
+    [InlineData("::")]
+    [InlineData("::1")]
+    [InlineData("ff02::1")]
+    public void IsLocalBridgeHost_PublicOrNonRoutableAddressesAreRejected(string host)
     {
         Assert.False(HueBridgeCertificateValidation.IsLocalBridgeHost(host));
     }

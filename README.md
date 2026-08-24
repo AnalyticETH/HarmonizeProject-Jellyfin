@@ -426,7 +426,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.210 (Current)
+### Version 1.5.211 (Current)
+- **Bridge target validation**: loopback, unspecified, multicast, and broadcast addresses are rejected before bridge requests; private, link-local, unique-local, and `.local` Hue targets remain supported.
+
+### Version 1.5.210
 - **FFmpeg capability boundary**: custom flags are limited to decoder, thread, and hardware-tuning options with bounded values; alternate inputs/outputs, protocols, headers, filters, scripts, arbitrary paths, duplicates, option smuggling, and oversized text fail closed before playback.
 
 ### Version 1.5.209

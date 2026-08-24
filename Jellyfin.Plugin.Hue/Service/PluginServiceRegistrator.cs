@@ -90,9 +90,9 @@ internal static class HueBridgeCertificateValidation
 
     private static bool IsLocalAddress(IPAddress address)
     {
-        if (IPAddress.IsLoopback(address))
+        if (IPAddress.IsLoopback(address) || address.IsIPv6Unspecified || address.IsIPv6Multicast)
         {
-            return true;
+            return false;
         }
 
         if (address.IsIPv4MappedToIPv6)
@@ -103,6 +103,9 @@ internal static class HueBridgeCertificateValidation
         var bytes = address.GetAddressBytes();
         if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
         {
+            if (bytes[0] >= 224 || IsAllZero(bytes) || IsAllOnes(bytes))
+                return false;
+
             return bytes[0] == 10 ||
                    (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
                    (bytes[0] == 192 && bytes[1] == 168) ||
@@ -113,5 +116,27 @@ internal static class HueBridgeCertificateValidation
         return address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 &&
                ((bytes[0] & 0xfe) == 0xfc ||
                 (bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80));
+    }
+
+    private static bool IsAllZero(byte[] bytes)
+    {
+        foreach (var value in bytes)
+        {
+            if (value != 0)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsAllOnes(byte[] bytes)
+    {
+        foreach (var value in bytes)
+        {
+            if (value != byte.MaxValue)
+                return false;
+        }
+
+        return true;
     }
 }
