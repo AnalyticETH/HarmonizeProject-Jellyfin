@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.241] - 2026-08-24
+
+### Added
+- **Credential-free scheduled-occurrence CSV parity**: export exact selected target user IDs, nested playback-device routes, and default-target inclusion alongside the existing upcoming-cue plan and timing fields.
+
+### Tests
+- **Occurrence export coverage**: verify escaped target-selection JSON remains aligned with the occurrence JSON contract and never includes bridge credentials.
+
 ## [1.5.240] - 2026-08-24
 
 ### Added

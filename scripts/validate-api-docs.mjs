@@ -25,6 +25,16 @@ const historyCsvRow = readme.split("\n").find(line => line.startsWith("|") && li
 if (!historyCsvRow) {
     throw new Error("README.md is missing the scheduled-history CSV endpoint contract");
 }
+
+const occurrenceCsvRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/SceneSchedules/Occurrences/ExportCsv?"));
+if (!occurrenceCsvRow) {
+    throw new Error("README.md is missing the scheduled-occurrence CSV endpoint contract");
+}
+for (const marker of ["targetUserIds", "targetRoutes", "userId", "deviceId", "includeDefaultTarget"]) {
+    if (!occurrenceCsvRow.includes(marker)) {
+        throw new Error(`README.md scheduled-occurrence CSV contract is missing route field: ${marker}`);
+    }
+}
 for (const marker of ["targetUserIds", "targetRoutes", "userId", "deviceId", "includeDefaultTarget"]) {
     if (!historyCsvRow.includes(marker)) {
         throw new Error(`README.md scheduled-history CSV contract is missing route field: ${marker}`);
@@ -58,7 +68,10 @@ for (const marker of [
     "HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress)",
     "JsonSerializer.Serialize(run.TargetUserIds",
     "JsonSerializer.Serialize(run.TargetRoutes",
-    "\"includeDefaultTarget\""
+    "run.IncludeDefaultTarget",
+    "JsonSerializer.Serialize(occurrence.TargetUserIds",
+    "JsonSerializer.Serialize(occurrence.TargetRoutes",
+    "occurrence.IncludeDefaultTarget"
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API bridge registration support is missing source marker: ${marker}`);

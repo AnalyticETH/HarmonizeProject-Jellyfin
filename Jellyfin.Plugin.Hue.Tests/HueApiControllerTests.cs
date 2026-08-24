@@ -7148,6 +7148,12 @@ public sealed class HueApiControllerTests : IDisposable
                     Red = 51,
                     Green = 52,
                     Blue = 53,
+                    TargetUserIds = new List<string> { "mapping-user" },
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "mapping-user", DeviceId = "living-room-tv" }
+                    },
+                    IncludeDefaultTarget = true,
                     Enabled = true
                 },
                 new()
@@ -7183,6 +7189,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("\"51\"", occurrenceCsv, StringComparison.Ordinal);
         Assert.Contains("\"52\"", occurrenceCsv, StringComparison.Ordinal);
         Assert.Contains("\"53\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"targetUserIds\",\"targetRoutes\",\"includeDefaultTarget\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"[\"\"mapping-user\"\"]\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"[{\"\"userId\"\":\"\"mapping-user\"\",\"\"deviceId\"\":\"\"living-room-tv\"\"}]\"", occurrenceCsv, StringComparison.Ordinal);
+        Assert.Contains("\"True\"", occurrenceCsv, StringComparison.Ordinal);
         Assert.Contains("\"csv-cue\",\"CSV, \"\"Cue\"\"\"", occurrenceCsv, StringComparison.Ordinal);
         Assert.DoesNotContain("AppKey", occurrenceCsv, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("ClientKey", occurrenceCsv, StringComparison.OrdinalIgnoreCase);

@@ -3774,8 +3774,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Downloads the same bounded, credential-free upcoming-occurrence report as CSV.
-        /// Dates retain their explicit local/UTC columns and the active cue filter and
-        /// report horizon are applied server-side.
+        /// Dates retain their explicit local/UTC columns, exact target-selection JSON, and
+        /// the active cue filter and report horizon are applied server-side.
         /// </summary>
         [HttpGet("SceneSchedules/Occurrences/ExportCsv")]
         [Produces("text/csv")]
@@ -3824,6 +3824,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 "transitionCurve",
                 "targetLabel",
                 "targetAllEnabledMappings",
+                "targetUserIds",
+                "targetRoutes",
+                "includeDefaultTarget",
                 "timeZoneId",
                 "timeZoneDisplayName",
                 "localTime",
@@ -3860,6 +3863,9 @@ namespace Jellyfin.Plugin.Hue.Api
                     occurrence.TransitionCurve,
                     occurrence.TargetLabel,
                     occurrence.TargetAllEnabledMappings,
+                    JsonSerializer.Serialize(occurrence.TargetUserIds ?? Array.Empty<string>()),
+                    JsonSerializer.Serialize(occurrence.TargetRoutes ?? Array.Empty<HueSceneAutomationTargetRoute>()),
+                    occurrence.IncludeDefaultTarget,
                     occurrence.TimeZoneId,
                     occurrence.TimeZoneDisplayName,
                     occurrence.LocalTime,
