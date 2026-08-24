@@ -1103,6 +1103,9 @@ namespace Jellyfin.Plugin.Hue.Api
             CancellationToken cancellationToken = default)
         {
             var broadcast = request?.TargetAllEnabledMappings == true;
+            if (ContainsBlankTargetUserId(request?.TargetUserIds))
+                return BadRequest("Selected preview target IDs must contain user mapping IDs.");
+
             var selectedTargetUserIds = request?.TargetUserIds?
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())
@@ -1447,6 +1450,9 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             request ??= new HueSavedColorPresetPreviewRequest();
+            if (ContainsBlankTargetUserId(request.TargetUserIds))
+                return BadRequest("Selected saved-scene target IDs must contain user mapping IDs.");
+
             var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
             var targetUserIds = request.TargetUserIds?
                 .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -1578,6 +1584,9 @@ namespace Jellyfin.Plugin.Hue.Api
                     Message = "One or more selected saved scenes are invalid; no preview was started."
                 });
             }
+
+            if (ContainsBlankTargetUserId(request.TargetUserIds))
+                return BadRequest("Selected bulk saved-scene target IDs must contain user mapping IDs.");
 
             var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
             var targetUserIds = request.TargetUserIds?
@@ -2820,6 +2829,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
             var playlist = CloneScenePlaylist(source);
             request ??= new HueScenePlaylistPreviewRequest();
+            if (ContainsBlankTargetUserId(request.TargetUserIds))
+                return BadRequest("Selected scene playlist target IDs must contain user mapping IDs.");
+
             var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
             var targetUserIds = request.TargetUserIds?
                 .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -2971,6 +2983,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Cast<HueScenePlaylist>()
                 .Select(CloneScenePlaylist)
                 .ToArray();
+            if (ContainsBlankTargetUserId(request.TargetUserIds))
+                return BadRequest("Selected bulk scene playlist target IDs must contain user mapping IDs.");
+
             var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
             var targetUserIds = request.TargetUserIds?
                 .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -6540,6 +6555,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 string.IsNullOrWhiteSpace(route.DeviceId))
                 ? "Selected scene preview target routes must contain both a user mapping ID and a device ID."
                 : null;
+
+        private static bool ContainsBlankTargetUserId(IEnumerable<string>? targetUserIds)
+            => targetUserIds?.Any(value => string.IsNullOrWhiteSpace(value)) == true;
 
         private static bool TryResolveCaptureTargets(
             PluginConfiguration config,

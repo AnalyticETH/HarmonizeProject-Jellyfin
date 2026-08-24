@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.231] - 2026-08-24
+
+### Security
+- **Fail-closed preview target selection**: reject null or blank target user IDs across direct, saved-scene, bulk saved-scene, playlist, and bulk playlist previews before any default-bridge fallback or bridge activity.
+
+### Fixed
+- **Test runner refresh**: update the private xUnit Visual Studio adapter to 4.0.0 with a refreshed locked package hash while keeping the production plugin dependency set unchanged.
+
+### Tests
+- **Malformed target coverage**: verify each preview endpoint returns HTTP 400 and invokes neither the stream tester nor bridge HTTP client for blank target IDs.
+
 ## [1.5.230] - 2026-08-24
 
 ### Security

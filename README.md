@@ -427,7 +427,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.230 (Current)
+### Version 1.5.231 (Current)
+- **Fail-closed preview target selection**: direct, saved-scene, bulk saved-scene, playlist, and bulk playlist previews reject blank target user IDs before default-bridge fallback or bridge activity.
+- **Test runner refresh**: xUnit Visual Studio adapter 4.0.0 is now locked for the test project only; production dependencies remain on the .NET 8-compatible set.
+
+### Version 1.5.230
 - **Hash-locked Semgrep**: blocking static analysis installs a reviewed Python 3.12/x86_64 dependency lock with SHA-256 hashes, platform/version validation, and `pip check`.
 - **Import preflight enforcement**: Review and Import stays disabled until successful validation and is invalidated when migration credentials change; submission also fails closed.
 - **Actions policy enforcement**: repository policy now requires immutable commit-SHA action references.

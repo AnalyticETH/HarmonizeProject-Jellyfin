@@ -2580,6 +2580,140 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_BlankTargetUserIdFailsClosedWithoutContactingBridge()
+    {
+        var streamTester = new Mock<IHueStreamTester>();
+
+        var action = await CreateController(streamTester.Object).Preview(new HuePreviewRequest
+        {
+            TargetUserIds = new List<string> { " " }
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("target IDs", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        streamTester.VerifyNoOtherCalls();
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PreviewColorPreset_BlankTargetUserIdFailsClosedWithoutContactingBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Blank target scene", DurationSeconds = 1 }
+            }
+        });
+        var streamTester = new Mock<IHueStreamTester>();
+
+        var action = await CreateController(streamTester.Object).PreviewColorPreset(
+            "Blank target scene",
+            new HueSavedColorPresetPreviewRequest
+            {
+                TargetUserIds = new List<string> { " " }
+            });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("target IDs", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        streamTester.VerifyNoOtherCalls();
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PreviewColorPresetsBulk_BlankTargetUserIdFailsClosedWithoutContactingBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Bulk blank target scene", DurationSeconds = 1 }
+            }
+        });
+        var streamTester = new Mock<IHueStreamTester>();
+
+        var action = await CreateController(streamTester.Object).PreviewColorPresetsBulk(
+            new HueColorPresetBulkPreviewRequest
+            {
+                PresetNames = new List<string> { "Bulk blank target scene" },
+                TargetUserIds = new List<string> { " " }
+            });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("target IDs", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        streamTester.VerifyNoOtherCalls();
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PreviewScenePlaylist_BlankTargetUserIdFailsClosedWithoutContactingBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Playlist blank target scene", DurationSeconds = 1 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-blank-target",
+                    Name = "Blank target playlist",
+                    PresetNames = new List<string> { "Playlist blank target scene" }
+                }
+            }
+        });
+        var streamTester = new Mock<IHueStreamTester>();
+
+        var action = await CreateController(streamTester.Object).PreviewScenePlaylist(
+            "Blank target playlist",
+            new HueScenePlaylistPreviewRequest
+            {
+                TargetUserIds = new List<string> { " " }
+            });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("target IDs", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        streamTester.VerifyNoOtherCalls();
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PreviewScenePlaylistsBulk_BlankTargetUserIdFailsClosedWithoutContactingBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Bulk playlist blank target scene", DurationSeconds = 1 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "bulk-playlist-blank-target",
+                    Name = "Bulk blank target playlist",
+                    PresetNames = new List<string> { "Bulk playlist blank target scene" }
+                }
+            }
+        });
+        var streamTester = new Mock<IHueStreamTester>();
+
+        var action = await CreateController(streamTester.Object).PreviewScenePlaylistsBulk(
+            new HueScenePlaylistBulkPreviewRequest
+            {
+                PlaylistIds = new List<string> { "bulk-playlist-blank-target" },
+                TargetUserIds = new List<string> { " " }
+            });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("target IDs", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        streamTester.VerifyNoOtherCalls();
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task PreviewColorPresetsBulk_SelectedTargetsAreAppliedToEveryScene()
     {
         InstallConfiguration(new PluginConfiguration
