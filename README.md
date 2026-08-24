@@ -432,7 +432,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.236 (Current)
+### Version 1.5.237 (Current)
+- **Scheduled-route telemetry labels**: status, occurrence, history, and preview surfaces now show exact credential-free `userId / deviceId` route identifiers for nested playback-device selections.
+
+### Version 1.5.236
 - **Preview route failure parity**: raw, saved-scene, and saved-playlist preview endpoints document exact nested device routes, while failure telemetry retains normalized user/device IDs without credentials.
 - **Preview API contract validation**: the trusted main build checks route fields in every preview endpoint row and confirms the corresponding request/source support.
 

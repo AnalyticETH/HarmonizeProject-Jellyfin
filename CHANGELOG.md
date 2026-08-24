@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.237] - 2026-08-24
+
+### Fixed
+- **Scheduled-route telemetry labels**: credential-free status, occurrence, history, and preview results now identify exact nested user/device route IDs instead of collapsing every route selection to a generic count.
+
+### Tests
+- **Route-label regression coverage**: verify direct scheduled and playlist preview route labels remain readable while credentials stay absent.
+
 ## [1.5.236] - 2026-08-24
 
 ### Fixed

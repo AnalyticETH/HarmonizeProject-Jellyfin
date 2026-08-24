@@ -5404,10 +5404,27 @@ public sealed class HueSceneAutomationService : BackgroundService
             return "All enabled targets";
 
         var selectedUserTargetCount = schedule.TargetUserIds?.Count(value => !string.IsNullOrWhiteSpace(value)) ?? 0;
-        var selectedRouteCount = (targetRoutes ?? GetScheduleTargetRoutes(schedule)).Count;
+        var effectiveTargetRoutes = targetRoutes ?? GetScheduleTargetRoutes(schedule);
+        var selectedRouteLabels = effectiveTargetRoutes
+            .Where(route => route != null && !string.IsNullOrWhiteSpace(route.UserId))
+            .Select(route => string.IsNullOrWhiteSpace(route.DeviceId)
+                ? route.UserId.Trim()
+                : $"{route.UserId.Trim()} / {route.DeviceId.Trim()}")
+            .ToArray();
+        var selectedRouteCount = effectiveTargetRoutes.Count;
         var selectedTargetCount = selectedUserTargetCount + selectedRouteCount;
         if (schedule.IncludeDefaultTarget || selectedTargetCount > 0)
         {
+            if (selectedRouteLabels.Length > 0)
+            {
+                var routeLabel = string.Join(", ", selectedRouteLabels);
+                if (selectedUserTargetCount > 0)
+                    routeLabel += $" + {selectedUserTargetCount} selected mapping(s)";
+                return schedule.IncludeDefaultTarget
+                    ? $"Default bridge + {routeLabel}"
+                    : routeLabel;
+            }
+
             return schedule.IncludeDefaultTarget
                 ? selectedTargetCount == 0
                     ? "Default bridge target"

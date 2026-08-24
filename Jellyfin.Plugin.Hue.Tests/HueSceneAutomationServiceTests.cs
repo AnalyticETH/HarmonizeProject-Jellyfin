@@ -4239,7 +4239,7 @@ public sealed class HueSceneAutomationServiceTests
         var route = Assert.Single(result.TargetRoutes);
         Assert.Equal("user-device", route.UserId);
         Assert.Equal("device-panel", route.DeviceId);
-        Assert.Equal("1 selected target(s)", result.TargetLabel);
+        Assert.Equal("user-device / device-panel", result.TargetLabel);
         Assert.Equal("Device room / Wall panel", Assert.Single(result.TargetResults).TargetLabel);
         Assert.Equal(new[] { 20 }, streamTester.Reds);
         var serialized = JsonSerializer.Serialize(result);
@@ -4582,6 +4582,7 @@ public sealed class HueSceneAutomationServiceTests
         var result = await service.RunScheduleAsync("device-route-cue");
 
         Assert.True(result.Succeeded);
+        Assert.Equal("user-device / living-room-tv", result.TargetLabel);
         var route = Assert.Single(result.TargetRoutes);
         Assert.Equal("user-device", route.UserId);
         Assert.Equal("living-room-tv", route.DeviceId);

@@ -5409,7 +5409,7 @@ public sealed class HueApiControllerTests : IDisposable
         var savedRoute = Assert.Single(savedResult.TargetRoutes);
         Assert.Equal("user-device", savedRoute.UserId);
         Assert.Equal("living-room-tv", savedRoute.DeviceId);
-        Assert.Equal("1 selected target(s)", savedResult.TargetLabel);
+        Assert.Equal("user-device / living-room-tv", savedResult.TargetLabel);
         var persistedRoute = Assert.Single(configuration.SceneSchedules[0].TargetRoutes);
         Assert.Equal("user-device", persistedRoute.UserId);
         Assert.Equal("living-room-tv", persistedRoute.DeviceId);
