@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.226] - 2026-08-24
+
+### Fixed
+- **Fail-closed release verification**: defer tag creation until package and changelog checks pass, and refuse to publish when remote tag lookup fails instead of treating an unavailable remote as an unused tag.
+
+### Tests
+- **Release-gate coverage**: keep release-tag mutation after all non-mutating checks and verify the created remote tag resolves to the workflow commit.
+
 ## [1.5.225] - 2026-08-24
 
 ### Fixed

@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.225 (Current)
+### Version 1.5.226 (Current)
+- **Fail-closed release verification**: tag creation waits for package/changelog checks, remote lookup failures stop publication, and the created tag is verified against the workflow commit.
+
+### Version 1.5.225
 - **Release provenance**: release tags are created and verified at the exact workflow commit before publication, preventing serialized runs from attaching a package to a newer moving `main` tip.
 
 ### Version 1.5.224
