@@ -6560,6 +6560,7 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
         Assert.Equal("2026-12-24", result.RunDate);
+        Assert.Equal("Etc/UTC", result.TimeZoneIanaId);
         Assert.Equal(0, result.DaysOfWeekMask);
         var saved = Assert.Single(configuration.SceneSchedules);
         Assert.Equal("2026-12-24", saved.RunDate);
@@ -6728,7 +6729,13 @@ public sealed class HueApiControllerTests : IDisposable
         var action = CreateController().GetSceneScheduleTimeZones();
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var zones = Assert.IsAssignableFrom<IEnumerable<HueSceneScheduleTimeZoneResult>>(response.Value);
-        Assert.Contains(zones, zone => zone.Id == TimeZoneInfo.Utc.Id);
+        var utcZone = Assert.Single(zones.Where(zone => zone.Id == TimeZoneInfo.Utc.Id));
+        Assert.Equal("Etc/UTC", utcZone.TimeZoneIanaId);
+        var easternZone = zones.FirstOrDefault(zone =>
+            string.Equals(zone.Id, "America/New_York", StringComparison.Ordinal) ||
+            string.Equals(zone.Id, "Eastern Standard Time", StringComparison.Ordinal));
+        Assert.NotNull(easternZone);
+        Assert.Equal("America/New_York", easternZone!.TimeZoneIanaId);
         var serialized = System.Text.Json.JsonSerializer.Serialize(zones);
         Assert.DoesNotContain("secret-app-key", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-client-key", serialized, StringComparison.Ordinal);
@@ -10960,6 +10967,7 @@ public sealed class HueApiControllerTests : IDisposable
                     PlaylistName = exportedCue.PlaylistName,
                     TimeOfDay = exportedCue.TimeOfDay,
                     TimeZoneId = exportedCue.TimeZoneId,
+                    TimeZoneIanaId = exportedCue.TimeZoneIanaId,
                     Recurrence = exportedCue.Recurrence,
                     DaysOfWeekMask = exportedCue.DaysOfWeekMask,
                     DurationSeconds = exportedCue.DurationSeconds
@@ -10972,6 +10980,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("Portable playlist", importedCue.PlaylistName);
         Assert.Equal(string.Empty, importedCue.PresetName);
         Assert.Equal(0, importedCue.DurationSeconds);
+        Assert.Equal(exportedCue.TimeZoneIanaId, importedCue.TimeZoneId);
     }
 
     [Fact]
@@ -11056,6 +11065,58 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(2, Assert.Single(configuration.ColorPresets).TransitionSeconds);
         Assert.Equal(1, Assert.Single(configuration.ColorPresets).TransitionOutSeconds);
         Assert.Equal(275, Assert.Single(configuration.ColorPresets).EffectSpeedPercent);
+    }
+
+    [Fact]
+    public void ConfigurationImport_NormalizesWindowsTimeZoneAndRejectsUnmappableValue()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Portable" } }
+        });
+        var controller = CreateController();
+
+        var import = controller.ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            SceneSchedules = new List<HueSceneScheduleRequest>
+            {
+                new()
+                {
+                    Id = "windows-zone-cue",
+                    Name = "Windows zone cue",
+                    PresetName = "Portable",
+                    TimeZoneId = "Eastern Standard Time",
+                    TimeOfDay = "08:00"
+                }
+            }
+        });
+
+        Assert.IsType<OkObjectResult>(import.Result);
+        Assert.Equal("America/New_York", Assert.Single(configuration.SceneSchedules).TimeZoneId);
+
+        var invalid = controller.ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            SceneSchedules = new List<HueSceneScheduleRequest>
+            {
+                new()
+                {
+                    Id = "invalid-zone-cue",
+                    Name = "Invalid zone cue",
+                    PresetName = "Portable",
+                    TimeZoneId = "Definitely/Not-A-Real-Time-Zone",
+                    TimeOfDay = "08:00"
+                }
+            }
+        });
+
+        var invalidResponse = Assert.IsType<BadRequestObjectResult>(invalid.Result);
+        Assert.Contains(
+            "portable IANA",
+            JsonSerializer.Serialize(invalidResponse.Value),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(configuration.SceneSchedules, schedule => schedule.Id == "invalid-zone-cue");
     }
 
     [Fact]

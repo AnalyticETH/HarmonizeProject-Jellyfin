@@ -854,6 +854,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 SolarLatitude = schedule.SolarLatitude,
                 SolarLongitude = schedule.SolarLongitude,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
+                TimeZoneIanaId = PluginConfiguration.TryGetPortableSceneScheduleTimeZoneId(
+                    schedule.TimeZoneId,
+                    out var portableTimeZoneId)
+                    ? portableTimeZoneId
+                    : string.Empty,
                 Recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
                     schedule.Recurrence,
                     out var normalizedRecurrence)
@@ -3772,7 +3777,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 {
                     Id = zone.Id,
                     DisplayName = zone.DisplayName,
-                    BaseUtcOffsetMinutes = (int)zone.BaseUtcOffset.TotalMinutes
+                    BaseUtcOffsetMinutes = (int)zone.BaseUtcOffset.TotalMinutes,
+                    TimeZoneIanaId = PluginConfiguration.TryGetPortableSceneScheduleTimeZoneId(
+                        zone.Id,
+                        out var portableTimeZoneId)
+                        ? portableTimeZoneId
+                        : string.Empty
                 })
                 .ToArray();
             return Ok(zones);
@@ -4237,6 +4247,7 @@ namespace Jellyfin.Plugin.Hue.Api
                             SolarLongitude = occurrence.SolarLongitude,
                             TargetLabel = ToSceneScheduleResult(schedule, config).TargetLabel,
                             TimeZoneId = occurrence.TimeZoneId,
+                            TimeZoneIanaId = occurrence.TimeZoneIanaId,
                             TimeZoneDisplayName = occurrence.TimeZoneDisplayName,
                             LocalTime = occurrence.LocalTime,
                             UtcTime = occurrence.UtcTime
@@ -7711,6 +7722,23 @@ namespace Jellyfin.Plugin.Hue.Api
                 {
                     schedule.ExcludedDates = normalizedExcludedDates;
                 }
+                if (!string.IsNullOrWhiteSpace(schedule.TimeZoneId))
+                {
+                    if (PluginConfiguration.TryGetPortableSceneScheduleTimeZoneId(
+                            schedule.TimeZoneId,
+                            out var portableTimeZoneId))
+                    {
+                        schedule.TimeZoneId = portableTimeZoneId;
+                    }
+                    else
+                    {
+                        var scheduleLabel = string.IsNullOrWhiteSpace(schedule.Name)
+                            ? "Imported scene schedule"
+                            : $"Imported scene schedule '{schedule.Name.Trim()}'";
+                        validationErrors.Add(
+                            $"{scheduleLabel} time zone '{schedule.TimeZoneId.Trim()}' cannot be mapped to a portable IANA identifier");
+                    }
+                }
                 if (schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns)
                     schedule.Enabled = false;
 
@@ -11128,6 +11156,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
 
+        [JsonPropertyName("timeZoneIanaId")]
+        public string? TimeZoneIanaId { get; set; }
+
         [JsonPropertyName("recurrence")]
         public string Recurrence { get; set; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;
 
@@ -11286,7 +11317,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 SolarOffsetMinutes = SolarOffsetMinutes,
                 SolarLatitude = SolarLatitude,
                 SolarLongitude = SolarLongitude,
-                TimeZoneId = TimeZoneId?.Trim() ?? string.Empty,
+                TimeZoneId = string.IsNullOrWhiteSpace(TimeZoneIanaId)
+                    ? TimeZoneId?.Trim() ?? string.Empty
+                    : TimeZoneIanaId?.Trim() ?? string.Empty,
                 Recurrence = Recurrence?.Trim() ?? string.Empty,
                 RecurrenceInterval = RecurrenceInterval,
                 DayOfMonth = DayOfMonth,
@@ -11663,6 +11696,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
 
+        [JsonPropertyName("timeZoneIanaId")]
+        public string TimeZoneIanaId { get; set; } = string.Empty;
+
         [JsonPropertyName("recurrence")]
         public string Recurrence { get; set; } = PluginConfiguration.SceneScheduleRecurrenceWeekly;
 
@@ -11831,6 +11867,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("timeZoneId")]
         public string TimeZoneId { get; set; } = string.Empty;
 
+        [JsonPropertyName("timeZoneIanaId")]
+        public string TimeZoneIanaId { get; set; } = string.Empty;
+
         [JsonPropertyName("timeZoneDisplayName")]
         public string TimeZoneDisplayName { get; set; } = string.Empty;
 
@@ -11914,6 +11953,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("baseUtcOffsetMinutes")]
         public int BaseUtcOffsetMinutes { get; set; }
+
+        [JsonPropertyName("timeZoneIanaId")]
+        public string TimeZoneIanaId { get; set; } = string.Empty;
     }
 
     public class HueRegistrationResult

@@ -1173,6 +1173,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                 SolarLatitude = schedule.SolarLatitude,
                 SolarLongitude = schedule.SolarLongitude,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
+                TimeZoneIanaId = PluginConfiguration.TryGetPortableSceneScheduleTimeZoneId(
+                    schedule.TimeZoneId,
+                    out var portableTimeZoneId)
+                    ? portableTimeZoneId
+                    : string.Empty,
                 TimeZoneDisplayName = string.IsNullOrWhiteSpace(schedule.TimeZoneId)
                     ? $"Server local ({timeZone.DisplayName})"
                     : timeZone.DisplayName,
@@ -1732,6 +1737,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                 WeekOfMonth = schedule.WeekOfMonth,
                 DayOfWeek = schedule.DayOfWeek,
                 TimeZoneId = schedule.TimeZoneId?.Trim() ?? string.Empty,
+                TimeZoneIanaId = PluginConfiguration.TryGetPortableSceneScheduleTimeZoneId(
+                    schedule.TimeZoneId,
+                    out var portableTimeZoneId)
+                    ? portableTimeZoneId
+                    : string.Empty,
                 TimeZoneDisplayName = string.IsNullOrWhiteSpace(schedule.TimeZoneId)
                     ? $"Server local ({timeZone.DisplayName})"
                     : timeZone.DisplayName,
@@ -3011,7 +3021,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
 
         if (!PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out var timeZone))
-            timeZone = TimeZoneInfo.Local;
+            return false;
 
         // Solar offsets can move an event across local midnight. Recurrence and date
         // windows belong to the unshifted solar date, so inspect the adjacent base dates
@@ -6939,6 +6949,9 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("timeZoneId")]
     public string TimeZoneId { get; init; } = string.Empty;
 
+    [JsonPropertyName("timeZoneIanaId")]
+    public string TimeZoneIanaId { get; init; } = string.Empty;
+
     [JsonPropertyName("timeZoneDisplayName")]
     public string TimeZoneDisplayName { get; init; } = string.Empty;
 
@@ -7130,6 +7143,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("timeZoneId")]
     public string TimeZoneId { get; init; } = string.Empty;
+
+    [JsonPropertyName("timeZoneIanaId")]
+    public string TimeZoneIanaId { get; init; } = string.Empty;
 
     [JsonPropertyName("timeZoneDisplayName")]
     public string TimeZoneDisplayName { get; init; } = string.Empty;

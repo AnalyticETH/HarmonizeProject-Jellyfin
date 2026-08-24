@@ -75,6 +75,8 @@ const requiredMarkup = [
     'id="sceneScheduleOccurrenceFilter"',
     'id="sceneScheduleHistoryCueFilter"',
     'id="sceneScheduleTimeMode"',
+    'timeZoneIanaId',
+    'data-time-zone-iana-id',
     'value="SolarNoon">Solar noon',
     'value="CivilDawn">Civil dawn',
     'value="CivilDusk">Civil dusk',
@@ -750,6 +752,8 @@ for (const [functionName, markers] of [
         "HueConfigurationPage.initializeSceneScheduleMetadata(page)",
         "HueConfigurationPage.isSceneScheduleMappingMetadataValid(responses[3])",
         "page._hueSceneScheduleMappings = mappings",
+        "data-time-zone-iana-id",
+        "option.value = ianaId || id",
         "deviceOption.value = HueConfigurationPage.encodeCurrentLightDeviceTarget(userId, deviceId)",
         "HueConfigurationPage.isConfiguredDeviceRouteReady(deviceTarget)",
         "deviceOption.disabled = !enabled || !deviceReady",
@@ -758,11 +762,15 @@ for (const [functionName, markers] of [
     ]],
     ["applySceneSchedule", [
         "get('TargetRoutes', 'targetRoutes', [])",
+        "get('TimeZoneIanaId', 'timeZoneIanaId', '')",
+        "data-host-time-zone-id",
         "isSceneScheduleDeviceRouteAvailable(page, route)",
         "page._hueSceneScheduleUnavailableTargetRoutes = unavailableTargetRoutes"
     ]],
     ["saveSceneSchedule", [
         "if (!HueConfigurationPage.requireSceneScheduleMetadata(page)) return;",
+        "var timeZoneIanaId = selectedTimeZoneOption",
+        "timeZoneIanaId: timeZoneIanaId",
         "var targetSelection = HueConfigurationPage.getSceneScheduleTargetSelection(page)",
         "if (!targetSelection.valid)",
         "targetRoutes: targetSelection.targetRoutes"

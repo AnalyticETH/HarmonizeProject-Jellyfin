@@ -1001,6 +1001,39 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void SceneScheduleTimeZones_NormalizeWindowsAndIanaIdsToPortableValue()
+    {
+        Assert.True(PluginConfiguration.TryGetPortableSceneScheduleTimeZoneId(
+            "Eastern Standard Time",
+            out var windowsPortableId));
+        Assert.Equal("America/New_York", windowsPortableId);
+
+        Assert.True(PluginConfiguration.TryGetPortableSceneScheduleTimeZoneId(
+            "America/New_York",
+            out var ianaPortableId));
+        Assert.Equal("America/New_York", ianaPortableId);
+
+        Assert.True(PluginConfiguration.TryResolveSceneScheduleTimeZone(
+            "Eastern Standard Time",
+            out _));
+        Assert.True(PluginConfiguration.TryResolveSceneScheduleTimeZone(
+            "America/New_York",
+            out _));
+    }
+
+    [Fact]
+    public void SceneScheduleTimeZones_RejectUnmappableIdsWithoutLocalFallback()
+    {
+        Assert.False(PluginConfiguration.TryGetPortableSceneScheduleTimeZoneId(
+            "Definitely/Not-A-Real-Time-Zone",
+            out var portableId));
+        Assert.Empty(portableId);
+        Assert.False(PluginConfiguration.TryResolveSceneScheduleTimeZone(
+            "Definitely/Not-A-Real-Time-Zone",
+            out _));
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_ValidatesDirectColorOverridesAndRejectsPlaylistOverrides()
     {
         var config = new PluginConfiguration

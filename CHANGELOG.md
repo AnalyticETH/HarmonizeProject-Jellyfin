@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.265] - 2026-08-24
+
+### Portability
+- **Cross-platform scheduled time zones**: export scheduled cues with a canonical IANA identifier, resolve legacy Windows IDs on Unix hosts (and IANA IDs on Windows), and normalize imported cues to the portable value without falling back to the destination server's local zone.
+- **Credential-free timezone metadata**: expose both the host ID and canonical IANA ID through the time-zone catalog, cue results, upcoming occurrences, runtime status, and backup/restore documents; the administrator selector now submits the canonical value.
+
+### Tests
+- **Timezone migration coverage**: verify Windows/IANA alias resolution, canonical export/import round trips, unmappable-zone rejection, API metadata, and configuration-page contracts.
+
 ## [1.5.264] - 2026-08-24
 
 ### Device routes

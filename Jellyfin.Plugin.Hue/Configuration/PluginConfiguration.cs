@@ -3217,6 +3217,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!TryResolveSceneScheduleTimeZone(schedule.TimeZoneId, out _))
                 errors.Add($"{label} time zone is not available on this server");
+            else if (!string.IsNullOrWhiteSpace(schedule.TimeZoneId) &&
+                     !TryGetPortableSceneScheduleTimeZoneId(schedule.TimeZoneId, out _))
+                errors.Add($"{label} time zone cannot be mapped to a portable IANA identifier");
 
             if (!TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
                 errors.Add($"{label} recurrence must be Daily, Weekly, Monthly, MonthlyWeekday, or Yearly");
@@ -3637,19 +3640,126 @@ namespace Jellyfin.Plugin.Hue.Configuration
             }
             catch (TimeZoneNotFoundException)
             {
-                timeZone = TimeZoneInfo.Local;
-                return false;
+                return TryResolveSceneScheduleTimeZoneAlias(normalized, out timeZone);
             }
             catch (InvalidTimeZoneException)
             {
-                timeZone = TimeZoneInfo.Local;
-                return false;
+                return TryResolveSceneScheduleTimeZoneAlias(normalized, out timeZone);
             }
             catch (ArgumentException)
             {
-                timeZone = TimeZoneInfo.Local;
+                return TryResolveSceneScheduleTimeZoneAlias(normalized, out timeZone);
+            }
+        }
+
+        /// <summary>
+        /// Returns the canonical IANA identifier used when schedules cross operating
+        /// systems. Existing Windows or IANA IDs are accepted, but an unmappable value
+        /// is rejected so an export cannot silently change its execution zone.
+        /// </summary>
+        public static bool TryGetPortableSceneScheduleTimeZoneId(string? value, out string portableId)
+        {
+            portableId = string.Empty;
+            var normalized = value?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalized))
+                return true;
+
+            if (!TryResolveSceneScheduleTimeZone(normalized, out var timeZone))
+                return false;
+
+            if (IsUtcSceneScheduleTimeZone(normalized, timeZone))
+            {
+                portableId = "Etc/UTC";
+                return true;
+            }
+
+            if (TryConvertWindowsIdToIana(normalized, out portableId) ||
+                TryConvertWindowsIdToIana(timeZone.Id, out portableId))
+            {
+                return true;
+            }
+
+            if (TimeZoneInfo.TryConvertIanaIdToWindowsId(normalized, out var windowsId) &&
+                !string.IsNullOrWhiteSpace(windowsId) &&
+                TryConvertWindowsIdToIana(windowsId, out portableId))
+            {
+                return true;
+            }
+
+            // On Unix, system zone IDs are already IANA IDs. Keep only slash-based
+            // values here; arbitrary host-specific IDs must fail closed.
+            if (timeZone.Id.IndexOf('/') >= 0)
+            {
+                portableId = timeZone.Id;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveSceneScheduleTimeZoneAlias(string normalized, out TimeZoneInfo timeZone)
+        {
+            if (TimeZoneInfo.TryConvertWindowsIdToIanaId(normalized, out var ianaId) &&
+                !string.IsNullOrWhiteSpace(ianaId))
+            {
+                try
+                {
+                    timeZone = TimeZoneInfo.FindSystemTimeZoneById(ianaId);
+                    return true;
+                }
+                catch (TimeZoneNotFoundException)
+                {
+                }
+                catch (InvalidTimeZoneException)
+                {
+                }
+                catch (ArgumentException)
+                {
+                }
+            }
+
+            if (TimeZoneInfo.TryConvertIanaIdToWindowsId(normalized, out var windowsId) &&
+                !string.IsNullOrWhiteSpace(windowsId))
+            {
+                try
+                {
+                    timeZone = TimeZoneInfo.FindSystemTimeZoneById(windowsId);
+                    return true;
+                }
+                catch (TimeZoneNotFoundException)
+                {
+                }
+                catch (InvalidTimeZoneException)
+                {
+                }
+                catch (ArgumentException)
+                {
+                }
+            }
+
+            timeZone = TimeZoneInfo.Local;
+            return false;
+        }
+
+        private static bool TryConvertWindowsIdToIana(string value, out string ianaId)
+        {
+            ianaId = string.Empty;
+            if (!TimeZoneInfo.TryConvertWindowsIdToIanaId(value, out var converted) ||
+                string.IsNullOrWhiteSpace(converted))
+            {
                 return false;
             }
+
+            ianaId = converted.Trim();
+            return true;
+        }
+
+        private static bool IsUtcSceneScheduleTimeZone(string normalized, TimeZoneInfo timeZone)
+        {
+            return timeZone == TimeZoneInfo.Utc ||
+                string.Equals(normalized, "UTC", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Etc/UTC", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Coordinated Universal Time", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

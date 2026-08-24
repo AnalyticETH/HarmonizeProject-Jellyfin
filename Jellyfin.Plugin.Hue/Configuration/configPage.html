@@ -6747,9 +6747,12 @@
                             timeZones.forEach(function (timeZone) {
                                 var id = timeZone && (timeZone.id !== undefined ? timeZone.id : timeZone.Id);
                                 if (!id) return;
+                                var ianaId = timeZone.timeZoneIanaId !== undefined ? timeZone.timeZoneIanaId : timeZone.TimeZoneIanaId;
                                 var displayName = timeZone.displayName !== undefined ? timeZone.displayName : timeZone.DisplayName;
                                 var option = document.createElement('option');
-                                option.value = id;
+                                option.value = ianaId || id;
+                                option.setAttribute('data-host-time-zone-id', id);
+                                if (ianaId) option.setAttribute('data-time-zone-iana-id', ianaId);
                                 option.textContent = displayName || id;
                                 timeZoneSelect.appendChild(option);
                             });
@@ -8147,14 +8150,20 @@
                     var excludedDates = get('ExcludedDates', 'excludedDates', []);
                     page.querySelector('#sceneScheduleExcludedDates').value = Array.isArray(excludedDates) ? excludedDates.join(', ') : '';
                     var scheduleTimeZoneId = get('TimeZoneId', 'timeZoneId', '');
+                    var scheduleTimeZoneIanaId = get('TimeZoneIanaId', 'timeZoneIanaId', '');
+                    var scheduleTimeZoneValue = scheduleTimeZoneIanaId || scheduleTimeZoneId;
                     var scheduleTimeZoneSelect = page.querySelector('#sceneScheduleTimeZone');
-                    scheduleTimeZoneSelect.value = scheduleTimeZoneId;
-                    if (scheduleTimeZoneId && scheduleTimeZoneSelect.value !== scheduleTimeZoneId) {
+                    var matchingTimeZoneOption = Array.prototype.find.call(scheduleTimeZoneSelect.options, function (option) {
+                        return option.value === scheduleTimeZoneValue ||
+                            option.getAttribute('data-host-time-zone-id') === scheduleTimeZoneId;
+                    });
+                    scheduleTimeZoneSelect.value = matchingTimeZoneOption ? matchingTimeZoneOption.value : scheduleTimeZoneValue;
+                    if (scheduleTimeZoneValue && !matchingTimeZoneOption) {
                         var unavailableTimeZone = document.createElement('option');
-                        unavailableTimeZone.value = scheduleTimeZoneId;
-                        unavailableTimeZone.textContent = "Unavailable on this server: " + scheduleTimeZoneId;
+                        unavailableTimeZone.value = scheduleTimeZoneValue;
+                        unavailableTimeZone.textContent = "Unavailable on this server: " + scheduleTimeZoneValue;
                         scheduleTimeZoneSelect.appendChild(unavailableTimeZone);
-                        scheduleTimeZoneSelect.value = scheduleTimeZoneId;
+                        scheduleTimeZoneSelect.value = scheduleTimeZoneValue;
                     }
                     var targetAllEnabledMappings = get('TargetAllEnabledMappings', 'targetAllEnabledMappings', false) === true;
                     var targetSelect = page.querySelector('#sceneScheduleTarget');
@@ -8312,7 +8321,12 @@
                     var weekOfMonth = weekOfMonthText ? Number(weekOfMonthText) : 0;
                     var dayOfWeekText = page.querySelector('#sceneScheduleDayOfWeek').value;
                     var dayOfWeek = dayOfWeekText === '' ? -1 : Number(dayOfWeekText);
-                    var timeZoneId = page.querySelector('#sceneScheduleTimeZone').value;
+                    var timeZoneSelect = page.querySelector('#sceneScheduleTimeZone');
+                    var timeZoneId = timeZoneSelect.value;
+                    var selectedTimeZoneOption = timeZoneSelect.options[timeZoneSelect.selectedIndex];
+                    var timeZoneIanaId = selectedTimeZoneOption
+                        ? (selectedTimeZoneOption.getAttribute('data-time-zone-iana-id') || timeZoneId)
+                        : timeZoneId;
                     var runDate = page.querySelector('#sceneScheduleRunDate').value;
                     var startDate = page.querySelector('#sceneScheduleStartDate').value;
                     var endDate = page.querySelector('#sceneScheduleEndDate').value;
@@ -8453,6 +8467,7 @@
                             weekOfMonth: weekOfMonth,
                             dayOfWeek: dayOfWeek,
                             timeZoneId: timeZoneId,
+                            timeZoneIanaId: timeZoneIanaId,
                             runDate: runDate,
                             startDate: startDate,
                             endDate: endDate,
