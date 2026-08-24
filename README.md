@@ -427,7 +427,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.207 (Current)
+### Version 1.5.208 (Current)
+- **In-process schedule overlap recovery**: long restorative cues no longer make later scheduled cues disappear when their minute passes; the scheduler re-evaluates elapsed occurrences once without changing the configured restart catch-up window.
+- **Safe one-time semantics**: recovered one-time cues retain stable run-slot claims, catch-up telemetry, and automatic disable behavior.
+- **Administrator UI hardening**: user-mapping action attributes encode quotes and backticks, keeping imported identifiers confined to their data attributes.
+
+### Version 1.5.207
 - **Complete non-success telemetry**: skipped and failed direct-scene cues retain effective brightness in runtime/history results and CSV exports.
 - **Stable schedule request API shape**: omitted duration fields preserve existing cues without changing the public integer request property; explicit zero clears a duration override.
 

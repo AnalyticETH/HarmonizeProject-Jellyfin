@@ -1295,6 +1295,82 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_RecoversLaterCueAfterLongCueWithoutConfiguredCatchUp()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationCatchUpMinutes = PluginConfiguration.MinSceneAutomationCatchUpMinutes,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "overlap-recovery-app-secret",
+            HueClientKey = "overlap-recovery-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "First overlap scene", Red = 10, Green = 20, Blue = 30, DurationSeconds = 1 },
+                new() { Name = "Recovered overlap scene", Red = 200, Green = 180, Blue = 160, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "overlap-first-cue",
+                    Name = "First overlap cue",
+                    PresetName = "First overlap scene",
+                    Priority = 100,
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                },
+                new()
+                {
+                    Id = "overlap-recovered-cue",
+                    Name = "Recovered overlap cue",
+                    PresetName = "Recovered overlap scene",
+                    Priority = 10,
+                    TimeOfDay = "07:06",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-08-18",
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new OverlapRecoveryStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var schedulerRun = service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 5, 59, DateTimeKind.Utc),
+            CancellationToken.None);
+        await streamTester.FirstPreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(TimeSpan.FromMilliseconds(1100));
+        streamTester.ReleaseFirstPreview.TrySetResult(true);
+        await schedulerRun.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(new[] { 10, 200 }, streamTester.Reds);
+        Assert.Equal(1, Assert.Single(configuration.SceneSchedules, schedule => schedule.Id == "overlap-first-cue").RunCount);
+        var recoveredSchedule = Assert.Single(configuration.SceneSchedules, schedule => schedule.Id == "overlap-recovered-cue");
+        Assert.Equal(1, recoveredSchedule.RunCount);
+        Assert.False(recoveredSchedule.Enabled);
+
+        var recoveredStatus = Assert.Single(
+            service.GetStatus().Schedules,
+            schedule => schedule.Id == "overlap-recovered-cue");
+        Assert.True(recoveredStatus.LastWasCatchUp);
+
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 6, 2, DateTimeKind.Utc),
+            CancellationToken.None);
+        Assert.Equal(new[] { 10, 200 }, streamTester.Reds);
+    }
+
+    [Fact]
     public async Task RunPlaylistPreview_RunsSavedScenesInOrderAndAggregatesTargetOutcome()
     {
         var configuration = new PluginConfiguration
@@ -4714,6 +4790,67 @@ public sealed class HueSceneAutomationServiceTests
                 Message = "Unexpected completion."
             };
         }
+    }
+
+    private sealed class OverlapRecoveryStreamTester : IHueStreamTester
+    {
+        private int _previewCount;
+
+        public TaskCompletionSource<bool> FirstPreviewStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> ReleaseFirstPreview { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public List<int> Reds { get; } = new();
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "Not used by this test."
+            });
+
+        public async Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        {
+            Reds.Add(red);
+            if (Interlocked.Increment(ref _previewCount) == 1)
+            {
+                FirstPreviewStarted.TrySetResult(true);
+                await ReleaseFirstPreview.Task.WaitAsync(cancellationToken);
+            }
+
+            return new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Displayed overlap-recovery scene."
+            };
+        }
+
+        public bool CancelActiveDiagnostic() => false;
     }
 
     private sealed class RecordingStreamTester : IHueStreamTester, IHueTransitionCurveStreamTester

@@ -1692,6 +1692,13 @@
                 return div.innerHTML;
             }
 
+            function escapeAttribute(str) {
+                return escapeHtml(str)
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;')
+                    .replace(/`/g, '&#96;');
+            }
+
             var HueConfigurationPage = {
                 pluginId: "4e078f02-ec43-473e-85f1-98e86eb9a761",
                 globalBridgeIp: "",
@@ -8838,9 +8845,9 @@
                             html += '<td style="padding: 8px;">' + (hasProfile ? 'Custom' : 'Global') + '</td>';
                             html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid)">Edit</button> ';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid)">View References</button> ';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeHtml(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid)">Delete</button>';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid)">Edit</button> ';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid)">View References</button> ';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid)">Delete</button>';
                             html += '</td></tr>';
                         });
 

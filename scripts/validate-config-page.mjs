@@ -134,6 +134,8 @@ for (const marker of requiredMarkup) {
 }
 
 const requiredScript = [
+    "function escapeAttribute(str)",
+    "data-userid=\"' + escapeAttribute(userId)",
     "setDiagnosticBusy: function",
     "setDiagnosticsBusy: function",
     "exportSupportBundle: function",

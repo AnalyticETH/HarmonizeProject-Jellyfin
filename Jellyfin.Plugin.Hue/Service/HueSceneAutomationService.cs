@@ -3040,6 +3040,38 @@ public sealed class HueSceneAutomationService : BackgroundService
             .FirstOrDefault();
     }
 
+    private static int GetInProcessCatchUpMinutes(TimeSpan elapsed)
+    {
+        if (elapsed <= TimeSpan.Zero)
+            return PluginConfiguration.MinSceneAutomationCatchUpMinutes;
+
+        return Math.Clamp(
+            (int)Math.Ceiling(elapsed.TotalMinutes),
+            PluginConfiguration.MinSceneAutomationCatchUpMinutes,
+            PluginConfiguration.MaxSceneAutomationCatchUpMinutes);
+    }
+
+    private static DateTime ConvertServerLocalNowToUtc(DateTime serverLocalNow)
+    {
+        try
+        {
+            return serverLocalNow.Kind switch
+            {
+                DateTimeKind.Utc => serverLocalNow,
+                DateTimeKind.Local => serverLocalNow.ToUniversalTime(),
+                _ => TimeZoneInfo.ConvertTimeToUtc(
+                    DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified),
+                    TimeZoneInfo.Local)
+            };
+        }
+        catch (ArgumentException)
+        {
+            // Preserve progress for a synthetic invalid local wall-clock value supplied
+            // by a caller or test; the platform's normal conversion remains the fallback.
+            return DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified).ToUniversalTime();
+        }
+    }
+
     private static bool TryGetScheduleLocalNow(
         HueSceneSchedule schedule,
         DateTime serverLocalNow,
@@ -3066,24 +3098,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (!PluginConfiguration.TryResolveSceneScheduleTimeZone(schedule?.TimeZoneId, out timeZone))
             return false;
 
-        try
-        {
-            serverUtcNow = serverLocalNow.Kind switch
-            {
-                DateTimeKind.Utc => serverLocalNow,
-                DateTimeKind.Local => serverLocalNow.ToUniversalTime(),
-                _ => TimeZoneInfo.ConvertTimeToUtc(
-                    DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified),
-                    TimeZoneInfo.Local)
-            };
-        }
-        catch (ArgumentException)
-        {
-            // DateTime.Now cannot normally be an invalid local wall-clock value, but a
-            // caller can supply one in tests or a custom host. Preserve progress with
-            // the platform's normal unspecified-to-UTC conversion in that edge case.
-            serverUtcNow = DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified).ToUniversalTime();
-        }
+        serverUtcNow = ConvertServerLocalNowToUtc(serverLocalNow);
 
         scheduleLocalNow = DateTime.SpecifyKind(
             TimeZoneInfo.ConvertTimeFromUtc(serverUtcNow, timeZone),
@@ -3708,6 +3723,13 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (config == null || !config.SceneAutomationEnabled)
             return;
 
+        // Keep the logical scheduler clock anchored to the caller's observation while
+        // allowing a long restorative cue to advance that clock for schedules that have
+        // not been evaluated yet. This recovers in-process overlaps without changing the
+        // configured restart catch-up window or depending on the host wall clock's date.
+        var schedulerStartedAtUtc = DateTime.UtcNow;
+        var logicalStartUtc = ConvertServerLocalNowToUtc(localNow);
+
         var schedules = config.SceneSchedules?
             .Where(schedule => schedule != null)
             .Select((schedule, index) => new
@@ -3739,6 +3761,11 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         foreach (var schedule in schedules)
         {
+            var elapsed = DateTime.UtcNow - schedulerStartedAtUtc;
+            if (elapsed < TimeSpan.Zero)
+                elapsed = TimeSpan.Zero;
+            var evaluationNow = localNow.Add(elapsed);
+            var inProcessCatchUpMinutes = GetInProcessCatchUpMinutes(elapsed);
             var deferDuringPlayback = string.Equals(
                 GetEffectivePlaybackPolicy(config, schedule),
                 PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
@@ -3747,7 +3774,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             var deferredExpired = false;
             var hasDeferredRun = deferDuringPlayback && TryGetDeferredRun(
                 schedule.Id,
-                localNow,
+                evaluationNow,
                 deferMinutes,
                 out deferredRun,
                 out deferredExpired);
@@ -3770,10 +3797,20 @@ public sealed class HueSceneAutomationService : BackgroundService
                 continue;
             }
 
-            var isDue = hasDeferredRun || IsDue(schedule, localNow);
+            var isDue = hasDeferredRun || IsDue(schedule, evaluationNow);
+            var effectiveCatchUpMinutes = Math.Max(catchUpMinutes, inProcessCatchUpMinutes);
             var recoveredOccurrence = hasDeferredRun || isDue
                 ? null
-                : GetMostRecentMissedOccurrence(schedule, localNow, catchUpMinutes);
+                : GetMostRecentMissedOccurrence(schedule, evaluationNow, effectiveCatchUpMinutes);
+            if (catchUpMinutes == PluginConfiguration.MinSceneAutomationCatchUpMinutes &&
+                recoveredOccurrence != null &&
+                recoveredOccurrence.UtcTime <= logicalStartUtc)
+            {
+                // With restart catch-up disabled, only recover an occurrence that elapsed
+                // after this scheduler pass began. Older occurrences remain intentionally
+                // skipped, preserving the existing zero-window behavior.
+                recoveredOccurrence = null;
+            }
             if (!isDue && recoveredOccurrence == null)
                 continue;
 

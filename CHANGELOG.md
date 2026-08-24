@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.208] - 2026-08-23
+
+### Fixed
+- **In-process schedule overlap recovery**: re-evaluate later scheduled cues against elapsed scheduler time after a long restorative cue, so a cue that crosses its minute is recovered once even when restart catch-up is disabled.
+- **Run-slot safety**: retain stable UTC occurrence claims and one-time completion behavior while recovering overlapped cues.
+
+### Security
+- **Attribute-safe mapping controls**: encode user mapping identifiers for HTML attributes so imported or mutated identifiers cannot break out of administrator action buttons.
+
+### Tests
+- **Regression coverage**: verify a later one-time cue runs exactly once after a blocking cue, records catch-up telemetry, and disables itself safely.
+
 ## [1.5.207] - 2026-08-23
 
 ### Fixed
