@@ -3391,7 +3391,7 @@ public sealed class HueSceneAutomationServiceTests
             10,
             20,
             30,
-            80,
+            42,
             1,
             It.IsAny<CancellationToken>(),
             0,
