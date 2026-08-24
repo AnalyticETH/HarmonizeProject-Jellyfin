@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.245] - 2026-08-24
+
+### Security
+- **RFC 5545-safe calendar folding**: fold iCalendar content lines by UTF-8 octets and keep Unicode scalars intact so multibyte schedule metadata cannot produce invalid physical lines.
+
+### Tests
+- **Multibyte calendar coverage**: verify 75-octet physical-line limits, continuation semantics, scalar boundaries, metadata unfolding, and credential absence.
+
 ## [1.5.244] - 2026-08-24
 
 ### Added

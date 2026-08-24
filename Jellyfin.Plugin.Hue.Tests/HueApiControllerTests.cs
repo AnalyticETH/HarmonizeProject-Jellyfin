@@ -8052,6 +8052,92 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetSceneScheduleCalendar_FoldsMultibyteMetadataAtUtf8Boundaries()
+    {
+        var cueTime = DateTime.Now.AddMinutes(10).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        var scheduleName = new string('é', 64);
+        var targetUserId = "用户😀";
+        var targetDeviceId = "客厅电视🌈";
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "unicode-calendar-app-secret",
+            HueClientKey = "unicode-calendar-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Evening", DurationSeconds = 8 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "unicode-calendar-cue",
+                    Name = scheduleName,
+                    PresetName = "Evening",
+                    TimeOfDay = cueTime,
+                    TimeZoneId = TimeZoneInfo.Local.Id,
+                    TargetUserIds = new List<string> { targetUserId },
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = targetUserId, DeviceId = targetDeviceId }
+                    },
+                    IncludeDefaultTarget = true,
+                    DaysOfWeekMask = 127
+                }
+            }
+        });
+
+        var action = CreateController().GetSceneScheduleCalendar(limit: 1, days: 7);
+
+        var response = Assert.IsType<FileContentResult>(action);
+        var calendar = Encoding.UTF8.GetString(response.FileContents);
+        var physicalLines = calendar
+            .Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Contains(
+            physicalLines,
+            line => line.StartsWith(" ", StringComparison.Ordinal));
+        foreach (var line in physicalLines)
+        {
+            Assert.InRange(Encoding.UTF8.GetByteCount(line), 1, 75);
+            for (var index = 0; index < line.Length; index++)
+            {
+                if (char.IsSurrogate(line[index]))
+                {
+                    Assert.True(
+                        char.IsHighSurrogate(line[index]) &&
+                        index + 1 < line.Length &&
+                        char.IsLowSurrogate(line[index + 1]),
+                        "A Unicode scalar must not be split across physical lines.");
+                    index++;
+                }
+            }
+
+            if (line.StartsWith(" ", StringComparison.Ordinal))
+                continue;
+
+            var propertySeparator = line.IndexOf(':');
+            Assert.True(propertySeparator > 0, $"Non-continuation line is not a property: {line}");
+            Assert.All(
+                line[..propertySeparator],
+                character => Assert.True(
+                    char.IsUpper(character) || char.IsDigit(character) || character == '-',
+                    $"Non-continuation line has an invalid property name: {line}"));
+        }
+
+        var unfoldedCalendar = calendar.Replace("\r\n ", string.Empty, StringComparison.Ordinal);
+        Assert.Contains($"SUMMARY:{scheduleName}\r\n", unfoldedCalendar, StringComparison.Ordinal);
+        Assert.Contains(
+            $"Target: Default bridge + {targetUserId} / {targetDeviceId}",
+            unfoldedCalendar,
+            StringComparison.Ordinal);
+        Assert.Contains("X-HUE-TARGET-ROUTES:", unfoldedCalendar, StringComparison.Ordinal);
+        Assert.DoesNotContain("unicode-calendar-app-secret", calendar, StringComparison.Ordinal);
+        Assert.DoesNotContain("unicode-calendar-client-secret", calendar, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetSessionHistory_WithoutHostedSyncServiceReturnsBoundedEmptyHistory()
     {
         var controller = CreateController();

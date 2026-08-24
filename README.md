@@ -433,7 +433,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.244 (Current)
+### Version 1.5.245 (Current)
+- **RFC 5545-safe calendar folding**: iCalendar exports now fold by UTF-8 octets without splitting Unicode scalars, preserving valid calendar interoperability for multibyte schedule and target metadata.
+- **Multibyte calendar coverage**: physical-line limits, continuation semantics, unfolded metadata, and credential absence are covered by regression tests.
+
+### Version 1.5.244
 - **iCalendar target parity**: upcoming cue calendars now preserve all-enabled mapping mode, exact selected user IDs, nested userId/deviceId routes, and default-target inclusion as credential-free VEVENT properties.
 - **Calendar export coverage**: escaped route JSON and credential absence are covered alongside the existing UTC/timing metadata.
 

@@ -4178,13 +4178,46 @@ namespace Jellyfin.Plugin.Hue.Api
         private static void AppendIcsLine(StringBuilder builder, string name, string? value)
         {
             var line = $"{name}:{EscapeIcsText(value)}";
-            while (line.Length > 75)
+            var offset = 0;
+            var continuation = false;
+            do
             {
-                builder.Append(line, 0, 75).Append("\r\n");
-                line = " " + line[75..];
+                const int maxOctets = 75;
+                var prefix = continuation ? " " : string.Empty;
+                var availableOctets = maxOctets - Encoding.UTF8.GetByteCount(prefix);
+                var chunkLength = GetIcsChunkLength(line, offset, availableOctets);
+
+                builder.Append(prefix);
+                builder.Append(line, offset, chunkLength).Append("\r\n");
+                offset += chunkLength;
+                continuation = true;
+            } while (offset < line.Length);
+        }
+
+        private static int GetIcsChunkLength(string value, int startIndex, int maxOctets)
+        {
+            var characterCount = 0;
+            var octetCount = 0;
+            while (startIndex + characterCount < value.Length)
+            {
+                var scalarCharacterCount = 1;
+                if (char.IsHighSurrogate(value[startIndex + characterCount]) &&
+                    startIndex + characterCount + 1 < value.Length &&
+                    char.IsLowSurrogate(value[startIndex + characterCount + 1]))
+                {
+                    scalarCharacterCount = 2;
+                }
+
+                var scalarOctetCount = Encoding.UTF8.GetByteCount(
+                    value.AsSpan(startIndex + characterCount, scalarCharacterCount));
+                if (octetCount + scalarOctetCount > maxOctets)
+                    break;
+
+                characterCount += scalarCharacterCount;
+                octetCount += scalarOctetCount;
             }
 
-            builder.Append(line).Append("\r\n");
+            return characterCount;
         }
 
         private static string EscapeIcsText(string? value)
