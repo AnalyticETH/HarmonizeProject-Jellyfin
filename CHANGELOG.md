@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.262] - 2026-08-24
+
+### Device routes
+- **Playback-device discovery**: the administrator mapping editor can discover recent Jellyfin device IDs and select configured routes without copying opaque, case-sensitive session identifiers by hand.
+- **Route-aware diagnostics**: entertainment-area, channel, and connection-test requests accept an explicit device ID and resolve only that user's exact nested route credentials, with no fallback to another mapping or the global target.
+
+### Security
+- **Credential-free discovery**: the new playback-device endpoint returns bounded identity/activity metadata only; bridge keys, playback titles, and route secrets remain server-side.
+
+### Tests
+- **Nested-route coverage**: exact device matching, wrong-case/wrong-bridge fail-closed behavior, stored nested credential use, channel loading, bounded deduplication, and credential absence are covered.
+
 ## [1.5.261] - 2026-08-24
 
 ### Reliability

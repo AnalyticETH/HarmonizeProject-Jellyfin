@@ -12,6 +12,8 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Service;
+using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Dto;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -35,6 +37,10 @@ namespace Jellyfin.Plugin.Hue.Api
         private readonly HueDiagnosticsCancellationGate _diagnosticsCancellationGate;
         private readonly IHueEnvironmentProbe _environmentProbe;
         private readonly ILogger<HueApiController>? _logger;
+        private readonly ISessionManager? _sessionManager;
+
+        private const int PlaybackDeviceActivityWindowSeconds = 86400;
+        private const int MaxPlaybackDeviceResults = 256;
 
         public HueApiController(HueClient hueClient, IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices)
             : this(hueClient, hostedServices, null, null, null, null, null)
@@ -49,6 +55,7 @@ namespace Jellyfin.Plugin.Hue.Api
             HueBridgeLifecycleGate? bridgeLifecycleGate = null,
             IHueEnvironmentProbe? environmentProbe = null,
             HueDiagnosticsCancellationGate? diagnosticsCancellationGate = null,
+            ISessionManager? sessionManager = null,
             ILogger<HueApiController>? logger = null)
         {
             _hueClient = hueClient;
@@ -59,6 +66,7 @@ namespace Jellyfin.Plugin.Hue.Api
             _diagnosticsCancellationGate = diagnosticsCancellationGate ?? new HueDiagnosticsCancellationGate();
             _environmentProbe = environmentProbe ?? new HueEnvironmentProbe();
             _logger = logger;
+            _sessionManager = sessionManager;
         }
 
         /// <summary>
@@ -129,11 +137,66 @@ namespace Jellyfin.Plugin.Hue.Api
             out string bridgeIp,
             out string appKey,
             out string clientKey)
+            => TryResolveCredentials(
+                requestedBridgeIp,
+                requestedAppKey,
+                requestedClientKey,
+                userId,
+                null,
+                allowStoredClientKey,
+                out bridgeIp,
+                out appKey,
+                out clientKey);
+
+        /// <summary>
+        /// Resolves credentials for an optional explicit playback-device route. When a
+        /// device ID is supplied, stored keys are considered only for the exact,
+        /// case-sensitive device route belonging to the selected user and bridge. This
+        /// prevents a stale or guessed device ID from falling back to another target's
+        /// persisted credentials.
+        /// </summary>
+        private static bool TryResolveCredentials(
+            string? requestedBridgeIp,
+            string? requestedAppKey,
+            string? requestedClientKey,
+            string? userId,
+            string? deviceId,
+            bool allowStoredClientKey,
+            out string bridgeIp,
+            out string appKey,
+            out string clientKey)
         {
             var config = Plugin.Instance?.Configuration;
             bridgeIp = requestedBridgeIp?.Trim() ?? string.Empty;
             appKey = requestedAppKey?.Trim() ?? string.Empty;
             clientKey = requestedClientKey?.Trim() ?? string.Empty;
+
+            var normalizedDeviceId = deviceId?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(normalizedDeviceId))
+            {
+                var deviceMapping = config?.UserMappings?.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    !string.IsNullOrWhiteSpace(userId) &&
+                    string.Equals(candidate.UserId?.Trim(), userId.Trim(), StringComparison.OrdinalIgnoreCase));
+                var deviceTarget = deviceMapping?.DeviceTargets?.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.DeviceId?.Trim(), normalizedDeviceId, StringComparison.Ordinal));
+
+                if (deviceTarget != null &&
+                    !string.IsNullOrWhiteSpace(deviceTarget.HueBridgeIp) &&
+                    IsSameBridgeTarget(bridgeIp, deviceTarget.HueBridgeIp))
+                {
+                    if (string.IsNullOrWhiteSpace(appKey))
+                        appKey = deviceTarget.HueAppKey?.Trim() ?? string.Empty;
+
+                    if (allowStoredClientKey && string.IsNullOrWhiteSpace(clientKey))
+                        clientKey = deviceTarget.HueClientKey?.Trim() ?? string.Empty;
+                }
+
+                // An explicit device route must never fall through to the global or
+                // outer-user mapping when its stored route is missing or mismatched.
+                return !string.IsNullOrWhiteSpace(bridgeIp) && !string.IsNullOrWhiteSpace(appKey);
+            }
 
             var mapping = config?.UserMappings?.FirstOrDefault(candidate =>
                 candidate != null &&
@@ -164,6 +227,88 @@ namespace Jellyfin.Plugin.Hue.Api
             appKey = resolvedAppKey;
             clientKey = resolvedClientKey;
             return resolved;
+        }
+
+        /// <summary>
+        /// Returns credential-free playback-device identities observed by Jellyfin.
+        /// Device IDs are the exact, case-sensitive values consumed by automatic route
+        /// matching; keys and playback titles are intentionally never returned.
+        /// </summary>
+        [HttpGet("PlaybackDevices")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public ActionResult<IEnumerable<HuePlaybackDeviceSummary>> GetPlaybackDevices(
+            [FromQuery] string? userId = null)
+        {
+            if (!string.IsNullOrWhiteSpace(userId) && !Guid.TryParse(userId.Trim(), out _))
+                return BadRequest("userId must be a valid Jellyfin user ID.");
+
+            if (_sessionManager == null)
+                return Ok(Array.Empty<HuePlaybackDeviceSummary>());
+
+            IReadOnlyList<SessionInfoDto> sessions;
+            try
+            {
+                sessions = _sessionManager.GetSessions(
+                    Guid.Empty,
+                    null,
+                    PlaybackDeviceActivityWindowSeconds,
+                    null,
+                    false);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Unable to enumerate Jellyfin playback sessions for Hue device discovery.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Playback device discovery is temporarily unavailable.");
+            }
+
+            var normalizedUserId = userId?.Trim();
+            var devices = sessions
+                .Where(session => session != null &&
+                    !string.IsNullOrWhiteSpace(session.DeviceId) &&
+                    (string.IsNullOrWhiteSpace(normalizedUserId) ||
+                     string.Equals(session.UserId.ToString(), normalizedUserId, StringComparison.OrdinalIgnoreCase)))
+                .Select(session => new HuePlaybackDeviceSummary
+                {
+                    UserId = session.UserId.ToString(),
+                    UserName = session.UserName ?? string.Empty,
+                    DeviceId = session.DeviceId!.Trim(),
+                    DeviceName = string.IsNullOrWhiteSpace(session.DeviceName)
+                        ? session.DeviceId!.Trim()
+                        : session.DeviceName.Trim(),
+                    Client = session.Client ?? string.Empty,
+                    DeviceType = session.DeviceType ?? string.Empty,
+                    ApplicationVersion = session.ApplicationVersion ?? string.Empty,
+                    IsActive = session.IsActive,
+                    LastActivityDate = session.LastActivityDate
+                })
+                .GroupBy(
+                    device => (device.UserId, device.DeviceId),
+                    new PlaybackDeviceRouteKeyComparer())
+                .Select(group => group
+                    .OrderByDescending(device => device.IsActive)
+                    .ThenByDescending(device => device.LastActivityDate)
+                    .First())
+                .OrderBy(device => device.UserName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(device => device.DeviceName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(device => device.DeviceId, StringComparer.Ordinal)
+                .Take(MaxPlaybackDeviceResults)
+                .ToArray();
+
+            return Ok(devices);
+        }
+
+        private sealed class PlaybackDeviceRouteKeyComparer : IEqualityComparer<(string UserId, string DeviceId)>
+        {
+            public bool Equals((string UserId, string DeviceId) left, (string UserId, string DeviceId) right)
+                => string.Equals(left.UserId, right.UserId, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(left.DeviceId, right.DeviceId, StringComparison.Ordinal);
+
+            public int GetHashCode((string UserId, string DeviceId) value)
+                => HashCode.Combine(
+                    StringComparer.OrdinalIgnoreCase.GetHashCode(value.UserId),
+                    StringComparer.Ordinal.GetHashCode(value.DeviceId));
         }
 
         [HttpPost("Register")]
@@ -248,6 +393,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     request.AppKey,
                     null,
                     request.UserId,
+                    request.DeviceId,
                     allowStoredClientKey: false,
                     out _,
                     out _,
@@ -256,7 +402,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Bridge IP and app key are required before loading entertainment areas.");
             }
 
-            return await LoadEntertainmentAreas(request.IpAddress, request.AppKey, request.UserId, cancellationToken);
+            return await LoadEntertainmentAreas(
+                request.IpAddress,
+                request.AppKey,
+                request.UserId,
+                request.DeviceId,
+                cancellationToken);
         }
 
         /// <summary>
@@ -284,6 +435,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     request.AppKey,
                     null,
                     request.UserId,
+                    request.DeviceId,
                     allowStoredClientKey: false,
                     out var bridgeIp,
                     out var appKey,
@@ -337,6 +489,7 @@ namespace Jellyfin.Plugin.Hue.Api
             string? bridgeIp,
             string? appKey,
             string? userId,
+            string? deviceId,
             CancellationToken cancellationToken)
         {
             if (!TryResolveCredentials(
@@ -344,6 +497,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     appKey,
                     null,
                     userId,
+                    deviceId,
                     allowStoredClientKey: false,
                     out var resolvedBridgeIp,
                     out var resolvedAppKey,
@@ -836,6 +990,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     request.AppKey,
                     request.ClientKey,
                     request.UserId,
+                    request.DeviceId,
                     allowStoredClientKey: string.IsNullOrWhiteSpace(request.AppKey),
                     out var bridgeIp,
                     out var appKey,
@@ -9709,6 +9864,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("userId")]
         public string? UserId { get; set; }
 
+        [JsonPropertyName("deviceId")]
+        public string? DeviceId { get; set; }
+
         [JsonPropertyName("ipAddress")]
         public string IpAddress { get; set; } = string.Empty;
 
@@ -9720,6 +9878,9 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonPropertyName("userId")]
         public string? UserId { get; set; }
+
+        [JsonPropertyName("deviceId")]
+        public string? DeviceId { get; set; }
 
         [JsonPropertyName("ipAddress")]
         public string IpAddress { get; set; } = string.Empty;
@@ -9745,6 +9906,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("userId")]
         public string? UserId { get; set; }
 
+        [JsonPropertyName("deviceId")]
+        public string? DeviceId { get; set; }
+
         [JsonPropertyName("ipAddress")]
         public string IpAddress { get; set; } = string.Empty;
 
@@ -9759,6 +9923,41 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("channelIds")]
         public string? ChannelIds { get; set; }
+    }
+
+    /// <summary>
+    /// Credential-free playback-device identity returned to the elevated configuration
+    /// page. The exact device ID is safe to persist as a route key; bridge keys and
+    /// playback item metadata are deliberately excluded.
+    /// </summary>
+    public sealed class HuePlaybackDeviceSummary
+    {
+        [JsonPropertyName("userId")]
+        public string UserId { get; init; } = string.Empty;
+
+        [JsonPropertyName("userName")]
+        public string UserName { get; init; } = string.Empty;
+
+        [JsonPropertyName("deviceId")]
+        public string DeviceId { get; init; } = string.Empty;
+
+        [JsonPropertyName("deviceName")]
+        public string DeviceName { get; init; } = string.Empty;
+
+        [JsonPropertyName("client")]
+        public string Client { get; init; } = string.Empty;
+
+        [JsonPropertyName("deviceType")]
+        public string DeviceType { get; init; } = string.Empty;
+
+        [JsonPropertyName("applicationVersion")]
+        public string ApplicationVersion { get; init; } = string.Empty;
+
+        [JsonPropertyName("isActive")]
+        public bool IsActive { get; init; }
+
+        [JsonPropertyName("lastActivityDate")]
+        public DateTime LastActivityDate { get; init; }
     }
 
     /// <summary>

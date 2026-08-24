@@ -10,6 +10,7 @@ using Jellyfin.Plugin.Hue.Service;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -388,6 +389,264 @@ public sealed class HueApiControllerTests : IDisposable
 
         Assert.IsType<BadRequestObjectResult>(action.Result);
         _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PostEntertainmentAreas_DeviceRouteUsesExactStoredCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "Living-Room-TV",
+                            HueBridgeIp = "192.168.1.101",
+                            HueAppKey = "device-app-key",
+                            HueClientKey = "device-client-key"
+                        }
+                    }
+                }
+            }
+        });
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"data\":[]}", Encoding.UTF8, "application/json")
+            });
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentAreas(new HueEntertainmentAreasRequest
+        {
+            UserId = "user-device",
+            DeviceId = "Living-Room-TV",
+            IpAddress = "192.168.1.101"
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("device-app-key", capturedRequest!.Headers.GetValues("hue-application-key").Single());
+    }
+
+    [Fact]
+    public async Task PostEntertainmentAreas_DeviceRouteDoesNotFallBackForWrongCaseOrBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    HueBridgeIp = "192.168.1.100",
+                    HueAppKey = "outer-app-key",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "Living-Room-TV",
+                            HueBridgeIp = "192.168.1.101",
+                            HueAppKey = "device-app-key"
+                        }
+                    }
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var wrongCase = await controller.PostEntertainmentAreas(new HueEntertainmentAreasRequest
+        {
+            UserId = "user-device",
+            DeviceId = "living-room-tv",
+            IpAddress = "192.168.1.101"
+        });
+        Assert.IsType<BadRequestObjectResult>(wrongCase.Result);
+
+        var wrongBridge = await controller.PostEntertainmentAreas(new HueEntertainmentAreasRequest
+        {
+            UserId = "user-device",
+            DeviceId = "Living-Room-TV",
+            IpAddress = "192.168.1.100"
+        });
+        Assert.IsType<BadRequestObjectResult>(wrongBridge.Result);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PostEntertainmentChannels_DeviceRouteUsesStoredCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "tv-1",
+                            HueBridgeIp = "192.168.1.101",
+                            HueAppKey = "device-app-key"
+                        }
+                    }
+                }
+            }
+        });
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"data\":[{\"channels\":[{\"channel_id\":4}]}]}", Encoding.UTF8, "application/json")
+            });
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentChannels(new HueEntertainmentChannelsRequest
+        {
+            UserId = "user-device",
+            DeviceId = "tv-1",
+            IpAddress = "192.168.1.101",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Equal(4, Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueEntertainmentChannel>>(response.Value)).ChannelId);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("device-app-key", capturedRequest!.Headers.GetValues("hue-application-key").Single());
+    }
+
+    [Fact]
+    public async Task TestConnection_DeviceRouteUsesStoredCredentialsWithoutGlobalFallback()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "tv-1",
+                            HueBridgeIp = "192.168.1.101",
+                            HueAppKey = "device-app-key",
+                            HueClientKey = "device-client-key"
+                        }
+                    }
+                }
+            }
+        });
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var controller = CreateController();
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            UserId = "user-device",
+            DeviceId = "tv-1",
+            IpAddress = "192.168.1.101"
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("device-app-key", capturedRequest!.Headers.GetValues("hue-application-key").Single());
+    }
+
+    [Fact]
+    public void GetPlaybackDevices_ReturnsBoundedCredentialFreeExactRoutes()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var sessions = new[]
+        {
+            new SessionInfoDto
+            {
+                UserId = userId,
+                UserName = "Viewer",
+                DeviceId = "Living-Room-TV",
+                DeviceName = "Living Room TV",
+                Client = "Jellyfin Web",
+                DeviceType = "Web",
+                ApplicationVersion = "10.10",
+                IsActive = true,
+                LastActivityDate = DateTime.UtcNow
+            },
+            new SessionInfoDto
+            {
+                UserId = userId,
+                UserName = "Viewer",
+                DeviceId = "Living-Room-TV",
+                DeviceName = "Older name",
+                IsActive = false,
+                LastActivityDate = DateTime.UtcNow.AddHours(-1)
+            },
+            new SessionInfoDto
+            {
+                UserId = otherUserId,
+                UserName = "Other",
+                DeviceId = "Other-TV",
+                DeviceName = "Other TV"
+            },
+            new SessionInfoDto
+            {
+                UserId = userId,
+                DeviceId = "   "
+            }
+        };
+        var sessionManager = new Mock<ISessionManager>();
+        sessionManager
+            .Setup(manager => manager.GetSessions(Guid.Empty, null, 86400, null, false))
+            .Returns(sessions);
+        var controller = CreateController(sessionManager: sessionManager.Object);
+
+        var action = controller.GetPlaybackDevices(userId.ToString());
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var devices = Assert.IsAssignableFrom<IEnumerable<HuePlaybackDeviceSummary>>(response.Value).ToArray();
+        var device = Assert.Single(devices);
+        Assert.Equal(userId.ToString(), device.UserId);
+        Assert.Equal("Living-Room-TV", device.DeviceId);
+        Assert.Equal("Living Room TV", device.DeviceName);
+        Assert.True(device.IsActive);
+        var serialized = JsonSerializer.Serialize(device);
+        Assert.DoesNotContain("app-key", serialized, StringComparison.OrdinalIgnoreCase);
+        sessionManager.Verify(manager => manager.GetSessions(Guid.Empty, null, 86400, null, false), Times.Once);
     }
 
     [Fact]
@@ -11905,7 +12164,8 @@ public sealed class HueApiControllerTests : IDisposable
         HueBridgeLifecycleGate? bridgeLifecycleGate = null,
         IHueEnvironmentProbe? environmentProbe = null,
         HueDiagnosticsCancellationGate? diagnosticsCancellationGate = null,
-        IEnumerable<IHostedService>? hostedServices = null)
+        IEnumerable<IHostedService>? hostedServices = null,
+        ISessionManager? sessionManager = null)
     {
         var client = new HueClient(_httpClient, _loggerMock.Object);
         return new HueApiController(
@@ -11914,7 +12174,8 @@ public sealed class HueApiControllerTests : IDisposable
             streamTester,
             bridgeLifecycleGate,
             environmentProbe,
-            diagnosticsCancellationGate);
+            diagnosticsCancellationGate,
+            sessionManager);
     }
 
     private static void SetPrivateField(object target, string fieldName, object? value)

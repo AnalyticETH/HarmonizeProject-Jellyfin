@@ -133,7 +133,10 @@ const requiredMarkup = [
     'id="sceneScheduleBrightness"',
     'id="exportSceneScheduleConflictsCsvBtn"',
     'id="exportSceneScheduleOccurrencesCsvBtn"',
-    'id="exportSceneScheduleHistoryCsvBtn"'
+    'id="exportSceneScheduleHistoryCsvBtn"',
+    'id="mappingDiscoverDevicesBtn"',
+    'id="mappingDeviceRouteSelect"',
+    'id="mappingDeviceDiscoveryStatus"'
 ];
 
 for (const marker of requiredMarkup) {
@@ -455,7 +458,12 @@ const requiredScript = [
     "SceneSchedules/Conflicts/ExportCsv",
     "SceneSchedules/Occurrences/ExportCsv",
     "SceneSchedules/History/ExportCsv",
-    "History/ExportCsv"
+    "History/ExportCsv",
+    'ApiClient.getUrl("HueSync/PlaybackDevices")',
+    'deviceId: deviceId || ""',
+    'discoverMappingDevices: function',
+    'canUseStoredDeviceRouteCredentials: function',
+    'Selected route " + target.deviceId'
 ];
 
 for (const marker of requiredScript) {
