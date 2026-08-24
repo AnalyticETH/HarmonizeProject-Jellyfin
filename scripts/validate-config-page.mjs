@@ -271,9 +271,19 @@ const requiredScript = [
     "updatePreviewTargetMetadataControls: function",
     "requirePreviewTargetMetadata: function",
     "page._huePreviewTargetMetadataReady",
+    "initializeSceneScheduleMetadata: function",
+    "hasSceneScheduleMetadata: function",
+    "setSceneScheduleMetadataState: function",
+    "isSceneScheduleMappingMetadataValid: function",
+    "markSceneScheduleMetadataUnavailable: function",
+    "updateSceneScheduleMetadataControls: function",
+    "requireSceneScheduleMetadata: function",
+    "page._hueSceneScheduleMetadataReady",
+    "state.schedules && state.colorPresets && state.scenePlaylists && state.mappings",
     "state.colorPresets && state.scenePlaylists",
     "Preview targets unavailable; reload this page.",
     "if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;",
+    "if (!HueConfigurationPage.requireSceneScheduleMetadata(page)) return;",
     "targetMetadataReady",
     "fetchColorPreview: function",
     "var selectedTargetRoutes = Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : []",
@@ -556,6 +566,29 @@ for (const functionName of ["exportSceneScheduleConflicts", "exportSceneSchedule
     }
 }
 
+{
+    const start = scriptMatch[1].indexOf("updateSceneScheduleMetadataControls: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("hasSceneScheduleMetadata(page)") ||
+        !functionBody.includes("control.disabled = !ready") ||
+        !functionBody.includes("saveButton.disabled = !ready") ||
+        !functionBody.includes("sceneScheduleStatus")) {
+        throw new Error(`${file} updateSceneScheduleMetadataControls must keep scheduled-cue metadata controls disabled until metadata is ready`);
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("isSceneScheduleMappingMetadataValid: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("if (!Array.isArray(mappings)) return false") ||
+        !functionBody.includes("if (!Array.isArray(deviceTargets)) return false") ||
+        !functionBody.includes("String(read(deviceTarget, 'deviceId', 'DeviceId') || '').trim()")) {
+        throw new Error(`${file} isSceneScheduleMappingMetadataValid must reject malformed mapping and device metadata`);
+    }
+}
+
 for (const [functionName, source] of [["loadColorPresets", "colorPresets"], ["loadScenePlaylists", "scenePlaylists"]]) {
     const start = scriptMatch[1].indexOf(`${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
@@ -598,9 +631,13 @@ for (const functionName of ["updateColorPresetBulkButtons", "updateScenePlaylist
 
 for (const [functionName, markers] of [
     ["loadSceneSchedules", [
+        "HueConfigurationPage.initializeSceneScheduleMetadata(page)",
+        "HueConfigurationPage.isSceneScheduleMappingMetadataValid(responses[3])",
         "page._hueSceneScheduleMappings = mappings",
         "deviceOption.value = HueConfigurationPage.encodeCurrentLightDeviceTarget(userId, deviceId)",
-        "deviceOption.disabled = !enabled || !deviceReady"
+        "deviceOption.disabled = !enabled || !deviceReady",
+        "HueConfigurationPage.setSceneScheduleMetadataState(page, source, true)",
+        "HueConfigurationPage.markSceneScheduleMetadataUnavailable(page"
     ]],
     ["applySceneSchedule", [
         "get('TargetRoutes', 'targetRoutes', [])",
@@ -608,6 +645,7 @@ for (const [functionName, markers] of [
         "page._hueSceneScheduleUnavailableTargetRoutes = unavailableTargetRoutes"
     ]],
     ["saveSceneSchedule", [
+        "if (!HueConfigurationPage.requireSceneScheduleMetadata(page)) return;",
         "var targetSelection = HueConfigurationPage.getSceneScheduleTargetSelection(page)",
         "if (!targetSelection.valid)",
         "targetRoutes: targetSelection.targetRoutes"
