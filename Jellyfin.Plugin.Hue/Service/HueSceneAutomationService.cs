@@ -1271,6 +1271,18 @@ public sealed class HueSceneAutomationService : BackgroundService
                     playlist,
                     originalIndex - 1,
                     preset);
+                var red = PluginConfiguration.GetEffectiveScenePlaylistStepRed(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
+                var green = PluginConfiguration.GetEffectiveScenePlaylistStepGreen(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
+                var blue = PluginConfiguration.GetEffectiveScenePlaylistStepBlue(
+                    playlist,
+                    originalIndex - 1,
+                    preset);
                 var stepSchedule = new HueSceneSchedule { DurationSeconds = durationSeconds };
                 steps.Add(new HueScenePlaylistScheduleStep
                 {
@@ -1284,6 +1296,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                         playlist,
                         originalIndex - 1,
                         preset),
+                    Red = red,
+                    Green = green,
+                    Blue = blue,
                     BrightnessPercent = PluginConfiguration.GetEffectiveScenePlaylistStepBrightnessPercent(
                         playlist,
                         originalIndex - 1,
@@ -1748,7 +1763,10 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? transitionSecondsOverride = null,
         int? transitionOutSecondsOverride = null,
         string? transitionCurveOverride = null,
-        int? effectSpeedPercentOverride = null)
+        int? effectSpeedPercentOverride = null,
+        int? redOverride = null,
+        int? greenOverride = null,
+        int? blueOverride = null)
         => RunPreviewWithEffectAsync(
             schedule,
             preset,
@@ -1759,6 +1777,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             transitionOutSecondsOverride,
             transitionCurveOverride,
             effectSpeedPercentOverride,
+            redOverride,
+            greenOverride,
+            blueOverride,
             effectOverride: null);
 
     private async Task<HueSceneAutomationRunResult> RunPreviewWithEffectAsync(
@@ -1771,6 +1792,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? transitionOutSecondsOverride,
         string? transitionCurveOverride,
         int? effectSpeedPercentOverride,
+        int? redOverride,
+        int? greenOverride,
+        int? blueOverride,
         string? effectOverride)
     {
         var config = Plugin.Instance?.Configuration;
@@ -1803,7 +1827,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                 transitionOutSecondsOverride,
                 transitionCurveOverride,
                 effectSpeedPercentOverride,
-                effect).ConfigureAwait(false);
+                effect,
+                redOverride,
+                greenOverride,
+                blueOverride).ConfigureAwait(false);
             targetResults.Add(targetResult);
             if (!targetResult.Succeeded &&
                 targetResult.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
@@ -1977,6 +2004,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                 plannedStep.TransitionOutSeconds,
                 plannedStep.TransitionCurve,
                 plannedStep.EffectSpeedPercent,
+                plannedStep.Red,
+                plannedStep.Green,
+                plannedStep.Blue,
                 plannedStep.Effect).ConfigureAwait(false);
             steps.Add(new HueScenePlaylistStepResult
             {
@@ -1987,6 +2017,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                 Effect = plannedStep.Effect,
                 EffectSpeedPercent = plannedStep.EffectSpeedPercent,
                 TransitionCurve = plannedStep.TransitionCurve,
+                Red = plannedStep.Red,
+                Green = plannedStep.Green,
+                Blue = plannedStep.Blue,
                 BrightnessPercent = plannedStep.BrightnessPercent,
                 DurationSeconds = plannedStep.DurationSeconds,
                 TransitionSeconds = plannedStep.TransitionSeconds,
@@ -2077,13 +2110,12 @@ public sealed class HueSceneAutomationService : BackgroundService
         var streamSteps = plannedSteps
             .Select(step =>
             {
-                var preset = resolvedPresets[step.OriginalIndex - 1];
                 return new HuePlaylistPreviewStep
                 {
                     Index = step.Index,
-                    Red = preset.Red,
-                    Green = preset.Green,
-                    Blue = preset.Blue,
+                    Red = step.Red,
+                    Green = step.Green,
+                    Blue = step.Blue,
                     BrightnessPercent = step.BrightnessPercent,
                     DurationSeconds = step.DurationSeconds,
                     TransitionSeconds = step.TransitionSeconds,
@@ -2154,6 +2186,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     Effect = plannedStep.Effect,
                     EffectSpeedPercent = plannedStep.EffectSpeedPercent,
                     TransitionCurve = plannedStep.TransitionCurve,
+                    Red = plannedStep.Red,
+                    Green = plannedStep.Green,
+                    Blue = plannedStep.Blue,
                     BrightnessPercent = plannedStep.BrightnessPercent,
                     DurationSeconds = plannedStep.DurationSeconds,
                     TransitionSeconds = plannedStep.TransitionSeconds,
@@ -3210,6 +3245,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                     StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
                     StepBrightnessPercent = playlist.StepBrightnessPercent?.ToList() ?? new List<int?>(),
+                    StepRed = playlist.StepRed?.ToList() ?? new List<int?>(),
+                    StepGreen = playlist.StepGreen?.ToList() ?? new List<int?>(),
+                    StepBlue = playlist.StepBlue?.ToList() ?? new List<int?>(),
                     StepEffects = playlist.StepEffects?.ToList() ?? new List<string?>(),
                     StepEffectSpeedPercent = playlist.StepEffectSpeedPercent?.ToList() ?? new List<int?>(),
                     StepTransitionSeconds = playlist.StepTransitionSeconds?.ToList() ?? new List<int?>(),
@@ -4001,6 +4039,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                 PresetNames = playlist.PresetNames?.ToList() ?? new List<string>(),
                 StepDurationSeconds = playlist.StepDurationSeconds?.ToList() ?? new List<int>(),
                 StepBrightnessPercent = playlist.StepBrightnessPercent?.ToList() ?? new List<int?>(),
+                StepRed = playlist.StepRed?.ToList() ?? new List<int?>(),
+                StepGreen = playlist.StepGreen?.ToList() ?? new List<int?>(),
+                StepBlue = playlist.StepBlue?.ToList() ?? new List<int?>(),
                 StepEffects = playlist.StepEffects?.ToList() ?? new List<string?>(),
                 StepEffectSpeedPercent = playlist.StepEffectSpeedPercent?.ToList() ?? new List<int?>(),
                 StepTransitionSeconds = playlist.StepTransitionSeconds?.ToList() ?? new List<int?>(),
@@ -4136,7 +4177,10 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? transitionOutSecondsOverride = null,
         string? transitionCurveOverride = null,
         int? effectSpeedPercentOverride = null,
-        string? effectOverride = null)
+        string? effectOverride = null,
+        int? redOverride = null,
+        int? greenOverride = null,
+        int? blueOverride = null)
     {
         try
         {
@@ -4196,6 +4240,33 @@ public sealed class HueSceneAutomationService : BackgroundService
                     preset.BrightnessPercent,
                     PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                     PluginConfiguration.MaxScenePlaylistStepBrightnessPercent);
+            var red = redOverride.HasValue
+                ? Math.Clamp(
+                    redOverride.Value,
+                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                    PluginConfiguration.MaxScenePlaylistStepColorValue)
+                : Math.Clamp(
+                    preset.Red,
+                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                    PluginConfiguration.MaxScenePlaylistStepColorValue);
+            var green = greenOverride.HasValue
+                ? Math.Clamp(
+                    greenOverride.Value,
+                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                    PluginConfiguration.MaxScenePlaylistStepColorValue)
+                : Math.Clamp(
+                    preset.Green,
+                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                    PluginConfiguration.MaxScenePlaylistStepColorValue);
+            var blue = blueOverride.HasValue
+                ? Math.Clamp(
+                    blueOverride.Value,
+                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                    PluginConfiguration.MaxScenePlaylistStepColorValue)
+                : Math.Clamp(
+                    preset.Blue,
+                    PluginConfiguration.MinScenePlaylistStepColorValue,
+                    PluginConfiguration.MaxScenePlaylistStepColorValue);
             var effectSpeedPercent = effectSpeedPercentOverride.HasValue
                 ? Math.Clamp(
                     effectSpeedPercentOverride.Value,
@@ -4216,9 +4287,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     target.EntertainmentAreaId,
                     areaConfiguration.Value,
                     target.ChannelIds,
-                    preset.Red,
-                    preset.Green,
-                    preset.Blue,
+                    red,
+                    green,
+                    blue,
                     brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
@@ -4235,9 +4306,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     target.EntertainmentAreaId,
                     areaConfiguration.Value,
                     target.ChannelIds,
-                    preset.Red,
-                    preset.Green,
-                    preset.Blue,
+                    red,
+                    green,
+                    blue,
                     brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
@@ -4253,9 +4324,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     target.EntertainmentAreaId,
                     areaConfiguration.Value,
                     target.ChannelIds,
-                    preset.Red,
-                    preset.Green,
-                    preset.Blue,
+                    red,
+                    green,
+                    blue,
                     brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
@@ -4271,9 +4342,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     target.EntertainmentAreaId,
                     areaConfiguration.Value,
                     target.ChannelIds,
-                    preset.Red,
-                    preset.Green,
-                    preset.Blue,
+                    red,
+                    green,
+                    blue,
                     brightnessPercent,
                     GetEffectiveDurationSeconds(schedule, preset),
                     cancellationToken,
@@ -4707,6 +4778,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = source.EffectSpeedPercent,
             TransitionCurve = source.TransitionCurve,
             BrightnessPercent = source.BrightnessPercent,
+            Red = source.Red,
+            Green = source.Green,
+            Blue = source.Blue,
             StartOffsetSeconds = source.StartOffsetSeconds,
             DurationSeconds = source.DurationSeconds,
             TransitionSeconds = source.TransitionSeconds,
@@ -4742,6 +4816,18 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                     PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
                 : null,
+            Red = Math.Clamp(
+                source.Red,
+                PluginConfiguration.MinScenePlaylistStepColorValue,
+                PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Green = Math.Clamp(
+                source.Green,
+                PluginConfiguration.MinScenePlaylistStepColorValue,
+                PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Blue = Math.Clamp(
+                source.Blue,
+                PluginConfiguration.MinScenePlaylistStepColorValue,
+                PluginConfiguration.MaxScenePlaylistStepColorValue),
             StartOffsetSeconds = Math.Max(0, source.StartOffsetSeconds),
             DurationSeconds = Math.Clamp(
                 source.DurationSeconds,
@@ -4787,6 +4873,18 @@ public sealed class HueSceneAutomationService : BackgroundService
                     PluginConfiguration.MinScenePlaylistStepBrightnessPercent,
                     PluginConfiguration.MaxScenePlaylistStepBrightnessPercent)
                 : 0,
+            Red = Math.Clamp(
+                source.Red,
+                PluginConfiguration.MinScenePlaylistStepColorValue,
+                PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Green = Math.Clamp(
+                source.Green,
+                PluginConfiguration.MinScenePlaylistStepColorValue,
+                PluginConfiguration.MaxScenePlaylistStepColorValue),
+            Blue = Math.Clamp(
+                source.Blue,
+                PluginConfiguration.MinScenePlaylistStepColorValue,
+                PluginConfiguration.MaxScenePlaylistStepColorValue),
             StartOffsetSeconds = Math.Max(0, source.StartOffsetSeconds),
             DurationSeconds = Math.Clamp(
                 source.DurationSeconds,
@@ -5358,6 +5456,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             EffectSpeedPercent = source.EffectSpeedPercent,
             TransitionCurve = source.TransitionCurve,
             BrightnessPercent = source.BrightnessPercent,
+            Red = source.Red,
+            Green = source.Green,
+            Blue = source.Blue,
             StartOffsetSeconds = source.StartOffsetSeconds,
             DurationSeconds = source.DurationSeconds,
             TransitionSeconds = source.TransitionSeconds,
@@ -5641,6 +5742,15 @@ public sealed class HueScenePlaylistStepResult
     [JsonPropertyName("transitionCurve")]
     public string TransitionCurve { get; init; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
 
+    [JsonPropertyName("red")]
+    public int Red { get; init; }
+
+    [JsonPropertyName("green")]
+    public int Green { get; init; }
+
+    [JsonPropertyName("blue")]
+    public int Blue { get; init; }
+
     [JsonPropertyName("brightnessPercent")]
     public int BrightnessPercent { get; init; }
 
@@ -5724,6 +5834,15 @@ public sealed class HueScenePlaylistScheduleStep
 
     [JsonPropertyName("transitionCurve")]
     public string TransitionCurve { get; init; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
+
+    [JsonPropertyName("red")]
+    public int Red { get; init; }
+
+    [JsonPropertyName("green")]
+    public int Green { get; init; }
+
+    [JsonPropertyName("blue")]
+    public int Blue { get; init; }
 
     [JsonPropertyName("brightnessPercent")]
     public int BrightnessPercent { get; init; }

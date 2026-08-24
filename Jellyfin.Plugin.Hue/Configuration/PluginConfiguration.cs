@@ -127,7 +127,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
     /// <summary>
     /// A credential-free saved-scene collection. Playlists retain only scene names, optional
-    /// bounded per-step duration, brightness, effect, effect-speed, transition, and transition-curve overrides, a bounded repeat count, playback order, and an
+    /// bounded per-step duration, RGB channel, brightness, effect, effect-speed, transition,
+    /// and transition-curve overrides, a bounded repeat count, playback order, and an
     /// optional target mode; bridge credentials and
     /// channel profiles are resolved from the current server configuration when the
     /// playlist is previewed. A selected-target playlist can fan out to a deliberate
@@ -151,6 +152,24 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// from 0 through 100 override only that playlist step.
         /// </summary>
         public List<int?> StepBrightnessPercent { get; set; } = new List<int?>();
+        /// <summary>
+        /// Optional per-step red channel values, parallel to <see cref="PresetNames"/>.
+        /// A null or missing value preserves the referenced scene's red channel; explicit
+        /// values from 0 through 255 override only that playlist step.
+        /// </summary>
+        public List<int?> StepRed { get; set; } = new List<int?>();
+        /// <summary>
+        /// Optional per-step green channel values, parallel to <see cref="PresetNames"/>.
+        /// A null or missing value preserves the referenced scene's green channel; explicit
+        /// values from 0 through 255 override only that playlist step.
+        /// </summary>
+        public List<int?> StepGreen { get; set; } = new List<int?>();
+        /// <summary>
+        /// Optional per-step blue channel values, parallel to <see cref="PresetNames"/>.
+        /// A null or missing value preserves the referenced scene's blue channel; explicit
+        /// values from 0 through 255 override only that playlist step.
+        /// </summary>
+        public List<int?> StepBlue { get; set; } = new List<int?>();
         /// <summary>
         /// Optional per-step effects, parallel to <see cref="PresetNames"/>.
         /// A null, blank, or missing value preserves the referenced scene's effect; explicit
@@ -448,6 +467,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
         public string TransitionCurve { get; set; } = PluginConfiguration.ColorPresetTransitionCurveLinear;
         public int? BrightnessPercent { get; set; }
+        public int Red { get; set; }
+        public int Green { get; set; }
+        public int Blue { get; set; }
         public int StartOffsetSeconds { get; set; }
         public int DurationSeconds { get; set; }
         public int TransitionSeconds { get; set; }
@@ -648,6 +670,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxScenePlaylistStepDurationSeconds = MaxPreviewDurationSeconds;
         public const int MinScenePlaylistStepBrightnessPercent = MinOutputBrightnessPercent;
         public const int MaxScenePlaylistStepBrightnessPercent = MaxOutputBrightnessPercent;
+        public const int MinScenePlaylistStepColorValue = MinByteSetting;
+        public const int MaxScenePlaylistStepColorValue = MaxByteSetting;
         public const int MinScenePlaylistStepEffectSpeedPercent = MinColorPresetEffectSpeedPercent;
         public const int MaxScenePlaylistStepEffectSpeedPercent = MaxColorPresetEffectSpeedPercent;
         public const int MinScenePlaylistRepeatCount = 1;
@@ -935,6 +959,72 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 overridePercent.Value > MaxScenePlaylistStepBrightnessPercent
                 ? Math.Clamp(preset.BrightnessPercent, MinOutputBrightnessPercent, MaxOutputBrightnessPercent)
                 : overridePercent.Value;
+        }
+
+        /// <summary>
+        /// Resolves one playlist step's red channel. A missing, null, or malformed
+        /// override inherits the referenced scene channel; explicit values are bounded
+        /// to the Hue 0-255 channel range.
+        /// </summary>
+        public static int GetEffectiveScenePlaylistStepRed(
+            HueScenePlaylist playlist,
+            int stepIndex,
+            HueColorPreset preset)
+        {
+            ArgumentNullException.ThrowIfNull(playlist);
+            ArgumentNullException.ThrowIfNull(preset);
+            return GetEffectiveScenePlaylistStepColorChannel(playlist, stepIndex, preset, preset.Red, playlist.StepRed);
+        }
+
+        /// <summary>
+        /// Resolves one playlist step's green channel. A missing, null, or malformed
+        /// override inherits the referenced scene channel; explicit values are bounded
+        /// to the Hue 0-255 channel range.
+        /// </summary>
+        public static int GetEffectiveScenePlaylistStepGreen(
+            HueScenePlaylist playlist,
+            int stepIndex,
+            HueColorPreset preset)
+        {
+            ArgumentNullException.ThrowIfNull(playlist);
+            ArgumentNullException.ThrowIfNull(preset);
+            return GetEffectiveScenePlaylistStepColorChannel(playlist, stepIndex, preset, preset.Green, playlist.StepGreen);
+        }
+
+        /// <summary>
+        /// Resolves one playlist step's blue channel. A missing, null, or malformed
+        /// override inherits the referenced scene channel; explicit values are bounded
+        /// to the Hue 0-255 channel range.
+        /// </summary>
+        public static int GetEffectiveScenePlaylistStepBlue(
+            HueScenePlaylist playlist,
+            int stepIndex,
+            HueColorPreset preset)
+        {
+            ArgumentNullException.ThrowIfNull(playlist);
+            ArgumentNullException.ThrowIfNull(preset);
+            return GetEffectiveScenePlaylistStepColorChannel(playlist, stepIndex, preset, preset.Blue, playlist.StepBlue);
+        }
+
+        private static int GetEffectiveScenePlaylistStepColorChannel(
+            HueScenePlaylist playlist,
+            int stepIndex,
+            HueColorPreset preset,
+            int inheritedValue,
+            IReadOnlyList<int?>? overrides)
+        {
+            ArgumentNullException.ThrowIfNull(playlist);
+            ArgumentNullException.ThrowIfNull(preset);
+            var overrideValue = overrides != null &&
+                stepIndex >= 0 &&
+                stepIndex < overrides.Count
+                ? overrides[stepIndex]
+                : null;
+            return !overrideValue.HasValue ||
+                overrideValue.Value < MinScenePlaylistStepColorValue ||
+                overrideValue.Value > MaxScenePlaylistStepColorValue
+                ? Math.Clamp(inheritedValue, MinScenePlaylistStepColorValue, MaxScenePlaylistStepColorValue)
+                : overrideValue.Value;
         }
 
         /// <summary>
@@ -2577,6 +2667,54 @@ namespace Jellyfin.Plugin.Hue.Configuration
                      stepBrightness[index]!.Value > MaxScenePlaylistStepBrightnessPercent))
                 {
                     errors.Add($"{label} step {index + 1} brightness must be between {MinScenePlaylistStepBrightnessPercent} and {MaxScenePlaylistStepBrightnessPercent} percent, or null (inherit)");
+                }
+            }
+
+            var stepRed = playlist.StepRed ?? new List<int?>();
+            if (stepRed.Count != 0 && stepRed.Count != presetNames.Count)
+            {
+                errors.Add($"{label} step red overrides must contain one value per saved scene, or be omitted");
+            }
+
+            for (var index = 0; index < stepRed.Count; index++)
+            {
+                if (stepRed[index].HasValue &&
+                    (stepRed[index]!.Value < MinScenePlaylistStepColorValue ||
+                     stepRed[index]!.Value > MaxScenePlaylistStepColorValue))
+                {
+                    errors.Add($"{label} step {index + 1} red channel must be between {MinScenePlaylistStepColorValue} and {MaxScenePlaylistStepColorValue}, or null (inherit)");
+                }
+            }
+
+            var stepGreen = playlist.StepGreen ?? new List<int?>();
+            if (stepGreen.Count != 0 && stepGreen.Count != presetNames.Count)
+            {
+                errors.Add($"{label} step green overrides must contain one value per saved scene, or be omitted");
+            }
+
+            for (var index = 0; index < stepGreen.Count; index++)
+            {
+                if (stepGreen[index].HasValue &&
+                    (stepGreen[index]!.Value < MinScenePlaylistStepColorValue ||
+                     stepGreen[index]!.Value > MaxScenePlaylistStepColorValue))
+                {
+                    errors.Add($"{label} step {index + 1} green channel must be between {MinScenePlaylistStepColorValue} and {MaxScenePlaylistStepColorValue}, or null (inherit)");
+                }
+            }
+
+            var stepBlue = playlist.StepBlue ?? new List<int?>();
+            if (stepBlue.Count != 0 && stepBlue.Count != presetNames.Count)
+            {
+                errors.Add($"{label} step blue overrides must contain one value per saved scene, or be omitted");
+            }
+
+            for (var index = 0; index < stepBlue.Count; index++)
+            {
+                if (stepBlue[index].HasValue &&
+                    (stepBlue[index]!.Value < MinScenePlaylistStepColorValue ||
+                     stepBlue[index]!.Value > MaxScenePlaylistStepColorValue))
+                {
+                    errors.Add($"{label} step {index + 1} blue channel must be between {MinScenePlaylistStepColorValue} and {MaxScenePlaylistStepColorValue}, or null (inherit)");
                 }
             }
 

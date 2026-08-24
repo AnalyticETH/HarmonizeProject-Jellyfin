@@ -372,6 +372,84 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsPerStepColorOverridesAndPreservesLegacyInheritance()
+    {
+        var first = new HueColorPreset { Name = "Warm", Red = 20, Green = 40, Blue = 60 };
+        var second = new HueColorPreset { Name = "Cool", Red = 200, Green = 180, Blue = 160 };
+        var playlist = new HueScenePlaylist
+        {
+            Id = "playlist-colors",
+            Name = "Color sequence",
+            PresetNames = new List<string> { "Warm", "Cool" },
+            StepRed = new List<int?> { 255, null },
+            StepGreen = new List<int?> { 128, null },
+            StepBlue = new List<int?> { 0, null }
+        };
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { first, second },
+            ScenePlaylists = new List<HueScenePlaylist> { playlist }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(255, PluginConfiguration.GetEffectiveScenePlaylistStepRed(playlist, 0, first));
+        Assert.Equal(128, PluginConfiguration.GetEffectiveScenePlaylistStepGreen(playlist, 0, first));
+        Assert.Equal(0, PluginConfiguration.GetEffectiveScenePlaylistStepBlue(playlist, 0, first));
+        Assert.Equal(200, PluginConfiguration.GetEffectiveScenePlaylistStepRed(playlist, 1, second));
+        Assert.Equal(180, PluginConfiguration.GetEffectiveScenePlaylistStepGreen(playlist, 1, second));
+        Assert.Equal(160, PluginConfiguration.GetEffectiveScenePlaylistStepBlue(playlist, 1, second));
+
+        playlist.StepRed = new List<int?>();
+        playlist.StepGreen = new List<int?>();
+        playlist.StepBlue = new List<int?>();
+        Assert.Empty(config.ValidateScenePlaylists());
+        Assert.Equal(20, PluginConfiguration.GetEffectiveScenePlaylistStepRed(playlist, 0, first));
+        Assert.Equal(40, PluginConfiguration.GetEffectiveScenePlaylistStepGreen(playlist, 0, first));
+        Assert.Equal(60, PluginConfiguration.GetEffectiveScenePlaylistStepBlue(playlist, 0, first));
+    }
+
+    [Fact]
+    public void ValidateScenePlaylists_RejectsMismatchedOrOutOfRangeStepColors()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Warm" },
+                new() { Name = "Cool" }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "playlist-invalid-colors",
+                    Name = "Invalid colors",
+                    PresetNames = new List<string> { "Warm", "Cool" },
+                    StepRed = new List<int?> { 100 },
+                    StepGreen = new List<int?> { 100 },
+                    StepBlue = new List<int?> { 100 }
+                }
+            }
+        };
+
+        var mismatchErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step red overrides must contain one value per saved scene, or be omitted", mismatchErrors);
+        Assert.Contains("Scene playlist 1 step green overrides must contain one value per saved scene, or be omitted", mismatchErrors);
+        Assert.Contains("Scene playlist 1 step blue overrides must contain one value per saved scene, or be omitted", mismatchErrors);
+
+        config.ScenePlaylists[0].StepRed = new List<int?> { -1, 256 };
+        config.ScenePlaylists[0].StepGreen = new List<int?> { -1, 256 };
+        config.ScenePlaylists[0].StepBlue = new List<int?> { -1, 256 };
+        var rangeErrors = config.ValidateScenePlaylists();
+        Assert.Contains("Scene playlist 1 step 1 red channel must be between 0 and 255, or null (inherit)", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 2 red channel must be between 0 and 255, or null (inherit)", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 1 green channel must be between 0 and 255, or null (inherit)", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 2 green channel must be between 0 and 255, or null (inherit)", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 1 blue channel must be between 0 and 255, or null (inherit)", rangeErrors);
+        Assert.Contains("Scene playlist 1 step 2 blue channel must be between 0 and 255, or null (inherit)", rangeErrors);
+    }
+
+    [Fact]
     public void ValidateScenePlaylists_AllowsPerStepEffectSpeedOverridesAndPreservesLegacyInheritance()
     {
         var first = new HueColorPreset { Name = "Warm", EffectSpeedPercent = 125 };

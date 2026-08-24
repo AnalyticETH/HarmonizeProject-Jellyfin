@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.204] - 2026-08-23
+
+### Added
+- **Per-step playlist RGB colors**: add nullable `stepRed`, `stepGreen`, and `stepBlue` channel overrides bounded to 0-255; null or omitted values inherit each referenced saved scene's channel values.
+- **End-to-end color parity**: apply effective RGB values to non-continuous and continuous playlist previews, scheduled occurrence plans, runtime/history telemetry, API/UI CRUD, duplication, CSV/iCalendar plan exports, and credential-free backup/restore.
+- **Regression coverage**: verify RGB validation/inheritance, runtime stream payloads, continuous multi-target plans, API round trips, occurrence exports, and configuration-page contracts.
+
 ## [1.5.203] - 2026-08-23
 
 ### Added

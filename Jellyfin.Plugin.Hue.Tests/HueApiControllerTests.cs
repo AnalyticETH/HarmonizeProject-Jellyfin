@@ -2264,6 +2264,9 @@ public sealed class HueApiControllerTests : IDisposable
             Name = " Evening sequence ",
             PresetNames = new List<string> { "Warm", "Cool" },
             StepDurationSeconds = new List<int> { 3, 0 },
+            StepRed = new List<int?> { 200, null },
+            StepGreen = new List<int?> { 100, null },
+            StepBlue = new List<int?> { 50, null },
             StepBrightnessPercent = new List<int?> { 40, null },
             StepEffects = new List<string?> { " starlight ", null },
             StepEffectSpeedPercent = new List<int?> { 225, null },
@@ -2278,6 +2281,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(2, savedResult.RepeatCount);
         Assert.Equal(10, savedResult.TotalDurationSeconds);
         Assert.Equal(new[] { 3, 0 }, savedResult.StepDurationSeconds);
+        Assert.Equal(new int?[] { 200, null }, savedResult.StepRed);
+        Assert.Equal(new int?[] { 100, null }, savedResult.StepGreen);
+        Assert.Equal(new int?[] { 50, null }, savedResult.StepBlue);
         Assert.Equal(new int?[] { 40, null }, savedResult.StepBrightnessPercent);
         Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight, null }, savedResult.StepEffects);
         Assert.Equal(new int?[] { 225, null }, savedResult.StepEffectSpeedPercent);
@@ -2292,6 +2298,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Single(listed);
         Assert.Equal(new[] { "Warm", "Cool" }, listed[0].PresetNames);
         Assert.Equal(2, listed[0].RepeatCount);
+        Assert.Equal(new int?[] { 200, null }, listed[0].StepRed);
+        Assert.Equal(new int?[] { 100, null }, listed[0].StepGreen);
+        Assert.Equal(new int?[] { 50, null }, listed[0].StepBlue);
         Assert.Equal(new int?[] { 40, null }, listed[0].StepBrightnessPercent);
         Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight, null }, listed[0].StepEffects);
         Assert.Equal(new int?[] { 225, null }, listed[0].StepEffectSpeedPercent);
@@ -2351,7 +2360,7 @@ public sealed class HueApiControllerTests : IDisposable
             },
             result.Steps.Select(step => step.Effect));
         Assert.Equal(new[] { "EaseInOut", "Linear", "EaseInOut", "Linear" }, result.Steps.Select(step => step.TransitionCurve));
-        Assert.Equal(new[] { 25, 220, 25, 220 }, streamTester.Invocations
+        Assert.Equal(new[] { 200, 220, 200, 220 }, streamTester.Invocations
             .Where(invocation => invocation.Method.Name == nameof(IHueStreamTester.PreviewAsync))
             .Select(invocation => (int)invocation.Arguments[6]!)
             .ToArray());
@@ -2399,6 +2408,9 @@ public sealed class HueApiControllerTests : IDisposable
         var duplicateResult = Assert.IsType<HueScenePlaylistResult>(duplicateResponse.Value);
         Assert.Equal("Evening sequence (Copy)", duplicateResult.Name);
         Assert.Equal(new[] { 3, 0 }, duplicateResult.StepDurationSeconds);
+        Assert.Equal(new int?[] { 200, null }, duplicateResult.StepRed);
+        Assert.Equal(new int?[] { 100, null }, duplicateResult.StepGreen);
+        Assert.Equal(new int?[] { 50, null }, duplicateResult.StepBlue);
         Assert.Equal(new int?[] { 40, null }, duplicateResult.StepBrightnessPercent);
         Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight, null }, duplicateResult.StepEffects);
         Assert.Equal(new int?[] { 225, null }, duplicateResult.StepEffectSpeedPercent);
@@ -2429,6 +2441,9 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = "playlist-speed-update",
                     Name = "Speed update",
                     PresetNames = new List<string> { "Warm", "Cool" },
+                    StepRed = new List<int?> { 180, null },
+                    StepGreen = new List<int?> { 90, null },
+                    StepBlue = new List<int?> { 45, null },
                     StepEffects = new List<string?> { PluginConfiguration.ColorPresetEffectStarlight, null },
                     StepEffectSpeedPercent = new List<int?> { 225, null }
                 }
@@ -2445,9 +2460,15 @@ public sealed class HueApiControllerTests : IDisposable
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var result = Assert.IsType<HueScenePlaylistResult>(response.Value);
         Assert.Equal("Speed update renamed", result.Name);
+        Assert.Equal(new int?[] { 180, null }, result.StepRed);
+        Assert.Equal(new int?[] { 90, null }, result.StepGreen);
+        Assert.Equal(new int?[] { 45, null }, result.StepBlue);
         Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight, null }, result.StepEffects);
         Assert.Equal(new int?[] { 225, null }, result.StepEffectSpeedPercent);
         var persisted = Assert.Single(configuration.ScenePlaylists);
+        Assert.Equal(new int?[] { 180, null }, persisted.StepRed);
+        Assert.Equal(new int?[] { 90, null }, persisted.StepGreen);
+        Assert.Equal(new int?[] { 45, null }, persisted.StepBlue);
         Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectStarlight, null }, persisted.StepEffects);
         Assert.Equal(new int?[] { 225, null }, persisted.StepEffectSpeedPercent);
 
@@ -2456,11 +2477,17 @@ public sealed class HueApiControllerTests : IDisposable
             Id = "playlist-speed-update",
             Name = "Speed update renamed",
             PresetNames = new List<string> { "Warm", "Cool" },
+            StepRed = new List<int?>(),
+            StepGreen = new List<int?>(),
+            StepBlue = new List<int?>(),
             StepEffects = new List<string?>()
         });
 
         var clearResponse = Assert.IsType<OkObjectResult>(clearAction.Result);
         var cleared = Assert.IsType<HueScenePlaylistResult>(clearResponse.Value);
+        Assert.Empty(cleared.StepRed);
+        Assert.Empty(cleared.StepGreen);
+        Assert.Empty(cleared.StepBlue);
         Assert.Empty(cleared.StepEffects);
         Assert.Equal(new int?[] { 225, null }, cleared.StepEffectSpeedPercent);
         Assert.Empty(Assert.Single(configuration.ScenePlaylists).StepEffects);
@@ -6538,8 +6565,8 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "area-1",
             ColorPresets = new List<HueColorPreset>
             {
-                new() { Name = "Warm", Effect = PluginConfiguration.ColorPresetEffectPulse, EffectSpeedPercent = 150, BrightnessPercent = 80, DurationSeconds = 12, TransitionSeconds = 4, TransitionOutSeconds = 3 },
-                new() { Name = "Cool", Effect = PluginConfiguration.ColorPresetEffectRainbow, EffectSpeedPercent = 275, BrightnessPercent = 60, DurationSeconds = 8, TransitionSeconds = 2, TransitionOutSeconds = 2 }
+                new() { Name = "Warm", Effect = PluginConfiguration.ColorPresetEffectPulse, Red = 240, Green = 120, Blue = 40, EffectSpeedPercent = 150, BrightnessPercent = 80, DurationSeconds = 12, TransitionSeconds = 4, TransitionOutSeconds = 3 },
+                new() { Name = "Cool", Effect = PluginConfiguration.ColorPresetEffectRainbow, Red = 20, Green = 30, Blue = 90, EffectSpeedPercent = 275, BrightnessPercent = 60, DurationSeconds = 8, TransitionSeconds = 2, TransitionOutSeconds = 2 }
             },
             ScenePlaylists = new List<HueScenePlaylist>
             {
@@ -6549,6 +6576,9 @@ public sealed class HueApiControllerTests : IDisposable
                     Name = "Occurrence sequence",
                     PresetNames = new List<string> { "Warm", "Cool" },
                     StepDurationSeconds = new List<int> { 3, 0 },
+                    StepRed = new List<int?> { 200, null },
+                    StepGreen = new List<int?> { 100, null },
+                    StepBlue = new List<int?> { 50, null },
                     StepBrightnessPercent = new List<int?> { 25, null },
                     StepEffects = new List<string?> { PluginConfiguration.ColorPresetEffectStarlight, null },
                     StepEffectSpeedPercent = new List<int?> { 225, null },
@@ -6578,6 +6608,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("playlist-occurrence-cue", occurrence.ScheduleId);
         Assert.Equal(22, occurrence.PlaylistTotalDurationSeconds);
         Assert.Equal(new[] { "Warm", "Cool", "Warm", "Cool" }, occurrence.PlaylistSteps.Select(step => step.PresetName));
+        Assert.Equal(new[] { 200, 20, 200, 20 }, occurrence.PlaylistSteps.Select(step => step.Red));
+        Assert.Equal(new[] { 100, 30, 100, 30 }, occurrence.PlaylistSteps.Select(step => step.Green));
+        Assert.Equal(new[] { 50, 90, 50, 90 }, occurrence.PlaylistSteps.Select(step => step.Blue));
         Assert.Equal(new[] { 25, 60, 25, 60 }, occurrence.PlaylistSteps.Select(step => step.BrightnessPercent));
         Assert.Equal(
             new[]
@@ -6599,6 +6632,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("\"playlistSteps\"", csvText, StringComparison.Ordinal);
         Assert.Contains("Warm", csvText, StringComparison.Ordinal);
         var normalizedCsvText = csvText.Replace("\"\"", "\"", StringComparison.Ordinal);
+        Assert.Contains("\"red\":200", normalizedCsvText, StringComparison.Ordinal);
+        Assert.Contains("\"green\":100", normalizedCsvText, StringComparison.Ordinal);
+        Assert.Contains("\"blue\":50", normalizedCsvText, StringComparison.Ordinal);
         Assert.Contains("\"effect\":\"Starlight\"", normalizedCsvText, StringComparison.Ordinal);
         Assert.Contains("\"effect\":\"Rainbow\"", normalizedCsvText, StringComparison.Ordinal);
         Assert.Contains("\"effectSpeedPercent\":225", normalizedCsvText, StringComparison.Ordinal);
@@ -6610,6 +6646,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("X-HUE-PLAYLIST-STEP-PLAN:", calendarText, StringComparison.Ordinal);
         Assert.Contains("Warm", calendarText, StringComparison.Ordinal);
         var unfoldedCalendarText = calendarText.Replace("\r\n ", string.Empty, StringComparison.Ordinal);
+        Assert.Contains("\"red\":200", unfoldedCalendarText, StringComparison.Ordinal);
+        Assert.Contains("\"green\":100", unfoldedCalendarText, StringComparison.Ordinal);
+        Assert.Contains("\"blue\":50", unfoldedCalendarText, StringComparison.Ordinal);
         Assert.Contains("\"effect\":\"Starlight\"", unfoldedCalendarText, StringComparison.Ordinal);
         Assert.Contains("\"effect\":\"Rainbow\"", unfoldedCalendarText, StringComparison.Ordinal);
         Assert.Contains("\"effectSpeedPercent\":225", unfoldedCalendarText, StringComparison.Ordinal);
@@ -8149,6 +8188,9 @@ public sealed class HueApiControllerTests : IDisposable
                     Name = "Portable sequence",
                     PresetNames = new List<string> { "Sunrise", "Midnight" },
                     StepDurationSeconds = new List<int> { 2, 0 },
+                    StepRed = new List<int?> { 220, null },
+                    StepGreen = new List<int?> { 110, null },
+                    StepBlue = new List<int?> { 35, null },
                     StepBrightnessPercent = new List<int?> { 35, null },
                     StepEffects = new List<string?> { PluginConfiguration.ColorPresetEffectFire, null },
                     StepEffectSpeedPercent = new List<int?> { 175, null },
@@ -8167,6 +8209,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("playlist-portable", exportedPlaylist.Id);
         Assert.Equal(new[] { "Sunrise", "Midnight" }, exportedPlaylist.PresetNames);
         Assert.Equal(new[] { 2, 0 }, exportedPlaylist.StepDurationSeconds);
+        Assert.Equal(new int?[] { 220, null }, exportedPlaylist.StepRed);
+        Assert.Equal(new int?[] { 110, null }, exportedPlaylist.StepGreen);
+        Assert.Equal(new int?[] { 35, null }, exportedPlaylist.StepBlue);
         Assert.Equal(new int?[] { 35, null }, exportedPlaylist.StepBrightnessPercent);
         Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectFire, null }, exportedPlaylist.StepEffects);
         Assert.Equal(new int?[] { 175, null }, exportedPlaylist.StepEffectSpeedPercent);
@@ -8212,6 +8257,9 @@ public sealed class HueApiControllerTests : IDisposable
                     Name = exportedPlaylist.Name,
                     PresetNames = exportedPlaylist.PresetNames.ToList(),
                     StepDurationSeconds = exportedPlaylist.StepDurationSeconds.ToList(),
+                    StepRed = exportedPlaylist.StepRed.ToList(),
+                    StepGreen = exportedPlaylist.StepGreen.ToList(),
+                    StepBlue = exportedPlaylist.StepBlue.ToList(),
                     StepBrightnessPercent = exportedPlaylist.StepBrightnessPercent.ToList(),
                     StepEffects = exportedPlaylist.StepEffects.ToList(),
                     StepEffectSpeedPercent = exportedPlaylist.StepEffectSpeedPercent.ToList(),
@@ -8236,6 +8284,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("playlist-portable", imported.Id);
         Assert.Equal(new[] { "Sunrise", "Midnight" }, imported.PresetNames);
         Assert.Equal(new[] { 2, 0 }, imported.StepDurationSeconds);
+        Assert.Equal(new int?[] { 220, null }, imported.StepRed);
+        Assert.Equal(new int?[] { 110, null }, imported.StepGreen);
+        Assert.Equal(new int?[] { 35, null }, imported.StepBlue);
         Assert.Equal(new int?[] { 35, null }, imported.StepBrightnessPercent);
         Assert.Equal(new[] { PluginConfiguration.ColorPresetEffectFire, null }, imported.StepEffects);
         Assert.Equal(new int?[] { 175, null }, imported.StepEffectSpeedPercent);

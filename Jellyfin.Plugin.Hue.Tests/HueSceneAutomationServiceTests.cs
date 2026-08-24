@@ -1295,6 +1295,9 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("Evening sequence", result.PlaylistName);
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderSequential, result.PlaybackOrder);
         Assert.Equal(new[] { 25, 220 }, streamTester.Reds);
+        Assert.Equal(new[] { 25, 220 }, result.Steps.Select(step => step.Red));
+        Assert.Equal(new[] { 50, 180 }, result.Steps.Select(step => step.Green));
+        Assert.Equal(new[] { 75, 140 }, result.Steps.Select(step => step.Blue));
         Assert.Equal(new[] { "Warm", "Cool" }, result.Steps.Select(step => step.PresetName));
         Assert.Equal(new[] { 1, 2 }, result.Steps.Select(step => step.OriginalIndex));
         Assert.All(result.Steps, step => Assert.True(step.Succeeded));
@@ -1330,6 +1333,9 @@ public sealed class HueSceneAutomationServiceTests
                     Name = "Timed sequence",
                     PresetNames = new List<string> { "Warm", "Cool" },
                     StepDurationSeconds = new List<int> { 3, 0 },
+                    StepRed = new List<int?> { 200, null },
+                    StepGreen = new List<int?> { 100, null },
+                    StepBlue = new List<int?> { 50, null },
                     StepTransitionSeconds = new List<int?> { 1, null },
                     StepTransitionOutSeconds = new List<int?> { null, 1 },
                     StepTransitionCurves = new List<string?> { PluginConfiguration.ColorPresetTransitionCurveEaseInOut, null },
@@ -1350,6 +1356,10 @@ public sealed class HueSceneAutomationServiceTests
 
         Assert.True(result.Succeeded);
         Assert.Equal(new[] { 3, 8 }, streamTester.Durations);
+        Assert.Equal(new[] { 200, 220 }, streamTester.Reds);
+        Assert.Equal(new[] { 200, 220 }, result.Steps.Select(step => step.Red));
+        Assert.Equal(new[] { 100, 180 }, result.Steps.Select(step => step.Green));
+        Assert.Equal(new[] { 50, 140 }, result.Steps.Select(step => step.Blue));
         Assert.Equal(new[] { 1, 0 }, streamTester.TransitionSeconds);
         Assert.Equal(new[] { 2, 1 }, streamTester.TransitionOutSeconds);
         Assert.Equal(new[] { "EaseInOut", "Linear" }, streamTester.TransitionCurves);
@@ -1426,6 +1436,9 @@ public sealed class HueSceneAutomationServiceTests
                     Name = "Continuous plan",
                     PresetNames = new List<string> { "Warm", "Cool" },
                     StepDurationSeconds = new List<int> { 3, 0 },
+                    StepRed = new List<int?> { 101, null },
+                    StepGreen = new List<int?> { 102, null },
+                    StepBlue = new List<int?> { 103, null },
                     StepBrightnessPercent = new List<int?> { 25, null },
                     StepEffects = new List<string?> { PluginConfiguration.ColorPresetEffectLightning, null },
                     StepEffectSpeedPercent = new List<int?> { 175, null },
@@ -1466,9 +1479,9 @@ public sealed class HueSceneAutomationServiceTests
         Assert.All(streamTester.PlaylistInvocations, invocation =>
         {
             Assert.Equal(new[] { 1, 2, 3, 4 }, invocation.Steps.Select(step => step.Index));
-            Assert.Equal(new[] { 11, 210, 11, 210 }, invocation.Steps.Select(step => step.Red));
-            Assert.Equal(new[] { 22, 180, 22, 180 }, invocation.Steps.Select(step => step.Green));
-            Assert.Equal(new[] { 33, 140, 33, 140 }, invocation.Steps.Select(step => step.Blue));
+            Assert.Equal(new[] { 101, 210, 101, 210 }, invocation.Steps.Select(step => step.Red));
+            Assert.Equal(new[] { 102, 180, 102, 180 }, invocation.Steps.Select(step => step.Green));
+            Assert.Equal(new[] { 103, 140, 103, 140 }, invocation.Steps.Select(step => step.Blue));
             Assert.Equal(new[] { 25, 60, 25, 60 }, invocation.Steps.Select(step => step.BrightnessPercent));
             Assert.Equal(new[] { 3, 8, 3, 8 }, invocation.Steps.Select(step => step.DurationSeconds));
             Assert.Equal(new[] { 1, 2, 1, 2 }, invocation.Steps.Select(step => step.TransitionSeconds));
@@ -1484,6 +1497,9 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(new[] { "Warm", "Cool", "Warm", "Cool" }, result.Steps.Select(step => step.PresetName));
         Assert.Equal(new[] { 1, 2, 1, 2 }, result.Steps.Select(step => step.OriginalIndex));
         Assert.Equal(new[] { 1, 1, 2, 2 }, result.Steps.Select(step => step.RepeatIndex));
+        Assert.Equal(new[] { 101, 210, 101, 210 }, result.Steps.Select(step => step.Red));
+        Assert.Equal(new[] { 102, 180, 102, 180 }, result.Steps.Select(step => step.Green));
+        Assert.Equal(new[] { 103, 140, 103, 140 }, result.Steps.Select(step => step.Blue));
         Assert.Equal(new[] { 0, 3, 11, 14 }, result.Steps.Select(step => step.StartOffsetSeconds));
         Assert.Equal(new[] { "Lightning", "Rainbow", "Lightning", "Rainbow" }, result.Steps.Select(step => step.Effect));
         Assert.Equal(2, result.TargetResults.Count);

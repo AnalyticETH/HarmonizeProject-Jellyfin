@@ -281,11 +281,21 @@ const requiredScript = [
     "_hueScenePlaylistTransitionOuts",
     "_hueScenePlaylistTransitionCurves",
     "stepDurationSeconds: durations",
+    "stepRed: reds",
+    "stepGreen: greens",
+    "stepBlue: blues",
     "stepBrightnessPercent: brightnesses",
     "stepTransitionSeconds: transitions",
     "stepTransitionOutSeconds: transitionOuts",
     "stepTransitionCurves: transitionCurves",
     "Fade curve (inherit):",
+    "var stepReds = playlist.stepRed",
+    "var stepGreens = playlist.stepGreen",
+    "var stepBlues = playlist.stepBlue",
+    "page._hueScenePlaylistReds",
+    "page._hueScenePlaylistGreens",
+    "page._hueScenePlaylistBlues",
+    "channel + ' color channel override for '",
     'readStatusField(occurrence, "PlaylistSteps", [])',
     'readStatusField(step, "StartOffsetSeconds", 0)',
     "getScenePlaylistPreviewTargetSelection: function",
@@ -339,6 +349,13 @@ if (playlistStepSpeedTelemetryReads.length < 3) {
 const playlistStepEffectTelemetryReads = html.match(/readStatusField\(step, "Effect", "Solid"\)/g) || [];
 if (playlistStepEffectTelemetryReads.length < 3) {
     throw new Error(`${file} must render the effective per-step effect in playlist preview, occurrence, and history status`);
+}
+
+for (const channel of ["Red", "Green", "Blue"]) {
+    const telemetryReads = html.match(new RegExp(`readStatusField\\(step, "${channel}", 0\\)`, "g")) || [];
+    if (telemetryReads.length < 2) {
+        throw new Error(`${file} must render per-step ${channel.toLowerCase()} channel in occurrence and history status`);
+    }
 }
 
 {
