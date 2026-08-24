@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.213] - 2026-08-24
+
+### Added
+- **Automatic playback device routing**: configure up to 25 exact, case-sensitive Jellyfin SessionInfo.DeviceId routes under each user mapping. Each route selects its own private Hue bridge, entertainment area, credentials, and optional channel subset, with device-to-user-to-global fallback.
+- **Credential-safe device mapping workflows**: mapping summaries omit nested keys, same-server edits preserve stored credentials, cross-server imports accept explicit DeviceTargetCredentials, and bulk enable/disable rollback restores nested routes.
+- **Runtime observability and administrator controls**: expose the active device, route-match state, session history metadata, mapping route counts, and a bounded JSON route editor.
+
+### Tests
+- **Regression coverage**: validate exact device matching, case sensitivity, fallback precedence, channel inheritance, bounded target counts, duplicate IDs, bridge/credential/area requirements, and malformed channel overrides.
+
 ## [1.5.212] - 2026-08-24
 
 ### Security

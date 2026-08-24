@@ -9,6 +9,22 @@ using MediaBrowser.Model.Plugins;
 namespace Jellyfin.Plugin.Hue.Configuration
 {
     /// <summary>
+    /// An exact Jellyfin playback-device target nested under one per-user mapping.
+    /// Device identifiers are opaque, case-sensitive values supplied by Jellyfin.
+    /// </summary>
+    public sealed class UserDeviceBridgeTarget
+    {
+        public string DeviceId { get; set; } = string.Empty;
+        public string DeviceName { get; set; } = string.Empty; // For display purposes
+        public string HueBridgeIp { get; set; } = string.Empty;
+        public string HueAppKey { get; set; } = string.Empty;
+        public string HueClientKey { get; set; } = string.Empty;
+        public string EntertainmentAreaId { get; set; } = string.Empty;
+        public string EntertainmentAreaName { get; set; } = string.Empty; // For display purposes
+        public string? ChannelIdsOverride { get; set; }
+    }
+
+    /// <summary>
     /// Per-user bridge, entertainment area, and optional playback, color, performance, channel, and restoration profile mapping
     /// </summary>
     public class UserBridgeMapping
@@ -23,6 +39,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string HueClientKey { get; set; } = string.Empty;
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string EntertainmentAreaName { get; set; } = string.Empty; // For display purposes
+        public List<UserDeviceBridgeTarget> DeviceTargets { get; set; } = new List<UserDeviceBridgeTarget>();
 
         // Optional per-user cinema-mode overrides. Null values inherit the global setting.
         public bool? UseCinemaModeOverride { get; set; }
@@ -420,6 +437,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string? Item { get; set; }
         public string? UserId { get; set; }
         public string? UserName { get; set; }
+        public string? DeviceId { get; set; }
+        public string? DeviceName { get; set; }
+        public bool DeviceRouteMatched { get; set; }
         public string? BridgeIp { get; set; }
         public string? EntertainmentAreaId { get; set; }
         public DateTime? StartedAtUtc { get; set; }
@@ -682,6 +702,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxColorPresetNameLength = 64;
         public const int MaxBulkUserMappingDeletes = 50;
         public const int MaxBulkUserMappingUpdates = 50;
+        public const int MaxDeviceTargetsPerUser = 25;
         public const int MaxScenePlaylists = 50;
         public const int MaxScenePlaylistItems = 20;
         public const int MaxScenePlaylistTotalDurationSeconds = MaxScenePlaylistItems * MaxPreviewDurationSeconds;
@@ -1728,6 +1749,34 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Gets the bridge configuration for an exact Jellyfin playback device. A missing or
+        /// unknown device inherits the existing per-user target and then the global target.
+        /// </summary>
+        public (string BridgeIp, string AppKey, string ClientKey, string AreaId) GetBridgeConfigForPlayback(
+            Guid userId,
+            string? deviceId)
+        {
+            var deviceTarget = FindDeviceTargetForUser(userId, deviceId);
+            if (deviceTarget != null)
+            {
+                return (
+                    deviceTarget.HueBridgeIp,
+                    deviceTarget.HueAppKey,
+                    deviceTarget.HueClientKey,
+                    deviceTarget.EntertainmentAreaId);
+            }
+
+            return GetBridgeConfigForUser(userId);
+        }
+
+        /// <summary>
+        /// Reports whether an exact device route exists for a user. This is telemetry-only;
+        /// unknown or blank device identifiers safely use the existing user/global fallback.
+        /// </summary>
+        public bool HasDeviceTargetForPlayback(Guid userId, string? deviceId)
+            => FindDeviceTargetForUser(userId, deviceId) != null;
+
+        /// <summary>
         /// Gets whether synchronization is enabled for a user. Users without a mapping
         /// retain the default synchronization behavior.
         /// </summary>
@@ -2158,6 +2207,37 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public IReadOnlySet<int>? GetChannelIdsForUser(Guid userId)
             => GetChannelIdsOverrideForUser(userId) ?? GetGlobalChannelIds();
 
+        /// <summary>
+        /// Gets the effective entertainment channel selection for an exact Jellyfin playback
+        /// device. A blank device selection inherits the per-user and then global selection.
+        /// </summary>
+        public IReadOnlySet<int>? GetChannelIdsForPlayback(Guid userId, string? deviceId)
+        {
+            var deviceTarget = FindDeviceTargetForUser(userId, deviceId);
+            if (deviceTarget != null &&
+                TryParseChannelIds(deviceTarget.ChannelIdsOverride, out var channelIds) &&
+                channelIds.Count > 0)
+            {
+                return channelIds;
+            }
+
+            return GetChannelIdsForUser(userId);
+        }
+
+        private UserDeviceBridgeTarget? FindDeviceTargetForUser(Guid userId, string? deviceId)
+        {
+            var normalizedDeviceId = deviceId?.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedDeviceId))
+                return null;
+
+            var userIdText = userId.ToString();
+            var mapping = UserMappings?.Find(candidate =>
+                string.Equals(candidate.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+            return mapping?.DeviceTargets?.FirstOrDefault(target =>
+                target != null &&
+                string.Equals(target.DeviceId?.Trim(), normalizedDeviceId, StringComparison.Ordinal));
+        }
+
         private static string? NormalizeOptionalOverride(string? value)
             => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -2542,6 +2622,58 @@ namespace Jellyfin.Plugin.Hue.Configuration
             var errors = new List<string>();
             if (!TryParseChannelIds(channelIds, out _))
                 errors.Add($"{label} channel IDs must be a comma-separated list of IDs from 0 to 65535");
+
+            return errors;
+        }
+
+        /// <summary>
+        /// Validates the bounded, exact-device bridge targets nested under one user mapping.
+        /// </summary>
+        public static List<string> ValidateDeviceTargets(UserBridgeMapping mapping, string label = "User mapping")
+        {
+            var errors = new List<string>();
+            var deviceTargets = mapping.DeviceTargets ?? new List<UserDeviceBridgeTarget>();
+            if (deviceTargets.Count > MaxDeviceTargetsPerUser)
+            {
+                errors.Add($"{label} may define no more than {MaxDeviceTargetsPerUser} device targets");
+            }
+
+            var seenDeviceIds = new HashSet<string>(StringComparer.Ordinal);
+            for (var index = 0; index < deviceTargets.Count; index++)
+            {
+                var target = deviceTargets[index];
+                var targetLabel = $"{label} device target {index + 1}";
+                if (target == null)
+                {
+                    errors.Add($"{targetLabel} is required");
+                    continue;
+                }
+
+                var normalizedDeviceId = target.DeviceId?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(normalizedDeviceId))
+                {
+                    errors.Add($"{targetLabel} requires a Device ID");
+                }
+                else if (!seenDeviceIds.Add(normalizedDeviceId))
+                {
+                    errors.Add($"{targetLabel} duplicates another device target");
+                }
+
+                if (!Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(target.HueBridgeIp))
+                    errors.Add($"{targetLabel} bridge address must be a valid private IP address or .local host name");
+
+                if (string.IsNullOrWhiteSpace(target.HueAppKey))
+                    errors.Add($"{targetLabel} requires a Hue App Key");
+
+                if (string.IsNullOrWhiteSpace(target.HueClientKey))
+                    errors.Add($"{targetLabel} requires a Hue Client Key");
+
+                if (string.IsNullOrWhiteSpace(target.EntertainmentAreaId))
+                    errors.Add($"{targetLabel} requires an Entertainment Area ID");
+
+                if (!TryParseChannelIds(target.ChannelIdsOverride, out _))
+                    errors.Add($"{targetLabel} channel IDs override must be a comma-separated list of IDs from 0 to 65535");
+            }
 
             return errors;
         }
@@ -3834,6 +3966,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.AddRange(ValidatePerformanceOverrides(mapping, label));
                 errors.AddRange(ValidateExecutionOverrides(mapping, label));
                 errors.AddRange(ValidateChannelOverrides(mapping, label));
+                errors.AddRange(ValidateDeviceTargets(mapping, label));
 
                 var effectiveAudioFrequencies = NormalizeAudioFrequencyProfile(
                     mapping.AudioLowFrequencyHzOverride ?? AudioLowFrequencyHz,

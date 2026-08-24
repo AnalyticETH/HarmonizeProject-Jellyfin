@@ -7441,7 +7441,21 @@ public sealed class HueApiControllerTests : IDisposable
                     SamplingBreadthPercentOverride = 25,
                     SamplingModeOverride = PluginConfiguration.SamplingModeCenterWeighted,
                     SpatialOrientationOverride = PluginConfiguration.SpatialOrientationMirrorHorizontal,
-                    ColorSmoothingPercentOverride = 40
+                    ColorSmoothingPercentOverride = 40,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-player",
+                            DeviceName = "Living Room Player",
+                            HueBridgeIp = "192.168.1.101",
+                            HueAppKey = "nested-app-secret",
+                            HueClientKey = "nested-client-secret",
+                            EntertainmentAreaId = "area-device",
+                            EntertainmentAreaName = "Device Room",
+                            ChannelIdsOverride = "2, 4"
+                        }
+                    }
                 }
             }
         });
@@ -7454,6 +7468,12 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.False(mapping.InheritsDefaultBridge);
         Assert.True(mapping.HasAppKey);
         Assert.True(mapping.HasClientKey);
+        var deviceTarget = Assert.Single(mapping.DeviceTargets);
+        Assert.Equal("living-room-player", deviceTarget.DeviceId);
+        Assert.True(deviceTarget.HasAppKey);
+        Assert.True(deviceTarget.HasClientKey);
+        Assert.DoesNotContain("nested-app-secret", JsonSerializer.Serialize(mapping), StringComparison.Ordinal);
+        Assert.DoesNotContain("nested-client-secret", JsonSerializer.Serialize(mapping), StringComparison.Ordinal);
         Assert.Equal((bool?)false, mapping.UseCinemaModeOverride);
         Assert.Equal((int?)10, mapping.BrightnessDimLevelOverride);
         Assert.Equal(PluginConfiguration.PauseBehaviorRestoreLightState, mapping.PauseBehaviorOverride);
@@ -7901,7 +7921,18 @@ public sealed class HueApiControllerTests : IDisposable
                     HueAppKey = "user-one-app-secret",
                     HueClientKey = "user-one-client-secret",
                     EntertainmentAreaId = "area-one",
-                    EntertainmentAreaName = "Room One"
+                    EntertainmentAreaName = "Room One",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "player-one",
+                            HueBridgeIp = "192.168.1.111",
+                            HueAppKey = "device-one-app-secret",
+                            HueClientKey = "device-one-client-secret",
+                            EntertainmentAreaId = "device-area-one"
+                        }
+                    }
                 },
                 new()
                 {
@@ -7928,6 +7959,9 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("user-one-app-secret", configuration.UserMappings[0].HueAppKey);
         Assert.Equal("user-two-client-secret", configuration.UserMappings[1].HueClientKey);
         Assert.Equal(new[] { "area-one", "area-two" }, configuration.UserMappings.Select(mapping => mapping.EntertainmentAreaId));
+        var restoredDeviceTarget = Assert.Single(configuration.UserMappings[0].DeviceTargets);
+        Assert.Equal("device-one-app-secret", restoredDeviceTarget.HueAppKey);
+        Assert.Equal("device-one-client-secret", restoredDeviceTarget.HueClientKey);
     }
 
     [Fact]

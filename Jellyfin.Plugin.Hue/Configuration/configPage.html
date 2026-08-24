@@ -18,6 +18,7 @@
                             <div><strong>State:</strong> <span id="runtimeState">Loading...</span></div>
                             <div><strong>Item:</strong> <span id="runtimeItem">—</span></div>
                             <div><strong>User:</strong> <span id="runtimeUser">—</span></div>
+                            <div><strong>Playback device:</strong> <span id="runtimeDevice">—</span></div>
                             <div><strong>Playback media scope:</strong> <span id="runtimePlaybackMediaFilter">—</span></div>
                             <div><strong>Active target:</strong> <span id="runtimeTarget">—</span></div>
                             <div><strong>Frame resolution:</strong> <span id="runtimeResolution">—</span></div>
@@ -1556,6 +1557,12 @@
                                     <input id="mappingAreaManual" type="text" is="emby-input" placeholder="Enter entertainment area ID" />
                                     <div class="fieldDescription">Paste the entertainment area UUID here.</div>
                                 </div>
+                            </div>
+
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="mappingDeviceTargets">Automatic Playback Device Routes (JSON)</label>
+                                <textarea id="mappingDeviceTargets" rows="6" class="emby-input" spellcheck="false" placeholder='[{"DeviceId":"living-room-tv","DeviceName":"Living room TV","HueBridgeIp":"192.168.1.50","HueAppKey":"","HueClientKey":"","EntertainmentAreaId":"area-id","EntertainmentAreaName":"Living room","ChannelIdsOverride":"1,2"}]' style="width: 100%; min-height: 8em; font-family: monospace; padding: 0.5em; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;"></textarea>
+                                <div class="fieldDescription">Optional exact-match routes keyed by Jellyfin's <code>SessionInfo.DeviceId</code>. Device IDs are case-sensitive; an unknown device falls back to this user's bridge and then the global bridge. Each route needs its own private bridge address, App Key, Client Key, and entertainment area. Leave nested keys blank while editing an existing route to preserve stored credentials; use the configuration backup/import flow with <code>DeviceTargetCredentials</code> for cross-server migration. The JSON is sent only to this server over the authenticated administrator session.</div>
                             </div>
 
                             <button is="emby-button" type="button" class="raised button-submit" id="addMappingBtn" style="margin-top: 1em;">
@@ -7772,6 +7779,9 @@
                         var currentItem = HueConfigurationPage.readStatusField(status, "CurrentItem", "—");
                         var activeUserId = HueConfigurationPage.readStatusField(status, "ActiveUserId", "");
                         var activeUserName = HueConfigurationPage.readStatusField(status, "ActiveUserName", "");
+                        var activeDeviceId = HueConfigurationPage.readStatusField(status, "ActiveDeviceId", "");
+                        var activeDeviceName = HueConfigurationPage.readStatusField(status, "ActiveDeviceName", "");
+                        var activeDeviceRouteMatched = HueConfigurationPage.readStatusField(status, "ActiveDeviceRouteMatched", null);
                         var configuredPlaybackMediaFilter = HueConfigurationPage.readStatusField(status, "ConfiguredPlaybackMediaFilter", "AllVideo");
                         var activePlaybackMediaFilter = HueConfigurationPage.readStatusField(status, "ActivePlaybackMediaFilter", null);
                         var playbackMediaFilter = activePlaybackMediaFilter || configuredPlaybackMediaFilter;
@@ -7847,6 +7857,10 @@
                         page.querySelector('#runtimeState').textContent = state + (isSyncing && state !== "Syncing" ? " (active)" : "");
                         page.querySelector('#runtimeItem').textContent = currentItem || "—";
                         page.querySelector('#runtimeUser').textContent = activeUserName || activeUserId || "—";
+                        page.querySelector('#runtimeDevice').textContent = activeDeviceId
+                            ? (activeDeviceName ? activeDeviceName + " (" + activeDeviceId + ")" : activeDeviceId) +
+                                (activeDeviceRouteMatched === true ? " · device route" : " · fallback route")
+                            : "—";
                         page.querySelector('#runtimePlaybackMediaFilter').textContent = playbackMediaFilter || "AllVideo";
                         page.querySelector('#runtimeResolution').textContent = frameResolution || "—";
                         page.querySelector('#runtimeScalingMode').textContent = scalingMode || "—";
@@ -7919,11 +7933,14 @@
                                 activeSessions.forEach(function (session) {
                                     var item = HueConfigurationPage.readStatusField(session, "CurrentItem", "Playback");
                                     var user = HueConfigurationPage.readStatusField(session, "ActiveUserName", "");
+                                    var device = HueConfigurationPage.readStatusField(session, "ActiveDeviceName", "") ||
+                                        HueConfigurationPage.readStatusField(session, "ActiveDeviceId", "");
                                     var target = HueConfigurationPage.readStatusField(session, "ActiveBridgeIp", "");
                                     var area = HueConfigurationPage.readStatusField(session, "ActiveEntertainmentAreaId", "");
                                     var stateText = HueConfigurationPage.readStatusField(session, "State", "Starting");
                                     var sessionLine = document.createElement('div');
                                     sessionLine.textContent = item + (user ? " · " + user : "") + " · " + stateText +
+                                        (device ? " · " + device : "") +
                                         (target && area ? " · " + target + " / " + area : "");
                                     var sessionId = HueConfigurationPage.readStatusField(session, "PlaySessionId", "");
                                     var sessionCanStop = HueConfigurationPage.readStatusField(session, "CanStopSync", false);
@@ -8005,7 +8022,7 @@
                         table.style.width = '100%';
                         table.style.borderCollapse = 'collapse';
                         var headerRow = document.createElement('tr');
-                        ["Ended", "Item", "User", "Outcome", "Target", "Duration", "Effective FPS", "Packets", "Warnings"].forEach(function (heading) {
+                        ["Ended", "Item", "User", "Device", "Outcome", "Target", "Duration", "Effective FPS", "Packets", "Warnings"].forEach(function (heading) {
                             var header = document.createElement('th');
                             header.textContent = heading;
                             header.style.textAlign = 'left';
@@ -8024,6 +8041,13 @@
                             var endedText = endedAt ? new Date(endedAt).toLocaleString() : "—";
                             var item = HueConfigurationPage.readStatusField(session, "Item", "Playback");
                             var user = HueConfigurationPage.readStatusField(session, "UserName", "—") || "—";
+                            var deviceId = HueConfigurationPage.readStatusField(session, "DeviceId", "");
+                            var deviceName = HueConfigurationPage.readStatusField(session, "DeviceName", "");
+                            var routeMatched = HueConfigurationPage.readStatusField(session, "DeviceRouteMatched", false);
+                            var device = deviceId
+                                ? (deviceName ? deviceName + " (" + deviceId + ")" : deviceId) +
+                                    (routeMatched === true ? " · routed" : " · fallback")
+                                : "—";
                             var outcome = HueConfigurationPage.readStatusField(session, "Outcome", "Stopped");
                             var bridge = HueConfigurationPage.readStatusField(session, "BridgeIp", "");
                             var area = HueConfigurationPage.readStatusField(session, "EntertainmentAreaId", "");
@@ -8035,7 +8059,7 @@
                             var error = HueConfigurationPage.readStatusField(session, "Error", "");
                             var warning = HueConfigurationPage.readStatusField(session, "CleanupWarning", "");
                             var warningText = error || warning ? (error ? "Error" : "Cleanup warning") : "—";
-                            [endedText, item, user, outcome, target, duration, fpsText, String(packets || 0), warningText].forEach(function (value) {
+                            [endedText, item, user, device, outcome, target, duration, fpsText, String(packets || 0), warningText].forEach(function (value) {
                                 var cell = document.createElement('td');
                                 cell.textContent = value == null ? "—" : String(value);
                                 cell.style.padding = '6px 8px';
@@ -8731,6 +8755,7 @@
                         html += '<th style="text-align: left; padding: 8px;">Sync</th>';
                         html += '<th style="text-align: left; padding: 8px;">Bridge Address</th>';
                         html += '<th style="text-align: left; padding: 8px;">Entertainment Area</th>';
+                        html += '<th style="text-align: left; padding: 8px;">Device Routes</th>';
                         html += '<th style="text-align: left; padding: 8px;">Profile</th>';
                         html += '<th style="text-align: left; padding: 8px;">Credentials</th>';
                         html += '<th style="text-align: right; padding: 8px;">Actions</th>';
@@ -8755,6 +8780,8 @@
                                     : !String(bridgeIp).trim();
                             var hasAppKey = typeof mapping.HasAppKey !== 'undefined' ? mapping.HasAppKey === true : mapping.hasAppKey === true;
                             var hasClientKey = typeof mapping.HasClientKey !== 'undefined' ? mapping.HasClientKey === true : mapping.hasClientKey === true;
+                            var deviceTargets = mapping.DeviceTargets || mapping.deviceTargets || [];
+                            deviceTargets = Array.isArray(deviceTargets) ? deviceTargets : [];
                             var getMappingValue = function (pascalName, camelName) {
                                 return typeof mapping[pascalName] !== 'undefined' ? mapping[pascalName] : mapping[camelName];
                             };
@@ -8837,11 +8864,17 @@
                                 : inheritsDefaultBridge
                                 ? 'Global default'
                                 : (mapping.EntertainmentAreaName || mapping.entertainmentAreaName || mapping.EntertainmentAreaId || mapping.entertainmentAreaId || '');
+                            var deviceRouteDisplay = !syncEnabled
+                                ? 'Not used'
+                                : deviceTargets.length === 0
+                                    ? 'None'
+                                    : String(deviceTargets.length) + (deviceTargets.length === 1 ? ' route' : ' routes');
                             html += '<tr style="border-bottom: 1px solid #333;">';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.UserName || mapping.userName || userId || 'Unknown') + '</td>';
                             html += '<td style="padding: 8px;">' + (syncEnabled ? 'Enabled' : 'Disabled') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(bridgeDisplay) + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(areaDisplay) + '</td>';
+                            html += '<td style="padding: 8px;">' + escapeHtml(deviceRouteDisplay) + '</td>';
                             html += '<td style="padding: 8px;">' + (hasProfile ? 'Custom' : 'Global') + '</td>';
                             html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
@@ -9001,6 +9034,7 @@
                         '#mappingAreaSelect',
                         '#mappingRefreshAreasBtn',
                         '#mappingAreaManual',
+                        '#mappingDeviceTargets',
                         '#mappingUseCinemaModeOverride',
                         '#mappingPlaybackMediaFilterOverride',
                         '#mappingAudioSensitivityPercentOverride',
@@ -9560,6 +9594,7 @@
                     var bridgeIpEl = document.getElementById('mappingBridgeIp');
                     var appKeyEl = document.getElementById('mappingAppKey');
                     var clientKeyEl = document.getElementById('mappingClientKey');
+                    var deviceTargetsEl = document.getElementById('mappingDeviceTargets');
                     var syncEnabledEl = document.getElementById('mappingSyncEnabled');
                     var readOptionalNumber = function (selector) {
                         var element = document.getElementById(selector);
@@ -9592,6 +9627,37 @@
                     var bridgeIp = bridgeIpEl ? bridgeIpEl.value.trim() : '';
                     var appKey = appKeyEl ? appKeyEl.value.trim() : '';
                     var clientKey = clientKeyEl ? clientKeyEl.value.trim() : '';
+                    var deviceTargets = [];
+                    if (deviceTargetsEl && deviceTargetsEl.value.trim() !== '') {
+                        try {
+                            var parsedDeviceTargets = JSON.parse(deviceTargetsEl.value);
+                            if (!Array.isArray(parsedDeviceTargets)) {
+                                throw new Error("device routes must be a JSON array");
+                            }
+                            deviceTargets = parsedDeviceTargets.map(function (target, index) {
+                                if (!target || typeof target !== 'object' || Array.isArray(target)) {
+                                    throw new Error("device route " + (index + 1) + " must be a JSON object");
+                                }
+                                var readText = function (pascalName, camelName) {
+                                    var value = typeof target[pascalName] !== 'undefined' ? target[pascalName] : target[camelName];
+                                    return value == null ? '' : String(value).trim();
+                                };
+                                return {
+                                    DeviceId: readText('DeviceId', 'deviceId'),
+                                    DeviceName: readText('DeviceName', 'deviceName'),
+                                    HueBridgeIp: readText('HueBridgeIp', 'hueBridgeIp'),
+                                    HueAppKey: readText('HueAppKey', 'hueAppKey'),
+                                    HueClientKey: readText('HueClientKey', 'hueClientKey'),
+                                    EntertainmentAreaId: readText('EntertainmentAreaId', 'entertainmentAreaId'),
+                                    EntertainmentAreaName: readText('EntertainmentAreaName', 'entertainmentAreaName'),
+                                    ChannelIdsOverride: readText('ChannelIdsOverride', 'channelIdsOverride') || null
+                                };
+                            });
+                        } catch (deviceTargetError) {
+                            Dashboard.alert("Automatic playback device routes must be valid JSON: " + (deviceTargetError.message || deviceTargetError));
+                            return;
+                        }
+                    }
 
                     console.log("addUserMapping - bridgeIp:", bridgeIp || "[empty]");
                     console.log("addUserMapping - appKey:", appKey ? "[set]" : "[empty]");
@@ -9643,6 +9709,7 @@
                         HueClientKey: clientKey,
                         EntertainmentAreaId: areaId,
                         EntertainmentAreaName: areaName,
+                        DeviceTargets: deviceTargets,
                         UseCinemaModeOverride: readOptionalBoolean('mappingUseCinemaModeOverride'),
                         PlaybackMediaFilterOverride: readOptionalString('mappingPlaybackMediaFilterOverride'),
                         AudioSensitivityPercentOverride: readOptionalNumber('mappingAudioSensitivityPercentOverride'),
@@ -9715,6 +9782,7 @@
                     var bridgeIpEl = page.querySelector('#mappingBridgeIp');
                     var appKeyEl = page.querySelector('#mappingAppKey');
                     var clientKeyEl = page.querySelector('#mappingClientKey');
+                    var deviceTargetsEl = page.querySelector('#mappingDeviceTargets');
                     var syncEnabledEl = page.querySelector('#mappingSyncEnabled');
                     var areaSelect = page.querySelector('#mappingAreaSelect');
                     var manualAreaEl = page.querySelector('#mappingAreaManual');
@@ -9731,6 +9799,7 @@
                         userSelect.disabled = false;
                     }
                     if (bridgeIpEl) bridgeIpEl.value = "";
+                    if (deviceTargetsEl) deviceTargetsEl.value = "";
                     if (appKeyEl) {
                         appKeyEl.value = "";
                         appKeyEl.placeholder = "Enter Hue App Key";
@@ -9838,6 +9907,8 @@
                         var areaName = mapping.EntertainmentAreaName || mapping.entertainmentAreaName || areaId;
                         var hasAppKey = typeof mapping.HasAppKey !== 'undefined' ? mapping.HasAppKey === true : mapping.hasAppKey === true;
                         var hasClientKey = typeof mapping.HasClientKey !== 'undefined' ? mapping.HasClientKey === true : mapping.hasClientKey === true;
+                        var deviceTargets = mapping.DeviceTargets || mapping.deviceTargets || [];
+                        deviceTargets = Array.isArray(deviceTargets) ? deviceTargets : [];
                         var getMappingValue = function (pascalName, camelName) {
                             return typeof mapping[pascalName] !== 'undefined' ? mapping[pascalName] : mapping[camelName];
                         };
@@ -9912,6 +9983,23 @@
                         }
 
                         page.querySelector('#mappingBridgeIp').value = bridgeIp;
+                        var deviceTargetsEl = page.querySelector('#mappingDeviceTargets');
+                        if (deviceTargetsEl) {
+                            deviceTargetsEl.value = JSON.stringify(deviceTargets.map(function (target) {
+                                var readTargetValue = function (pascalName, camelName) {
+                                    var value = target && typeof target[pascalName] !== 'undefined' ? target[pascalName] : target && target[camelName];
+                                    return value == null ? '' : String(value);
+                                };
+                                return {
+                                    DeviceId: readTargetValue('DeviceId', 'deviceId'),
+                                    DeviceName: readTargetValue('DeviceName', 'deviceName'),
+                                    HueBridgeIp: readTargetValue('HueBridgeIp', 'hueBridgeIp'),
+                                    EntertainmentAreaId: readTargetValue('EntertainmentAreaId', 'entertainmentAreaId'),
+                                    EntertainmentAreaName: readTargetValue('EntertainmentAreaName', 'entertainmentAreaName'),
+                                    ChannelIdsOverride: readTargetValue('ChannelIdsOverride', 'channelIdsOverride') || null
+                                };
+                            }), null, 2);
+                        }
                         page.querySelector('#mappingAppKey').value = "";
                         page.querySelector('#mappingAppKey').placeholder = hasAppKey ? "Stored securely; leave blank to keep" : "Enter Hue App Key";
                         page.querySelector('#mappingClientKey').value = "";

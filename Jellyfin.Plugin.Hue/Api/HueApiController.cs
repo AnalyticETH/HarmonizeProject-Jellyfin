@@ -5736,6 +5736,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 "item",
                 "userId",
                 "userName",
+                "deviceId",
+                "deviceName",
+                "deviceRouteMatched",
                 "bridgeIp",
                 "entertainmentAreaId",
                 "startedAtUtc",
@@ -5759,6 +5762,9 @@ namespace Jellyfin.Plugin.Hue.Api
                     session.Item,
                     session.UserId,
                     session.UserName,
+                    session.DeviceId,
+                    session.DeviceName,
+                    session.DeviceRouteMatched,
                     session.BridgeIp,
                     session.EntertainmentAreaId,
                     session.StartedAtUtc,
@@ -7247,10 +7253,38 @@ namespace Jellyfin.Plugin.Hue.Api
                 return false;
             }
 
-            return string.Equals(
+            if (!string.Equals(
                 JsonSerializer.Serialize(UserBridgeMappingSummary.From(left)),
                 JsonSerializer.Serialize(UserBridgeMappingSummary.From(right)),
-                StringComparison.Ordinal);
+                StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var leftTargets = left.DeviceTargets ?? new List<UserDeviceBridgeTarget>();
+            var rightTargets = right.DeviceTargets ?? new List<UserDeviceBridgeTarget>();
+            if (leftTargets.Count != rightTargets.Count)
+                return false;
+
+            for (var index = 0; index < leftTargets.Count; index++)
+            {
+                var leftTarget = leftTargets[index];
+                var rightTarget = rightTargets[index];
+                if (leftTarget == null || rightTarget == null)
+                {
+                    if (leftTarget != null || rightTarget != null)
+                        return false;
+                    continue;
+                }
+
+                if (!string.Equals(leftTarget.HueAppKey, rightTarget.HueAppKey, StringComparison.Ordinal) ||
+                    !string.Equals(leftTarget.HueClientKey, rightTarget.HueClientKey, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool AreEquivalentPreset(HueColorPreset left, HueColorPreset right) =>
@@ -7292,6 +7326,18 @@ namespace Jellyfin.Plugin.Hue.Api
                 HueClientKey = source.HueClientKey?.Trim() ?? string.Empty,
                 EntertainmentAreaId = source.EntertainmentAreaId?.Trim() ?? string.Empty,
                 EntertainmentAreaName = source.EntertainmentAreaName?.Trim() ?? string.Empty,
+                DeviceTargets = (source.DeviceTargets ?? Array.Empty<UserDeviceBridgeTargetSummary>())
+                    .Where(target => target != null)
+                    .Select(target => new UserDeviceBridgeTarget
+                    {
+                        DeviceId = target.DeviceId?.Trim() ?? string.Empty,
+                        DeviceName = target.DeviceName?.Trim() ?? string.Empty,
+                        HueBridgeIp = target.HueBridgeIp?.Trim() ?? string.Empty,
+                        EntertainmentAreaId = target.EntertainmentAreaId?.Trim() ?? string.Empty,
+                        EntertainmentAreaName = target.EntertainmentAreaName?.Trim() ?? string.Empty,
+                        ChannelIdsOverride = target.ChannelIdsOverride?.Trim()
+                    })
+                    .ToList(),
                 UseCinemaModeOverride = source.UseCinemaModeOverride,
                 BrightnessDimLevelOverride = source.BrightnessDimLevelOverride,
                 PauseBehaviorOverride = source.PauseBehaviorOverride?.Trim(),
@@ -7357,6 +7403,42 @@ namespace Jellyfin.Plugin.Hue.Api
                     (!string.IsNullOrWhiteSpace(existingMapping.HueAppKey) || !string.IsNullOrWhiteSpace(existingMapping.HueClientKey));
             }
 
+            var explicitDeviceCredentials = (source.DeviceTargetCredentials ?? new List<UserDeviceBridgeTargetImport>())
+                .Where(target => target != null)
+                .GroupBy(target => target.DeviceId?.Trim() ?? string.Empty, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            foreach (var deviceTarget in mapping.DeviceTargets ?? new List<UserDeviceBridgeTarget>())
+            {
+                if (explicitDeviceCredentials.TryGetValue(deviceTarget.DeviceId?.Trim() ?? string.Empty, out var replacement))
+                {
+                    if (!string.IsNullOrWhiteSpace(replacement.DeviceName))
+                        deviceTarget.DeviceName = replacement.DeviceName.Trim();
+                    if (!string.IsNullOrWhiteSpace(replacement.HueBridgeIp))
+                        deviceTarget.HueBridgeIp = replacement.HueBridgeIp.Trim();
+                    if (!string.IsNullOrWhiteSpace(replacement.HueAppKey))
+                        deviceTarget.HueAppKey = replacement.HueAppKey.Trim();
+                    if (!string.IsNullOrWhiteSpace(replacement.HueClientKey))
+                        deviceTarget.HueClientKey = replacement.HueClientKey.Trim();
+                    if (!string.IsNullOrWhiteSpace(replacement.EntertainmentAreaId))
+                        deviceTarget.EntertainmentAreaId = replacement.EntertainmentAreaId.Trim();
+                    if (!string.IsNullOrWhiteSpace(replacement.EntertainmentAreaName))
+                        deviceTarget.EntertainmentAreaName = replacement.EntertainmentAreaName.Trim();
+                    if (!string.IsNullOrWhiteSpace(replacement.ChannelIdsOverride))
+                        deviceTarget.ChannelIdsOverride = replacement.ChannelIdsOverride.Trim();
+                }
+
+                var existingDeviceTarget = existing?.DeviceTargets?.FirstOrDefault(candidate =>
+                    string.Equals(candidate.DeviceId?.Trim(), deviceTarget.DeviceId?.Trim(), StringComparison.Ordinal));
+                if (existingDeviceTarget != null &&
+                    IsSameBridgeTarget(deviceTarget.HueBridgeIp, existingDeviceTarget.HueBridgeIp))
+                {
+                    if (string.IsNullOrWhiteSpace(deviceTarget.HueAppKey))
+                        deviceTarget.HueAppKey = existingDeviceTarget.HueAppKey;
+                    if (string.IsNullOrWhiteSpace(deviceTarget.HueClientKey))
+                        deviceTarget.HueClientKey = existingDeviceTarget.HueClientKey;
+                }
+            }
+
             if (!mapping.SyncEnabled || string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
             {
                 mapping.HueBridgeIp = string.Empty;
@@ -7364,6 +7446,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 mapping.HueClientKey = string.Empty;
                 mapping.EntertainmentAreaId = string.Empty;
                 mapping.EntertainmentAreaName = string.Empty;
+                if (!mapping.SyncEnabled)
+                    mapping.DeviceTargets.Clear();
             }
 
             return mapping;
@@ -7377,6 +7461,7 @@ namespace Jellyfin.Plugin.Hue.Api
             errors.AddRange(PluginConfiguration.ValidatePerformanceOverrides(mapping, label));
             errors.AddRange(PluginConfiguration.ValidateExecutionOverrides(mapping, label));
             errors.AddRange(PluginConfiguration.ValidateChannelOverrides(mapping, label));
+            errors.AddRange(PluginConfiguration.ValidateDeviceTargets(mapping, label));
 
             if (string.IsNullOrWhiteSpace(mapping.UserId))
                 errors.Add($"{label} requires a user ID.");
@@ -7559,6 +7644,9 @@ namespace Jellyfin.Plugin.Hue.Api
             var appKey = mapping.HueAppKey?.Trim() ?? string.Empty;
             var clientKey = mapping.HueClientKey?.Trim() ?? string.Empty;
             var areaId = mapping.EntertainmentAreaId?.Trim() ?? string.Empty;
+            var deviceTargetError = PluginConfiguration.ValidateDeviceTargets(mapping, label).FirstOrDefault();
+            if (deviceTargetError != null)
+                return deviceTargetError;
 
             if (string.IsNullOrWhiteSpace(bridgeIp))
             {
@@ -7592,6 +7680,52 @@ namespace Jellyfin.Plugin.Hue.Api
             mapping.HueClientKey = string.Empty;
             mapping.EntertainmentAreaId = string.Empty;
             mapping.EntertainmentAreaName = string.Empty;
+            mapping.DeviceTargets = new List<UserDeviceBridgeTarget>();
+        }
+
+        private static List<UserDeviceBridgeTarget> CloneDeviceTargets(IEnumerable<UserDeviceBridgeTarget>? targets)
+        {
+            return (targets ?? Array.Empty<UserDeviceBridgeTarget>())
+                .Where(target => target != null)
+                .Select(target => new UserDeviceBridgeTarget
+                {
+                    DeviceId = target.DeviceId,
+                    DeviceName = target.DeviceName,
+                    HueBridgeIp = target.HueBridgeIp,
+                    HueAppKey = target.HueAppKey,
+                    HueClientKey = target.HueClientKey,
+                    EntertainmentAreaId = target.EntertainmentAreaId,
+                    EntertainmentAreaName = target.EntertainmentAreaName,
+                    ChannelIdsOverride = target.ChannelIdsOverride
+                })
+                .ToList();
+        }
+
+        private static void PreserveDeviceTargetCredentials(
+            UserBridgeMapping mapping,
+            UserBridgeMapping? existingMapping)
+        {
+            mapping.DeviceTargets ??= new List<UserDeviceBridgeTarget>();
+            if (existingMapping?.DeviceTargets == null)
+                return;
+
+            foreach (var target in mapping.DeviceTargets)
+            {
+                if (target == null)
+                    continue;
+
+                var existingTarget = existingMapping.DeviceTargets.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.DeviceId?.Trim(), target.DeviceId?.Trim(), StringComparison.Ordinal) &&
+                    IsSameBridgeTarget(candidate.HueBridgeIp, target.HueBridgeIp));
+                if (existingTarget == null)
+                    continue;
+
+                if (string.IsNullOrWhiteSpace(target.HueAppKey))
+                    target.HueAppKey = existingTarget.HueAppKey;
+                if (string.IsNullOrWhiteSpace(target.HueClientKey))
+                    target.HueClientKey = existingTarget.HueClientKey;
+            }
         }
 
         /// <summary>
@@ -7694,6 +7828,27 @@ namespace Jellyfin.Plugin.Hue.Api
                 }
             }
 
+            if (!mapping.SyncEnabled)
+            {
+                // A disabled mapping is only a per-user opt-out. Scrub nested
+                // routes before validation so stale or incomplete credentials
+                // cannot block the opt-out or remain persisted.
+                ClearDisabledUserMappingTarget(mapping);
+            }
+            else
+            {
+                PreserveDeviceTargetCredentials(mapping, existingMapping);
+                var deviceTargetErrors = PluginConfiguration.ValidateDeviceTargets(mapping, overrideLabel);
+                if (deviceTargetErrors.Count > 0)
+                {
+                    return BadRequest(new
+                    {
+                        message = "Automatic playback device targets are invalid.",
+                        errors = deviceTargetErrors
+                    });
+                }
+            }
+
             if (mapping.SyncEnabled && !inheritsDefaultBridge &&
                 !HueBridgeCertificateValidation.IsValidBridgeAddress(mapping.HueBridgeIp))
             {
@@ -7725,13 +7880,6 @@ namespace Jellyfin.Plugin.Hue.Api
                 mapping.HueClientKey = string.Empty;
                 mapping.EntertainmentAreaId = string.Empty;
                 mapping.EntertainmentAreaName = string.Empty;
-            }
-
-            if (!mapping.SyncEnabled)
-            {
-                // A disabled mapping is only a per-user opt-out. Do not retain stale
-                // bridge credentials or an area that will never be used.
-                ClearDisabledUserMappingTarget(mapping);
             }
 
             var previousMappings = config.UserMappings.ToList();
@@ -8040,7 +8188,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     HueAppKey: mapping.HueAppKey,
                     HueClientKey: mapping.HueClientKey,
                     EntertainmentAreaId: mapping.EntertainmentAreaId,
-                    EntertainmentAreaName: mapping.EntertainmentAreaName));
+                    EntertainmentAreaName: mapping.EntertainmentAreaName,
+                    DeviceTargets: CloneDeviceTargets(mapping.DeviceTargets)));
 
             foreach (var mapping in mappings)
             {
@@ -8066,6 +8215,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     mapping.HueClientKey = previous.HueClientKey;
                     mapping.EntertainmentAreaId = previous.EntertainmentAreaId;
                     mapping.EntertainmentAreaName = previous.EntertainmentAreaName;
+                    mapping.DeviceTargets = CloneDeviceTargets(previous.DeviceTargets);
                 }
 
                 _logger?.LogError(ex, "Could not persist bulk enabled state for Hue user mappings");
@@ -8370,6 +8520,34 @@ namespace Jellyfin.Plugin.Hue.Api
         }
     }
 
+    /// <summary>Credential-safe representation of one automatic playback device target.</summary>
+    public sealed class UserDeviceBridgeTargetSummary
+    {
+        public string DeviceId { get; set; } = string.Empty;
+        public string DeviceName { get; set; } = string.Empty;
+        public string HueBridgeIp { get; set; } = string.Empty;
+        public string EntertainmentAreaId { get; set; } = string.Empty;
+        public string EntertainmentAreaName { get; set; } = string.Empty;
+        public bool HasAppKey { get; set; }
+        public bool HasClientKey { get; set; }
+        public string? ChannelIdsOverride { get; set; }
+
+        public static UserDeviceBridgeTargetSummary From(UserDeviceBridgeTarget target)
+        {
+            return new UserDeviceBridgeTargetSummary
+            {
+                DeviceId = target.DeviceId,
+                DeviceName = target.DeviceName,
+                HueBridgeIp = target.HueBridgeIp,
+                EntertainmentAreaId = target.EntertainmentAreaId,
+                EntertainmentAreaName = target.EntertainmentAreaName,
+                HasAppKey = !string.IsNullOrWhiteSpace(target.HueAppKey),
+                HasClientKey = !string.IsNullOrWhiteSpace(target.HueClientKey),
+                ChannelIdsOverride = target.ChannelIdsOverride
+            };
+        }
+    }
+
     /// <summary>
     /// Non-secret representation of a per-user bridge mapping, playback, color, performance,
     /// execution, channel, and restoration profiles.
@@ -8385,6 +8563,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string EntertainmentAreaName { get; set; } = string.Empty;
         public bool HasAppKey { get; set; }
         public bool HasClientKey { get; set; }
+        public IReadOnlyList<UserDeviceBridgeTargetSummary> DeviceTargets { get; set; } = Array.Empty<UserDeviceBridgeTargetSummary>();
         public bool? UseCinemaModeOverride { get; set; }
         public int? BrightnessDimLevelOverride { get; set; }
         public string? PauseBehaviorOverride { get; set; }
@@ -8447,6 +8626,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 EntertainmentAreaName = mapping.EntertainmentAreaName,
                 HasAppKey = !string.IsNullOrWhiteSpace(mapping.HueAppKey),
                 HasClientKey = !string.IsNullOrWhiteSpace(mapping.HueClientKey),
+                DeviceTargets = (mapping.DeviceTargets ?? new List<UserDeviceBridgeTarget>())
+                    .Where(target => target != null)
+                    .Select(UserDeviceBridgeTargetSummary.From)
+                    .ToArray(),
                 UseCinemaModeOverride = mapping.UseCinemaModeOverride,
                 BrightnessDimLevelOverride = mapping.BrightnessDimLevelOverride,
                 PauseBehaviorOverride = mapping.PauseBehaviorOverride,
@@ -8657,6 +8840,24 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         public string HueAppKey { get; set; } = string.Empty;
         public string HueClientKey { get; set; } = string.Empty;
+        /// <summary>
+        /// Optional replacement credentials for exported device targets. Export documents
+        /// never populate this collection; same-server imports preserve matching stored keys.
+        /// </summary>
+        public List<UserDeviceBridgeTargetImport> DeviceTargetCredentials { get; set; } = new();
+    }
+
+    /// <summary>Explicit replacement credentials for one imported device target.</summary>
+    public sealed class UserDeviceBridgeTargetImport
+    {
+        public string DeviceId { get; set; } = string.Empty;
+        public string DeviceName { get; set; } = string.Empty;
+        public string HueBridgeIp { get; set; } = string.Empty;
+        public string HueAppKey { get; set; } = string.Empty;
+        public string HueClientKey { get; set; } = string.Empty;
+        public string EntertainmentAreaId { get; set; } = string.Empty;
+        public string EntertainmentAreaName { get; set; } = string.Empty;
+        public string? ChannelIdsOverride { get; set; }
     }
 
     /// <summary>
@@ -8671,7 +8872,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string PluginVersion { get; set; } = string.Empty;
         public DateTime ExportedAtUtc { get; set; }
         public bool CredentialsIncluded { get; set; }
-        public string CredentialNote { get; set; } = "Bridge credential values are omitted. Custom FFmpeg flags are retained for migration and may contain sensitive paths or URLs; review before sharing. Re-enter replacement keys when importing to a new server; existing matching keys are preserved.";
+        public string CredentialNote { get; set; } = "Bridge credential values, including nested automatic playback device-route keys, are omitted. Custom FFmpeg flags are retained for migration and may contain sensitive paths or URLs; review before sharing. Re-enter replacement keys in the import document's DeviceTargetCredentials when importing to a new server; existing matching keys are preserved.";
         public HuePluginConfigurationSettings Configuration { get; set; } = new();
         public IReadOnlyList<UserBridgeMappingSummary> UserMappings { get; set; } = Array.Empty<UserBridgeMappingSummary>();
         public IReadOnlyList<HueColorPresetResult> ColorPresets { get; set; } = Array.Empty<HueColorPresetResult>();

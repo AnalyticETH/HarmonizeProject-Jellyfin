@@ -3346,6 +3346,87 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void GetBridgeConfigForPlayback_UsesExactTrimmedDeviceTarget()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "10.0.0.1",
+            HueAppKey = "default-key",
+            HueClientKey = "default-client",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString(),
+                    HueBridgeIp = "192.168.1.10",
+                    HueAppKey = "user-key",
+                    HueClientKey = "user-client",
+                    EntertainmentAreaId = "user-area",
+                    DeviceTargets = new System.Collections.Generic.List<UserDeviceBridgeTarget>
+                    {
+                        new UserDeviceBridgeTarget
+                        {
+                            DeviceId = " living-room-player ",
+                            HueBridgeIp = "192.168.1.20",
+                            HueAppKey = "device-key",
+                            HueClientKey = "device-client",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    }
+                }
+            }
+        };
+
+        var result = config.GetBridgeConfigForPlayback(userId, "  living-room-player  ");
+
+        Assert.Equal("192.168.1.20", result.BridgeIp);
+        Assert.Equal("device-key", result.AppKey);
+        Assert.Equal("device-client", result.ClientKey);
+        Assert.Equal("device-area", result.AreaId);
+    }
+
+    [Fact]
+    public void GetBridgeConfigForPlayback_TreatsDeviceIdAsCaseSensitiveAndFallsBackToUser()
+    {
+        var userId = System.Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = userId.ToString(),
+                    HueBridgeIp = "192.168.1.10",
+                    HueAppKey = "user-key",
+                    HueClientKey = "user-client",
+                    EntertainmentAreaId = "user-area",
+                    DeviceTargets = new System.Collections.Generic.List<UserDeviceBridgeTarget>
+                    {
+                        new UserDeviceBridgeTarget
+                        {
+                            DeviceId = "Living-Room-Player",
+                            HueBridgeIp = "192.168.1.20",
+                            HueAppKey = "device-key",
+                            HueClientKey = "device-client",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    }
+                }
+            }
+        };
+
+        var caseMismatch = config.GetBridgeConfigForPlayback(userId, "living-room-player");
+        var unknownDevice = config.GetBridgeConfigForPlayback(userId, "unknown-player");
+        var blankDevice = config.GetBridgeConfigForPlayback(userId, "   ");
+
+        Assert.Equal("192.168.1.10", caseMismatch.BridgeIp);
+        Assert.Equal("192.168.1.10", unknownDevice.BridgeIp);
+        Assert.Equal("192.168.1.10", blankDevice.BridgeIp);
+    }
+
+    [Fact]
     public void Validate_WhenUserMappingIsIncomplete_ReturnsMappingErrors()
     {
         var config = new PluginConfiguration
@@ -4038,6 +4119,149 @@ public class PluginConfigurationTests
         Assert.Equal(new[] { 4, 12 }, explicitSelection!.OrderBy(channelId => channelId));
         Assert.Equal(new[] { 3, 7 }, inheritedSelection!.OrderBy(channelId => channelId));
         Assert.Equal(new[] { 3, 7 }, unmappedSelection!.OrderBy(channelId => channelId));
+    }
+
+    [Fact]
+    public void GetChannelIdsForPlayback_UsesDeviceThenUserThenGlobalSelection()
+    {
+        var deviceUserId = System.Guid.NewGuid();
+        var globalUserId = System.Guid.NewGuid();
+        var configuration = new PluginConfiguration
+        {
+            ChannelIds = "1, 2",
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = deviceUserId.ToString(),
+                    ChannelIdsOverride = "3, 4",
+                    DeviceTargets = new System.Collections.Generic.List<UserDeviceBridgeTarget>
+                    {
+                        new UserDeviceBridgeTarget { DeviceId = "device-explicit", ChannelIdsOverride = "5, 6" },
+                        new UserDeviceBridgeTarget { DeviceId = "device-inherited" }
+                    }
+                },
+                new UserBridgeMapping { UserId = globalUserId.ToString() }
+            }
+        };
+
+        var deviceSelection = configuration.GetChannelIdsForPlayback(deviceUserId, "device-explicit");
+        var inheritedUserSelection = configuration.GetChannelIdsForPlayback(deviceUserId, "device-inherited");
+        var unknownDeviceSelection = configuration.GetChannelIdsForPlayback(deviceUserId, "unknown-device");
+        var globalSelection = configuration.GetChannelIdsForPlayback(globalUserId, null);
+
+        Assert.Equal(new[] { 5, 6 }, deviceSelection!.OrderBy(channelId => channelId));
+        Assert.Equal(new[] { 3, 4 }, inheritedUserSelection!.OrderBy(channelId => channelId));
+        Assert.Equal(new[] { 3, 4 }, unknownDeviceSelection!.OrderBy(channelId => channelId));
+        Assert.Equal(new[] { 1, 2 }, globalSelection!.OrderBy(channelId => channelId));
+    }
+
+    [Fact]
+    public void Validate_DeviceTargetsAcceptBoundedCompleteTargetsAndCaseDistinctIds()
+    {
+        var mapping = new UserBridgeMapping
+        {
+            UserId = "user-1",
+            HueBridgeIp = "192.168.1.10",
+            HueAppKey = "user-key",
+            HueClientKey = "user-client",
+            EntertainmentAreaId = "user-area",
+            DeviceTargets = Enumerable.Range(0, PluginConfiguration.MaxDeviceTargetsPerUser)
+                .Select(index => new UserDeviceBridgeTarget
+                {
+                    DeviceId = index == 0 ? "Player" : index == 1 ? "player" : $"player-{index}",
+                    HueBridgeIp = index == 0 ? "hue-bridge.local" : "192.168.1.20",
+                    HueAppKey = $"app-{index}",
+                    HueClientKey = $"client-{index}",
+                    EntertainmentAreaId = $"area-{index}",
+                    ChannelIdsOverride = "1, 2"
+                })
+                .ToList()
+        };
+        var configuration = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping> { mapping }
+        };
+
+        var errors = configuration.Validate();
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void Validate_DeviceTargetsRejectExcessAndTrimmedDuplicateIds()
+    {
+        var targets = Enumerable.Range(0, PluginConfiguration.MaxDeviceTargetsPerUser + 1)
+            .Select(index => new UserDeviceBridgeTarget
+            {
+                DeviceId = $"device-{index}",
+                HueBridgeIp = "192.168.1.20",
+                HueAppKey = "app-key",
+                HueClientKey = "client-key",
+                EntertainmentAreaId = "area-id"
+            })
+            .ToList();
+        targets[1].DeviceId = " device-0 ";
+        var configuration = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    HueBridgeIp = "192.168.1.10",
+                    HueAppKey = "user-key",
+                    HueClientKey = "user-client",
+                    EntertainmentAreaId = "user-area",
+                    DeviceTargets = targets
+                }
+            }
+        };
+
+        var errors = configuration.Validate();
+
+        Assert.Contains($"User mapping 1 may define no more than {PluginConfiguration.MaxDeviceTargetsPerUser} device targets", errors);
+        Assert.Contains("User mapping 1 device target 2 duplicates another device target", errors);
+    }
+
+    [Fact]
+    public void Validate_DeviceTargetRequiresOpaqueIdCompleteLocalTargetAndValidChannels()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            UserMappings = new System.Collections.Generic.List<UserBridgeMapping>
+            {
+                new UserBridgeMapping
+                {
+                    UserId = "user-1",
+                    HueBridgeIp = "192.168.1.10",
+                    HueAppKey = "user-key",
+                    HueClientKey = "user-client",
+                    EntertainmentAreaId = "user-area",
+                    DeviceTargets = new System.Collections.Generic.List<UserDeviceBridgeTarget>
+                    {
+                        new UserDeviceBridgeTarget
+                        {
+                            DeviceId = "   ",
+                            HueBridgeIp = "8.8.8.8",
+                            ChannelIdsOverride = "1, nope, 70000"
+                        }
+                    }
+                }
+            }
+        };
+
+        var errors = configuration.Validate();
+
+        Assert.Contains("User mapping 1 device target 1 requires a Device ID", errors);
+        Assert.Contains("User mapping 1 device target 1 bridge address must be a valid private IP address or .local host name", errors);
+        Assert.Contains("User mapping 1 device target 1 requires a Hue App Key", errors);
+        Assert.Contains("User mapping 1 device target 1 requires a Hue Client Key", errors);
+        Assert.Contains("User mapping 1 device target 1 requires an Entertainment Area ID", errors);
+        Assert.Contains("User mapping 1 device target 1 channel IDs override must be a comma-separated list of IDs from 0 to 65535", errors);
     }
 
     [Fact]

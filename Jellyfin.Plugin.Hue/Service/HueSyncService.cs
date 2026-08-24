@@ -78,6 +78,9 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _recoveredSessionId;
         private Guid? _currentUserId;
         private string? _currentUserName;
+        private string? _currentDeviceId;
+        private string? _currentDeviceName;
+        private bool _currentDeviceRouteMatched;
         private List<HueClient.LightState>? _savedLightStates;
         private string? _savedLightStatePlaySessionId;
         private DateTime _syncStartTime;
@@ -458,6 +461,9 @@ namespace Jellyfin.Plugin.Hue.Service
                         {
                             _currentUserId = null;
                             _currentUserName = null;
+                            _currentDeviceId = null;
+                            _currentDeviceName = null;
+                            _currentDeviceRouteMatched = false;
                         }
                     }
 
@@ -620,6 +626,9 @@ namespace Jellyfin.Plugin.Hue.Service
             double? lastSeekPositionSeconds;
             HueSessionSummary? lastSessionSummary;
             string? playSessionId;
+            string? currentDeviceId;
+            string? currentDeviceName;
+            bool currentDeviceRouteMatched;
 
             lock (_syncLock)
             {
@@ -627,6 +636,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentItem = _currentItemName;
                 currentUserId = _currentUserId;
                 currentUserName = _currentUserName;
+                currentDeviceId = _currentDeviceId;
+                currentDeviceName = _currentDeviceName;
+                currentDeviceRouteMatched = _currentDeviceRouteMatched;
                 currentFrameResolution = _currentFrameResolution;
                 currentVideoScalingMode = _currentVideoScalingMode;
                 currentVideoDeinterlaceMode = _currentVideoDeinterlaceMode;
@@ -687,6 +699,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 CurrentItem = currentItem,
                 ActiveUserId = isSyncing ? currentUserId?.ToString() : null,
                 ActiveUserName = isSyncing ? currentUserName : null,
+                ActiveDeviceId = isSyncing ? currentDeviceId : null,
+                ActiveDeviceName = isSyncing ? currentDeviceName : null,
+                ActiveDeviceRouteMatched = isSyncing ? currentDeviceRouteMatched : null,
                 ActivePlaybackMediaFilter = isSyncing
                     ? Plugin.Instance?.Configuration?.GetPlaybackMediaFilterForUser(currentUserId ?? Guid.Empty)
                     : null,
@@ -952,6 +967,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 Item = entry.Item,
                 UserId = entry.UserId,
                 UserName = entry.UserName,
+                DeviceId = entry.DeviceId,
+                DeviceName = entry.DeviceName,
+                DeviceRouteMatched = entry.DeviceRouteMatched,
                 BridgeIp = entry.BridgeIp,
                 EntertainmentAreaId = entry.EntertainmentAreaId,
                 StartedAtUtc = entry.StartedAtUtc,
@@ -978,6 +996,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 Item = summary.Item,
                 UserId = summary.UserId,
                 UserName = summary.UserName,
+                DeviceId = summary.DeviceId,
+                DeviceName = summary.DeviceName,
+                DeviceRouteMatched = summary.DeviceRouteMatched,
                 BridgeIp = summary.BridgeIp,
                 EntertainmentAreaId = summary.EntertainmentAreaId,
                 StartedAtUtc = summary.StartedAtUtc,
@@ -1334,7 +1355,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 config = Plugin.Instance?.Configuration;
                 if (primaryResourceKey == null && config != null && _currentUserId.HasValue)
                 {
-                    var primaryTarget = config.GetBridgeConfigForUser(_currentUserId.Value);
+                    var primaryTarget = config.GetBridgeConfigForPlayback(_currentUserId.Value, _currentDeviceId);
                     if (!string.IsNullOrWhiteSpace(primaryTarget.BridgeIp) &&
                         !string.IsNullOrWhiteSpace(primaryTarget.AreaId))
                     {
@@ -1347,7 +1368,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 return false;
 
             var userId = e.Session?.UserId ?? Guid.Empty;
-            var target = config.GetBridgeConfigForUser(userId);
+            var target = config.GetBridgeConfigForPlayback(userId, e.Session?.DeviceId);
             if (string.IsNullOrWhiteSpace(target.BridgeIp) || string.IsNullOrWhiteSpace(target.AreaId))
                 return false;
 
@@ -2539,7 +2560,17 @@ namespace Jellyfin.Plugin.Hue.Service
         internal static IReadOnlySet<int>? ResolveChannelIds(PluginConfiguration config, Guid userId)
         {
             ArgumentNullException.ThrowIfNull(config);
-            var channelIds = config.GetChannelIdsForUser(userId);
+            var channelIds = config.GetChannelIdsForPlayback(userId, null);
+            return channelIds == null ? null : new HashSet<int>(channelIds);
+        }
+
+        internal static IReadOnlySet<int>? ResolveChannelIds(
+            PluginConfiguration config,
+            Guid userId,
+            string? deviceId)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            var channelIds = config.GetChannelIdsForPlayback(userId, deviceId);
             return channelIds == null ? null : new HashSet<int>(channelIds);
         }
 
@@ -4360,6 +4391,8 @@ namespace Jellyfin.Plugin.Hue.Service
 
             var userId = e.Session?.UserId ?? Guid.Empty;
             var userName = e.Session?.UserName?.Trim();
+            var deviceId = e.Session?.DeviceId?.Trim();
+            var deviceName = e.Session?.DeviceName?.Trim();
             if (!config.IsSyncEnabledForUser(userId))
             {
                 _logger.LogInformation("Hue Sync is disabled for user {0}, skipping.", userId);
@@ -4411,7 +4444,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var audioChannelMode = ResolveAudioChannelMode(config, userId);
             var colorProcessingSettings = ResolveColorProcessingSettings(config, userId);
             var executionSettings = ResolveExecutionSettings(config, userId);
-            var selectedChannelIds = ResolveChannelIds(config, userId);
+            var selectedChannelIds = ResolveChannelIds(config, userId, deviceId);
 
             var videoPath = e.Item?.Path;
             if (string.IsNullOrWhiteSpace(videoPath))
@@ -4427,7 +4460,8 @@ namespace Jellyfin.Plugin.Hue.Service
             var videoDeinterlaceMode = performanceSettings.VideoDeinterlaceMode;
 
             // Get user-specific bridge configuration
-            var (bridgeIp, appKey, clientKey, areaId) = config.GetBridgeConfigForUser(userId);
+            var (bridgeIp, appKey, clientKey, areaId) = config.GetBridgeConfigForPlayback(userId, deviceId);
+            var deviceRouteMatched = config.HasDeviceTargetForPlayback(userId, deviceId);
 
             if (string.IsNullOrWhiteSpace(bridgeIp) || string.IsNullOrWhiteSpace(appKey) ||
                 string.IsNullOrWhiteSpace(clientKey) || string.IsNullOrWhiteSpace(areaId))
@@ -4501,6 +4535,9 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentPlaySessionId = e.PlaySessionId;
                     _currentUserId = userId == Guid.Empty ? null : userId;
                     _currentUserName = string.IsNullOrWhiteSpace(userName) ? null : userName;
+                    _currentDeviceId = string.IsNullOrWhiteSpace(deviceId) ? null : deviceId;
+                    _currentDeviceName = string.IsNullOrWhiteSpace(deviceName) ? null : deviceName;
+                    _currentDeviceRouteMatched = deviceRouteMatched;
                     _currentBridgeConfig = (bridgeIp, appKey, clientKey, areaId);
                     _bridgeAreaDeactivated = false;
                     _syncStartTime = preservedSyncStartTime ?? DateTime.UtcNow;
@@ -4947,6 +4984,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     _currentUserId = null;
                     _currentUserName = null;
+                    _currentDeviceId = null;
+                    _currentDeviceName = null;
+                    _currentDeviceRouteMatched = false;
                 }
                 if (publishIdleStatus)
                 {
@@ -5011,6 +5051,9 @@ namespace Jellyfin.Plugin.Hue.Service
             string? itemName;
             Guid? userId;
             string? userName;
+            string? deviceId;
+            string? deviceName;
+            bool deviceRouteMatched;
             DateTime startedAtUtc;
             int seekRestartCount;
             double? lastSeekPositionSeconds;
@@ -5027,6 +5070,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 itemName = _currentItemName;
                 userId = _currentUserId;
                 userName = _currentUserName;
+                deviceId = _currentDeviceId;
+                deviceName = _currentDeviceName;
+                deviceRouteMatched = _currentDeviceRouteMatched;
                 startedAtUtc = _syncStartTime;
                 seekRestartCount = _seekRestartCount;
                 lastSeekPositionSeconds = _lastSeekPositionSeconds;
@@ -5049,6 +5095,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 Item = itemName,
                 UserId = userId == Guid.Empty ? null : userId?.ToString(),
                 UserName = string.IsNullOrWhiteSpace(userName) ? null : userName,
+                DeviceId = string.IsNullOrWhiteSpace(deviceId) ? null : deviceId,
+                DeviceName = string.IsNullOrWhiteSpace(deviceName) ? null : deviceName,
+                DeviceRouteMatched = deviceRouteMatched,
                 BridgeIp = bridgeConfig?.BridgeIp,
                 EntertainmentAreaId = bridgeConfig?.AreaId,
                 StartedAtUtc = startedAtUtc == default ? null : startedAtUtc,
@@ -5078,6 +5127,9 @@ namespace Jellyfin.Plugin.Hue.Service
                     Item = seed.Item,
                     UserId = seed.UserId,
                     UserName = seed.UserName,
+                    DeviceId = seed.DeviceId,
+                    DeviceName = seed.DeviceName,
+                    DeviceRouteMatched = seed.DeviceRouteMatched,
                     BridgeIp = seed.BridgeIp,
                     EntertainmentAreaId = seed.EntertainmentAreaId,
                     StartedAtUtc = seed.StartedAtUtc,
@@ -5298,6 +5350,9 @@ namespace Jellyfin.Plugin.Hue.Service
             public string? Item { get; init; }
             public string? UserId { get; init; }
             public string? UserName { get; init; }
+            public string? DeviceId { get; init; }
+            public string? DeviceName { get; init; }
+            public bool DeviceRouteMatched { get; init; }
             public string? BridgeIp { get; init; }
             public string? EntertainmentAreaId { get; init; }
             public DateTime? StartedAtUtc { get; init; }
@@ -5337,6 +5392,9 @@ namespace Jellyfin.Plugin.Hue.Service
         /// </summary>
         public string? ActiveUserId { get; init; }
         public string? ActiveUserName { get; init; }
+        public string? ActiveDeviceId { get; init; }
+        public string? ActiveDeviceName { get; init; }
+        public bool? ActiveDeviceRouteMatched { get; init; }
         public string? ActivePlaybackMediaFilter { get; init; }
         public string? ActiveFrameResolution { get; init; }
         public string? ActiveVideoScalingMode { get; init; }
@@ -5417,6 +5475,9 @@ namespace Jellyfin.Plugin.Hue.Service
         public string? Item { get; init; }
         public string? UserId { get; init; }
         public string? UserName { get; init; }
+        public string? DeviceId { get; init; }
+        public string? DeviceName { get; init; }
+        public bool DeviceRouteMatched { get; init; }
         public string? BridgeIp { get; init; }
         public string? EntertainmentAreaId { get; init; }
         public DateTime? StartedAtUtc { get; init; }
