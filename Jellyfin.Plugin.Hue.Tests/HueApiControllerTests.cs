@@ -34,6 +34,17 @@ public sealed class HueApiControllerTests : IDisposable
     public void Dispose() => _httpClient.Dispose();
 
     [Fact]
+    public void EntertainmentAreas_DoesNotExposeSecretBearingGetRoute()
+    {
+        var getRoutes = typeof(HueApiController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .SelectMany(method => method.GetCustomAttributes<HttpGetAttribute>())
+            .Where(route => string.Equals(route.Template, "EntertainmentAreas", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Empty(getRoutes);
+    }
+
+    [Fact]
     public async Task DiscoverBridge_ReturnsDiscoveredAddress()
     {
         SetupHttpResponse(HttpStatusCode.OK, "[{\"internalipaddress\":\"192.168.1.100\"}]");
@@ -7143,7 +7154,18 @@ public sealed class HueApiControllerTests : IDisposable
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "support-app-secret",
             HueClientKey = "support-client-secret",
-            EntertainmentAreaId = "area-1"
+            EntertainmentAreaId = "area-1",
+            CustomFfmpegFlags = "-headers support-global-ffmpeg-secret",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "support-mapping-user",
+                    UserName = "Support Mapping",
+                    CustomFfmpegFlagsOverride = "-i support-mapping-ffmpeg-secret",
+                    SyncEnabled = false
+                }
+            }
         });
         SetupHttpResponse(HttpStatusCode.OK, "{\"data\":[]}");
         var probe = new Mock<IHueEnvironmentProbe>();
@@ -7169,10 +7191,16 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(bundle.Configuration.Configuration.HasClientKey);
         Assert.Empty(bundle.Configuration.Configuration.HueAppKey);
         Assert.Empty(bundle.Configuration.Configuration.HueClientKey);
+        Assert.True(bundle.Configuration.Configuration.CustomFfmpegFlagsConfigured);
+        var supportMapping = Assert.Single(bundle.Configuration.UserMappings);
+        Assert.True(supportMapping.CustomFfmpegFlagsConfigured);
+        Assert.Null(supportMapping.CustomFfmpegFlagsOverride);
 
         var serialized = JsonSerializer.Serialize(bundle);
         Assert.DoesNotContain("support-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("support-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("support-global-ffmpeg-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("support-mapping-ffmpeg-secret", serialized, StringComparison.Ordinal);
         probe.Verify(environment => environment.CheckAsync(It.Is<CancellationToken>(token => token.CanBeCanceled)), Times.Once);
     }
 

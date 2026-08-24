@@ -228,19 +228,6 @@ namespace Jellyfin.Plugin.Hue.Api
             });
         }
 
-        [HttpGet("EntertainmentAreas")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status502BadGateway)]
-        public async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> GetEntertainmentAreas(
-            [FromQuery(Name = "ip")] string? bridgeIp,
-            [FromQuery(Name = "appKey")] string? appKey,
-            [FromQuery(Name = "userId")] string? userId,
-            CancellationToken cancellationToken = default)
-        {
-            return await LoadEntertainmentAreas(bridgeIp, appKey, userId, cancellationToken);
-        }
-
         /// <summary>
         /// Loads entertainment areas using a request body so app keys do not appear in URLs or access logs.
         /// A userId may select a matching persisted custom mapping when the key is omitted.
@@ -5958,10 +5945,10 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Collects a consolidated, credential-safe administrator support document.
         /// The bundle combines local prerequisites, saved-target validation, runtime
-        /// telemetry, playback and scene-cue history, scheduler status, and the same
-        /// redacted configuration export used by Backup and Restore. It never contains
-        /// bridge keys or playback tokens; labels and media metadata may still be
-        /// private, so administrators should review the file before sharing it.
+        /// telemetry, playback and scene-cue history, scheduler status, and a
+        /// support-specific configuration export. It never contains bridge keys,
+        /// playback tokens, or custom FFmpeg flag values; labels and media metadata
+        /// may still be private, so administrators should review the file before sharing it.
         /// </summary>
         [HttpGet("Diagnostics/SupportBundle")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -6026,7 +6013,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     ServerTimeZoneId = TimeZoneInfo.Local.Id
                 },
                 SceneScheduleHistory = scheduleHistory,
-                Configuration = HueConfigurationExportDocument.From(config)
+                Configuration = HueConfigurationExportDocument.ForSupport(config)
             });
         }
 
@@ -8175,6 +8162,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public int ColorSmoothingPercent { get; set; } = 0;
         public bool UseGpu { get; set; } = true;
         public string CustomFfmpegFlags { get; set; } = string.Empty;
+        public bool CustomFfmpegFlagsConfigured { get; set; }
         public int FfmpegStallTimeoutSeconds { get; set; } = 5;
         public bool RestoreLightState { get; set; } = true;
         public int BrightnessBoost { get; set; } = 100;
@@ -8258,6 +8246,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ColorSmoothingPercent = config.ColorSmoothingPercent,
                 UseGpu = config.UseGpu,
                 CustomFfmpegFlags = config.CustomFfmpegFlags,
+                CustomFfmpegFlagsConfigured = !string.IsNullOrWhiteSpace(config.CustomFfmpegFlags),
                 FfmpegStallTimeoutSeconds = config.FfmpegStallTimeoutSeconds,
                 RestoreLightState = config.RestoreLightState,
                 BrightnessBoost = config.BrightnessBoost,
@@ -8443,6 +8432,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string? SamplingModeOverride { get; set; }
         public string? SpatialOrientationOverride { get; set; }
         public int? ColorSmoothingPercentOverride { get; set; }
+        public bool CustomFfmpegFlagsConfigured { get; set; }
 
         public static UserBridgeMappingSummary From(UserBridgeMapping mapping)
         {
@@ -8493,6 +8483,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ColorChangeThresholdOverride = mapping.ColorChangeThresholdOverride,
                 UseGpuOverride = mapping.UseGpuOverride,
                 CustomFfmpegFlagsOverride = mapping.CustomFfmpegFlagsOverride,
+                CustomFfmpegFlagsConfigured = !string.IsNullOrWhiteSpace(mapping.CustomFfmpegFlagsOverride),
                 FfmpegStallTimeoutSecondsOverride = mapping.FfmpegStallTimeoutSecondsOverride,
                 NetworkRetryAttemptsOverride = mapping.NetworkRetryAttemptsOverride,
                 ChannelIdsOverride = mapping.ChannelIdsOverride,
@@ -8505,6 +8496,13 @@ namespace Jellyfin.Plugin.Hue.Api
                 SpatialOrientationOverride = mapping.SpatialOrientationOverride,
                 ColorSmoothingPercentOverride = mapping.ColorSmoothingPercentOverride
             };
+        }
+
+        public static UserBridgeMappingSummary ForSupport(UserBridgeMapping mapping)
+        {
+            var summary = From(mapping);
+            summary.CustomFfmpegFlagsOverride = null;
+            return summary;
         }
     }
 
@@ -8673,7 +8671,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public string PluginVersion { get; set; } = string.Empty;
         public DateTime ExportedAtUtc { get; set; }
         public bool CredentialsIncluded { get; set; }
-        public string CredentialNote { get; set; } = "Credential values are omitted. Re-enter replacement keys when importing to a new server; existing matching keys are preserved.";
+        public string CredentialNote { get; set; } = "Bridge credential values are omitted. Custom FFmpeg flags are retained for migration and may contain sensitive paths or URLs; review before sharing. Re-enter replacement keys when importing to a new server; existing matching keys are preserved.";
         public HuePluginConfigurationSettings Configuration { get; set; } = new();
         public IReadOnlyList<UserBridgeMappingSummary> UserMappings { get; set; } = Array.Empty<UserBridgeMappingSummary>();
         public IReadOnlyList<HueColorPresetResult> ColorPresets { get; set; } = Array.Empty<HueColorPresetResult>();
@@ -8706,6 +8704,20 @@ namespace Jellyfin.Plugin.Hue.Api
                     .Select(schedule => HueApiController.ToSceneScheduleResult(schedule, config))
                     .ToArray()
             };
+        }
+
+        public static HueConfigurationExportDocument ForSupport(PluginConfiguration config)
+        {
+            var export = From(config);
+            export.CredentialNote =
+                "Credential values and custom FFmpeg flags are omitted from support bundles. Review private labels and metadata before sharing.";
+            export.Configuration.CustomFfmpegFlags = string.Empty;
+            export.Configuration.CustomFfmpegFlagsConfigured = !string.IsNullOrWhiteSpace(config.CustomFfmpegFlags);
+            export.UserMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
+                .Where(mapping => mapping != null)
+                .Select(UserBridgeMappingSummary.ForSupport)
+                .ToArray();
+            return export;
         }
     }
 

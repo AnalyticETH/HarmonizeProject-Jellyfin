@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.209] - 2026-08-24
+
+### Security
+- **Support-bundle FFmpeg redaction**: omit global and per-user custom FFmpeg flag values from support documents while retaining credential-free configured-state telemetry; intentional backup exports remain available for migration.
+- **POST-only entertainment-area loading**: remove the legacy query-string route so Hue app keys cannot be sent in URLs or access logs.
+
+### Tests
+- **Regression coverage**: verify support bundles redact sentinel FFmpeg values and the secret-bearing GET route is not exposed.
+
 ## [1.5.208] - 2026-08-23
 
 ### Fixed
