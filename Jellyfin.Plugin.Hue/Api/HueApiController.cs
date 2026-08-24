@@ -6555,8 +6555,14 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())
                 .ToArray() ?? Array.Empty<string>();
+            if (request?.TargetRoutes?.Any(route =>
+                    route == null || string.IsNullOrWhiteSpace(route.UserId)) == true)
+            {
+                error = "Selected current-light capture target routes must contain user mapping IDs.";
+                return false;
+            }
+
             var selectedRoutes = request?.TargetRoutes?
-                .Where(route => route != null && !string.IsNullOrWhiteSpace(route.UserId))
                 .Select(route => new HueCurrentLightColorTargetRoute
                 {
                     UserId = route.UserId.Trim(),

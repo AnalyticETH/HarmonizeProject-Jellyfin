@@ -744,6 +744,30 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task CaptureCurrentColors_MalformedRouteFailsClosedWithoutContactingBridge()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "capture-app-secret",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var action = await CreateController().CaptureCurrentColors(new HueCurrentLightColorBatchRequest
+        {
+            TargetRoutes = new List<HueCurrentLightColorTargetRoute>
+            {
+                new() { UserId = " ", DeviceId = "device-tv" }
+            }
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Contains("user mapping", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task CaptureCurrentColors_AllowsDistinctCaseSensitiveDeviceRoutes()
     {
         InstallConfiguration(new PluginConfiguration

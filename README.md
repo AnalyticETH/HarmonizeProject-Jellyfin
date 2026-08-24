@@ -427,7 +427,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.227 (Current)
+### Version 1.5.228 (Current)
+- **Malformed capture routes**: batch current-light capture rejects null or blank-user routes before default-target fallback, with no bridge activity.
+- **Bulk preview telemetry**: saved-scene and playlist bulk previews now show per-target route outcomes instead of only generic completion text.
+
+### Version 1.5.227
 - **Case-sensitive device routes**: current-light capture and selected scene cues require exact Jellyfin `DeviceId` matching; batch selection keeps distinct case-sensitive routes separate while preserving case-insensitive user mapping IDs and avoiding delimiter-key collisions.
 
 ### Version 1.5.226

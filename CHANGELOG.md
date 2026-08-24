@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.228] - 2026-08-24
+
+### Fixed
+- **Malformed capture routes**: reject null or blank-user batch current-light routes before target fallback, preventing an invalid selection from silently capturing the default bridge.
+- **Bulk preview telemetry**: render per-target results for saved-scene and playlist bulk previews so explicit device-route success and failure remains visible to administrators.
+
+### Tests
+- **Fail-closed selection coverage**: verify malformed batch routes return a client error without contacting a bridge.
+
 ## [1.5.227] - 2026-08-24
 
 ### Fixed

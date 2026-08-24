@@ -3402,8 +3402,7 @@
                                     if (!item) return null;
                                     var name = item.name || item.Name || "Scene";
                                     var preview = item.preview || item.Preview || {};
-                                    var succeeded = preview.succeeded !== undefined ? preview.succeeded : preview.Succeeded;
-                                    return name + ": " + (preview.message || preview.Message || (succeeded ? "completed" : "failed"));
+                                    return name + ": " + HueConfigurationPage.previewMessage(preview, true).text;
                                 }).filter(Boolean);
                                 if (statusEl) {
                                     statusEl.textContent = message + (details.length ? " " + details.join(" | ") : "");
@@ -5040,7 +5039,7 @@
                                 var details = results.map(function (result) {
                                     if (!result) return null;
                                     var name = result.playlistName || result.PlaylistName || "Playlist";
-                                    return name + ": " + (result.message || result.Message || ((result.succeeded !== undefined ? result.succeeded : result.Succeeded) ? "completed" : "failed"));
+                                    return name + ": " + HueConfigurationPage.previewMessage(result, true).text;
                                 }).filter(Boolean);
                                 if (status) {
                                     status.textContent = message + (details.length ? " " + details.join(" | ") : "");
