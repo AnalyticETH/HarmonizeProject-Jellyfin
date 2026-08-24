@@ -205,7 +205,8 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
             try
             {
                 var response = await client.ReceiveAsync().WaitAsync(timeoutCancellationToken).ConfigureAwait(false);
-                foreach (var address in ParseResponse(response.Buffer))
+                var linkLocalScopeId = GetLinkLocalScopeId(response.RemoteEndPoint);
+                foreach (var address in ParseResponse(response.Buffer, linkLocalScopeId))
                     addresses.Add(address);
             }
             catch (OperationCanceledException) when (!callerCancellationToken.IsCancellationRequested)
@@ -242,9 +243,12 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
     /// internal makes malformed or compressed responses testable without requiring a
     /// multicast-capable CI runner.
     /// </summary>
-    internal static IReadOnlyList<string> ParseResponse(byte[]? message)
+    internal static IReadOnlyList<string> ParseResponse(byte[]? message, long linkLocalScopeId = 0)
     {
         if (message == null || message.Length < DnsHeaderLength)
+            return Array.Empty<string>();
+
+        if (linkLocalScopeId < 0 || linkLocalScopeId > uint.MaxValue)
             return Array.Empty<string>();
 
         var offset = 0;
@@ -304,12 +308,31 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
                      record.Address != null &&
                      serviceHosts.Contains(record.Name)))
         {
-            var address = record.Address!.ToString();
+            var scopedAddress = AddLinkLocalScope(record.Address!, linkLocalScopeId);
+            var address = scopedAddress.ToString();
             if (Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(address))
                 addresses.Add(address);
         }
 
         return addresses.ToArray();
+    }
+
+    private static long GetLinkLocalScopeId(IPEndPoint endpoint)
+    {
+        var address = endpoint.Address;
+        return address.AddressFamily == AddressFamily.InterNetworkV6 &&
+               address.IsIPv6LinkLocal &&
+               address.ScopeId > 0
+            ? address.ScopeId
+            : 0;
+    }
+
+    private static IPAddress AddLinkLocalScope(IPAddress address, long linkLocalScopeId)
+    {
+        if (!address.IsIPv6LinkLocal || address.ScopeId != 0 || linkLocalScopeId == 0)
+            return address;
+
+        return new IPAddress(address.GetAddressBytes(), linkLocalScopeId);
     }
 
     private static UdpClient CreateClient(out bool requestedUnicastResponse)

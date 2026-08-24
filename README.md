@@ -440,7 +440,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.259 (Current)
+### Version 1.5.260 (Current)
+- **Scoped IPv6 bridge discovery**: mDNS responses now retain the receiving interface scope on link-local AAAA addresses, so discovered `fe80::` bridges remain routable on the correct local interface.
+- **Scoped discovery coverage**: parser and bridge-registration URI regressions verify link-local zones are preserved without scoping unique-local addresses.
+
+### Version 1.5.259
 - **Restarted finite-cue accounting**: persisted skipped schedule occurrences no longer consume finite cue run limits when scheduler state is rehydrated after a restart.
 - **Restart history coverage**: verifies skipped persisted history remains auditable without exhausting the restored finite schedule.
 

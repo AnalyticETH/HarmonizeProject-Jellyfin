@@ -55,6 +55,28 @@ public class HueClientEntertainmentAreaTests : IDisposable
         Assert.Contains("/api", capturedRequest.RequestUri.AbsolutePath);
     }
 
+    [Fact]
+    public async Task RegisterWithBridge_ScopedLinkLocalAddressPreservesZoneInUri()
+    {
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((req, _) => capturedRequest = req)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "[{\"success\":{\"username\":\"u\",\"clientkey\":\"k\"}}]",
+                    Encoding.UTF8, "application/json")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+        await client.RegisterWithBridge("fe80::50%42");
+
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("fe80::50%42", capturedRequest!.RequestUri!.DnsSafeHost);
+    }
+
     #endregion
 
     #region StartEntertainmentArea Tests

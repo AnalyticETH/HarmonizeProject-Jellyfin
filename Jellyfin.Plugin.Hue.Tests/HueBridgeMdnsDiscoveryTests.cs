@@ -66,6 +66,27 @@ public sealed class HueBridgeMdnsDiscoveryTests
     }
 
     [Fact]
+    public void ParseResponse_WhenReplyScopeIsKnown_PreservesLinkLocalInterfaceScope()
+    {
+        var response = BuildResponse("fe80::50");
+
+        var addresses = HueBridgeMdnsDiscovery.ParseResponse(response, linkLocalScopeId: 42);
+
+        Assert.Contains("fe80::50%42", addresses);
+    }
+
+    [Fact]
+    public void ParseResponse_WhenReplyScopeIsKnown_DoesNotScopeUniqueLocalAddress()
+    {
+        var response = BuildResponse("fd12:3456:789a::50");
+
+        var addresses = HueBridgeMdnsDiscovery.ParseResponse(response, linkLocalScopeId: 42);
+
+        Assert.Contains("fd12:3456:789a::50", addresses);
+        Assert.DoesNotContain(addresses, address => address.Contains('%', StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ParseResponse_RejectsGlobalIpv6Addresses()
     {
         var response = BuildResponse("2001:db8::50");

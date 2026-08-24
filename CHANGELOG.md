@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.260] - 2026-08-24
+
+### Reliability
+- **Scoped IPv6 bridge discovery**: mDNS responses now retain the receiving interface scope on link-local AAAA addresses, so discovered `fe80::` bridges remain routable on the correct local interface.
+
+### Tests
+- **Scoped discovery coverage**: parser and bridge-registration URI regressions verify link-local zones are preserved without scoping unique-local addresses.
+
 ## [1.5.259] - 2026-08-24
 
 ### Reliability
