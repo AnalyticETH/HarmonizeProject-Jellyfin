@@ -90,7 +90,7 @@ internal static class HueBridgeCertificateValidation
 
     private static bool IsLocalAddress(IPAddress address)
     {
-        if (IPAddress.IsLoopback(address) || address.IsIPv6Unspecified || address.IsIPv6Multicast)
+        if (IPAddress.IsLoopback(address) || address.Equals(IPAddress.IPv6Any) || address.IsIPv6Multicast)
         {
             return false;
         }
