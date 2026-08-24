@@ -5282,6 +5282,166 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_DeviceRouteRoundTripsAndPreservesOnPartialUpdate()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    UserName = "Living Room",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            DeviceName = "Living Room TV",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-app-secret",
+                            HueClientKey = "device-client-secret",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    }
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var saved = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Name = "Device welcome",
+            PresetName = "Welcome",
+            TargetRoutes = new List<HueSceneScheduleTargetRoute>
+            {
+                new() { UserId = " user-device ", DeviceId = " living-room-tv " }
+            },
+            TimeOfDay = "08:00",
+            DaysOfWeekMask = 127
+        });
+
+        var savedResult = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(saved.Result).Value);
+        var savedRoute = Assert.Single(savedResult.TargetRoutes);
+        Assert.Equal("user-device", savedRoute.UserId);
+        Assert.Equal("living-room-tv", savedRoute.DeviceId);
+        Assert.Equal("1 selected target(s)", savedResult.TargetLabel);
+        var persistedRoute = Assert.Single(configuration.SceneSchedules[0].TargetRoutes);
+        Assert.Equal("user-device", persistedRoute.UserId);
+        Assert.Equal("living-room-tv", persistedRoute.DeviceId);
+        Assert.DoesNotContain("device-app-secret", JsonSerializer.Serialize(savedResult), StringComparison.Ordinal);
+
+        var updated = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = savedResult.Id,
+            Name = "Device welcome updated",
+            PresetName = "Welcome",
+            TimeOfDay = "09:00",
+            DaysOfWeekMask = 127,
+            Enabled = false
+        });
+
+        var updatedResult = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(updated.Result).Value);
+        var updatedRoute = Assert.Single(updatedResult.TargetRoutes);
+        Assert.Equal("user-device", updatedRoute.UserId);
+        Assert.Equal("living-room-tv", updatedRoute.DeviceId);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
+    public void ConfigurationExportAndImport_PreservesScheduledDeviceRoutesWithoutCredentials()
+    {
+        var source = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "source-device-app-secret",
+                            HueClientKey = "source-device-client-secret",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "device-schedule",
+                    Name = "Device welcome",
+                    PresetName = "Welcome",
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "user-device", DeviceId = "living-room-tv" }
+                    }
+                }
+            }
+        };
+        var exported = HueConfigurationExportDocument.From(source);
+        var exportedSchedule = Assert.Single(exported.SceneSchedules);
+        var exportedRoute = Assert.Single(exportedSchedule.TargetRoutes);
+        Assert.Equal("user-device", exportedRoute.UserId);
+        Assert.Equal("living-room-tv", exportedRoute.DeviceId);
+        Assert.DoesNotContain("source-device-app-secret", JsonSerializer.Serialize(exported), StringComparison.Ordinal);
+
+        var destination = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new() { DeviceId = "living-room-tv", HueBridgeIp = "192.168.1.103", HueAppKey = "destination-app", HueClientKey = "destination-client", EntertainmentAreaId = "destination-area" }
+                    }
+                }
+            }
+        });
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = exported.Configuration,
+            ReplaceMappings = false,
+            ReplaceColorPresets = false,
+            ReplaceSceneSchedules = true,
+            SceneSchedules = new List<HueSceneScheduleRequest>
+            {
+                new()
+                {
+                    Id = exportedSchedule.Id,
+                    Name = exportedSchedule.Name,
+                    PresetName = exportedSchedule.PresetName,
+                    TargetRoutes = exportedSchedule.TargetRoutes.Select(route => new HueSceneScheduleTargetRoute
+                    {
+                        UserId = route.UserId,
+                        DeviceId = route.DeviceId
+                    }).ToList()
+                }
+            }
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        var importedRoute = Assert.Single(Assert.Single(destination.SceneSchedules).TargetRoutes);
+        Assert.Equal("user-device", importedRoute.UserId);
+        Assert.Equal("living-room-tv", importedRoute.DeviceId);
+        Assert.Equal("destination-app", destination.UserMappings[0].DeviceTargets[0].HueAppKey);
+    }
+
+    [Fact]
     public void SceneSchedules_DuplicateCreatesDisabledFreshCueWithUniqueIdentity()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

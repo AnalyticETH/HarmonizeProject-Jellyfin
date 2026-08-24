@@ -287,6 +287,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public List<string> TargetUserIds { get; set; } = new List<string>();
         /// <summary>
+        /// Optional exact playback-device routes nested under selected user mappings. Device
+        /// identifiers are case-sensitive Jellyfin values; this credential-free list is
+        /// resolved against the current mapping at execution time.
+        /// </summary>
+        public List<HueSceneScheduleTargetRoute> TargetRoutes { get; set; } = new List<HueSceneScheduleTargetRoute>();
+        /// <summary>
         /// Includes the configured global bridge in an explicit selected-target cue.
         /// </summary>
         public bool IncludeDefaultTarget { get; set; }
@@ -427,6 +433,15 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
+    /// Credential-free exact playback-device route for a scheduled scene cue.
+    /// </summary>
+    public sealed class HueSceneScheduleTargetRoute
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string DeviceId { get; set; } = string.Empty;
+    }
+
+    /// <summary>
     /// Credential-free completed-session telemetry stored only when an administrator opts
     /// into retaining history across Jellyfin restarts. This shape deliberately contains no
     /// bridge keys or Jellyfin playback tokens.
@@ -479,6 +494,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int? Blue { get; set; }
         public string? TargetLabel { get; set; }
         public List<string> TargetUserIds { get; set; } = new List<string>();
+        public List<HueSceneScheduleTargetRoute> TargetRoutes { get; set; } = new List<HueSceneScheduleTargetRoute>();
         public bool IncludeDefaultTarget { get; set; }
         public bool Succeeded { get; set; }
         public bool Skipped { get; set; }
@@ -3342,9 +3358,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             var targetUserId = schedule.TargetUserId?.Trim() ?? string.Empty;
             var targetUserIds = schedule.TargetUserIds ?? new List<string>();
-            if (targetUserIds.Count > MaxSceneScheduleTargetMappings)
+            var targetRoutes = schedule.TargetRoutes ?? new List<HueSceneScheduleTargetRoute>();
+            if (targetUserIds.Count + targetRoutes.Count > MaxSceneScheduleTargetMappings)
             {
-                errors.Add($"{label} may select no more than {MaxSceneScheduleTargetMappings} user mappings");
+                errors.Add($"{label} may select no more than {MaxSceneScheduleTargetMappings} target routes");
             }
 
             var seenTargetUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -3372,7 +3389,44 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     errors.Add($"{label} references a disabled selected user mapping: {selectedUserId}");
             }
 
-            var hasSelectedTargets = schedule.IncludeDefaultTarget || targetUserIds.Count > 0;
+            var seenTargetRoutes = new HashSet<(string UserId, string DeviceId)>();
+            for (var index = 0; index < targetRoutes.Count; index++)
+            {
+                var route = targetRoutes[index];
+                var routeUserId = route?.UserId?.Trim() ?? string.Empty;
+                var routeDeviceId = route?.DeviceId?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(routeUserId) || string.IsNullOrWhiteSpace(routeDeviceId))
+                {
+                    errors.Add($"{label} selected device route {index + 1} requires both a user mapping ID and device ID");
+                    continue;
+                }
+
+                if (!seenTargetRoutes.Add((routeUserId.ToUpperInvariant(), routeDeviceId)))
+                {
+                    errors.Add($"{label} selects device route {routeUserId}/{routeDeviceId} more than once");
+                    continue;
+                }
+
+                var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.UserId?.Trim(), routeUserId, StringComparison.OrdinalIgnoreCase));
+                if (mapping == null)
+                {
+                    errors.Add($"{label} references a device route whose user mapping does not exist: {routeUserId}");
+                }
+                else if (!mapping.SyncEnabled)
+                {
+                    errors.Add($"{label} references a disabled device-route user mapping: {routeUserId}");
+                }
+                else if (mapping.DeviceTargets?.Any(target =>
+                    target != null &&
+                    string.Equals(target.DeviceId?.Trim(), routeDeviceId, StringComparison.Ordinal)) != true)
+                {
+                    errors.Add($"{label} references a device route that does not exist: {routeUserId}/{routeDeviceId}");
+                }
+            }
+
+            var hasSelectedTargets = schedule.IncludeDefaultTarget || targetUserIds.Count > 0 || targetRoutes.Count > 0;
             if (schedule.TargetAllEnabledMappings && !string.IsNullOrWhiteSpace(targetUserId) && !hasSelectedTargets)
             {
                 errors.Add($"{label} cannot select all enabled targets and a specific user mapping together");

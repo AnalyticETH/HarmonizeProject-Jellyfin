@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.234] - 2026-08-24
+
+### Fixed
+- **Scheduled device-route targeting**: allow cues to select exact nested playback-device routes using credential-free user/device IDs, carry them through scheduler telemetry and backup/restore, and reject missing, disabled, duplicate, or malformed routes before persistence.
+- **Release installation parity**: document the published ZIP and SHA-256 sidecar, verify the archive before extraction, and install the DLL with the required `meta.json` manifest.
+
+### Tests
+- **Release documentation contract**: validate README package guidance against the workflow's canonical archive names, exact package contents, and checksum verification step.
+
 ## [1.5.233] - 2026-08-24
 
 ### Fixed

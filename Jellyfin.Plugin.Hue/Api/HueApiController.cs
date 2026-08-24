@@ -678,6 +678,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                     .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                     ?? Array.Empty<string>(),
+                TargetRoutes = schedule.TargetRoutes?.Where(route => route != null)
+                    .Select(route => new HueSceneScheduleTargetRoute
+                    {
+                        UserId = route.UserId?.Trim() ?? string.Empty,
+                        DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                    }).ToArray() ?? Array.Empty<HueSceneScheduleTargetRoute>(),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
                 TargetLabel = targetLabel,
                 TimeOfDay = schedule.TimeOfDay,
@@ -732,6 +738,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 PlaybackPolicy = schedule.PlaybackPolicy,
                 TargetUserId = schedule.TargetUserId,
                 TargetUserIds = schedule.TargetUserIds?.ToList() ?? new List<string>(),
+                TargetRoutes = schedule.TargetRoutes?.Where(route => route != null)
+                    .Select(route => new HueSceneScheduleTargetRoute
+                    {
+                        UserId = route.UserId?.Trim() ?? string.Empty,
+                        DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                    }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
                 TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                 TimeOfDay = schedule.TimeOfDay,
@@ -4004,6 +4016,12 @@ namespace Jellyfin.Plugin.Hue.Api
                             TransitionOutSeconds = occurrence.TransitionOutSeconds,
                             TargetAllEnabledMappings = occurrence.TargetAllEnabledMappings,
                             TargetUserIds = occurrence.TargetUserIds?.ToArray() ?? Array.Empty<string>(),
+                            TargetRoutes = occurrence.TargetRoutes?.Where(route => route != null)
+                                .Select(route => new HueSceneScheduleTargetRoute
+                                {
+                                    UserId = route.UserId?.Trim() ?? string.Empty,
+                                    DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                                }).ToArray() ?? Array.Empty<HueSceneScheduleTargetRoute>(),
                             IncludeDefaultTarget = occurrence.IncludeDefaultTarget,
                             TimeMode = occurrence.TimeMode,
                             SolarOffsetMinutes = occurrence.SolarOffsetMinutes,
@@ -4403,6 +4421,19 @@ namespace Jellyfin.Plugin.Hue.Api
                         ? new List<string>()
                         : candidateSchedules[existingIndex].TargetUserIds?.ToList() ?? new List<string>();
                 }
+                if (request.TargetRoutes == null)
+                {
+                    schedule.TargetRoutes = request.TargetAllEnabledMappings == true ||
+                        !string.IsNullOrWhiteSpace(request.TargetUserId) ||
+                        request.TargetUserIds != null
+                        ? new List<HueSceneScheduleTargetRoute>()
+                        : candidateSchedules[existingIndex].TargetRoutes?.Where(route => route != null)
+                            .Select(route => new HueSceneScheduleTargetRoute
+                            {
+                                UserId = route.UserId?.Trim() ?? string.Empty,
+                                DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                            }).ToList() ?? new List<HueSceneScheduleTargetRoute>();
+                }
                 if (!request.IncludeDefaultTarget.HasValue)
                 {
                     schedule.IncludeDefaultTarget = request.TargetAllEnabledMappings == true ||
@@ -4772,6 +4803,12 @@ namespace Jellyfin.Plugin.Hue.Api
                         ? string.Empty
                         : schedule.TargetUserId?.Trim() ?? string.Empty,
                     TargetUserIds = schedule.TargetUserIds?.ToList() ?? new List<string>(),
+                    TargetRoutes = schedule.TargetRoutes?.Where(route => route != null)
+                        .Select(route => new HueSceneScheduleTargetRoute
+                        {
+                            UserId = route.UserId?.Trim() ?? string.Empty,
+                            DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                        }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
                     IncludeDefaultTarget = schedule.IncludeDefaultTarget,
                     TargetAllEnabledMappings = schedule.TargetAllEnabledMappings
                 };
@@ -10491,6 +10528,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("targetUserIds")]
         public List<string>? TargetUserIds { get; set; }
 
+        [JsonPropertyName("targetRoutes")]
+        public List<HueSceneScheduleTargetRoute>? TargetRoutes { get; set; }
+
         [JsonPropertyName("includeDefaultTarget")]
         public bool? IncludeDefaultTarget { get; set; }
 
@@ -10654,6 +10694,14 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = TargetUserId?.Trim() ?? string.Empty,
                 TargetUserIds = (TargetUserIds ?? new List<string>())
                     .Select(value => value?.Trim() ?? string.Empty)
+                    .ToList(),
+                TargetRoutes = (TargetRoutes ?? new List<HueSceneScheduleTargetRoute>())
+                    .Where(route => route != null)
+                    .Select(route => new HueSceneScheduleTargetRoute
+                    {
+                        UserId = route.UserId?.Trim() ?? string.Empty,
+                        DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                    })
                     .ToList(),
                 IncludeDefaultTarget = IncludeDefaultTarget ?? false,
                 TargetAllEnabledMappings = TargetAllEnabledMappings ?? false,
@@ -11012,6 +11060,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("targetUserIds")]
         public IReadOnlyList<string> TargetUserIds { get; set; } = Array.Empty<string>();
 
+        [JsonPropertyName("targetRoutes")]
+        public IReadOnlyList<HueSceneScheduleTargetRoute> TargetRoutes { get; set; } = Array.Empty<HueSceneScheduleTargetRoute>();
+
         [JsonPropertyName("includeDefaultTarget")]
         public bool IncludeDefaultTarget { get; set; }
 
@@ -11182,6 +11233,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetUserIds")]
         public IReadOnlyList<string> TargetUserIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("targetRoutes")]
+        public IReadOnlyList<HueSceneScheduleTargetRoute> TargetRoutes { get; set; } = Array.Empty<HueSceneScheduleTargetRoute>();
 
         [JsonPropertyName("includeDefaultTarget")]
         public bool IncludeDefaultTarget { get; set; }

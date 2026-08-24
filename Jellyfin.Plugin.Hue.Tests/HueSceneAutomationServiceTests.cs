@@ -4119,6 +4119,59 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TryResolveTargets_PersistedScheduleDeviceRouteUsesNestedTarget()
+    {
+        var config = new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Living Room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "device-tv",
+                            DeviceName = "Bedroom TV",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-app-secret",
+                            HueClientKey = "device-client-secret",
+                            EntertainmentAreaId = "device-area",
+                            ChannelIdsOverride = "7,8"
+                        }
+                    }
+                }
+            }
+        };
+        var schedule = new HueSceneSchedule
+        {
+            TargetRoutes = new List<HueSceneScheduleTargetRoute>
+            {
+                new() { UserId = " user-1 ", DeviceId = " device-tv " }
+            }
+        };
+
+        Assert.True(HueSceneAutomationService.TryResolveTargets(config, schedule, out var targets, out var error));
+        Assert.Empty(error);
+        var target = Assert.Single(targets);
+        Assert.Equal("Living Room / Bedroom TV", target.TargetLabel);
+        Assert.Equal("192.168.1.102", target.BridgeIp);
+        Assert.Equal("device-area", target.EntertainmentAreaId);
+        Assert.Equal(new[] { 7, 8 }, target.ChannelIds!.OrderBy(id => id));
+
+        var serialized = JsonSerializer.Serialize(schedule);
+        Assert.DoesNotContain("device-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("device-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunPlaylistPreview_ReportsExplicitDeviceRoutesWithoutCredentials()
     {
         var configuration = new PluginConfiguration

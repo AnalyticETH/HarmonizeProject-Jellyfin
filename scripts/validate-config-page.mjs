@@ -87,6 +87,7 @@ const requiredMarkup = [
     'id="sceneScheduleGreen"',
     'id="sceneScheduleBlue"',
     'id="sceneScheduleBulkSelect"',
+    'id="sceneScheduleTarget"',
     'id="enableSelectedUserMappingsBtn"',
     'id="disableSelectedUserMappingsBtn"',
     'id="enableSelectedSceneSchedulesBtn"',
@@ -288,6 +289,14 @@ const requiredScript = [
     "encodeCurrentLightDeviceTarget: function",
     "DeviceTargets",
     "populateSceneScheduleCueFilters: function",
+    "page._hueSceneScheduleMappings = mappings",
+    "normalizeSceneScheduleTargetSelection: function",
+    "isSceneScheduleDeviceRouteAvailable: function",
+    "getSceneScheduleTargetSelection: function",
+    "get('TargetRoutes', 'targetRoutes', [])",
+    "targetRoutes: targetSelection.targetRoutes",
+    "encodeCurrentLightDeviceTarget(userId, deviceId)",
+    "This cue references an unavailable or disabled device route.",
     "getSceneScheduleReportHorizon: function",
     "updateSceneScheduleTimeMode: function",
     "['SolarNoon', 'Sunrise', 'Sunset', 'CivilDawn', 'CivilDusk', 'NauticalDawn', 'NauticalDusk', 'AstronomicalDawn', 'AstronomicalDusk']",
@@ -584,6 +593,38 @@ for (const functionName of ["updateColorPresetBulkButtons", "updateScenePlaylist
     if (!functionBody.includes("hasPreviewTargetMetadata(page)") ||
         !functionBody.includes("targetMetadataReady")) {
         throw new Error(`${file} ${functionName} must gate target-dependent controls on metadata readiness`);
+    }
+}
+
+for (const [functionName, markers] of [
+    ["loadSceneSchedules", [
+        "page._hueSceneScheduleMappings = mappings",
+        "deviceOption.value = HueConfigurationPage.encodeCurrentLightDeviceTarget(userId, deviceId)",
+        "deviceOption.disabled = !enabled || !deviceReady"
+    ]],
+    ["applySceneSchedule", [
+        "get('TargetRoutes', 'targetRoutes', [])",
+        "isSceneScheduleDeviceRouteAvailable(page, route)",
+        "page._hueSceneScheduleUnavailableTargetRoutes = unavailableTargetRoutes"
+    ]],
+    ["saveSceneSchedule", [
+        "var targetSelection = HueConfigurationPage.getSceneScheduleTargetSelection(page)",
+        "if (!targetSelection.valid)",
+        "targetRoutes: targetSelection.targetRoutes"
+    ]],
+    ["getSceneScheduleTargetSelection", [
+        "isSceneScheduleDeviceRouteAvailable(page, normalizedRoute)",
+        "targetRoutes.push(normalizedRoute)",
+        "targetRoutes: all ? [] : targetRoutes"
+    ]]
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of markers) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing scheduled device-route contract: ${marker}`);
+        }
     }
 }
 

@@ -1288,6 +1288,64 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_AllowsPersistedDeviceRoutesAndRejectsInvalidRoutes()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new() { DeviceId = "living-room-tv" }
+                    }
+                },
+                new() { UserId = "disabled-user", SyncEnabled = false }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "device-route",
+                    Name = "Device route cue",
+                    PresetName = "Evening",
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "user-1", DeviceId = "living-room-tv" }
+                    }
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateSceneSchedules());
+
+        config.SceneSchedules[0].TargetRoutes = new List<HueSceneScheduleTargetRoute>
+        {
+            new() { UserId = "missing-user", DeviceId = "living-room-tv" }
+        };
+        Assert.Contains(config.ValidateSceneSchedules(), error =>
+            error.Contains("device route whose user mapping does not exist", StringComparison.Ordinal));
+
+        config.SceneSchedules[0].TargetRoutes = new List<HueSceneScheduleTargetRoute>
+        {
+            new() { UserId = "disabled-user", DeviceId = "living-room-tv" }
+        };
+        Assert.Contains(config.ValidateSceneSchedules(), error =>
+            error.Contains("disabled device-route user mapping", StringComparison.Ordinal));
+
+        config.SceneSchedules[0].TargetRoutes = new List<HueSceneScheduleTargetRoute>
+        {
+            new() { UserId = "user-1", DeviceId = "missing-device" }
+        };
+        Assert.Contains(config.ValidateSceneSchedules(), error =>
+            error.Contains("device route that does not exist", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsPriorityOutsideBounds()
     {
         var config = new PluginConfiguration

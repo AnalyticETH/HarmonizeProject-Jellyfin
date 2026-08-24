@@ -961,6 +961,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                     .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                     ?? Array.Empty<string>(),
+                TargetRoutes = GetScheduleTargetRoutes(schedule),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
                 TargetLabel = ResolveTargetLabel(config, schedule),
                 TimeOfDay = schedule.TimeOfDay?.Trim() ?? string.Empty,
@@ -1486,6 +1487,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                     .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                     ?? Array.Empty<string>(),
+                TargetRoutes = GetScheduleTargetRoutes(schedule),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
                 TimeMode = PluginConfiguration.TryNormalizeSceneScheduleTimeMode(
                     schedule.TimeMode,
@@ -1956,6 +1958,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
+            TargetRoutes = targetRoutesOverride ?? GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule.IncludeDefaultTarget,
             Succeeded = targetResults.Count > 0 && succeededCount == targetResults.Count,
             Message = BuildAggregateRunMessage(targetResults, succeededCount),
@@ -2081,6 +2084,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                 DurationSeconds = plannedStep.DurationSeconds,
                 TargetUserId = targetSchedule.TargetUserId,
                 TargetUserIds = targetSchedule.TargetUserIds.ToList(),
+                TargetRoutes = targetSchedule.TargetRoutes?.Select(route => new HueSceneScheduleTargetRoute
+                {
+                    UserId = route.UserId,
+                    DeviceId = route.DeviceId
+                }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
                 IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
                 TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings
             };
@@ -3419,7 +3427,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         if (schedule.IncludeDefaultTarget ||
-            (schedule.TargetUserIds?.Any(target => !string.IsNullOrWhiteSpace(target)) ?? false))
+            (schedule.TargetUserIds?.Any(target => !string.IsNullOrWhiteSpace(target)) ?? false) ||
+            (schedule.TargetRoutes?.Count > 0))
         {
             description = new HueSceneAutomationTargetDescription();
             error = "The schedule selects multiple targets; resolve the target collection instead.";
@@ -3441,15 +3450,29 @@ public sealed class HueSceneAutomationService : BackgroundService
         out string error,
         IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutes = null)
     {
+        var effectiveTargetRoutes = targetRoutes ?? GetScheduleTargetRoutes(schedule);
         return TryResolveTargetsCore(
             config,
             schedule?.TargetUserId,
             schedule?.TargetAllEnabledMappings ?? false,
             schedule?.TargetUserIds,
             schedule?.IncludeDefaultTarget ?? false,
-            targetRoutes,
+            effectiveTargetRoutes,
             out targets,
             out error);
+    }
+
+    private static IReadOnlyList<HueSceneAutomationTargetRoute> GetScheduleTargetRoutes(HueSceneSchedule? schedule)
+    {
+        return schedule?.TargetRoutes?
+            .Select(route => route == null
+                ? new HueSceneAutomationTargetRoute()
+                : new HueSceneAutomationTargetRoute
+                {
+                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
+                })
+            .ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>();
     }
 
     private static bool TryResolveTargetsCore(
@@ -4242,6 +4265,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
+            TargetRoutes = GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule.IncludeDefaultTarget,
             Succeeded = false,
             Skipped = true,
@@ -4328,7 +4352,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 selectedTargetIds,
                 schedule.IncludeDefaultTarget,
                 targetScopedPlayback,
-                runAtUtcOverride).ConfigureAwait(false);
+                runAtUtcOverride,
+                GetScheduleTargetRoutes(schedule)).ConfigureAwait(false);
             return BuildPlaylistScheduleRunResult(config, schedule, playlistRun);
         }
 
@@ -4432,6 +4457,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
+            TargetRoutes = GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule.IncludeDefaultTarget,
             Succeeded = playlistRun.Succeeded,
             Message = playlistRun.Message,
@@ -5028,6 +5054,12 @@ public sealed class HueSceneAutomationService : BackgroundService
             Blue = result.Blue,
             TargetLabel = result.TargetLabel,
             TargetUserIds = result.TargetUserIds?.ToList() ?? new List<string>(),
+            TargetRoutes = result.TargetRoutes?.Where(route => route != null)
+                .Select(route => new HueSceneScheduleTargetRoute
+                {
+                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
             IncludeDefaultTarget = result.IncludeDefaultTarget,
             Succeeded = result.Succeeded,
             Skipped = result.Skipped,
@@ -5225,6 +5257,12 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = source.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
                 ?? new List<string>(),
+            TargetRoutes = source.TargetRoutes?.Where(route => route != null)
+                .Select(route => new HueSceneScheduleTargetRoute
+                {
+                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
             IncludeDefaultTarget = source.IncludeDefaultTarget,
             Succeeded = source.Succeeded,
             Skipped = source.Skipped,
@@ -5284,6 +5322,12 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = entry.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
+            TargetRoutes = entry.TargetRoutes?.Where(route => route != null)
+                .Select(route => new HueSceneAutomationTargetRoute
+                {
+                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
+                }).ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>(),
             IncludeDefaultTarget = entry.IncludeDefaultTarget,
             Succeeded = entry.Succeeded,
             Skipped = entry.Skipped,
@@ -5322,6 +5366,12 @@ public sealed class HueSceneAutomationService : BackgroundService
             TransitionCurve = source.TransitionCurve,
             TargetLabel = source.TargetLabel,
             TargetUserIds = source.TargetUserIds?.ToArray() ?? Array.Empty<string>(),
+            TargetRoutes = source.TargetRoutes?.Where(route => route != null)
+                .Select(route => new HueSceneAutomationTargetRoute
+                {
+                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
+                }).ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>(),
             IncludeDefaultTarget = source.IncludeDefaultTarget,
             Succeeded = source.Succeeded,
             Skipped = source.Skipped,
@@ -5348,7 +5398,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             return "All enabled targets";
 
         var selectedUserTargetCount = schedule.TargetUserIds?.Count(value => !string.IsNullOrWhiteSpace(value)) ?? 0;
-        var selectedRouteCount = targetRoutes?.Count ?? 0;
+        var selectedRouteCount = (targetRoutes ?? GetScheduleTargetRoutes(schedule)).Count;
         var selectedTargetCount = selectedUserTargetCount + selectedRouteCount;
         if (schedule.IncludeDefaultTarget || selectedTargetCount > 0)
         {
@@ -5698,6 +5748,13 @@ public sealed class HueSceneAutomationService : BackgroundService
             Priority = source.Priority,
             PlaybackPolicy = source.PlaybackPolicy,
             TargetUserId = source.TargetUserId,
+            TargetUserIds = source.TargetUserIds?.ToList() ?? new List<string>(),
+            TargetRoutes = source.TargetRoutes?.Where(route => route != null)
+                .Select(route => new HueSceneScheduleTargetRoute
+                {
+                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
             TargetAllEnabledMappings = source.TargetAllEnabledMappings,
             TimeOfDay = source.TimeOfDay,
             TimeMode = source.TimeMode,
@@ -5788,6 +5845,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = schedule?.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
+            TargetRoutes = GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule?.IncludeDefaultTarget ?? false,
             Succeeded = false,
             Message = message,
@@ -5964,6 +6022,9 @@ public sealed class HueSceneAutomationRunResult
 
     [JsonPropertyName("targetUserIds")]
     public IReadOnlyList<string> TargetUserIds { get; init; } = Array.Empty<string>();
+
+    [JsonPropertyName("targetRoutes")]
+    public IReadOnlyList<HueSceneAutomationTargetRoute> TargetRoutes { get; init; } = Array.Empty<HueSceneAutomationTargetRoute>();
 
     [JsonPropertyName("includeDefaultTarget")]
     public bool IncludeDefaultTarget { get; init; }
@@ -6232,6 +6293,9 @@ public sealed class HueSceneScheduleOccurrence
     [JsonPropertyName("targetUserIds")]
     public IReadOnlyList<string> TargetUserIds { get; init; } = Array.Empty<string>();
 
+    [JsonPropertyName("targetRoutes")]
+    public IReadOnlyList<HueSceneAutomationTargetRoute> TargetRoutes { get; init; } = Array.Empty<HueSceneAutomationTargetRoute>();
+
     [JsonPropertyName("includeDefaultTarget")]
     public bool IncludeDefaultTarget { get; init; }
 
@@ -6462,6 +6526,9 @@ public sealed class HueSceneScheduleRuntimeStatus
 
     [JsonPropertyName("targetUserIds")]
     public IReadOnlyList<string> TargetUserIds { get; init; } = Array.Empty<string>();
+
+    [JsonPropertyName("targetRoutes")]
+    public IReadOnlyList<HueSceneAutomationTargetRoute> TargetRoutes { get; init; } = Array.Empty<HueSceneAutomationTargetRoute>();
 
     [JsonPropertyName("includeDefaultTarget")]
     public bool IncludeDefaultTarget { get; init; }

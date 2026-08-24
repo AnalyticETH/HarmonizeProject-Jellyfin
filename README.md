@@ -33,14 +33,18 @@ Unlike simple "cinema mode" automations that just dim the lights, this plugin ac
 ## Installation
 
 ### Manual Installation
-1.  Download the latest release DLL.
-2.  Navigate to your Jellyfin plugins directory:
+1.  Open the latest [GitHub release](https://github.com/AnalyticETH/HarmonizeProject-Jellyfin/releases) and download both `jellyfin-plugin-hue-release.zip` and `jellyfin-plugin-hue-release.zip.sha256`.
+2.  Verify the archive before extracting it:
+    ```bash
+    sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
+    ```
+3.  Navigate to your Jellyfin plugins directory:
     *   **Linux**: `/var/lib/jellyfin/plugins`
     *   **Windows**: `%ProgramData%\Jellyfin\Server\plugins`
     *   **Docker**: `/config/plugins`
-3.  Create a folder named `HueSync`.
-4.  Place `Jellyfin.Plugin.Hue.dll` inside.
-5.  Restart Jellyfin.
+4.  Create a folder named `HueSync` and extract `jellyfin-plugin-hue-release.zip` into it.
+5.  Confirm that both `Jellyfin.Plugin.Hue.dll` and `meta.json` are directly inside the `HueSync` folder.
+6.  Restart Jellyfin.
 
 ## Configuration
 Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
@@ -300,17 +304,18 @@ dotnet build --configuration Release --no-restore
 The plugin DLL will be generated at:
 `bin/Release/net8.0/Jellyfin.Plugin.Hue.dll`
 
-> **Note**: You only need this one file. The other DLLs in that folder are dependencies that Jellyfin already provides.
+> **Note**: The DLL path is useful for local build inspection. For an installation, use the release ZIP so the required `meta.json` manifest is installed alongside the plugin assembly.
 
 #### Release Package Contents
 
-The release scripts produce `jellyfin-plugin-hue-v<version>.zip` containing exactly:
+The local release scripts produce `jellyfin-plugin-hue-v<version>.zip`, while the GitHub release workflow publishes the canonical `jellyfin-plugin-hue-release.zip` and its `jellyfin-plugin-hue-release.zip.sha256` checksum sidecar. Each archive contains exactly:
 
 * `Jellyfin.Plugin.Hue.dll` — the plugin assembly, including the embedded configuration page
 * `meta.json` — the Jellyfin plugin manifest and release version
 
-The version in `meta.json`, the project file, and the archive name must match. Install both
-files together in a `HueSync` directory under the Jellyfin plugins directory.
+The version in `meta.json`, the project file, and the local archive name must match. Install both
+files together in a `HueSync` directory under the Jellyfin plugins directory, and verify the
+published archive with its checksum sidecar before extraction.
 
 If the .NET SDK is not installed on a Linux host, the same build can be run with Docker:
 
@@ -427,7 +432,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.233 (Current)
+### Version 1.5.234 (Current)
+- **Scheduled device-route targeting**: scheduled scene cues can select exact nested Jellyfin playback-device routes, retain those credential-free IDs through API/status/history/occurrence/backup round-trips, and fail closed when a route is missing or disabled.
+- **Release installation parity**: installation instructions now download the published ZIP and SHA-256 sidecar, verify the archive, and install both the plugin DLL and required `meta.json` manifest together.
+- **Release documentation contract**: the trusted main build validates that README package guidance, workflow asset names, archive contents, and checksum verification remain synchronized.
+
+### Version 1.5.233
 - **Fail-closed preview target metadata**: target selectors and preview, capture, and playlist controls remain disabled while saved-scene, playlist, or mapping metadata is unavailable; failed target lists show an explicit reload message instead of silently falling back to the default bridge, and direct preview entry points are guarded before any POST.
 - **Configuration-page contracts**: static validation covers separate scene/playlist metadata readiness, failure-state controls, unavailable-target messaging, and direct/bulk/saved-scene/playlist/capture/mapping preview guards.
 

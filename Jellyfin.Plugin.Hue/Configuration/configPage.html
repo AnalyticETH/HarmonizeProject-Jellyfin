@@ -713,11 +713,11 @@
                             </div>
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="sceneScheduleTarget">Targets</label>
-                                <select id="sceneScheduleTarget" is="emby-select" multiple size="5" style="width: 100%;">
+                                <select id="sceneScheduleTarget" is="emby-select" multiple size="8" style="width: 100%;">
                                     <option value="">Default bridge target</option>
                                     <option value="__all_enabled_targets__">All enabled targets</option>
                                 </select>
-                                <div class="fieldDescription">Choose one or more mappings for a selected-target cue. You may include the default bridge; All enabled targets is exclusive.</div>
+                                <div class="fieldDescription">Choose one or more mappings or nested device routes for a selected-target cue. You may include the default bridge; All enabled targets is exclusive. Device routes carry only user and device IDs; credentials remain server-side.</div>
                             </div>
                             <label style="display: flex; align-items: center; gap: 0.5em; padding-bottom: 0.45em;">
                                 <input is="emby-checkbox" type="checkbox" id="sceneScheduleEnabled" checked />
@@ -738,7 +738,7 @@
                             <div class="fieldDescription">Daily cues run on every calendar date; weekly cues choose one or more weekdays; monthly-day cues use the Day of month field; monthly-weekday cues use the ordinal weekday selector; yearly cues use the month and Day of month fields. The Every value multiplies the selected recurrence unit (days, weeks, months, or years); intervals above 1 use Start date as the stable anchor. Setting a one-time date disables recurring date rules and recurrence controls. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default. Dates are calendar dates in the selected cue time zone and include both endpoints. Enter excluded dates as comma-separated <code>yyyy-MM-dd</code> values to skip holidays or blackout days.</div>
                         </div>
                         <button is="emby-button" type="button" class="raised button-submit" id="saveSceneScheduleBtn" style="margin-top: 0.5em;"><span>Save Scheduled Cue</span></button>
-                        <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule timing/date rules, and target mapping IDs; bridge credentials remain server-side.</div>
+                        <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule timing/date rules, and target mapping/device-route IDs; bridge credentials remain server-side.</div>
                         <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top: 0.75em;">
                             <label>
                                 <input is="emby-checkbox" type="checkbox" id="sceneAutomationEnabled" checked />
@@ -5036,6 +5036,123 @@
                         targetUserId: all || includeDefaultTarget || selected.length !== 1 ? '' : selected[0]
                     };
                 },
+                normalizeSceneScheduleTargetSelection: function (page) {
+                    var select = page && page.querySelector('#sceneScheduleTarget');
+                    if (!select) return;
+                    var selectedOptions = Array.prototype.slice.call(select.selectedOptions || []);
+                    var selected = selectedOptions.map(function (option) { return option ? option.value || '' : ''; });
+                    var all = selected.indexOf('__all_enabled_targets__') >= 0;
+                    var defaultTarget = selected.indexOf('') >= 0;
+                    var mappingIds = selected.filter(function (value) {
+                        return value && value !== '__all_enabled_targets__' &&
+                            value.indexOf('__device_target__:') !== 0 &&
+                            !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
+                    var deviceTargetValues = selected.filter(function (value) {
+                        return !!HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
+                    var invalidDeviceTargetValues = selected.filter(function (value) {
+                        return value && value.indexOf('__device_target__:') === 0 &&
+                            !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
+                    var hasInvalidSelection = selectedOptions.some(function (option) {
+                        return !!(option && option.disabled);
+                    }) || invalidDeviceTargetValues.length > 0;
+                    var normalized;
+                    if (all && !hasInvalidSelection) {
+                        normalized = ['__all_enabled_targets__'];
+                    } else if (defaultTarget) {
+                        normalized = [''].concat(mappingIds, deviceTargetValues, invalidDeviceTargetValues);
+                    } else if (mappingIds.length || deviceTargetValues.length || invalidDeviceTargetValues.length) {
+                        normalized = mappingIds.concat(deviceTargetValues, invalidDeviceTargetValues);
+                    } else {
+                        normalized = [''];
+                    }
+                    Array.prototype.forEach.call(select.options || [], function (option) {
+                        option.selected = normalized.indexOf(option.value) >= 0;
+                    });
+                },
+                isSceneScheduleDeviceRouteAvailable: function (page, route) {
+                    var userId = route && String(route.userId || '').trim();
+                    var deviceId = route && String(route.deviceId || '').trim();
+                    if (!userId || !deviceId) return false;
+                    var mappings = page && Array.isArray(page._hueSceneScheduleMappings)
+                        ? page._hueSceneScheduleMappings
+                        : [];
+                    var mapping = mappings.find(function (candidate) {
+                        var candidateUserId = candidate && (candidate.userId !== undefined ? candidate.userId : candidate.UserId);
+                        return String(candidateUserId || '').trim().toLowerCase() === userId.toLowerCase();
+                    });
+                    if (!mapping) return false;
+                    var enabled = mapping.syncEnabled !== undefined ? mapping.syncEnabled !== false : mapping.SyncEnabled !== false;
+                    if (!enabled) return false;
+                    var deviceTargets = mapping.deviceTargets !== undefined ? mapping.deviceTargets : mapping.DeviceTargets;
+                    return (Array.isArray(deviceTargets) ? deviceTargets : []).some(function (candidate) {
+                        var candidateDeviceId = candidate && (candidate.deviceId !== undefined ? candidate.deviceId : candidate.DeviceId);
+                        return String(candidateDeviceId || '').trim() === deviceId;
+                    });
+                },
+                getSceneScheduleTargetSelection: function (page) {
+                    HueConfigurationPage.normalizeSceneScheduleTargetSelection(page);
+                    var select = page && page.querySelector('#sceneScheduleTarget');
+                    var selectedOptions = Array.prototype.slice.call(select && select.selectedOptions || []);
+                    var selected = selectedOptions.map(function (option) { return option ? option.value || '' : ''; });
+                    var all = selected.indexOf('__all_enabled_targets__') >= 0;
+                    var includeDefaultTarget = selected.indexOf('') >= 0;
+                    var targetUserIds = [];
+                    var targetRoutes = [];
+                    var invalidRoute = false;
+                    var unavailableRoute = false;
+                    var disabledTarget = selectedOptions.some(function (option) {
+                        return !!(option && option.disabled);
+                    });
+                    selectedOptions.forEach(function (option) {
+                        var value = option ? option.value || '' : '';
+                        if (!value || value === '__all_enabled_targets__') return;
+                        var route = HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                        if (route) {
+                            var normalizedRoute = {
+                                userId: String(route.userId || '').trim(),
+                                deviceId: String(route.deviceId || '').trim()
+                            };
+                            if (!HueConfigurationPage.isSceneScheduleDeviceRouteAvailable(page, normalizedRoute)) {
+                                unavailableRoute = true;
+                            } else {
+                                targetRoutes.push(normalizedRoute);
+                            }
+                            return;
+                        }
+                        if (value.indexOf('__device_target__:') === 0) {
+                            invalidRoute = true;
+                            return;
+                        }
+                        targetUserIds.push(value);
+                    });
+                    var unavailablePersistedRoutes = page && Array.isArray(page._hueSceneScheduleUnavailableTargetRoutes) &&
+                        page._hueSceneScheduleUnavailableTargetRoutes.length > 0;
+                    var error = '';
+                    if (unavailablePersistedRoutes || unavailableRoute) {
+                        error = 'One or more selected scheduled-cue device routes are unavailable or disabled. Choose an available route before saving.';
+                    } else if (invalidRoute) {
+                        error = 'Selected scheduled-cue device routes are malformed. Choose an available route before saving.';
+                    } else if (disabledTarget) {
+                        error = 'Selected scheduled-cue targets are disabled. Choose enabled targets before saving.';
+                    } else if (all && (includeDefaultTarget || targetUserIds.length || targetRoutes.length)) {
+                        error = 'All enabled targets cannot be combined with another target selection.';
+                    }
+                    var legacyTargetUserId = all || includeDefaultTarget || targetRoutes.length > 0 || targetUserIds.length !== 1
+                        ? ''
+                        : targetUserIds[0];
+                    return {
+                        valid: !error,
+                        error: error,
+                        targetAllEnabledMappings: all,
+                        includeDefaultTarget: !all && includeDefaultTarget,
+                        targetUserIds: all || legacyTargetUserId ? [] : targetUserIds,
+                        targetRoutes: all ? [] : targetRoutes,
+                        targetUserId: legacyTargetUserId
+                    };
+                },
                 playlistPreviewMessage: function (response, includeTargetDetails) {
                     var result = HueConfigurationPage.previewMessage(response, includeTargetDetails);
                     var repeatCount = response && (response.repeatCount !== undefined ? response.repeatCount : (response.RepeatCount || 1));
@@ -5976,6 +6093,8 @@
                         var mappings = Array.isArray(responses[3]) ? responses[3] : [];
                         var timeZones = Array.isArray(responses[4]) ? responses[4] : [];
                         page._hueSceneSchedules = schedules;
+                        page._hueSceneScheduleMappings = mappings;
+                        page._hueSceneScheduleUnavailableTargetRoutes = [];
                         page._hueSceneSchedulePlaylists = playlists;
 
                         var presetSelect = page.querySelector('#sceneSchedulePresetSelect');
@@ -6016,10 +6135,39 @@
                                 if (!userId) return;
                                 var userName = mapping.userName !== undefined ? mapping.userName : mapping.UserName;
                                 var label = userName || userId;
+                                var enabled = mapping.syncEnabled !== undefined ? mapping.syncEnabled !== false : mapping.SyncEnabled !== false;
                                 var option = document.createElement('option');
                                 option.value = userId;
-                                option.textContent = label + (mapping.syncEnabled === false || mapping.SyncEnabled === false ? ' (disabled)' : '');
+                                option.textContent = label + (enabled ? '' : ' (disabled)');
+                                option.disabled = !enabled;
                                 targetSelect.appendChild(option);
+
+                                var deviceTargets = mapping.deviceTargets !== undefined ? mapping.deviceTargets : mapping.DeviceTargets;
+                                deviceTargets = Array.isArray(deviceTargets) ? deviceTargets : [];
+                                deviceTargets.forEach(function (deviceTarget) {
+                                    if (!deviceTarget) return;
+                                    var deviceId = deviceTarget.deviceId !== undefined ? deviceTarget.deviceId : deviceTarget.DeviceId;
+                                    if (!deviceId) return;
+                                    var deviceName = deviceTarget.deviceName !== undefined ? deviceTarget.deviceName : deviceTarget.DeviceName;
+                                    var deviceBridgeIp = deviceTarget.hueBridgeIp !== undefined ? deviceTarget.hueBridgeIp : deviceTarget.HueBridgeIp;
+                                    var deviceAreaId = deviceTarget.entertainmentAreaId !== undefined ? deviceTarget.entertainmentAreaId : deviceTarget.EntertainmentAreaId;
+                                    var deviceHasAppKey = deviceTarget.hasAppKey !== undefined ? deviceTarget.hasAppKey : deviceTarget.HasAppKey;
+                                    var deviceHasClientKey = deviceTarget.hasClientKey !== undefined ? deviceTarget.hasClientKey : deviceTarget.HasClientKey;
+                                    var deviceReady = !!String(deviceBridgeIp || '').trim() &&
+                                        !!String(deviceAreaId || '').trim() &&
+                                        deviceHasAppKey === true && deviceHasClientKey === true;
+                                    var deviceOption = document.createElement('option');
+                                    deviceOption.value = HueConfigurationPage.encodeCurrentLightDeviceTarget(userId, deviceId);
+                                    deviceOption.textContent = '↳ ' + (deviceName || deviceId) + ' — ' + label +
+                                        (enabled ? (deviceReady ? '' : ' (unavailable)') : ' (disabled)');
+                                    deviceOption.disabled = !enabled || !deviceReady;
+                                    if (deviceOption.disabled) {
+                                        deviceOption.title = enabled
+                                            ? 'This device route is unavailable or incomplete.'
+                                            : 'This mapping is disabled.';
+                                    }
+                                    targetSelect.appendChild(deviceOption);
+                                });
                             });
                         }
 
@@ -7384,12 +7532,16 @@
                     var selectedTargetUserIds = get('TargetUserIds', 'targetUserIds', []);
                     selectedTargetUserIds = Array.isArray(selectedTargetUserIds) ? selectedTargetUserIds : [];
                     var includeDefaultTarget = get('IncludeDefaultTarget', 'includeDefaultTarget', false) === true;
+                    var selectedTargetRoutes = get('TargetRoutes', 'targetRoutes', []);
+                    selectedTargetRoutes = Array.isArray(selectedTargetRoutes) ? selectedTargetRoutes : [];
+                    var unavailableTargetRoutes = [];
                     if (targetSelect) {
                         Array.prototype.forEach.call(targetSelect.options, function (option) { option.selected = false; });
                         if (targetAllEnabledMappings) {
                             var allOption = targetSelect.querySelector('option[value="__all_enabled_targets__"]');
                             if (allOption) allOption.selected = true;
-                        } else if (selectedTargetUserIds.length || includeDefaultTarget) {
+                            if (selectedTargetRoutes.length) unavailableTargetRoutes = selectedTargetRoutes.slice();
+                        } else if (selectedTargetUserIds.length || includeDefaultTarget || selectedTargetRoutes.length) {
                             if (includeDefaultTarget) {
                                 var defaultOption = targetSelect.querySelector('option[value=""]');
                                 if (defaultOption) defaultOption.selected = true;
@@ -7400,12 +7552,43 @@
                                 });
                                 if (option) option.selected = true;
                             });
+                            selectedTargetRoutes.forEach(function (routeValue) {
+                                var routeUserId = routeValue && (routeValue.userId !== undefined ? routeValue.userId : routeValue.UserId);
+                                var routeDeviceId = routeValue && (routeValue.deviceId !== undefined ? routeValue.deviceId : routeValue.DeviceId);
+                                var route = {
+                                    userId: String(routeUserId || '').trim(),
+                                    deviceId: String(routeDeviceId || '').trim()
+                                };
+                                var routeOption = Array.prototype.find.call(targetSelect.options || [], function (candidate) {
+                                    var candidateRoute = HueConfigurationPage.parseCurrentLightDeviceTarget(candidate && candidate.value);
+                                    return candidateRoute &&
+                                        candidateRoute.userId.trim().toLowerCase() === route.userId.toLowerCase() &&
+                                        candidateRoute.deviceId.trim() === route.deviceId;
+                                });
+                                if (routeOption && !routeOption.disabled &&
+                                    HueConfigurationPage.isSceneScheduleDeviceRouteAvailable(page, route)) {
+                                    routeOption.selected = true;
+                                } else {
+                                    unavailableTargetRoutes.push(route);
+                                }
+                            });
                         } else {
                             var legacyTargetId = get('TargetUserId', 'targetUserId', '');
                             var legacyOption = Array.prototype.find.call(targetSelect.options, function (candidate) {
                                 return candidate.value === String(legacyTargetId || '');
                             });
                             if (legacyOption) legacyOption.selected = true;
+                        }
+                        page._hueSceneScheduleUnavailableTargetRoutes = unavailableTargetRoutes;
+                        if (!unavailableTargetRoutes.length) {
+                            HueConfigurationPage.normalizeSceneScheduleTargetSelection(page);
+                        }
+                        if (unavailableTargetRoutes.length) {
+                            var unavailableStatus = page.querySelector('#sceneScheduleStatus');
+                            if (unavailableStatus) {
+                                unavailableStatus.textContent = 'This cue references an unavailable or disabled device route. Choose an available target before saving.';
+                                unavailableStatus.style.color = '#f0ad4e';
+                            }
                         }
                     }
                     page.querySelector('#sceneScheduleEnabled').checked = get('Enabled', 'enabled', true) !== false;
@@ -7418,6 +7601,7 @@
                     var select = page && page.querySelector('#sceneScheduleSelect');
                     if (select) select.value = '';
                     if (!page) return;
+                    page._hueSceneScheduleUnavailableTargetRoutes = [];
                     page.querySelector('#sceneScheduleName').value = '';
                     page.querySelector('#sceneSchedulePresetSelect').value = '';
                     page.querySelector('#sceneSchedulePlaylistSelect').value = '';
@@ -7600,23 +7784,12 @@
                         statusEl.textContent = "Saving scheduled cue...";
                         statusEl.style.color = "";
                     }
-                    var targetSelect = page.querySelector('#sceneScheduleTarget');
-                    var selectedTargetValues = targetSelect
-                        ? Array.prototype.map.call(targetSelect.selectedOptions || [], function (option) { return option.value || ''; })
-                        : [];
-                    var targetAllEnabledMappings = selectedTargetValues.indexOf('__all_enabled_targets__') >= 0;
-                    if (targetAllEnabledMappings && selectedTargetValues.length > 1) {
-                        Dashboard.alert("All enabled targets cannot be combined with another target selection.");
+                    var targetSelection = HueConfigurationPage.getSceneScheduleTargetSelection(page);
+                    if (!targetSelection.valid) {
+                        Dashboard.alert(targetSelection.error);
                         button.disabled = false;
                         return;
                     }
-                    var includeDefaultTarget = !targetAllEnabledMappings && selectedTargetValues.indexOf('') >= 0;
-                    var targetUserIds = selectedTargetValues.filter(function (value) {
-                        return value && value !== '__all_enabled_targets__';
-                    });
-                    var legacyTargetUserId = !targetAllEnabledMappings && !includeDefaultTarget && targetUserIds.length === 1
-                        ? targetUserIds[0]
-                        : '';
                     ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/SceneSchedules"),
@@ -7625,10 +7798,11 @@
                             name: name,
                             presetName: presetName,
                             playlistName: playlistName,
-                            targetUserId: legacyTargetUserId,
-                            targetAllEnabledMappings: targetAllEnabledMappings,
-                            targetUserIds: legacyTargetUserId ? [] : targetUserIds,
-                            includeDefaultTarget: includeDefaultTarget,
+                            targetUserId: targetSelection.targetUserId,
+                            targetAllEnabledMappings: targetSelection.targetAllEnabledMappings,
+                            targetUserIds: targetSelection.targetUserIds,
+                            targetRoutes: targetSelection.targetRoutes,
+                            includeDefaultTarget: targetSelection.includeDefaultTarget,
                             timeOfDay: timeOfDay,
                             timeMode: timeMode,
                             solarOffsetMinutes: solarOffsetMinutes,
@@ -10766,6 +10940,12 @@
 
             document.querySelector('#sceneScheduleSelect').addEventListener('change', function () {
                 HueConfigurationPage.applySceneSchedule(this.closest('.page'), this.value);
+            });
+
+            document.querySelector('#sceneScheduleTarget').addEventListener('change', function () {
+                var page = this.closest('.page');
+                if (page) page._hueSceneScheduleUnavailableTargetRoutes = [];
+                HueConfigurationPage.normalizeSceneScheduleTargetSelection(page);
             });
 
             document.querySelector('#sceneScheduleBulkSelect').addEventListener('change', function () {
