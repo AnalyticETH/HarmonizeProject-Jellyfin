@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.229] - 2026-08-24
+
+### Security
+- **Credential-safe bridge registration**: stop logging registration response objects and raw registration errors in the administrator browser console, and replace the raw-response recovery prompt with credential-free guidance.
+- **Fail-closed capture selection**: reject blank target user IDs before current-light capture can fall back to the default bridge.
+
+### Tests
+- **Credential redaction coverage**: protect the registration workflow with a static contract that rejects response/error console logging and raw-response prompts.
+- **Selection validation coverage**: verify blank target user IDs return a client error without contacting a bridge.
+
 ## [1.5.228] - 2026-08-24
 
 ### Fixed

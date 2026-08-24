@@ -427,7 +427,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.228 (Current)
+### Version 1.5.229 (Current)
+- **Credential-safe bridge registration**: registration no longer logs response credentials or raw errors in the administrator browser console, and recovery guidance is credential-free.
+- **Fail-closed capture selection**: current-light capture rejects blank target user IDs before default-target fallback, without contacting a bridge.
+
+### Version 1.5.228
 - **Malformed capture routes**: batch current-light capture rejects null or blank-user routes before default-target fallback, with no bridge activity.
 - **Bulk preview telemetry**: saved-scene and playlist bulk previews now show per-target route outcomes instead of only generic completion text.
 

@@ -6551,6 +6551,12 @@ namespace Jellyfin.Plugin.Hue.Api
             error = string.Empty;
             var targetAll = request?.TargetAllEnabledMappings == true;
             var includeDefault = request?.IncludeDefaultTarget == true;
+            if (request?.TargetUserIds?.Any(value => string.IsNullOrWhiteSpace(value)) == true)
+            {
+                error = "Selected current-light capture target IDs must contain user mapping IDs.";
+                return false;
+            }
+
             var selectedUserIds = request?.TargetUserIds?
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())

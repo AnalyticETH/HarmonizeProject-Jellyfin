@@ -360,6 +360,8 @@ const requiredScript = [
     "previewScenePlaylistsBulk: function",
     "HueSync/ScenePlaylists/BulkPreview",
     "HueConfigurationPage.previewMessage(result, true)",
+    "Registration returned without both required credentials.",
+    "Registration failed. Verify the bridge address and link-button prompt, then try again.",
     "renameScenePlaylist: function",
     'url: ApiClient.getUrl("HueSync/ScenePlaylists/" + encodeURIComponent(name) + "/Rename")',
     "deleteColorPresetsBulk: function",
@@ -428,6 +430,17 @@ for (const channel of ["Red", "Green", "Blue"]) {
     if (!functionBody.includes("['', 'Inherited scene']") ||
         !functionBody.includes("page._hueScenePlaylistEffects[index] = effectSelect.value || null")) {
         throw new Error(`${file} playlist step effect selector is missing null-as-inherit wiring`);
+    }
+}
+
+{
+    const functionName = "registerBridge";
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody || /console\.(?:log|warn|error)\s*\(/.test(functionBody) ||
+        /Check console|Registration response|Keys not found in response/.test(functionBody)) {
+        throw new Error(`${file} registerBridge must not log or direct administrators to raw registration responses`);
     }
 }
 

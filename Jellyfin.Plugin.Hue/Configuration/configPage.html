@@ -8865,7 +8865,6 @@
                                 dataType: "json"
                             }).then(function (response) {
                                 Dashboard.hideLoadingMsg();
-                                console.log("Registration response:", response);
 
                                 // Handle both camelCase and PascalCase property names
                                 var appKey = response.username || response.Username || "";
@@ -8878,13 +8877,11 @@
                                     HueConfigurationPage.refreshStatus(page, "Bridge linked. Entertainment areas ready to refresh.", "success");
                                     HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
                                 } else {
-                                    console.log("Keys not found in response:", response);
-                                    Dashboard.alert("Registration returned but keys were empty. Check console.");
+                                    Dashboard.alert("Registration returned without both required credentials. Press the bridge link button and try again.");
                                 }
-                            }).catch(function (err) {
+                            }).catch(function () {
                                 Dashboard.hideLoadingMsg();
-                                console.error("Registration error:", err);
-                                Dashboard.alert("Registration Failed: " + (err.message || err));
+                                Dashboard.alert("Registration failed. Verify the bridge address and link-button prompt, then try again.");
                             });
                         }
                     });
