@@ -440,7 +440,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.255 (Current)
+### Version 1.5.256 (Current)
+- **Self-hosted checkout isolation**: all CI/security/release checkouts disable persisted GitHub credentials; only the release tag step receives an explicit scoped auth header for its tag operation.
+- **Tested-artifact release integrity**: release packaging consumes the exact publish artifact produced by the tested build job instead of rebuilding a separate DLL.
+- **Reproducible SDK**: CI and repository tooling use the pinned .NET 8.0.424 SDK from `global.json`.
+- **Read-only scheduler telemetry**: schedule status/history GETs defer persisted history and deferred-run repairs whenever a configuration mutation or scheduler lifecycle owns the barrier.
+
+### Version 1.5.255
 - **Generic configuration-route isolation**: the built-in Jellyfin plugin-configuration JSON omits global, per-user, and nested device-route Hue credentials.
 - **Guarded configuration writes**: the generic plugin configuration update route is rejected; use the authenticated `/HueSync/Configuration` endpoint for normalized, lifecycle-safe updates.
 

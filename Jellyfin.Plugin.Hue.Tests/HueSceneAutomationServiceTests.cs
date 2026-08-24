@@ -5009,6 +5009,90 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("cue-0", service.GetHistory()[0].ScheduleId);
     }
 
+    [Fact]
+    public void GetHistory_DoesNotPersistLazyRepairWhileConfigurationMutationIsHeld()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        var configuration = new PluginConfiguration
+        {
+            CustomFfmpegFlags = "-threads 2",
+            PersistSceneScheduleHistory = true,
+            SceneScheduleHistoryRetentionCount = 1,
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new() { ScheduleId = "history-newest", RunAtUtc = DateTime.UtcNow },
+                new() { ScheduleId = "history-older", RunAtUtc = DateTime.UtcNow.AddMinutes(-1) }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+
+        Assert.True(service.TryAcquireConfigurationMutation(out var mutationLease, out var message), message);
+        using (mutationLease!)
+        {
+            var history = service.GetHistory();
+
+            Assert.Single(history);
+            Assert.Equal("history-newest", history[0].ScheduleId);
+            Assert.Equal(2, configuration.PersistedSceneScheduleHistory.Count);
+            Assert.Equal("-threads 2", configuration.CustomFfmpegFlags);
+            serializer.Verify(
+                xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+                Times.Never);
+        }
+    }
+
+    [Fact]
+    public void GetStatus_DoesNotPersistLazyRepairWhileConfigurationMutationIsHeld()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        var deferredAt = DateTime.Now;
+        var configuration = new PluginConfiguration
+        {
+            CustomFfmpegFlags = "-threads 4",
+            SceneSchedules = new List<HueSceneSchedule>(),
+            PersistedSceneAutomationDeferredRuns = new List<HueSceneDeferredRunEntry>
+            {
+                new()
+                {
+                    ScheduleId = "deleted-cue",
+                    OccurrenceSlot = deferredAt,
+                    DeferredAtLocal = deferredAt
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+
+        Assert.True(service.TryAcquireConfigurationMutation(out var mutationLease, out var message), message);
+        using (mutationLease!)
+        {
+            var status = service.GetStatus();
+
+            Assert.Empty(status.Schedules);
+            Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+            Assert.Equal("deleted-cue", configuration.PersistedSceneAutomationDeferredRuns[0].ScheduleId);
+            Assert.Equal("-threads 4", configuration.CustomFfmpegFlags);
+            serializer.Verify(
+                xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+                Times.Never);
+        }
+    }
+
     private static PluginConfiguration CreateContinuousPlaylistConfiguration(
         string playlistId,
         string playlistName,

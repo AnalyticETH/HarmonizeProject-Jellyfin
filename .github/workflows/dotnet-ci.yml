@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DOTNET_VERSION: '8.0.x'
+  DOTNET_VERSION: '8.0.424'
   BUILD_CONFIGURATION: 'Release'
   # The self-hosted runner uses the dedicated, least-privileged
   # `harmonize-runner` service account.
@@ -31,6 +31,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         fetch-depth: 0  # Shallow clones disabled for better analysis
+        persist-credentials: false
 
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
@@ -131,6 +132,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
 
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
@@ -177,26 +180,25 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
       with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
+        persist-credentials: false
 
-    - name: Restore and build
-      run: |
-        dotnet restore --locked-mode
-        dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+    - name: Download tested build artifact
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: jellyfin-plugin-hue
+        path: tested-publish
 
     - name: Create plugin package
       run: |
         mkdir -p release-package
         # Only include the DLL and meta.json (Jellyfin requirements)
-        cp Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll release-package/
-        cp meta.json release-package/
-        META_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' meta.json | head -n 1)
+        cp tested-publish/Jellyfin.Plugin.Hue.dll release-package/
+        cp tested-publish/meta.json release-package/
+        META_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' tested-publish/meta.json | head -n 1)
+        SOURCE_META_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' meta.json | head -n 1)
         PROJECT_VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj | head -n 1)
-        test -n "$META_VERSION" && test "$META_VERSION" = "$PROJECT_VERSION"
+        test -n "$META_VERSION" && test "$META_VERSION" = "$SOURCE_META_VERSION" && test "$META_VERSION" = "$PROJECT_VERSION"
         test -f release-package/Jellyfin.Plugin.Hue.dll
         test -f release-package/meta.json
 
@@ -254,6 +256,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
 
     - name: Extract version from meta.json
       id: version
@@ -301,10 +305,14 @@ jobs:
       env:
         RELEASE_TAG: ${{ steps.version.outputs.tag }}
         RELEASE_SHA: ${{ github.sha }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         set -euo pipefail
         TAG="$RELEASE_TAG"
         SHA="$RELEASE_SHA"
+        export GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0=http.extraheader
+        export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
         set +e
         remote_tag_info="$(git ls-remote --refs origin "refs/tags/${TAG}" 2>&1)"
         lookup_status=$?

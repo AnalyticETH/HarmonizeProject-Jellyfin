@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.256] - 2026-08-24
+
+### Security
+- **Self-hosted checkout isolation**: every workflow checkout now disables persisted GitHub credentials, preventing repository-controlled build/test code from reading a token from `.git/config`.
+- **Release token narrowing**: the release tag step uses an explicit, short-lived authentication header only for the required tag lookup and push.
+- **Read-only scheduler telemetry**: schedule status/history reads no longer persist lazy history/deferred-run repairs while an administrator configuration mutation or scheduler lifecycle is active; repairs are deferred to a coordinated writer.
+
+### Release integrity
+- **Tested-artifact packaging**: the release package now consumes the build-and-test publish artifact instead of rebuilding a second, untested DLL.
+- **SDK reproducibility**: CI and local tooling are pinned to the current .NET 8.0.424 SDK feature band.
+
 ## [1.5.255] - 2026-08-24
 
 ### Security
