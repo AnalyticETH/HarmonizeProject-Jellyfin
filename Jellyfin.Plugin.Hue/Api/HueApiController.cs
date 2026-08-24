@@ -986,11 +986,14 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Plugin configuration is unavailable.");
 
             var targetUserId = request?.TargetUserId?.Trim() ?? string.Empty;
-            var target = ResolveSingleCaptureTarget(config, targetUserId);
+            var targetDeviceId = request?.TargetDeviceId?.Trim() ?? string.Empty;
+            var target = ResolveSingleCaptureTarget(config, targetUserId, targetDeviceId);
             if (target == null)
             {
-                return BadRequest(string.IsNullOrWhiteSpace(targetUserId)
+                return BadRequest(string.IsNullOrWhiteSpace(targetUserId) && string.IsNullOrWhiteSpace(targetDeviceId)
                     ? "The default bridge target is not configured."
+                    : !string.IsNullOrWhiteSpace(targetDeviceId)
+                        ? "The selected user device target is not configured or enabled."
                     : "The selected user target is not configured or enabled.");
             }
 
@@ -1009,7 +1012,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Captures current RGB/brightness samples from the default bridge, every
-        /// distinct enabled target, or a selected target subset. Each target is reported
+        /// distinct enabled target, or a selected user/device target subset. Each target is reported
         /// independently so one stale mapping cannot hide usable samples from the other
         /// rooms; the aggregate sample is a convenient seed for the scene editor.
         /// </summary>
@@ -1060,6 +1063,14 @@ namespace Jellyfin.Plugin.Hue.Api
                     .Select(value => value.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray() ?? Array.Empty<string>(),
+                TargetRoutes = request?.TargetRoutes?
+                    .Where(route => route != null && !string.IsNullOrWhiteSpace(route.UserId))
+                    .Select(route => new HueCurrentLightColorTargetRoute
+                    {
+                        UserId = route.UserId.Trim(),
+                        DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
+                    })
+                    .ToArray() ?? Array.Empty<HueCurrentLightColorTargetRoute>(),
                 IncludeDefaultTarget = request?.IncludeDefaultTarget == true,
                 AttemptedTargetCount = targetCount,
                 SuccessfulTargetCount = successfulCount,
@@ -6319,6 +6330,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     Message = "The selected entertainment area did not return any light states.",
                     TargetLabel = targetLabel,
                     TargetUserId = target.UserId,
+                    TargetDeviceId = target.DeviceId,
+                    TargetDeviceName = target.DeviceName,
                     AttemptedLightCount = capture.AttemptedCount,
                     CapturedLightCount = capture.CapturedCount,
                     SampledLightCount = 0,
@@ -6342,6 +6355,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 Message = message,
                 TargetLabel = targetLabel,
                 TargetUserId = target.UserId,
+                TargetDeviceId = target.DeviceId,
+                TargetDeviceName = target.DeviceName,
                 Red = sample.Red,
                 Green = sample.Green,
                 Blue = sample.Blue,
@@ -6361,7 +6376,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 Succeeded = false,
                 Message = message ?? "The selected target could not be captured.",
                 TargetLabel = BuildCaptureTargetLabel(target),
-                TargetUserId = target.UserId
+                TargetUserId = target.UserId,
+                TargetDeviceId = target.DeviceId,
+                TargetDeviceName = target.DeviceName
             };
 
         private static HueCurrentLightColorAggregate AggregateCurrentColorSamples(
@@ -6396,12 +6413,25 @@ namespace Jellyfin.Plugin.Hue.Api
 
         private static HueTarget? ResolveSingleCaptureTarget(
             PluginConfiguration config,
-            string targetUserId)
-            => string.IsNullOrWhiteSpace(targetUserId)
-                ? EnumerateConfiguredTargets(config).FirstOrDefault(candidate => candidate.Scope == "Default")
-                : EnumerateConfiguredTargets(config).FirstOrDefault(candidate =>
-                    candidate.Scope == "User" &&
-                    string.Equals(candidate.UserId, targetUserId, StringComparison.OrdinalIgnoreCase));
+            string targetUserId,
+            string targetDeviceId = "")
+        {
+            var normalizedUserId = targetUserId?.Trim() ?? string.Empty;
+            var normalizedDeviceId = targetDeviceId?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalizedUserId))
+            {
+                return string.IsNullOrWhiteSpace(normalizedDeviceId)
+                    ? EnumerateConfiguredTargets(config).FirstOrDefault(candidate => candidate.Scope == "Default")
+                    : null;
+            }
+
+            return EnumerateConfiguredTargets(config).FirstOrDefault(candidate =>
+                string.Equals(candidate.UserId, normalizedUserId, StringComparison.OrdinalIgnoreCase) &&
+                (string.IsNullOrWhiteSpace(normalizedDeviceId)
+                    ? candidate.Scope == "User"
+                    : candidate.Scope == "UserDevice" &&
+                      string.Equals(candidate.DeviceId, normalizedDeviceId, StringComparison.OrdinalIgnoreCase)));
+        }
 
         private static bool TryResolveCaptureTargets(
             PluginConfiguration config,
@@ -6417,13 +6447,21 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())
                 .ToArray() ?? Array.Empty<string>();
-            if (selectedUserIds.Length > PluginConfiguration.MaxSceneScheduleTargetMappings)
+            var selectedRoutes = request?.TargetRoutes?
+                .Where(route => route != null && !string.IsNullOrWhiteSpace(route.UserId))
+                .Select(route => new HueCurrentLightColorTargetRoute
+                {
+                    UserId = route.UserId.Trim(),
+                    DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
+                })
+                .ToArray() ?? Array.Empty<HueCurrentLightColorTargetRoute>();
+            if (selectedUserIds.Length + selectedRoutes.Length > PluginConfiguration.MaxSceneScheduleTargetMappings)
             {
-                error = $"Current-light capture cannot select more than {PluginConfiguration.MaxSceneScheduleTargetMappings} user mappings.";
+                error = $"Current-light capture cannot select more than {PluginConfiguration.MaxSceneScheduleTargetMappings} target routes.";
                 return false;
             }
 
-            if (targetAll && (includeDefault || selectedUserIds.Length > 0))
+            if (targetAll && (includeDefault || selectedUserIds.Length > 0 || selectedRoutes.Length > 0))
             {
                 error = "A broadcast current-light capture cannot also select specific targets.";
                 return false;
@@ -6434,7 +6472,7 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 resolved.AddRange(EnumerateConfiguredTargets(config));
             }
-            else if (!includeDefault && selectedUserIds.Length == 0)
+            else if (!includeDefault && selectedUserIds.Length == 0 && selectedRoutes.Length == 0)
             {
                 var defaultTarget = ResolveSingleCaptureTarget(config, string.Empty);
                 if (defaultTarget == null)
@@ -6472,6 +6510,28 @@ namespace Jellyfin.Plugin.Hue.Api
                     if (target == null)
                     {
                         error = $"The selected user target '{selectedUserId}' is not configured or enabled.";
+                        return false;
+                    }
+
+                    resolved.Add(target);
+                }
+
+                var seenRoutes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var selectedRoute in selectedRoutes)
+                {
+                    var routeKey = string.Join("|", selectedRoute.UserId, selectedRoute.DeviceId ?? string.Empty);
+                    if (!seenRoutes.Add(routeKey))
+                    {
+                        error = $"Selected current-light capture targets contain route '{selectedRoute.UserId}/{selectedRoute.DeviceId ?? "user"}' more than once.";
+                        return false;
+                    }
+
+                    var target = ResolveSingleCaptureTarget(config, selectedRoute.UserId, selectedRoute.DeviceId ?? string.Empty);
+                    if (target == null)
+                    {
+                        error = string.IsNullOrWhiteSpace(selectedRoute.DeviceId)
+                            ? $"The selected user target '{selectedRoute.UserId}' is not configured or enabled."
+                            : $"The selected device target '{selectedRoute.UserId}/{selectedRoute.DeviceId}' is not configured or enabled.";
                         return false;
                     }
 
@@ -9154,12 +9214,28 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonPropertyName("targetUserId")]
         public string? TargetUserId { get; set; }
+
+        [JsonPropertyName("targetDeviceId")]
+        public string? TargetDeviceId { get; set; }
+    }
+
+    /// <summary>
+    /// Identifies either a user-level target or one explicit device route belonging
+    /// to that user. Device IDs are persisted route identifiers, never credentials.
+    /// </summary>
+    public sealed class HueCurrentLightColorTargetRoute
+    {
+        [JsonPropertyName("userId")]
+        public string UserId { get; set; } = string.Empty;
+
+        [JsonPropertyName("deviceId")]
+        public string? DeviceId { get; set; }
     }
 
     /// <summary>
     /// Selects multiple persisted targets for credential-free current-light capture.
-    /// All-target selection is exclusive; otherwise the default bridge and/or enabled
-    /// user mapping IDs can be selected explicitly.
+    /// All-target selection is exclusive; otherwise the default bridge, enabled user
+    /// mapping IDs, and explicit per-user device routes can be selected explicitly.
     /// </summary>
     public sealed class HueCurrentLightColorBatchRequest
     {
@@ -9168,6 +9244,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetUserIds")]
         public List<string>? TargetUserIds { get; set; }
+
+        [JsonPropertyName("targetRoutes")]
+        public List<HueCurrentLightColorTargetRoute>? TargetRoutes { get; set; }
 
         [JsonPropertyName("includeDefaultTarget")]
         public bool? IncludeDefaultTarget { get; set; }
@@ -9316,6 +9395,12 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("targetUserId")]
         public string? TargetUserId { get; init; }
 
+        [JsonPropertyName("targetDeviceId")]
+        public string? TargetDeviceId { get; init; }
+
+        [JsonPropertyName("targetDeviceName")]
+        public string? TargetDeviceName { get; init; }
+
         [JsonPropertyName("red")]
         public int Red { get; init; }
 
@@ -9359,6 +9444,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [JsonPropertyName("targetUserIds")]
         public IReadOnlyList<string> TargetUserIds { get; init; } = Array.Empty<string>();
+
+        [JsonPropertyName("targetRoutes")]
+        public IReadOnlyList<HueCurrentLightColorTargetRoute> TargetRoutes { get; init; } = Array.Empty<HueCurrentLightColorTargetRoute>();
 
         [JsonPropertyName("includeDefaultTarget")]
         public bool IncludeDefaultTarget { get; init; }

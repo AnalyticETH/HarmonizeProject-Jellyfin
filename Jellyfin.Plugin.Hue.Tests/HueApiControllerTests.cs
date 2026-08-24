@@ -500,6 +500,170 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task CaptureCurrentColor_ResolvesExplicitDeviceRouteWithoutBaseMapping()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    UserName = "Living room",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "device-tv",
+                            DeviceName = "Living room TV",
+                            HueBridgeIp = "192.168.1.111",
+                            HueAppKey = "device-app-secret",
+                            HueClientKey = "device-client-secret",
+                            EntertainmentAreaId = "area-device",
+                            EntertainmentAreaName = "Living room",
+                            ChannelIdsOverride = "4"
+                        }
+                    }
+                }
+            }
+        });
+        var requests = new List<HttpRequestMessage>();
+        var responses = new Queue<HttpResponseMessage>(new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-device\",\"metadata\":{\"name\":\"Living room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":4,\"members\":[{\"service\":{\"rid\":\"light-device\"}}]}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"on\":{\"on\":true},\"dimming\":{\"brightness\":55},\"color\":{\"xy\":{\"x\":0.64,\"y\":0.33}}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            }
+        });
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => requests.Add(request))
+            .Returns(() => Task.FromResult(responses.Dequeue()));
+
+        var action = await CreateController().CaptureCurrentColor(new HueCurrentLightColorRequest
+        {
+            TargetUserId = "user-device",
+            TargetDeviceId = "device-tv"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueCurrentLightColorResult>(response.Value);
+        Assert.True(result.Succeeded);
+        Assert.Equal("Living room / Living room TV", result.TargetLabel);
+        Assert.Equal("user-device", result.TargetUserId);
+        Assert.Equal("device-tv", result.TargetDeviceId);
+        Assert.Equal("Living room TV", result.TargetDeviceName);
+        Assert.Equal(3, requests.Count);
+        Assert.All(requests, request => Assert.Equal("192.168.1.111", request.RequestUri!.Host));
+        Assert.All(requests, request => Assert.Equal("device-app-secret", request.Headers.GetValues("hue-application-key").Single()));
+
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("device-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("device-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CaptureCurrentColors_ResolvesSelectedDeviceRoutesAndReturnsRouteMetadata()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    UserName = "Bedroom",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "device-bedroom",
+                            DeviceName = "Bedroom TV",
+                            HueBridgeIp = "192.168.1.112",
+                            HueAppKey = "batch-device-app-secret",
+                            HueClientKey = "batch-device-client-secret",
+                            EntertainmentAreaId = "area-bedroom",
+                            ChannelIdsOverride = "2"
+                        }
+                    }
+                }
+            }
+        });
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-bedroom\",\"metadata\":{\"name\":\"Bedroom\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":2,\"members\":[{\"service\":{\"rid\":\"light-bedroom\"}}]}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"on\":{\"on\":true},\"dimming\":{\"brightness\":70},\"color\":{\"xy\":{\"x\":0.15,\"y\":0.06}}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+
+        var action = await CreateController().CaptureCurrentColors(new HueCurrentLightColorBatchRequest
+        {
+            TargetRoutes = new List<HueCurrentLightColorTargetRoute>
+            {
+                new() { UserId = "user-device", DeviceId = "device-bedroom" }
+            }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueCurrentLightColorBatchResult>(response.Value);
+        var capture = Assert.Single(result.Captures);
+        Assert.True(result.Succeeded);
+        Assert.Equal("user-device", result.TargetRoutes.Single().UserId);
+        Assert.Equal("device-bedroom", result.TargetRoutes.Single().DeviceId);
+        Assert.Equal("Bedroom / Bedroom TV", capture.TargetLabel);
+        Assert.Equal("device-bedroom", capture.TargetDeviceId);
+        Assert.Equal(70, capture.BrightnessPercent);
+
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("batch-device-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("batch-device-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CaptureCurrentColors_AggregatesSelectedTargetsWithoutReturningSecrets()
     {
         InstallConfiguration(new PluginConfiguration

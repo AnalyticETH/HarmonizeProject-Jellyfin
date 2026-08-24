@@ -313,11 +313,18 @@
                                     <option value="__all_enabled_targets__">All enabled targets</option>
                                 </select>
                             </div>
+                            <div style="flex: 1 1 260px; min-width: 240px;">
+                                <label class="inputLabel inputLabelUnfocused" for="captureColorTarget">Current-light Capture Targets</label>
+                                <select id="captureColorTarget" is="emby-select" multiple size="5" style="width: 100%;">
+                                    <option value="__default_target__">Default bridge target</option>
+                                    <option value="__all_enabled_targets__">All enabled targets</option>
+                                </select>
+                            </div>
                             <button is="emby-button" type="button" class="raised" id="cancelPreviewBtn" style="display: none; background: #8a3d3d;">
                                 <span>Cancel Active Preview</span>
                             </button>
                         </div>
-                        <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override. Capture Current Light Color can read one or multiple selected targets, updates the color and brightness fields from the aggregate when samples are available, and reports per-target results without changing bridge state.</div>
+                        <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override. Current-light capture has its own target selector so an individual user device route can be sampled without changing preview behavior. Captures update the color and brightness fields from the aggregate when samples are available and report per-target results without changing bridge state.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 1em;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="previewPresetSelect">Saved Scene</label>
@@ -2383,11 +2390,15 @@
                         dataType: "json"
                     });
                 },
-                fetchCurrentLightColor: function (targetUserId) {
+                fetchCurrentLightColor: function (targetSelection) {
+                    targetSelection = targetSelection || {};
                     return ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/Preview/CaptureCurrentColor"),
-                        data: JSON.stringify({ targetUserId: targetUserId || "" }),
+                        data: JSON.stringify({
+                            targetUserId: targetSelection.targetUserId || "",
+                            targetDeviceId: targetSelection.targetDeviceId || ""
+                        }),
                         contentType: "application/json",
                         dataType: "json"
                     });
@@ -2400,6 +2411,7 @@
                         data: JSON.stringify({
                             targetAllEnabledMappings: !!targetSelection.targetAllEnabledMappings,
                             targetUserIds: Array.isArray(targetSelection.targetUserIds) ? targetSelection.targetUserIds : [],
+                            targetRoutes: Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : [],
                             includeDefaultTarget: !!targetSelection.includeDefaultTarget
                         }),
                         contentType: "application/json",
@@ -2523,6 +2535,7 @@
                     var allTargetsButton = page && page.querySelector('#previewAllTargetsBtn');
                     var captureButton = page && page.querySelector('#captureCurrentColorBtn');
                     var colorTargetSelect = page && page.querySelector('#previewColorTarget');
+                    var captureTargetSelect = page && page.querySelector('#captureColorTarget');
                     var savedButton = page && page.querySelector('#previewSavedPresetBtn');
                     var savedAllTargetsButton = page && page.querySelector('#previewSavedPresetAllBtn');
                     var savedTargetSelect = page && page.querySelector('#previewSavedPresetTarget');
@@ -2539,6 +2552,7 @@
                     if (allTargetsButton) allTargetsButton.disabled = busy;
                     if (captureButton) captureButton.disabled = busy;
                     if (colorTargetSelect) colorTargetSelect.disabled = busy;
+                    if (captureTargetSelect) captureTargetSelect.disabled = busy;
                     if (savedButton) savedButton.disabled = busy;
                     if (savedAllTargetsButton) savedAllTargetsButton.disabled = busy;
                     if (savedTargetSelect) savedTargetSelect.disabled = busy;
@@ -2775,13 +2789,11 @@
                         return;
                     }
 
-                    var targetSelection = HueConfigurationPage.getColorPreviewTargetSelection(page);
+                    var targetSelection = HueConfigurationPage.getCurrentLightCaptureTargetSelection(page);
                     var isBatch = targetSelection.targetAllEnabledMappings ||
                         (targetSelection.includeDefaultTarget && targetSelection.targetUserIds.length > 0) ||
-                        targetSelection.targetUserIds.length > 1;
-                    var targetUserId = !isBatch && targetSelection.targetUserIds.length === 1
-                        ? targetSelection.targetUserIds[0]
-                        : "";
+                        (targetSelection.includeDefaultTarget && targetSelection.targetRoutes.length > 0) ||
+                        targetSelection.targetUserIds.length + targetSelection.targetRoutes.length > 1;
                     var button = page.querySelector('#captureCurrentColorBtn');
                     var statusEl = page.querySelector('#previewColorStatus');
                     if (button) button.disabled = true;
@@ -2791,8 +2803,10 @@
                             ? targetSelection.targetAllEnabledMappings
                                 ? "Reading current light colors from every distinct enabled target..."
                                 : "Reading current light colors from the selected targets..."
-                            : targetUserId
-                                ? "Reading the current light color from the selected user target..."
+                            : targetSelection.targetDeviceId
+                                ? "Reading the current light color from the selected device target..."
+                                : targetSelection.targetUserId
+                                    ? "Reading the current light color from the selected user target..."
                                 : "Reading the current light color from the default bridge target...";
                         statusEl.style.color = "";
                         statusEl.style.background = "";
@@ -2800,7 +2814,7 @@
                     Dashboard.showLoadingMsg();
                     var request = isBatch
                         ? HueConfigurationPage.fetchCurrentLightColors(targetSelection)
-                        : HueConfigurationPage.fetchCurrentLightColor(targetUserId);
+                        : HueConfigurationPage.fetchCurrentLightColor(targetSelection);
                     page._huePreviewRequest = request;
                     page._hueCaptureRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
@@ -2909,6 +2923,78 @@
                         targetUserId: all || includeDefaultTarget || selected.length !== 1 ? '' : selected[0]
                     };
                 },
+                encodeCurrentLightDeviceTarget: function (userId, deviceId) {
+                    return "__device_target__:" + encodeURIComponent(userId || "") + ":" + encodeURIComponent(deviceId || "");
+                },
+                parseCurrentLightDeviceTarget: function (value) {
+                    var prefix = "__device_target__:";
+                    if (!value || value.indexOf(prefix) !== 0) return null;
+                    var separator = value.indexOf(":", prefix.length);
+                    if (separator < 0) return null;
+                    try {
+                        var userId = decodeURIComponent(value.substring(prefix.length, separator));
+                        var deviceId = decodeURIComponent(value.substring(separator + 1));
+                        return userId && deviceId ? { userId: userId, deviceId: deviceId } : null;
+                    } catch (err) {
+                        return null;
+                    }
+                },
+                normalizeCurrentLightCaptureTargetSelection: function (page) {
+                    var select = page && page.querySelector('#captureColorTarget');
+                    if (!select) return;
+                    var selected = Array.prototype.slice.call(select.selectedOptions || [])
+                        .map(function (option) { return option && option.value ? option.value : ''; })
+                        .filter(Boolean);
+                    var all = selected.indexOf('__all_enabled_targets__') >= 0;
+                    var defaultTarget = selected.indexOf('__default_target__') >= 0;
+                    var targetValues = selected.filter(function (value) {
+                        return value !== '__all_enabled_targets__' && value !== '__default_target__';
+                    });
+                    var normalized;
+                    if (all) {
+                        normalized = ['__all_enabled_targets__'];
+                    } else if (defaultTarget) {
+                        normalized = ['__default_target__'].concat(targetValues);
+                    } else if (targetValues.length) {
+                        normalized = targetValues;
+                    } else {
+                        normalized = ['__default_target__'];
+                    }
+                    Array.prototype.forEach.call(select.options || [], function (option) {
+                        option.selected = normalized.indexOf(option.value) >= 0;
+                    });
+                },
+                getCurrentLightCaptureTargetSelection: function (page) {
+                    HueConfigurationPage.normalizeCurrentLightCaptureTargetSelection(page);
+                    var select = page && page.querySelector('#captureColorTarget');
+                    var selected = Array.prototype.slice.call(select && select.selectedOptions || [])
+                        .map(function (option) { return option && option.value ? option.value : ''; })
+                        .filter(Boolean);
+                    var all = selected.indexOf('__all_enabled_targets__') >= 0;
+                    var includeDefaultTarget = selected.indexOf('__default_target__') >= 0;
+                    var targetRoutes = all ? [] : selected
+                        .map(HueConfigurationPage.parseCurrentLightDeviceTarget)
+                        .filter(Boolean)
+                        .map(function (route) {
+                            return { userId: route.userId, deviceId: route.deviceId };
+                        });
+                    var targetUserIds = all ? [] : selected.filter(function (value) {
+                        return value !== '__default_target__' && !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
+                    var singleRoute = !all && !includeDefaultTarget && targetUserIds.length === 0 && targetRoutes.length === 1
+                        ? targetRoutes[0]
+                        : null;
+                    return {
+                        targetAllEnabledMappings: all,
+                        includeDefaultTarget: !all && includeDefaultTarget,
+                        targetUserIds: targetUserIds,
+                        targetRoutes: targetRoutes,
+                        targetUserId: all || includeDefaultTarget || (targetUserIds.length + targetRoutes.length) !== 1
+                            ? ''
+                            : singleRoute ? singleRoute.userId : targetUserIds[0],
+                        targetDeviceId: singleRoute ? singleRoute.deviceId : ''
+                    };
+                },
                 normalizeColorPreviewTargetSelection: function (page) {
                     var select = page && page.querySelector('#previewColorTarget');
                     if (!select) return;
@@ -3012,17 +3098,22 @@
                     var bulkSelect = page.querySelector('#previewPresetBulkSelect');
                     var targetSelect = page.querySelector('#previewSavedPresetTarget');
                     var colorTargetSelect = page.querySelector('#previewColorTarget');
+                    var captureTargetSelect = page.querySelector('#captureColorTarget');
                     var previousTargetValues = targetSelect
                         ? Array.prototype.slice.call(targetSelect.selectedOptions || []).map(function (option) { return option.value; })
                         : [];
                     var previousColorTargetValues = colorTargetSelect
                         ? Array.prototype.slice.call(colorTargetSelect.selectedOptions || []).map(function (option) { return option.value; })
                         : [];
+                    var previousCaptureTargetValues = captureTargetSelect
+                        ? Array.prototype.slice.call(captureTargetSelect.selectedOptions || []).map(function (option) { return option.value; })
+                        : [];
 
                     selectEl.disabled = true;
                     if (bulkSelect) bulkSelect.disabled = true;
                     if (targetSelect) targetSelect.disabled = true;
                     if (colorTargetSelect) colorTargetSelect.disabled = true;
+                    if (captureTargetSelect) captureTargetSelect.disabled = true;
                     return Promise.all([
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets")),
                         ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings"))
@@ -3068,8 +3159,9 @@
                                 }
                             });
                             [
-                                { select: targetSelect, previousValues: previousTargetValues, normalize: HueConfigurationPage.normalizeSavedPresetTargetSelection },
-                                { select: colorTargetSelect, previousValues: previousColorTargetValues, normalize: HueConfigurationPage.normalizeColorPreviewTargetSelection }
+                                { select: targetSelect, previousValues: previousTargetValues, normalize: HueConfigurationPage.normalizeSavedPresetTargetSelection, includeDeviceRoutes: false },
+                                { select: colorTargetSelect, previousValues: previousColorTargetValues, normalize: HueConfigurationPage.normalizeColorPreviewTargetSelection, includeDeviceRoutes: false },
+                                { select: captureTargetSelect, previousValues: previousCaptureTargetValues, normalize: HueConfigurationPage.normalizeCurrentLightCaptureTargetSelection, includeDeviceRoutes: true }
                             ].forEach(function (targetDefinition) {
                                 var previewTargetSelect = targetDefinition.select;
                                 if (!previewTargetSelect) return;
@@ -3084,6 +3176,21 @@
                                     targetOption.value = userId;
                                     targetOption.textContent = (userName || userId) + (enabled ? "" : " (disabled)");
                                     previewTargetSelect.appendChild(targetOption);
+                                    if (targetDefinition.includeDeviceRoutes) {
+                                        var deviceTargets = mapping.deviceTargets !== undefined ? mapping.deviceTargets : mapping.DeviceTargets;
+                                        deviceTargets = Array.isArray(deviceTargets) ? deviceTargets : [];
+                                        deviceTargets.forEach(function (deviceTarget) {
+                                            if (!deviceTarget) return;
+                                            var deviceId = deviceTarget.deviceId !== undefined ? deviceTarget.deviceId : deviceTarget.DeviceId;
+                                            if (!deviceId) return;
+                                            var deviceName = deviceTarget.deviceName !== undefined ? deviceTarget.deviceName : deviceTarget.DeviceName;
+                                            var deviceOption = document.createElement('option');
+                                            deviceOption.value = HueConfigurationPage.encodeCurrentLightDeviceTarget(userId, deviceId);
+                                            deviceOption.textContent = "↳ " + (deviceName || deviceId) + " — " + (userName || userId) + (enabled ? "" : " (disabled)");
+                                            deviceOption.disabled = !enabled;
+                                            previewTargetSelect.appendChild(deviceOption);
+                                        });
+                                    }
                                 });
                                 var restoredValues = targetDefinition.previousValues.filter(function (value) {
                                     return Array.prototype.some.call(previewTargetSelect.options, function (option) { return option.value === value; });
@@ -3103,7 +3210,7 @@
                             console.error("Failed to load color presets:", err);
                             selectEl.innerHTML = '<option value="">Unable to load saved scenes</option>';
                             if (bulkSelect) bulkSelect.innerHTML = '';
-                            [targetSelect, colorTargetSelect].forEach(function (previewTargetSelect) {
+                            [targetSelect, colorTargetSelect, captureTargetSelect].forEach(function (previewTargetSelect) {
                                 if (!previewTargetSelect) return;
                                 previewTargetSelect.innerHTML = '<option value="__default_target__">Default bridge target</option>';
                                 previewTargetSelect.options[0].selected = true;
@@ -3116,6 +3223,7 @@
                             if (bulkSelect) bulkSelect.disabled = false;
                             if (targetSelect) targetSelect.disabled = false;
                             if (colorTargetSelect) colorTargetSelect.disabled = false;
+                            if (captureTargetSelect) captureTargetSelect.disabled = false;
                             HueConfigurationPage.updateColorPresetBulkButtons(page);
                         });
                 },
@@ -10277,6 +10385,10 @@
 
             document.querySelector('#previewColorTarget').addEventListener('change', function () {
                 HueConfigurationPage.normalizeColorPreviewTargetSelection(this.closest('.page'));
+            });
+
+            document.querySelector('#captureColorTarget').addEventListener('change', function () {
+                HueConfigurationPage.normalizeCurrentLightCaptureTargetSelection(this.closest('.page'));
             });
 
             document.querySelector('#selectAllPreviewPresetsBtn').addEventListener('click', function () {

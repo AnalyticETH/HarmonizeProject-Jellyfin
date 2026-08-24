@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.216 (Current)
+### Version 1.5.217 (Current)
+- **Device-route current-light capture**: select an explicit per-user device route from the dedicated capture target control, capture device-only mappings, and review redacted device identity in single or batch results without exposing bridge credentials.
+
+### Version 1.5.216
 - **Device-route migration and diagnostics**: enter replacement App/Client keys for each exported nested device route, and review explicit device identity, route labels, and readiness in target diagnostics and support bundles.
 - **Fail-safe configuration validation**: malformed null user mappings are reported safely, and complete device-only routes no longer require an unused global bridge target.
 

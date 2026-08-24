@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.217] - 2026-08-24
+
+### Added
+- **Device-route current-light capture**: select an explicit per-user device route from a dedicated credential-free capture control, capture device-only mappings, and receive redacted device identity in single and batch results.
+
+### Tests
+- **Regression coverage**: verify single and batch current-light capture resolves explicit device routes, uses the route bridge, preserves target metadata, and never serializes bridge secrets.
+
 ## [1.5.216] - 2026-08-24
 
 ### Added
