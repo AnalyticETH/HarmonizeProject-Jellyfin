@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.226 (Current)
+### Version 1.5.227 (Current)
+- **Case-sensitive device routes**: current-light capture and selected scene cues require exact Jellyfin `DeviceId` matching; batch selection keeps distinct case-sensitive routes separate while preserving case-insensitive user mapping IDs and avoiding delimiter-key collisions.
+
+### Version 1.5.226
 - **Fail-closed release verification**: tag creation waits for package/changelog checks, remote lookup failures stop publication, and the created tag is verified against the workflow commit.
 
 ### Version 1.5.225

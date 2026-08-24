@@ -6518,7 +6518,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 (string.IsNullOrWhiteSpace(normalizedDeviceId)
                     ? candidate.Scope == "User"
                     : candidate.Scope == "UserDevice" &&
-                      string.Equals(candidate.DeviceId, normalizedDeviceId, StringComparison.OrdinalIgnoreCase)));
+                      string.Equals(candidate.DeviceId, normalizedDeviceId, StringComparison.Ordinal)));
         }
 
         private static IReadOnlyList<HueSceneAutomationTargetRoute> NormalizeSceneAutomationTargetRoutes(
@@ -6624,10 +6624,10 @@ namespace Jellyfin.Plugin.Hue.Api
                     resolved.Add(target);
                 }
 
-                var seenRoutes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var seenRoutes = new HashSet<(string UserId, string DeviceId)>(new CaptureRouteKeyComparer());
                 foreach (var selectedRoute in selectedRoutes)
                 {
-                    var routeKey = string.Join("|", selectedRoute.UserId, selectedRoute.DeviceId ?? string.Empty);
+                    var routeKey = (selectedRoute.UserId, selectedRoute.DeviceId ?? string.Empty);
                     if (!seenRoutes.Add(routeKey))
                     {
                         error = $"Selected current-light capture targets contain route '{selectedRoute.UserId}/{selectedRoute.DeviceId ?? "user"}' more than once.";
@@ -6793,6 +6793,20 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             return userLabel;
+        }
+
+        private sealed class CaptureRouteKeyComparer : IEqualityComparer<(string UserId, string DeviceId)>
+        {
+            public bool Equals(
+                (string UserId, string DeviceId) left,
+                (string UserId, string DeviceId) right)
+                => string.Equals(left.UserId, right.UserId, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(left.DeviceId, right.DeviceId, StringComparison.Ordinal);
+
+            public int GetHashCode((string UserId, string DeviceId) value)
+                => HashCode.Combine(
+                    StringComparer.OrdinalIgnoreCase.GetHashCode(value.UserId),
+                    StringComparer.Ordinal.GetHashCode(value.DeviceId));
         }
 
         private sealed record HueTarget(

@@ -4065,6 +4065,16 @@ public sealed class HueSceneAutomationServiceTests
                             HueClientKey = "panel-client-secret",
                             EntertainmentAreaId = "device-area",
                             ChannelIdsOverride = "9,10"
+                        },
+                        new()
+                        {
+                            DeviceId = "Device-Bedroom",
+                            DeviceName = "Bedroom TV Alternate",
+                            HueBridgeIp = "192.168.1.103",
+                            HueAppKey = "alternate-device-app-secret",
+                            HueClientKey = "alternate-device-client-secret",
+                            EntertainmentAreaId = "device-area-alternate",
+                            ChannelIdsOverride = "11,12"
                         }
                     }
                 }
@@ -4075,12 +4085,13 @@ public sealed class HueSceneAutomationServiceTests
         var routes = new[]
         {
             new HueSceneAutomationTargetRoute { UserId = " user-1 ", DeviceId = " device-bedroom " },
-            new HueSceneAutomationTargetRoute { UserId = "user-1", DeviceId = "device-panel" }
+            new HueSceneAutomationTargetRoute { UserId = "user-1", DeviceId = "device-panel" },
+            new HueSceneAutomationTargetRoute { UserId = "user-1", DeviceId = "Device-Bedroom" }
         };
 
         Assert.True(HueSceneAutomationService.TryResolveTargets(config, schedule, out var targets, out var error, routes));
         Assert.Empty(error);
-        Assert.Equal(2, targets.Count);
+        Assert.Equal(3, targets.Count);
         var target = Assert.Single(targets, candidate => candidate.TargetLabel == "Living Room / Bedroom TV");
         Assert.Equal("192.168.1.102", target.BridgeIp);
         Assert.Equal("device-area", target.EntertainmentAreaId);
@@ -4089,6 +4100,10 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal("192.168.1.102", secondTarget.BridgeIp);
         Assert.Equal("device-area", secondTarget.EntertainmentAreaId);
         Assert.Equal(new[] { 9, 10 }, secondTarget.ChannelIds!.OrderBy(id => id));
+        var thirdTarget = Assert.Single(targets, candidate => candidate.TargetLabel == "Living Room / Bedroom TV Alternate");
+        Assert.Equal("192.168.1.103", thirdTarget.BridgeIp);
+        Assert.Equal("device-area-alternate", thirdTarget.EntertainmentAreaId);
+        Assert.Equal(new[] { 11, 12 }, thirdTarget.ChannelIds!.OrderBy(id => id));
 
         Assert.False(HueSceneAutomationService.TryResolveTargets(
             config,

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.227] - 2026-08-24
+
+### Fixed
+- **Case-sensitive device routes**: require exact Jellyfin `DeviceId` matching during current-light capture so a casing variant cannot resolve to the wrong saved route, while keeping user mapping IDs case-insensitive.
+- **Batch route selection**: allow distinct case-sensitive device routes to be selected together and reject only true duplicate user/device pairs.
+- **Scene cue route selection**: apply the same mixed user/device identity rules to selected scene targets without delimiter-based collisions.
+
+### Tests
+- **Capture route regression coverage**: verify case-sensitive single-route rejection and successful batch capture of device IDs that differ only by case.
+
 ## [1.5.226] - 2026-08-24
 
 ### Fixed
