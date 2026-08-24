@@ -1361,7 +1361,7 @@ public sealed class HueSceneAutomationServiceTests
 
         var recoveredStatus = Assert.Single(
             service.GetStatus().Schedules,
-            schedule => schedule.Id == "overlap-recovered-cue");
+            schedule => schedule.ScheduleId == "overlap-recovered-cue");
         Assert.True(recoveredStatus.LastWasCatchUp);
 
         await service.RunDueSchedulesAsync(
