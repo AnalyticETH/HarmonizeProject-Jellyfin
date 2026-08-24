@@ -23,6 +23,19 @@ namespace Jellyfin.Plugin.Hue
 
         public static Plugin? Instance { get; private set; }
 
+        /// <summary>
+        /// Rejects Jellyfin's generic plugin-configuration write route. That route has
+        /// no access to the Hue lifecycle gate, import normalization, or credential
+        /// preservation contract; accepting its payload would let a raw configuration
+        /// replacement race playback and silently clear stored keys. Administrators
+        /// must use the guarded <c>/HueSync/Configuration</c> endpoint instead.
+        /// </summary>
+        public override void UpdateConfiguration(MediaBrowser.Model.Plugins.BasePluginConfiguration configuration)
+        {
+            throw new InvalidOperationException(
+                "Use the authenticated HueSync configuration endpoint for Hue settings.");
+        }
+
         public IEnumerable<PluginPageInfo> GetPages()
         {
             return new[]

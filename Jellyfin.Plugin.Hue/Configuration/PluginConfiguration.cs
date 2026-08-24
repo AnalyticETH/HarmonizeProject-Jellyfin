@@ -17,7 +17,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string DeviceId { get; set; } = string.Empty;
         public string DeviceName { get; set; } = string.Empty; // For display purposes
         public string HueBridgeIp { get; set; } = string.Empty;
+        // The built-in Jellyfin plugin-configuration endpoint serializes the raw
+        // configuration object. Never allow nested bridge credentials to cross that
+        // generic JSON boundary; the credential-safe HueSync endpoints expose only
+        // presence flags and accept replacement keys explicitly during import.
+        [JsonIgnore]
         public string HueAppKey { get; set; } = string.Empty;
+        [JsonIgnore]
         public string HueClientKey { get; set; } = string.Empty;
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string EntertainmentAreaName { get; set; } = string.Empty; // For display purposes
@@ -35,7 +41,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         // the existing behavior for every mapping created before per-user opt-out support.
         public bool SyncEnabled { get; set; } = true;
         public string HueBridgeIp { get; set; } = string.Empty;
+        // See UserDeviceBridgeTarget.HueAppKey: generic plugin configuration JSON must
+        // not expose credentials that are required only by the bridge client.
+        [JsonIgnore]
         public string HueAppKey { get; set; } = string.Empty;
+        [JsonIgnore]
         public string HueClientKey { get; set; } = string.Empty;
         public string EntertainmentAreaId { get; set; } = string.Empty;
         public string EntertainmentAreaName { get; set; } = string.Empty; // For display purposes
@@ -1532,7 +1542,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
         // Default/fallback bridge settings (used when no user mapping exists)
         public string HueBridgeIp { get; set; } = string.Empty;
+        // These keys are persisted for bridge access but must never be emitted by
+        // Jellyfin's generic JSON plugin-configuration endpoint. The dedicated
+        // HueSync configuration/export contracts expose only presence flags.
+        [JsonIgnore]
         public string HueAppKey { get; set; } = string.Empty;
+        [JsonIgnore]
         public string HueClientKey { get; set; } = string.Empty; // For DTLS
         public string EntertainmentAreaId { get; set; } = string.Empty;
         /// <summary>

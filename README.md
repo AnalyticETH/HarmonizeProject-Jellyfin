@@ -176,6 +176,13 @@ or dims to that user's effective cinema level.
 
 The configuration page uses authenticated administrator endpoints under `/HueSync`:
 
+The built-in Jellyfin `/Plugins/{pluginId}/Configuration` JSON route is intentionally
+not a supported configuration path for this plugin: raw global, per-user, and nested
+device-route credentials are omitted from its response, and generic replacement writes
+are rejected. Use `/HueSync/Configuration` for the validated, credential-preserving,
+lifecycle-aware settings contract, or `/HueSync/Configuration/Export` and `Import` for
+credential-safe migration.
+
 `POST /HueSync/Preview` and `POST /HueSync/ColorPresets` accept `effect: "Temperature"`, `effect: "Aurora"`, `effect: "Fire"`, `effect: "Ocean"`, `effect: "Lightning"`, and `effect: "Starlight"`. They also accept `transitionCurve: "Linear"`, `"SmoothStep"`, `"EaseIn"`, `"EaseOut"`, or `"EaseInOut"`; blank/omitted legacy values remain Linear. The server validates and canonicalizes each effect and curve, and the stream tester applies the bounded easing to fade-in and fade-out transitions without changing the credential-free target-selection contract. Current-light capture can read one target or a selected/all-target set and seed the editor with a weighted aggregate sample.
 
 | Endpoint | Purpose |
@@ -433,7 +440,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.254 (Current)
+### Version 1.5.255 (Current)
+- **Generic configuration-route isolation**: the built-in Jellyfin plugin-configuration JSON omits global, per-user, and nested device-route Hue credentials.
+- **Guarded configuration writes**: the generic plugin configuration update route is rejected; use the authenticated `/HueSync/Configuration` endpoint for normalized, lifecycle-safe updates.
+
+### Version 1.5.254
 - **Configuration writer serialization**: administrator configuration writers share the lifecycle gate with imports, while scheduler evaluation and manual cue lifecycles block stale writes and post-run persistence races.
 - **Import readiness contract**: validation exposes explicit scheduler/lifecycle, diagnostic, and concurrent-import flags while keeping responses credential-free.
 

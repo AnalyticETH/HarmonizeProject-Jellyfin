@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.255] - 2026-08-24
+
+### Security
+- **Generic configuration-route isolation**: the built-in Jellyfin plugin-configuration JSON no longer emits global, per-user, or device-route Hue credentials.
+- **Guarded configuration writes**: generic plugin configuration updates are rejected so they cannot bypass Hue import normalization, credential preservation, or lifecycle serialization; administrators must use `/HueSync/Configuration`.
+
+### Tests
+- **Generic API boundary coverage**: verify credential-free raw configuration JSON and rejection of unguarded plugin configuration replacement.
+
 ## [1.5.254] - 2026-08-24
 
 ### Security
