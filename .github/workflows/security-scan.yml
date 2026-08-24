@@ -90,13 +90,26 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Validate Semgrep lock
+        run: |
+          set -euo pipefail
+          grep -Fx "semgrep==$SEMGREP_VERSION" .github/semgrep/requirements.in
+          node scripts/validate-semgrep-lock.mjs .github/semgrep/requirements.txt "$SEMGREP_VERSION"
       - name: Install semgrep
         run: |
           set -euo pipefail
-          python3 -m venv "$RUNNER_TEMP/semgrep-venv"
-          "$RUNNER_TEMP/semgrep-venv/bin/python" -m pip install --disable-pip-version-check \
-            "semgrep==$SEMGREP_VERSION"
-          test "$("$RUNNER_TEMP/semgrep-venv/bin/semgrep" --version)" = "$SEMGREP_VERSION"
+          semgrep_venv="$RUNNER_TEMP/semgrep-venv"
+          python3 -c 'import sys; sys.exit("Semgrep lock requires Python 3.12") if sys.version_info[:2] != (3, 12) else None'
+          python3 -m venv "$semgrep_venv"
+          "$semgrep_venv/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --no-cache-dir \
+            --only-binary=:all: \
+            --require-hashes \
+            --index-url https://pypi.org/simple \
+            --requirement .github/semgrep/requirements.txt
+          "$semgrep_venv/bin/python" -m pip check
+          test "$("$semgrep_venv/bin/semgrep" --version)" = "$SEMGREP_VERSION"
       - name: Scan (OSS rules)
         env:
           SEMGREP_SEND_METRICS: 'off'

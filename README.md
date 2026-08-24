@@ -427,7 +427,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.229 (Current)
+### Version 1.5.230 (Current)
+- **Hash-locked Semgrep**: blocking static analysis installs a reviewed Python 3.12/x86_64 dependency lock with SHA-256 hashes, platform/version validation, and `pip check`.
+- **Import preflight enforcement**: Review and Import stays disabled until successful validation and is invalidated when migration credentials change; submission also fails closed.
+- **Actions policy enforcement**: repository policy now requires immutable commit-SHA action references.
+- **Scanner dependency maintenance**: Dependabot now monitors the hash-locked Semgrep environment and its transitive packages.
+
+### Version 1.5.229
 - **Credential-safe bridge registration**: registration no longer logs response credentials or raw errors in the administrator browser console, and recovery guidance is credential-free.
 - **Fail-closed capture selection**: current-light capture rejects blank target user IDs before default-target fallback, without contacting a bridge.
 

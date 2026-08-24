@@ -19,8 +19,10 @@ Every trusted `main` push runs the named self-hosted CI runner with:
 - Locked-mode NuGet restores with committed dependency content hashes
 - NuGet vulnerability auditing through `dotnet list package --vulnerable --include-transitive`
 - Blocking Gitleaks history scanning with a redacted JSON artifact
-- Blocking Semgrep static analysis with the explicit `p/default` ruleset and a JSON artifact
+- Blocking Semgrep static analysis with the explicit `p/default` ruleset and a JSON artifact; the scanner and all transitive packages come from `.github/semgrep/requirements.txt`, a Python 3.12/x86_64 SHA-256 lock validated before `pip --require-hashes` installation
 - Immutable commit-SHA references for third-party GitHub Actions
+- Repository-level GitHub Actions SHA-pinning enforcement (`sha_pinning_required=true`) while retaining the current action allowlist
+- Dependabot monitoring for the hash-locked Semgrep environment and its transitive packages
 - Bounded job timeouts that release a persistent runner when a restore, scanner, or release step stalls
 
 Bridge HTTP transport also disables automatic redirects and excludes raw bridge response bodies from

@@ -152,7 +152,7 @@
                         <button is="emby-button" type="button" class="raised" id="validateConfigurationImportBtn" style="margin-top: 0.75em;">
                             <span>Validate Import</span>
                         </button>
-                        <button is="emby-button" type="button" class="raised" id="applyConfigurationImportBtn" style="margin-top: 0.75em;">
+                        <button is="emby-button" type="button" class="raised" id="applyConfigurationImportBtn" disabled style="margin-top: 0.75em;">
                             <span>Review and Import</span>
                         </button>
                     </div>
@@ -2015,10 +2015,23 @@
                         Dashboard.hideLoadingMsg();
                     });
                 },
+                setConfigurationImportValidated: function (page, validated) {
+                    if (!page) return;
+                    page._hueImportValidated = !!validated;
+                    var applyButton = page.querySelector('#applyConfigurationImportBtn');
+                    if (applyButton) applyButton.disabled = !page._hueImportValidated;
+                },
+                invalidateConfigurationImport: function (page) {
+                    if (!page) return;
+                    page._hueImportValidationGeneration = (page._hueImportValidationGeneration || 0) + 1;
+                    HueConfigurationPage.setConfigurationImportValidated(page, false);
+                    var validateButton = page.querySelector('#validateConfigurationImportBtn');
+                    if (validateButton) validateButton.disabled = false;
+                },
                 clearConfigurationImport: function (page) {
                     if (!page) return;
                     page._hueImportDocument = null;
-                    page._hueImportValidated = false;
+                    HueConfigurationPage.invalidateConfigurationImport(page);
                     var diff = page.querySelector('#configurationImportDiff');
                     if (diff) {
                         diff.textContent = '';
@@ -2107,6 +2120,11 @@
                     });
 
                     fields.innerHTML = html || '<div class="fieldDescription">This export contains no custom target credentials to enter. Matching credentials, if present, will be preserved by the server.</div>';
+                    fields.querySelectorAll('input[data-hue-import-scope]').forEach(function (input) {
+                        input.addEventListener('input', function () {
+                            HueConfigurationPage.invalidateConfigurationImport(page);
+                        });
+                    });
                     section.style.display = 'block';
                 },
                 renderConfigurationImportDiff: function (page, response) {
@@ -2147,12 +2165,12 @@
                 prepareConfigurationImport: function (page, importDocument) {
                     if (!page) return;
                     page._hueImportDocument = importDocument;
-                    page._hueImportValidated = false;
+                    HueConfigurationPage.invalidateConfigurationImport(page);
                     HueConfigurationPage.renderConfigurationImportCredentials(page, importDocument);
                     HueConfigurationPage.renderConfigurationImportDiff(page, null);
                     var status = page.querySelector('#configurationPortabilityStatus');
                     if (status) {
-                        status.textContent = 'Review the optional migration credential fields, then click Validate Import or Review and Import.';
+                        status.textContent = 'Review the optional migration credential fields, then click Validate Import to enable Review and Import.';
                         status.style.color = '';
                     }
                 },
@@ -2217,6 +2235,8 @@
                     var validateButton = page && page.querySelector('#validateConfigurationImportBtn');
                     var applyButton = page && page.querySelector('#applyConfigurationImportBtn');
                     if (!page || !importDocument || !HueConfigurationPage.applyConfigurationImportCredentials(page)) return;
+                    HueConfigurationPage.invalidateConfigurationImport(page);
+                    var validationGeneration = page._hueImportValidationGeneration;
                     if (validateButton) validateButton.disabled = true;
                     if (applyButton) applyButton.disabled = true;
                     Dashboard.showLoadingMsg();
@@ -2227,12 +2247,13 @@
                         contentType: "application/json",
                         dataType: "json"
                     }).then(function (response) {
+                        if (validationGeneration !== page._hueImportValidationGeneration) return;
                         response = response || {};
                         HueConfigurationPage.renderConfigurationImportDiff(page, response);
                         var valid = response.valid !== undefined ? !!response.valid : !!response.Valid;
                         var canImport = response.canImport !== undefined ? !!response.canImport : !!response.CanImport;
                         var errors = response.validationErrors || response.ValidationErrors || [];
-                        page._hueImportValidated = valid && canImport;
+                        HueConfigurationPage.setConfigurationImportValidated(page, valid && canImport);
                         if (status) {
                             if (page._hueImportValidated) {
                                 var mappings = response.totalMappings !== undefined ? response.totalMappings : response.TotalMappings;
@@ -2248,15 +2269,18 @@
                             }
                         }
                     }).catch(function (err) {
-                        page._hueImportValidated = false;
+                        if (validationGeneration !== page._hueImportValidationGeneration) return;
+                        HueConfigurationPage.setConfigurationImportValidated(page, false);
                         console.error("Failed to validate Hue configuration import:", err);
                         if (status) {
                             status.textContent = "Unable to validate configuration import. Check the server log.";
                             status.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        if (validateButton) validateButton.disabled = false;
-                        if (applyButton) applyButton.disabled = false;
+                        if (validationGeneration === page._hueImportValidationGeneration) {
+                            if (validateButton) validateButton.disabled = false;
+                            if (applyButton) applyButton.disabled = !page._hueImportValidated;
+                        }
                         Dashboard.hideLoadingMsg();
                     });
                 },
@@ -2264,6 +2288,13 @@
                     var status = page && page.querySelector('#configurationPortabilityStatus');
                     var importDocument = page && page._hueImportDocument;
                     if (!page || !importDocument) return;
+                    if (!page._hueImportValidated) {
+                        if (status) {
+                            status.textContent = "Validate Import successfully before importing.";
+                            status.style.color = "#d9534f";
+                        }
+                        return;
+                    }
                     if (!HueConfigurationPage.applyConfigurationImportCredentials(page)) return;
 
                     Dashboard.confirm("Import this configuration? Existing settings, mappings, saved scenes, and scheduled cues will be replaced. Stored matching bridge keys are preserved; any values entered above are sent once for this import and are never exported.", "Import Hue Configuration", function (confirmed) {
@@ -2291,6 +2322,7 @@
                             HueConfigurationPage.loadColorPresets(page);
                             HueConfigurationPage.loadScenePlaylists(page);
                         }).catch(function (err) {
+                            HueConfigurationPage.invalidateConfigurationImport(page);
                             console.error("Failed to import Hue configuration:", err);
                             if (status) {
                                 status.textContent = "Configuration import failed. No changes were applied. Correct the migration fields and retry.";
@@ -2299,7 +2331,7 @@
                             Dashboard.alert("Unable to import configuration: " + (err && err.message ? err.message : "invalid, incomplete, or active playback"));
                         }).finally(function () {
                             if (button) button.disabled = false;
-                            if (applyButton) applyButton.disabled = false;
+                            if (applyButton) applyButton.disabled = !page._hueImportValidated;
                             Dashboard.hideLoadingMsg();
                         });
                     });

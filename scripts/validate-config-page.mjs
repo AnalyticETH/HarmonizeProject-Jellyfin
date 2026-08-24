@@ -113,6 +113,7 @@ const requiredMarkup = [
     'value="Shuffle">Stable daily shuffle',
     'id="scenePlaylistPreviewTarget"',
     'id="scenePlaylistBulkPreviewTarget"',
+    'id="applyConfigurationImportBtn" disabled',
     'id="previewSelectedScenePlaylistsBtn"',
     'id="previewSelectedScenePlaylistsAllBtn"',
     'id="duplicateSelectedScenePlaylistsBtn"',
@@ -381,6 +382,13 @@ const requiredScript = [
     "updateUserMappingBulkButtons: function",
     "renderConfigurationImportDiff: function",
     "Import change summary (credential-safe):",
+    "setConfigurationImportValidated: function",
+    "invalidateConfigurationImport: function",
+    "HueConfigurationPage.setConfigurationImportValidated(page, false)",
+    "page._hueImportValidationGeneration",
+    "input.addEventListener('input', function ()",
+    "if (!page._hueImportValidated)",
+    "Validate Import successfully before importing.",
     "getSelectedSceneScheduleBulkIds: function",
     "updateSceneScheduleBulkButtons: function",
     "downloadCsvDocument: function",
@@ -441,6 +449,32 @@ for (const channel of ["Red", "Green", "Blue"]) {
     if (!functionBody || /console\.(?:log|warn|error)\s*\(/.test(functionBody) ||
         /Check console|Registration response|Keys not found in response/.test(functionBody)) {
         throw new Error(`${file} registerBridge must not log or direct administrators to raw registration responses`);
+    }
+}
+
+{
+    const functionName = "validateConfigurationImport";
+    const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("HueConfigurationPage.setConfigurationImportValidated(page, valid && canImport)") ||
+        !functionBody.includes("applyButton.disabled = !page._hueImportValidated") ||
+        !functionBody.includes("validationGeneration !== page._hueImportValidationGeneration") ||
+        !functionBody.includes("validationGeneration === page._hueImportValidationGeneration") ||
+        !functionBody.includes("Dashboard.hideLoadingMsg();")) {
+        throw new Error(`${file} ${functionName} must only enable import after successful validation`);
+    }
+}
+
+{
+    const functionName = "submitConfigurationImport";
+    const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("if (!page._hueImportValidated)") ||
+        !functionBody.includes("Validate Import successfully before importing.") ||
+        !functionBody.includes("HueConfigurationPage.applyConfigurationImportCredentials(page)")) {
+        throw new Error(`${file} ${functionName} must fail closed until import preflight succeeds`);
     }
 }
 

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.230] - 2026-08-24
+
+### Security
+- **Hash-locked Semgrep**: install the blocking static-analysis tool and its transitive dependencies only from a reviewed Python 3.12/x86_64 SHA-256 lock, with platform/version validation and `pip check` before scanning.
+- **Actions policy enforcement**: enable repository-level immutable-SHA enforcement while retaining the existing action allowlist.
+- **Scanner dependency maintenance**: register the hash-locked Semgrep environment with Dependabot so transitive security updates are surfaced and reviewed.
+
+### Fixed
+- **Import preflight enforcement**: keep Review and Import disabled until a successful non-mutating validation, invalidate that approval when migration credentials change, and fail closed in the submit handler.
+
+### Tests
+- **Workflow lock coverage**: validate the Semgrep lock format, package hashes, and pinned version before installation.
+- **Configuration-page coverage**: protect import-button disabled state, credential-change invalidation, and the submit preflight guard.
+
 ## [1.5.229] - 2026-08-24
 
 ### Security
