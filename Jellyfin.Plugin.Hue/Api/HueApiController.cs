@@ -1108,6 +1108,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Select(value => value.Trim())
                 .ToList();
             var selectedTargetRoutes = NormalizeSceneAutomationTargetRoutes(request?.TargetRoutes);
+            if (TryGetInvalidSceneAutomationTargetRouteError(selectedTargetRoutes) is { } selectedTargetRouteError)
+                return BadRequest(selectedTargetRouteError);
             var includeDefaultTarget = request?.IncludeDefaultTarget == true;
             var hasSelectedTargetOverride = includeDefaultTarget ||
                 (selectedTargetUserIds?.Count > 0) ||
@@ -1450,6 +1452,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Select(value => value.Trim())
                 .ToList();
             var targetRoutes = NormalizeSceneAutomationTargetRoutes(request.TargetRoutes);
+            if (TryGetInvalidSceneAutomationTargetRouteError(targetRoutes) is { } targetRouteError)
+                return BadRequest(targetRouteError);
             var includeDefaultTarget = request.IncludeDefaultTarget == true;
             var hasSelectedTargetOverride = includeDefaultTarget ||
                 (targetUserIds?.Count > 0) ||
@@ -1579,6 +1583,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Select(value => value.Trim())
                 .ToList();
             var targetRoutes = NormalizeSceneAutomationTargetRoutes(request.TargetRoutes);
+            if (TryGetInvalidSceneAutomationTargetRouteError(targetRoutes) is { } targetRouteError)
+                return BadRequest(targetRouteError);
             var includeDefaultTarget = request.IncludeDefaultTarget == true;
             var hasSelectedTargetOverride = includeDefaultTarget ||
                 (targetUserIds?.Count > 0) ||
@@ -2806,6 +2812,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var targetRoutes = NormalizeSceneAutomationTargetRoutes(request.TargetRoutes);
+            if (TryGetInvalidSceneAutomationTargetRouteError(targetRoutes) is { } targetRouteError)
+                return BadRequest(targetRouteError);
             var includeDefaultTarget = request.IncludeDefaultTarget == true;
             var hasSelectedTargetOverride = includeDefaultTarget ||
                 (targetUserIds?.Count > 0) ||
@@ -2955,6 +2963,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var targetRoutes = NormalizeSceneAutomationTargetRoutes(request.TargetRoutes);
+            if (TryGetInvalidSceneAutomationTargetRouteError(targetRoutes) is { } targetRouteError)
+                return BadRequest(targetRouteError);
             var includeDefaultTarget = request.IncludeDefaultTarget == true;
             var selectedTargetOverride = includeDefaultTarget ||
                 (targetUserIds?.Count > 0) ||
@@ -6505,8 +6515,16 @@ namespace Jellyfin.Plugin.Hue.Api
                     {
                         UserId = route.UserId?.Trim() ?? string.Empty,
                         DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
-                    })
+                })
                 .ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>();
+
+        private static string? TryGetInvalidSceneAutomationTargetRouteError(
+            IReadOnlyList<HueSceneAutomationTargetRoute> routes)
+            => routes.Any(route => route == null ||
+                string.IsNullOrWhiteSpace(route.UserId) ||
+                string.IsNullOrWhiteSpace(route.DeviceId))
+                ? "Selected scene preview target routes must contain both a user mapping ID and a device ID."
+                : null;
 
         private static bool TryResolveCaptureTargets(
             PluginConfiguration config,
