@@ -3786,7 +3786,15 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     private static string GetTargetIdentity(HueSceneAutomationTargetDescription target)
-        => $"{target.BridgeIp.Trim().TrimEnd('.').ToLowerInvariant()}|{target.EntertainmentAreaId.Trim().ToLowerInvariant()}";
+    {
+        var channelProfile = target.ChannelIds == null
+            ? string.Empty
+            : string.Join(",", target.ChannelIds.OrderBy(channelId => channelId));
+
+        return $"{target.BridgeIp.Trim().TrimEnd('.').ToLowerInvariant()}|" +
+               $"{target.EntertainmentAreaId.Trim().ToLowerInvariant()}|" +
+               channelProfile;
+    }
 
     private static IReadOnlyList<HueSceneAutomationTargetRoute> NormalizeTargetRoutes(
         IReadOnlyList<HueSceneAutomationTargetRoute>? routes)

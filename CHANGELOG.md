@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.223] - 2026-08-24
+
+### Fixed
+- **Device-route profile preservation**: keep explicit device targets distinct when they share a bridge and entertainment area but use different channel profiles, so selected previews do not silently drop a requested route.
+
+### Tests
+- **Regression coverage**: verify same-area device routes with distinct channel profiles both resolve and retain their channel selections.
+
 ## [1.5.222] - 2026-08-24
 
 ### Fixed

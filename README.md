@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.222 (Current)
+### Version 1.5.223 (Current)
+- **Device-route profile preservation**: selected previews keep same-area device routes distinct when their channel profiles differ, preventing a requested route from being silently dropped.
+
+### Version 1.5.222
 - **Diagnostic cancellation recovery**: the administrator diagnostics Cancel control now re-enables for a safe retry when cancellation fails or reports no active operation while diagnostics remain active.
 
 ### Version 1.5.221
