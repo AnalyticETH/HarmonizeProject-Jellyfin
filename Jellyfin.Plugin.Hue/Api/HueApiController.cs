@@ -5916,6 +5916,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveNetworkRetryAttempts = runtime?.ActiveNetworkRetryAttempts,
                 ActiveChannelIds = runtime?.ActiveChannelIds,
                 ActiveRestoreLightState = runtime?.ActiveRestoreLightState,
+                ActivePauseBehavior = runtime?.ActivePauseBehavior,
+                ActivePauseBrightnessPercent = runtime?.ActivePauseBrightnessPercent,
                 FramesProcessed = runtime?.FramesProcessed ?? 0,
                 EffectiveFps = runtime?.EffectiveFps,
                 PacketsSent = runtime?.PacketsSent ?? 0,
@@ -11557,6 +11559,8 @@ namespace Jellyfin.Plugin.Hue.Api
         public int? ActiveNetworkRetryAttempts { get; set; }
         public string? ActiveChannelIds { get; set; }
         public bool? ActiveRestoreLightState { get; set; }
+        public string? ActivePauseBehavior { get; set; }
+        public int? ActivePauseBrightnessPercent { get; set; }
         public long FramesProcessed { get; set; }
         public double? EffectiveFps { get; set; }
         public long PacketsSent { get; set; }

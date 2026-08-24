@@ -433,7 +433,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.248 (Current)
+### Version 1.5.249 (Current)
+- **Pause telemetry status parity**: `/HueSync/Status` and support-bundle runtime diagnostics now expose effective pause behavior and pause brightness while keeping the response credential-free.
+- **Hosted status coverage**: live-service projection, support-bundle inheritance, safe serialization, and null/no-service behavior are covered by regression tests.
+
+### Version 1.5.248
 - **History target-mode UI parity**: the administrator cue-history table now distinguishes all-enabled targets, default-bridge inclusion, selected mapping IDs, and nested user/device routes while retaining legacy labels.
 - **Credential-free accessible rendering**: target details use text-only cells and the history status region announces updates without exposing bridge secrets.
 

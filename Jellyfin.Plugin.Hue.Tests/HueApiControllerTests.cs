@@ -8,6 +8,8 @@ using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Service;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -7658,6 +7660,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.ActiveNetworkRetryAttempts);
         Assert.Null(status.ActiveChannelIds);
         Assert.Null(status.ActiveRestoreLightState);
+        Assert.Null(status.ActivePauseBehavior);
+        Assert.Null(status.ActivePauseBrightnessPercent);
         Assert.Null(status.EffectiveFps);
         Assert.Equal(0, status.PacketsSent);
         Assert.Equal(0, status.PacketsSkippedByThreshold);
@@ -7669,6 +7673,51 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Null(status.CleanupWarning);
         Assert.Null(status.LastSession);
         Assert.False(status.CanStopSync);
+    }
+
+    [Fact]
+    public async Task GetStatus_ProjectsPauseTelemetryIntoSupportBundleRuntime()
+    {
+        InstallConfiguration(new PluginConfiguration());
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory
+            .Setup(factory => factory.CreateLogger(It.IsAny<string>()))
+            .Returns(Mock.Of<ILogger>());
+        var service = new HueSyncService(
+            Mock.Of<ISessionManager>(),
+            Mock.Of<ILogger<HueSyncService>>(),
+            loggerFactory.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<IMediaEncoder>());
+        SetPrivateField(service, "_activePauseBehavior", PluginConfiguration.PauseBehaviorDimToCinemaLevel);
+        SetPrivateField(service, "_activePauseBrightnessPercent", 25);
+        var environmentProbe = new Mock<IHueEnvironmentProbe>();
+        environmentProbe
+            .Setup(probe => probe.CheckAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueEnvironmentProbeResult
+            {
+                Ffmpeg = new HueToolStatus { Available = true, Version = "ffmpeg test" },
+                OpenSsl = new HueToolStatus { Available = true, Version = "openssl test" }
+            });
+        var controller = CreateController(
+            environmentProbe: environmentProbe.Object,
+            hostedServices: new IHostedService[] { service });
+
+        var statusAction = controller.GetStatus();
+        var statusResponse = Assert.IsType<OkObjectResult>(statusAction.Result);
+        var status = Assert.IsType<HueSyncStatus>(statusResponse.Value);
+        Assert.True(status.ServiceAvailable);
+        Assert.Equal(PluginConfiguration.PauseBehaviorDimToCinemaLevel, status.ActivePauseBehavior);
+        Assert.Equal(25, status.ActivePauseBrightnessPercent);
+
+        var bundleAction = await controller.ExportSupportBundle();
+        var bundleResponse = Assert.IsType<OkObjectResult>(bundleAction.Result);
+        var bundle = Assert.IsType<HueSupportBundle>(bundleResponse.Value);
+        Assert.Equal(PluginConfiguration.PauseBehaviorDimToCinemaLevel, bundle.Runtime.ActivePauseBehavior);
+        Assert.Equal(25, bundle.Runtime.ActivePauseBrightnessPercent);
+        var serialized = JsonSerializer.Serialize(bundle);
+        Assert.Contains("\"ActivePauseBehavior\":\"DimToCinemaLevel\"", serialized, StringComparison.Ordinal);
+        Assert.Contains("\"ActivePauseBrightnessPercent\":25", serialized, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -11516,6 +11565,13 @@ public sealed class HueApiControllerTests : IDisposable
             bridgeLifecycleGate,
             environmentProbe,
             diagnosticsCancellationGate);
+    }
+
+    private static void SetPrivateField(object target, string fieldName, object? value)
+    {
+        target.GetType()
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(target, value);
     }
 
     private static PluginConfiguration InstallConfiguration(

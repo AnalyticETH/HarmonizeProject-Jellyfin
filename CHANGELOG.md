@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.249] - 2026-08-24
+
+### Added
+- **Pause telemetry status parity**: `/HueSync/Status` and support-bundle runtime diagnostics now expose the effective pause behavior and pause brightness without exposing credentials.
+
+### Tests
+- **Hosted status coverage**: verify pause fields are projected from the live service, inherited by support bundles, serialized safely, and remain null when no sync service is hosted.
+
 ## [1.5.248] - 2026-08-24
 
 ### Added
