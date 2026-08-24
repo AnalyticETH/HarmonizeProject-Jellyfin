@@ -4266,8 +4266,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Downloads the same bounded, credential-free scheduled-cue history as CSV.
-        /// Nested target and playlist telemetry is represented by bounded counts so each
-        /// run remains one spreadsheet row without serializing credentials or tokens.
+        /// Nested target and playlist telemetry is represented by bounded counts and
+        /// credential-free target-selection JSON so each run remains one spreadsheet row
+        /// without serializing credentials or tokens.
         /// </summary>
         [HttpGet("SceneSchedules/History/ExportCsv")]
         [Produces("text/csv")]
@@ -4297,6 +4298,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 "green",
                 "blue",
                 "targetLabel",
+                "targetUserIds",
+                "targetRoutes",
+                "includeDefaultTarget",
                 "succeeded",
                 "skipped",
                 "wasCatchUp",
@@ -4325,6 +4329,9 @@ namespace Jellyfin.Plugin.Hue.Api
                     run.Green,
                     run.Blue,
                     run.TargetLabel,
+                    JsonSerializer.Serialize(run.TargetUserIds ?? Array.Empty<string>()),
+                    JsonSerializer.Serialize(run.TargetRoutes ?? Array.Empty<HueSceneAutomationTargetRoute>()),
+                    run.IncludeDefaultTarget,
                     run.Succeeded,
                     run.Skipped,
                     run.WasCatchUp,

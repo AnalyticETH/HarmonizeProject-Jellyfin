@@ -11,6 +11,26 @@ const previewEndpoints = [
     "POST /HueSync/ScenePlaylists/BulkPreview"
 ];
 
+const registerRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Register` |"));
+if (!registerRow) {
+    throw new Error("README.md is missing the bridge registration endpoint contract");
+}
+for (const marker of ["Link Button", "private", "App Key", "Client Key", "secrets"]) {
+    if (!registerRow.includes(marker)) {
+        throw new Error(`README.md bridge registration contract is missing safety marker: ${marker}`);
+    }
+}
+
+const historyCsvRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/SceneSchedules/History/ExportCsv?"));
+if (!historyCsvRow) {
+    throw new Error("README.md is missing the scheduled-history CSV endpoint contract");
+}
+for (const marker of ["targetUserIds", "targetRoutes", "userId", "deviceId", "includeDefaultTarget"]) {
+    if (!historyCsvRow.includes(marker)) {
+        throw new Error(`README.md scheduled-history CSV contract is missing route field: ${marker}`);
+    }
+}
+
 for (const endpoint of previewEndpoints) {
     const row = readme.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
     if (!row) {
@@ -33,4 +53,16 @@ for (const marker of [
     }
 }
 
-console.log("Preview API documentation and target-route contracts passed");
+for (const marker of [
+    "public async Task<ActionResult<HueRegistrationResult>> RegisterBridge(",
+    "HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress)",
+    "JsonSerializer.Serialize(run.TargetUserIds",
+    "JsonSerializer.Serialize(run.TargetRoutes",
+    "\"includeDefaultTarget\""
+]) {
+    if (!controller.includes(marker)) {
+        throw new Error(`Hue API bridge registration support is missing source marker: ${marker}`);
+    }
+}
+
+console.log("Preview and bridge-registration API documentation contracts passed");

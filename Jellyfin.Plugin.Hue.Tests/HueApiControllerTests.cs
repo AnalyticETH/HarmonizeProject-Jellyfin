@@ -69,6 +69,57 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task RegisterBridge_RejectsPublicAddressWithoutContactingBridge()
+    {
+        var controller = CreateController();
+
+        var action = await controller.RegisterBridge(new HueRegistrationRequest
+        {
+            IpAddress = "8.8.8.8"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Equal(
+            "A valid private bridge IP address or .local host name is required.",
+            response.Value);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task RegisterBridge_ValidPrivateAddressReturnsCredentialsAndTrimsAddress()
+    {
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "[{\"success\":{\"username\":\"bridge-user\",\"clientkey\":\"bridge-client-key\"}}]",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var controller = CreateController();
+
+        var action = await controller.RegisterBridge(new HueRegistrationRequest
+        {
+            IpAddress = " 192.168.1.100 "
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var registration = Assert.IsType<HueRegistrationResult>(response.Value);
+        Assert.Equal("bridge-user", registration.Username);
+        Assert.Equal("bridge-client-key", registration.ClientKey);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("https://192.168.1.100/api", capturedRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
     public void SaveUserMappingWithNullExistingEntryDoesNotThrow()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -7064,6 +7115,12 @@ public sealed class HueApiControllerTests : IDisposable
                     Red = 41,
                     Green = 42,
                     Blue = 43,
+                    TargetUserIds = new List<string> { "mapping-user" },
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "mapping-user", DeviceId = "living-room-tv" }
+                    },
+                    IncludeDefaultTarget = true,
                     Succeeded = true,
                     Message = "Message, with \"quotes\"",
                     CleanupWarning = "=FORMULA()",
@@ -7145,6 +7202,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("\"41\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"42\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"43\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"targetUserIds\",\"targetRoutes\",\"includeDefaultTarget\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"[\"\"mapping-user\"\"]\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"[{\"\"userId\"\":\"\"mapping-user\"\",\"\"deviceId\"\":\"\"living-room-tv\"\"}]\"", historyCsv, StringComparison.Ordinal);
+        Assert.Contains("\"True\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"Message, with \"\"quotes\"\"\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"csv-cue\",\"CSV, \"\"Cue\"\"\"", historyCsv, StringComparison.Ordinal);
         Assert.Contains("\"'=FORMULA()\"", historyCsv, StringComparison.Ordinal);

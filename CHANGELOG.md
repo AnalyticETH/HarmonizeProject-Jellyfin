@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.240] - 2026-08-24
+
+### Added
+- **Credential-free scheduled-history CSV parity**: export exact selected target user IDs, nested playback-device routes, and default-target inclusion alongside bounded run telemetry.
+- **Bridge registration API contract**: document and regression-test the authenticated Link Button registration flow, private-target validation, and credential handling guidance.
+
+### Tests
+- **API and export coverage**: verify registration rejects public targets without bridge contact, trims valid private targets, returns bridge credentials only in the response, and preserves escaped route JSON in history CSV.
+
 ## [1.5.239] - 2026-08-24
 
 ### Fixed
