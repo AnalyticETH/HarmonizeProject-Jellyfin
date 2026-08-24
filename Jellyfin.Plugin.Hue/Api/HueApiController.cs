@@ -6515,7 +6515,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     {
                         UserId = route.UserId?.Trim() ?? string.Empty,
                         DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
-                })
+                    })
                 .ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>();
 
         private static string? TryGetInvalidSceneAutomationTargetRouteError(
