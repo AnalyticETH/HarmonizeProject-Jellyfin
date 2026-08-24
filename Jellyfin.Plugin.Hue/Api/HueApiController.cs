@@ -8274,6 +8274,8 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             if (request == null)
                 return BadRequest("A user-mapping selection is required.");
+            if (request.UserIds?.Any(userId => string.IsNullOrWhiteSpace(userId)) == true)
+                return BadRequest("Selected user mapping IDs must not be blank.");
 
             var plugin = Plugin.Instance;
             var config = plugin?.Configuration;

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.232] - 2026-08-24
+
+### Security
+- **Fail-closed bulk mapping deletion**: reject null or blank user mapping IDs before normalization or configuration mutation.
+
+### Tests
+- **Malformed bulk-delete coverage**: verify mixed valid, null, and blank selections return HTTP 400 and preserve every mapping.
+
 ## [1.5.231] - 2026-08-24
 
 ### Security

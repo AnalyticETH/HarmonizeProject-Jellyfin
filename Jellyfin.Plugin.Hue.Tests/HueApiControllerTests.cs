@@ -8497,6 +8497,28 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void UserMappings_BulkDeleteRejectsNullOrBlankIdWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = "user-one", UserName = "One", SyncEnabled = false },
+                new() { UserId = "user-keep", UserName = "Keep", SyncEnabled = false }
+            }
+        });
+
+        var action = CreateController().DeleteUserMappingsBulk(new HueUserMappingBulkDeleteRequest
+        {
+            UserIds = new List<string> { " user-one ", null!, " " }
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Equal(new[] { "user-one", "user-keep" }, configuration.UserMappings.Select(mapping => mapping.UserId));
+    }
+
+    [Fact]
     public void UserMappings_BulkDeleteRefusesDependenciesAndMissingIdsAtomically()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

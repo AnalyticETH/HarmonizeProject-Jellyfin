@@ -251,7 +251,7 @@ The configuration page uses authenticated administrator endpoints under `/HueSyn
 | `GET/POST /HueSync/UserMappings` | List or save per-user bridge mappings, sync enable flags, optional playback-media-scope/audio-sensitivity/ordered audio-band-center/audio-band-gain/audio-response-smoothing/audio-band-spread/audio-beat-pulse/audio-palette/audio-spatial-routing/audio-source-channel/color-threshold/performance/execution/channel/restoration-profile overrides; GET responses redact stored credentials and report `InheritsDefaultBridge`. |
 | `GET /HueSync/UserMappings/{userId}/Dependencies` | Inspect one mapping's credential-free scheduled-cue and saved-playlist target dependencies before disabling or deleting it. Returns `canDisable`, `canDelete`, dependent cue and playlist counts, and bounded IDs/names/enabled state; bridge credentials and target details are never returned. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. |
-| `POST /HueSync/UserMappings/BulkDelete` | Atomically delete up to 50 selected user IDs with `{ "userIds": ["..."] }`. Every ID is resolved before mutation; any missing ID, scheduled-cue dependency, or save failure leaves the complete mapping collection unchanged. The credential-free response includes deleted mapping summaries, remaining count, missing IDs, and blocked dependency details. |
+| `POST /HueSync/UserMappings/BulkDelete` | Atomically delete up to 50 selected user IDs with `{ "userIds": ["..."] }`. Null or blank IDs are rejected before normalization or mutation. Every valid ID is resolved before mutation; any missing ID, scheduled-cue dependency, or save failure leaves the complete mapping collection unchanged. The credential-free response includes deleted mapping summaries, remaining count, missing IDs, and blocked dependency details. |
 | `POST /HueSync/UserMappings/BulkEnabled` | Atomically enable or disable up to 50 selected user IDs with `{ "userIds": ["..."], "syncEnabled": true|false }`. Missing IDs, scheduled-cue references while disabling, incomplete custom targets while enabling, or save failure leave every selected mapping unchanged. Disabling clears custom bridge credentials/target fields and the credential-free response includes updated summaries, missing IDs, invalid IDs, and blocked dependency details. |
 
 Single-scene scheduled cues may carry nullable `red`, `green`, and `blue` channel overrides (0-255); omitted channels inherit the saved scene and effective RGB is included in scheduler status, occurrence JSON/CSV, iCalendar metadata, and retained run telemetry. Playlist cues continue to use their per-step color overrides.
@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.231 (Current)
+### Version 1.5.232 (Current)
+- **Fail-closed bulk mapping deletion**: null or blank user mapping IDs are rejected before normalization or configuration mutation, preserving atomic bulk-delete behavior.
+
+### Version 1.5.231
 - **Fail-closed preview target selection**: direct, saved-scene, bulk saved-scene, playlist, and bulk playlist previews reject blank target user IDs before default-bridge fallback or bridge activity.
 - **Test runner refresh**: xUnit Visual Studio adapter 4.0.0 is now locked for the test project only; production dependencies remain on the .NET 8-compatible set.
 
