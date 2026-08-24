@@ -17,6 +17,51 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void Validate_ReportsNullUserMappingWithoutThrowing()
+    {
+        var config = new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { null! }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("User mapping 1 is required", errors);
+    }
+
+    [Fact]
+    public void Validate_AllowsSyncWithOnlyACompleteDeviceTarget()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "device-only-user",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueBridgeIp = "192.168.1.100",
+                            HueAppKey = "app-key",
+                            HueClientKey = "client-key",
+                            EntertainmentAreaId = "area-1"
+                        }
+                    }
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
     public void PlaybackMediaFilter_RejectsUnknownValues()
     {
         var config = new PluginConfiguration { PlaybackMediaFilter = "Trailers" };

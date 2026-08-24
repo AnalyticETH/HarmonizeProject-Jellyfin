@@ -427,7 +427,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.215 (Current)
+### Version 1.5.216 (Current)
+- **Device-route migration and diagnostics**: enter replacement App/Client keys for each exported nested device route, and review explicit device identity, route labels, and readiness in target diagnostics and support bundles.
+- **Fail-safe configuration validation**: malformed null user mappings are reported safely, and complete device-only routes no longer require an unused global bridge target.
+
+### Version 1.5.215
 - **Live device-route telemetry**: expose the active device identity and route-match state through the top-level status API and administrator live panel.
 
 ### Version 1.5.214

@@ -2036,17 +2036,43 @@
                     mappings.forEach(function (mapping, index) {
                         mapping = mapping || {};
                         var syncEnabled = HueConfigurationPage.readConfigurationValue(mapping, 'SyncEnabled', true) !== false;
+                        if (!syncEnabled) return;
                         var bridgeIp = String(HueConfigurationPage.readConfigurationValue(mapping, 'HueBridgeIp', '') || '').trim();
-                        if (!syncEnabled || !bridgeIp) return;
                         var userName = String(HueConfigurationPage.readConfigurationValue(mapping, 'UserName', '') || '').trim();
                         var userId = String(HueConfigurationPage.readConfigurationValue(mapping, 'UserId', '') || '').trim();
                         var label = userName || userId || ('Mapping ' + (index + 1));
-                        html += '<div style="border-top: 1px solid rgba(255,255,255,.15); padding-top: .75em; margin-top: .75em;">';
-                        html += '<div><strong>' + escapeHtml(label) + '</strong> — ' + escapeHtml(bridgeIp) + '</div>';
-                        html += '<div class="inputContainer" style="display: flex; gap: 1em; flex-wrap: wrap;">';
-                        html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement App Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="mapping" data-hue-import-index="' + index + '" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
-                        html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Client Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="mapping" data-hue-import-index="' + index + '" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
-                        html += '</div></div>';
+                        var mappingHasAppKey = !!HueConfigurationPage.readConfigurationValue(mapping, 'HasAppKey', false);
+                        var mappingHasClientKey = !!HueConfigurationPage.readConfigurationValue(mapping, 'HasClientKey', false);
+                        var deviceTargets = HueConfigurationPage.readConfigurationValue(mapping, 'DeviceTargets', []) || [];
+                        if (!Array.isArray(deviceTargets)) deviceTargets = [];
+
+                        if (bridgeIp || mappingHasAppKey || mappingHasClientKey) {
+                            html += '<div style="border-top: 1px solid rgba(255,255,255,.15); padding-top: .75em; margin-top: .75em;">';
+                            html += '<div><strong>' + escapeHtml(label) + '</strong>' + (bridgeIp ? ' — ' + escapeHtml(bridgeIp) : ' — inherited/default bridge') + '</div>';
+                            html += '<div class="inputContainer" style="display: flex; gap: 1em; flex-wrap: wrap;">';
+                            html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement App Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="mapping" data-hue-import-index="' + index + '" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
+                            html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Client Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="mapping" data-hue-import-index="' + index + '" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
+                            html += '</div></div>';
+                        }
+
+                        if (deviceTargets.length) {
+                            html += '<div style="border-top: 1px solid rgba(255,255,255,.15); padding-top: .75em; margin-top: .75em;">';
+                            html += '<div><strong>' + escapeHtml(label) + '</strong> — device-route migration keys</div>';
+                            deviceTargets.forEach(function (target, deviceIndex) {
+                                target = target || {};
+                                var deviceId = String(HueConfigurationPage.readConfigurationValue(target, 'DeviceId', '') || '').trim();
+                                var deviceName = String(HueConfigurationPage.readConfigurationValue(target, 'DeviceName', '') || '').trim();
+                                var deviceBridgeIp = String(HueConfigurationPage.readConfigurationValue(target, 'HueBridgeIp', '') || '').trim();
+                                var deviceLabel = deviceName || deviceId || ('Device route ' + (deviceIndex + 1));
+                                html += '<div style="margin-top: .75em; padding: .6em; border: 1px solid rgba(255,255,255,.1);">';
+                                html += '<div><strong>' + escapeHtml(deviceLabel) + '</strong>' + (deviceId && deviceName ? ' (' + escapeHtml(deviceId) + ')' : '') + (deviceBridgeIp ? ' — ' + escapeHtml(deviceBridgeIp) : '') + '</div>';
+                                html += '<div class="inputContainer" style="display: flex; gap: 1em; flex-wrap: wrap;">';
+                                html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Device App Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="device" data-hue-import-index="' + index + '" data-hue-import-device-index="' + deviceIndex + '" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
+                                html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Device Client Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="device" data-hue-import-index="' + index + '" data-hue-import-device-index="' + deviceIndex + '" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
+                                html += '</div></div>';
+                            });
+                            html += '</div>';
+                        }
                     });
 
                     fields.innerHTML = html || '<div class="fieldDescription">This export contains no custom target credentials to enter. Matching credentials, if present, will be preserved by the server.</div>';
@@ -2119,6 +2145,34 @@
                         var value = input.value.trim();
                         if (key === 'app') HueConfigurationPage.writeConfigurationValue(mappings[index], 'HueAppKey', value || HueConfigurationPage.readConfigurationValue(mappings[index], 'HueAppKey', ''));
                         if (key === 'client') HueConfigurationPage.writeConfigurationValue(mappings[index], 'HueClientKey', value || HueConfigurationPage.readConfigurationValue(mappings[index], 'HueClientKey', ''));
+                    });
+                    page.querySelectorAll('[data-hue-import-scope="device"]').forEach(function (input) {
+                        var mappingIndex = parseInt(input.getAttribute('data-hue-import-index'), 10);
+                        var deviceIndex = parseInt(input.getAttribute('data-hue-import-device-index'), 10);
+                        if (isNaN(mappingIndex) || isNaN(deviceIndex) || !mappings[mappingIndex]) return;
+                        var targets = HueConfigurationPage.readConfigurationValue(mappings[mappingIndex], 'DeviceTargets', []) || [];
+                        if (!Array.isArray(targets) || !targets[deviceIndex]) return;
+                        var value = input.value.trim();
+                        if (!value) return;
+                        var target = targets[deviceIndex];
+                        var deviceId = String(HueConfigurationPage.readConfigurationValue(target, 'DeviceId', '') || '').trim();
+                        if (!deviceId) return;
+                        var credentials = HueConfigurationPage.readConfigurationValue(mappings[mappingIndex], 'DeviceTargetCredentials', []) || [];
+                        if (!Array.isArray(credentials)) credentials = [];
+                        var replacement = credentials.find(function (candidate) {
+                            return String(HueConfigurationPage.readConfigurationValue(candidate, 'DeviceId', '') || '').trim() === deviceId;
+                        });
+                        if (!replacement) {
+                            replacement = {
+                                DeviceId: deviceId,
+                                DeviceName: String(HueConfigurationPage.readConfigurationValue(target, 'DeviceName', '') || '').trim()
+                            };
+                            credentials.push(replacement);
+                        }
+                        var key = input.getAttribute('data-hue-import-key');
+                        if (key === 'app') HueConfigurationPage.writeConfigurationValue(replacement, 'HueAppKey', value);
+                        if (key === 'client') HueConfigurationPage.writeConfigurationValue(replacement, 'HueClientKey', value);
+                        HueConfigurationPage.writeConfigurationValue(mappings[mappingIndex], 'DeviceTargetCredentials', credentials);
                     });
                     importDocument.replaceMappings = true;
                     importDocument.replaceColorPresets = true;
@@ -8397,9 +8451,14 @@
                             var scope = HueConfigurationPage.readStatusField(target, "Scope", "Target");
                             var userName = HueConfigurationPage.readStatusField(target, "UserName", "");
                             var userId = HueConfigurationPage.readStatusField(target, "UserId", "");
-                            var label = scope === "User"
-                                ? (userName || userId || "User mapping")
-                                : "Default target";
+                            var deviceName = HueConfigurationPage.readStatusField(target, "DeviceName", "");
+                            var deviceId = HueConfigurationPage.readStatusField(target, "DeviceId", "");
+                            var userLabel = userName || userId || "User mapping";
+                            var label = scope === "UserDevice"
+                                ? userLabel + " / " + (deviceName || deviceId || "Device route")
+                                : scope === "User"
+                                    ? userLabel
+                                    : "Default target";
                             var bridgeIp = HueConfigurationPage.readStatusField(target, "BridgeIp", "—");
                             var areaId = HueConfigurationPage.readStatusField(target, "EntertainmentAreaId", "");
                             var areaName = HueConfigurationPage.readStatusField(target, "EntertainmentAreaName", "");
@@ -8417,7 +8476,7 @@
                             var inherited = HueConfigurationPage.readStatusField(target, "InheritsDefaultBridge", false);
                             var resultColor = ready ? "#8bc34a" : "#f0ad4e";
                             html += '<tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">';
-                            html += '<td style="padding: 8px;">' + escapeHtml(label) + (inherited ? '<div class="fieldDescription">inherits default</div>' : '') + '</td>';
+                            html += '<td style="padding: 8px;">' + escapeHtml(label) + (scope === "UserDevice" && deviceId && deviceName ? '<div class="fieldDescription">' + escapeHtml(deviceId) + '</div>' : '') + (inherited ? '<div class="fieldDescription">inherits default</div>' : '') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(String(bridgeIp) + " / " + area) + '</td>';
                             html += '<td style="padding: 8px;">App Key: ' + (hasAppKey ? 'present' : 'missing') + '<br />Client Key: ' + (hasClientKey ? 'present' : 'missing') + '</td>';
                             html += '<td style="padding: 8px;">Bridge: ' + (reachable ? 'reachable' : 'unreachable') + '<br />Area: ' + (areaFound ? 'found' : 'not found') + '<br />Channels: ' + escapeHtml(String(channelCount)) + '<br />Selected: ' + escapeHtml(String(selectedChannelCount)) + ' (' + (channelProfileValid ? 'profile valid' : 'profile invalid') + ')' + (missingChannelIds ? '<br />Missing IDs: ' + escapeHtml(String(missingChannelIds)) : '') + '</td>';

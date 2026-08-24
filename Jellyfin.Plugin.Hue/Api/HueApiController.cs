@@ -5848,18 +5848,35 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var runtime = _syncService?.GetRuntimeStatus();
-            var hasDefaultTarget = config != null &&
-                !string.IsNullOrWhiteSpace(config.HueBridgeIp) &&
-                !string.IsNullOrWhiteSpace(config.HueAppKey) &&
-                !string.IsNullOrWhiteSpace(config.HueClientKey) &&
-                !string.IsNullOrWhiteSpace(config.EntertainmentAreaId);
+            static bool HasCompleteTarget(
+                string? bridgeIp,
+                string? appKey,
+                string? clientKey,
+                string? entertainmentAreaId)
+                => !string.IsNullOrWhiteSpace(bridgeIp) &&
+                   !string.IsNullOrWhiteSpace(appKey) &&
+                   !string.IsNullOrWhiteSpace(clientKey) &&
+                   !string.IsNullOrWhiteSpace(entertainmentAreaId);
+
+            var hasDefaultTarget = config != null && HasCompleteTarget(
+                config.HueBridgeIp,
+                config.HueAppKey,
+                config.HueClientKey,
+                config.EntertainmentAreaId);
             var hasCustomUserTarget = config?.UserMappings?.Any(mapping =>
                 mapping != null &&
                 mapping.SyncEnabled &&
-                !string.IsNullOrWhiteSpace(mapping.HueBridgeIp) &&
-                !string.IsNullOrWhiteSpace(mapping.HueAppKey) &&
-                !string.IsNullOrWhiteSpace(mapping.HueClientKey) &&
-                !string.IsNullOrWhiteSpace(mapping.EntertainmentAreaId)) == true;
+                (HasCompleteTarget(
+                     mapping.HueBridgeIp,
+                     mapping.HueAppKey,
+                     mapping.HueClientKey,
+                     mapping.EntertainmentAreaId) ||
+                 mapping.DeviceTargets?.Any(target =>
+                     target != null && HasCompleteTarget(
+                         target.HueBridgeIp,
+                         target.HueAppKey,
+                         target.HueClientKey,
+                         target.EntertainmentAreaId)) == true)) == true;
             var playbackActive = _bridgeLifecycleGate.IsPlaybackActive;
             var diagnosticActive = _bridgeLifecycleGate.IsDiagnosticActive;
             var configurationValid = config != null && configurationErrors.Count == 0;
@@ -6062,6 +6079,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 Scope = target.Scope,
                 UserId = target.UserId,
                 UserName = target.UserName,
+                DeviceId = target.DeviceId,
+                DeviceName = target.DeviceName,
                 SyncEnabled = target.SyncEnabled,
                 InheritsDefaultBridge = target.InheritsDefaultBridge,
                 BridgeIp = target.BridgeIp,
@@ -6517,6 +6536,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     Scope: "Default",
                     UserId: null,
                     UserName: null,
+                    DeviceId: null,
+                    DeviceName: null,
                     SyncEnabled: config.SyncEnabled,
                     InheritsDefaultBridge: false,
                     BridgeIp: config.HueBridgeIp?.Trim() ?? string.Empty,
@@ -6533,20 +6554,52 @@ namespace Jellyfin.Plugin.Hue.Api
                     continue;
 
                 var inheritsDefaultBridge = string.IsNullOrWhiteSpace(mapping.HueBridgeIp);
-                yield return new HueTarget(
-                    Scope: "User",
-                    UserId: mapping.UserId?.Trim(),
-                    UserName: string.IsNullOrWhiteSpace(mapping.UserName) ? null : mapping.UserName.Trim(),
-                    SyncEnabled: true,
-                    InheritsDefaultBridge: inheritsDefaultBridge,
-                    BridgeIp: inheritsDefaultBridge ? config.HueBridgeIp?.Trim() ?? string.Empty : mapping.HueBridgeIp.Trim(),
-                    AppKey: inheritsDefaultBridge ? config.HueAppKey?.Trim() ?? string.Empty : mapping.HueAppKey?.Trim() ?? string.Empty,
-                    ClientKey: inheritsDefaultBridge ? config.HueClientKey?.Trim() ?? string.Empty : mapping.HueClientKey?.Trim() ?? string.Empty,
-                    AreaId: inheritsDefaultBridge ? config.EntertainmentAreaId?.Trim() ?? string.Empty : mapping.EntertainmentAreaId?.Trim() ?? string.Empty,
-                    AreaName: string.IsNullOrWhiteSpace(mapping.EntertainmentAreaName) ? null : mapping.EntertainmentAreaName.Trim(),
-                    ChannelIds: inheritsDefaultBridge || string.IsNullOrWhiteSpace(mapping.ChannelIdsOverride)
+                var deviceTargets = (mapping.DeviceTargets ?? new List<UserDeviceBridgeTarget>())
+                    .Where(target => target != null)
+                    .ToArray();
+                var includeBaseTarget = !inheritsDefaultBridge || hasGlobalTarget || deviceTargets.Length == 0;
+                if (includeBaseTarget)
+                {
+                    yield return new HueTarget(
+                        Scope: "User",
+                        UserId: mapping.UserId?.Trim(),
+                        UserName: string.IsNullOrWhiteSpace(mapping.UserName) ? null : mapping.UserName.Trim(),
+                        DeviceId: null,
+                        DeviceName: null,
+                        SyncEnabled: true,
+                        InheritsDefaultBridge: inheritsDefaultBridge,
+                        BridgeIp: inheritsDefaultBridge ? config.HueBridgeIp?.Trim() ?? string.Empty : mapping.HueBridgeIp.Trim(),
+                        AppKey: inheritsDefaultBridge ? config.HueAppKey?.Trim() ?? string.Empty : mapping.HueAppKey?.Trim() ?? string.Empty,
+                        ClientKey: inheritsDefaultBridge ? config.HueClientKey?.Trim() ?? string.Empty : mapping.HueClientKey?.Trim() ?? string.Empty,
+                        AreaId: inheritsDefaultBridge ? config.EntertainmentAreaId?.Trim() ?? string.Empty : mapping.EntertainmentAreaId?.Trim() ?? string.Empty,
+                        AreaName: string.IsNullOrWhiteSpace(mapping.EntertainmentAreaName) ? null : mapping.EntertainmentAreaName.Trim(),
+                        ChannelIds: inheritsDefaultBridge || string.IsNullOrWhiteSpace(mapping.ChannelIdsOverride)
+                            ? config.ChannelIds?.Trim() ?? string.Empty
+                            : mapping.ChannelIdsOverride.Trim());
+                }
+
+                foreach (var deviceTarget in deviceTargets)
+                {
+                    var inheritedChannelIds = string.IsNullOrWhiteSpace(mapping.ChannelIdsOverride)
                         ? config.ChannelIds?.Trim() ?? string.Empty
-                        : mapping.ChannelIdsOverride.Trim());
+                        : mapping.ChannelIdsOverride.Trim();
+                    yield return new HueTarget(
+                        Scope: "UserDevice",
+                        UserId: mapping.UserId?.Trim(),
+                        UserName: string.IsNullOrWhiteSpace(mapping.UserName) ? null : mapping.UserName.Trim(),
+                        DeviceId: string.IsNullOrWhiteSpace(deviceTarget.DeviceId) ? null : deviceTarget.DeviceId.Trim(),
+                        DeviceName: string.IsNullOrWhiteSpace(deviceTarget.DeviceName) ? null : deviceTarget.DeviceName.Trim(),
+                        SyncEnabled: true,
+                        InheritsDefaultBridge: false,
+                        BridgeIp: deviceTarget.HueBridgeIp?.Trim() ?? string.Empty,
+                        AppKey: deviceTarget.HueAppKey?.Trim() ?? string.Empty,
+                        ClientKey: deviceTarget.HueClientKey?.Trim() ?? string.Empty,
+                        AreaId: deviceTarget.EntertainmentAreaId?.Trim() ?? string.Empty,
+                        AreaName: string.IsNullOrWhiteSpace(deviceTarget.EntertainmentAreaName) ? null : deviceTarget.EntertainmentAreaName.Trim(),
+                        ChannelIds: string.IsNullOrWhiteSpace(deviceTarget.ChannelIdsOverride)
+                            ? inheritedChannelIds
+                            : deviceTarget.ChannelIdsOverride.Trim());
+                }
             }
         }
 
@@ -6555,18 +6608,31 @@ namespace Jellyfin.Plugin.Hue.Api
             if (target.Scope == "Default")
                 return "Default bridge";
 
-            if (!string.IsNullOrWhiteSpace(target.UserName))
-                return target.UserName;
+            var userLabel = !string.IsNullOrWhiteSpace(target.UserName)
+                ? target.UserName
+                : string.IsNullOrWhiteSpace(target.UserId)
+                    ? "Selected user target"
+                    : target.UserId;
 
-            return string.IsNullOrWhiteSpace(target.UserId)
-                ? "Selected user target"
-                : target.UserId;
+            if (target.Scope == "UserDevice")
+            {
+                var deviceLabel = !string.IsNullOrWhiteSpace(target.DeviceName)
+                    ? target.DeviceName
+                    : string.IsNullOrWhiteSpace(target.DeviceId)
+                        ? "Device route"
+                        : target.DeviceId;
+                return userLabel + " / " + deviceLabel;
+            }
+
+            return userLabel;
         }
 
         private sealed record HueTarget(
             string Scope,
             string? UserId,
             string? UserName,
+            string? DeviceId,
+            string? DeviceName,
             bool SyncEnabled,
             bool InheritsDefaultBridge,
             string BridgeIp,
@@ -11198,6 +11264,8 @@ namespace Jellyfin.Plugin.Hue.Api
         public string Scope { get; init; } = string.Empty;
         public string? UserId { get; init; }
         public string? UserName { get; init; }
+        public string? DeviceId { get; init; }
+        public string? DeviceName { get; init; }
         public bool SyncEnabled { get; init; }
         public bool InheritsDefaultBridge { get; init; }
         public string BridgeIp { get; init; } = string.Empty;

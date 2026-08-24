@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.216] - 2026-08-24
+
+### Added
+- **Device-route migration credentials and diagnostics**: expose nested device-route replacement-key fields in the import wizard and include explicit device routes, device identity, and route labels in target diagnostics and support bundles.
+
+### Fixed
+- **Fail-safe malformed mappings**: null user-mapping entries now produce validation errors instead of throwing, and sync can rely on complete explicit device routes without a global bridge target.
+
 ## [1.5.215] - 2026-08-24
 
 ### Fixed

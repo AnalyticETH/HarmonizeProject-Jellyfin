@@ -7294,6 +7294,122 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task TargetDiagnostics_ValidatesExplicitDeviceTargetWithoutSecrets()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "device-only-user",
+                    UserName = "Device Viewer",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            DeviceName = "Living Room TV",
+                            HueBridgeIp = "192.168.1.100",
+                            HueAppKey = "device-app-secret",
+                            HueClientKey = "device-client-secret",
+                            EntertainmentAreaId = "area-device",
+                            EntertainmentAreaName = "Device Room",
+                            ChannelIdsOverride = "2, 4"
+                        }
+                    }
+                }
+            }
+        });
+
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+            {
+                var path = request.RequestUri!.AbsolutePath;
+                var body = path.Contains("entertainment_configuration/", StringComparison.Ordinal)
+                    ? "{\"data\":[{\"channels\":[{\"channel_id\":2},{\"channel_id\":4}]}]}"
+                    : "{\"data\":[{\"id\":\"area-device\",\"metadata\":{\"name\":\"Device Room\"}}]}";
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body, Encoding.UTF8, "application/json")
+                };
+            });
+
+        var action = await CreateController().GetTargetDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueTargetDiagnosticsResult>(response.Value);
+        var target = Assert.Single(diagnostics.Targets);
+        Assert.Equal(1, diagnostics.TargetCount);
+        Assert.Equal(1, diagnostics.ReadyTargetCount);
+        Assert.True(diagnostics.AllTargetsReady);
+        Assert.Equal("UserDevice", target.Scope);
+        Assert.Equal("device-only-user", target.UserId);
+        Assert.Equal("Device Viewer", target.UserName);
+        Assert.Equal("living-room-tv", target.DeviceId);
+        Assert.Equal("Living Room TV", target.DeviceName);
+        Assert.Equal("Device Room", target.EntertainmentAreaName);
+        Assert.Equal(2, target.SelectedChannelCount);
+        Assert.True(target.Ready);
+
+        var serialized = JsonSerializer.Serialize(diagnostics);
+        Assert.DoesNotContain("device-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("device-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Diagnostics_RecognizesDeviceOnlyTargetAsCustomTarget()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "device-only-user",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueBridgeIp = "192.168.1.100",
+                            HueAppKey = "device-app-secret",
+                            HueClientKey = "device-client-secret",
+                            EntertainmentAreaId = "area-device"
+                        }
+                    }
+                }
+            }
+        });
+        var probe = new Mock<IHueEnvironmentProbe>();
+        probe
+            .Setup(environment => environment.CheckAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueEnvironmentProbeResult
+            {
+                Ffmpeg = new HueToolStatus { Available = true },
+                OpenSsl = new HueToolStatus { Available = true }
+            });
+
+        var action = await CreateController(environmentProbe: probe.Object).GetDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueDiagnosticsResult>(response.Value);
+        Assert.True(diagnostics.ConfigurationValid);
+        Assert.False(diagnostics.DefaultBridgeConfigured);
+        Assert.True(diagnostics.CustomUserTargetConfigured);
+        Assert.Equal(1, diagnostics.EnabledUserMappingCount);
+    }
+
+    [Fact]
     public async Task TargetDiagnostics_ReportsStaleSavedChannelProfileIdsBeforePlayback()
     {
         InstallConfiguration(new PluginConfiguration
@@ -8991,7 +9107,26 @@ public sealed class HueApiControllerTests : IDisposable
                     HueBridgeIp = "192.168.1.101",
                     HueAppKey = "migrated-mapping-app-secret",
                     HueClientKey = "migrated-mapping-client-secret",
-                    EntertainmentAreaId = "mapping-area"
+                    EntertainmentAreaId = "mapping-area",
+                    DeviceTargets = new List<UserDeviceBridgeTargetSummary>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            DeviceName = "Living Room TV",
+                            HueBridgeIp = "192.168.1.102",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    },
+                    DeviceTargetCredentials = new List<UserDeviceBridgeTargetImport>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueAppKey = "migrated-device-app-secret",
+                            HueClientKey = "migrated-device-client-secret"
+                        }
+                    }
                 }
             }
         });
@@ -9004,12 +9139,18 @@ public sealed class HueApiControllerTests : IDisposable
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("migrated-mapping-app-secret", mapping.HueAppKey);
         Assert.Equal("migrated-mapping-client-secret", mapping.HueClientKey);
+        var deviceTarget = Assert.Single(mapping.DeviceTargets);
+        Assert.Equal("living-room-tv", deviceTarget.DeviceId);
+        Assert.Equal("migrated-device-app-secret", deviceTarget.HueAppKey);
+        Assert.Equal("migrated-device-client-secret", deviceTarget.HueClientKey);
 
         var serializedResult = System.Text.Json.JsonSerializer.Serialize(result);
         Assert.DoesNotContain("migrated-global-app-secret", serializedResult, StringComparison.Ordinal);
         Assert.DoesNotContain("migrated-global-client-secret", serializedResult, StringComparison.Ordinal);
         Assert.DoesNotContain("migrated-mapping-app-secret", serializedResult, StringComparison.Ordinal);
         Assert.DoesNotContain("migrated-mapping-client-secret", serializedResult, StringComparison.Ordinal);
+        Assert.DoesNotContain("migrated-device-app-secret", serializedResult, StringComparison.Ordinal);
+        Assert.DoesNotContain("migrated-device-client-secret", serializedResult, StringComparison.Ordinal);
     }
 
     [Fact]

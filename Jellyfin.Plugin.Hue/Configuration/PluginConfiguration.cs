@@ -3763,7 +3763,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (SyncEnabled)
             {
                 // Default bridge fields are only required if no per-user mappings exist
-                bool hasUserMappings = UserMappings?.Exists(m => m.SyncEnabled && !string.IsNullOrWhiteSpace(m.HueBridgeIp)) == true;
+                bool hasUserMappings = UserMappings?.Exists(mapping =>
+                    mapping != null &&
+                    mapping.SyncEnabled &&
+                    (!string.IsNullOrWhiteSpace(mapping.HueBridgeIp) ||
+                     mapping.DeviceTargets?.Any(target =>
+                         target != null && !string.IsNullOrWhiteSpace(target.HueBridgeIp)) == true)) == true;
                 if (!hasUserMappings)
                 {
                     if (string.IsNullOrWhiteSpace(HueBridgeIp))
@@ -3957,6 +3962,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
             for (var index = 0; index < UserMappings.Count; index++)
             {
                 var mapping = UserMappings[index];
+                if (mapping == null)
+                {
+                    errors.Add($"User mapping {index + 1} is required");
+                    continue;
+                }
+
                 var label = string.IsNullOrWhiteSpace(mapping.UserName)
                     ? $"User mapping {index + 1}"
                     : $"User mapping for '{mapping.UserName.Trim()}'";
