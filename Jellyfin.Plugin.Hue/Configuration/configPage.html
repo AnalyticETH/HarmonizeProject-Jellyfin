@@ -3231,6 +3231,7 @@
                                     var targetOption = document.createElement('option');
                                     targetOption.value = userId;
                                     targetOption.textContent = (userName || userId) + (enabled ? "" : " (disabled)");
+                                    targetOption.disabled = !enabled;
                                     previewTargetSelect.appendChild(targetOption);
                                     if (targetDefinition.includeDeviceRoutes) {
                                         var deviceTargets = mapping.deviceTargets !== undefined ? mapping.deviceTargets : mapping.DeviceTargets;
@@ -3249,7 +3250,7 @@
                                     }
                                 });
                                 var restoredValues = targetDefinition.previousValues.filter(function (value) {
-                                    return Array.prototype.some.call(previewTargetSelect.options, function (option) { return option.value === value; });
+                                    return Array.prototype.some.call(previewTargetSelect.options, function (option) { return option.value === value && !option.disabled; });
                                 });
                                 Array.prototype.forEach.call(previewTargetSelect.options, function (option) {
                                     option.selected = restoredValues.indexOf(option.value) >= 0;
@@ -3933,6 +3934,7 @@
                                 var option = document.createElement('option');
                                 option.value = userId;
                                 option.textContent = (userName || userId) + (enabled ? "" : " (disabled)");
+                                option.disabled = !enabled;
                                 select.appendChild(option);
                                 if (targetDefinition.includeDeviceRoutes) {
                                     var deviceTargets = mapping.deviceTargets !== undefined ? mapping.deviceTargets : mapping.DeviceTargets;
@@ -3952,7 +3954,7 @@
                             });
                             if (targetDefinition.previousValues.length) {
                                 Array.prototype.forEach.call(select.options || [], function (option) {
-                                    option.selected = targetDefinition.previousValues.indexOf(option.value) >= 0;
+                                    option.selected = !option.disabled && targetDefinition.previousValues.indexOf(option.value) >= 0;
                                 });
                             }
                         });

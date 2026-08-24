@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.224] - 2026-08-24
+
+### Fixed
+- **Disabled target safety**: disable user-mapping preview options when their mapping is disabled and discard restored selections that are no longer eligible, avoiding predictable server-side preview failures.
+
+### Tests
+- **Regression coverage**: extend the configuration-page contract validator to protect disabled parent target options and restoration filtering.
+
 ## [1.5.223] - 2026-08-24
 
 ### Fixed

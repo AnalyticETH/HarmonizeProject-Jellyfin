@@ -427,7 +427,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.223 (Current)
+### Version 1.5.224 (Current)
+- **Disabled target safety**: preview selectors disable disabled user mappings and discard restored selections that are no longer eligible, avoiding predictable preview failures.
+
+### Version 1.5.223
 - **Device-route profile preservation**: selected previews keep same-area device routes distinct when their channel profiles differ, preventing a requested route from being silently dropped.
 
 ### Version 1.5.222
