@@ -5036,6 +5036,83 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task PersistedSkippedHistory_DoesNotExhaustFiniteCueAfterRestart()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "skipped-history-app-secret",
+            HueClientKey = "skipped-history-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Restart scene", Red = 20, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "restart-finite-cue",
+                    Name = "Restart finite cue",
+                    PresetName = "Restart scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    MaxRuns = 2,
+                    RunCount = 0,
+                    Enabled = true
+                }
+            },
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new()
+                {
+                    ScheduleId = "restart-finite-cue",
+                    ScheduleName = "Restart finite cue",
+                    PresetName = "Restart scene",
+                    Skipped = true,
+                    Message = "Skipped first occurrence.",
+                    RunAtUtc = new DateTime(2026, 8, 16, 7, 5, 0, DateTimeKind.Utc),
+                    RunCount = 0
+                },
+                new()
+                {
+                    ScheduleId = "restart-finite-cue",
+                    ScheduleName = "Restart finite cue",
+                    PresetName = "Restart scene",
+                    Skipped = true,
+                    Message = "Skipped second occurrence.",
+                    RunAtUtc = new DateTime(2026, 8, 17, 7, 5, 0, DateTimeKind.Utc),
+                    RunCount = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var restoredStatus = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(0, restoredStatus.RunCount);
+        Assert.Equal(2, restoredStatus.RemainingRuns);
+
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        Assert.Equal(new[] { 20 }, streamTester.Reds);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.Equal(1, Assert.Single(service.GetStatus().Schedules).RunCount);
+    }
+
+    [Fact]
     public void PersistedHistory_UsesConfiguredRetentionAndRefreshTrimsLoadedEntries()
     {
         InstallConfiguration(new PluginConfiguration

@@ -5352,7 +5352,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                             candidate != null &&
                             string.Equals(candidate.Id?.Trim(), group.Key, StringComparison.OrdinalIgnoreCase))?
                         .RunCount ?? 0;
-                    state.RunCount = Math.Max(configuredRunCount, Math.Max(latest.RunCount, group.Count()));
+                    // Skipped occurrences are audit records, not executions. They must
+                    // not exhaust a finite cue when history is rehydrated after restart.
+                    var inferredRunCount = group.Count(result => !result.Skipped);
+                    state.RunCount = Math.Max(configuredRunCount, Math.Max(latest.RunCount, inferredRunCount));
                     state.LastRunAtUtc = latest.RunAtUtc;
                     state.LastSucceeded = latest.Succeeded;
                     state.LastSkipped = latest.Skipped;

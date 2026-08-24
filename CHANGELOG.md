@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.259] - 2026-08-24
+
+### Reliability
+- **Restarted finite-cue accounting**: persisted skipped schedule occurrences no longer consume finite cue run limits when scheduler state is rehydrated after a restart.
+
+### Tests
+- **Restart history coverage**: verifies skipped persisted history remains auditable without exhausting the restored finite schedule.
+
 ## [1.5.258] - 2026-08-24
 
 ### Reliability

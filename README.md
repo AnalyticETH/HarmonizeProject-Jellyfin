@@ -440,7 +440,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.258 (Current)
+### Version 1.5.259 (Current)
+- **Restarted finite-cue accounting**: persisted skipped schedule occurrences no longer consume finite cue run limits when scheduler state is rehydrated after a restart.
+- **Restart history coverage**: verifies skipped persisted history remains auditable without exhausting the restored finite schedule.
+
+### Version 1.5.258
 - **Skip retry safety**: failed `SkipNextOccurrence` persistence releases the in-memory occurrence slot and preserves deferred state for a safe retry.
 - **Mapping credential writes**: JSON user-mapping POSTs preserve explicitly entered top-level and nested device bridge keys while read models remain credential-free.
 - **Structured dependency gate**: the self-hosted NuGet check validates JSON output and blocks on top-level or transitive vulnerability entries.
