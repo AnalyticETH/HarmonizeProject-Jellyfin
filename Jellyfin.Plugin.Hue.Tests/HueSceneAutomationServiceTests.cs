@@ -2773,7 +2773,6 @@ public sealed class HueSceneAutomationServiceTests
                     TimeZoneId = TimeZoneInfo.Utc.Id,
                     Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
                     DaysOfWeekMask = 0,
-                    BrightnessPercent = 42,
                     SkipNextOccurrence = true,
                     Enabled = true
                 }
@@ -3326,6 +3325,7 @@ public sealed class HueSceneAutomationServiceTests
                     TimeZoneId = TimeZoneInfo.Utc.Id,
                     Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
                     DaysOfWeekMask = 0,
+                    BrightnessPercent = 42,
                     SkipNextOccurrence = true,
                     Enabled = true
                 }
