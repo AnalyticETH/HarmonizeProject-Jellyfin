@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.248] - 2026-08-24
+
+### Added
+- **History target-mode UI parity**: the administrator history table now distinguishes all-enabled targets, default-bridge inclusion, selected mapping IDs, and nested device routes while preserving a legacy label fallback.
+
+### Security
+- **Credential-free history rendering**: target metadata remains text-only and the live status region is accessible without introducing raw HTML or bridge secrets.
+
+### Tests
+- **Configuration-page target contract**: validate history target fields, safe summary rendering, and the accessible status marker.
+
 ## [1.5.247] - 2026-08-24
 
 ### Added

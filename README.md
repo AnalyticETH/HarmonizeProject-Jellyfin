@@ -433,7 +433,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.247 (Current)
+### Version 1.5.248 (Current)
+- **History target-mode UI parity**: the administrator cue-history table now distinguishes all-enabled targets, default-bridge inclusion, selected mapping IDs, and nested user/device routes while retaining legacy labels.
+- **Credential-free accessible rendering**: target details use text-only cells and the history status region announces updates without exposing bridge secrets.
+
+### Version 1.5.247
 - **Scheduled-history target-mode parity**: retained cue history now preserves `targetAllEnabledMappings` through in-memory results, persisted reloads, JSON exports, and credential-free CSV rows.
 - **History target-mode coverage**: all-enabled mode, legacy false defaults, route metadata, and secret absence are covered by regression tests.
 

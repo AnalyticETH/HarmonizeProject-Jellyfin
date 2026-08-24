@@ -837,7 +837,7 @@
                             <select id="sceneScheduleHistoryCueFilter" is="emby-select" style="min-width: 220px;">
                                 <option value="">All cues</option>
                             </select>
-                            <div id="sceneScheduleHistoryStatus" class="fieldDescription">Loading cue history...</div>
+                            <div id="sceneScheduleHistoryStatus" class="fieldDescription" role="status" aria-live="polite">Loading cue history...</div>
                         </div>
                         <div id="sceneScheduleHistory" style="margin-top: 0.5em; overflow-x: auto;"></div>
                     </fieldset>
@@ -7298,6 +7298,31 @@
                             var runBlue = Number(HueConfigurationPage.readStatusField(run, "Blue", 0));
                             var runBrightness = HueConfigurationPage.readStatusField(run, "BrightnessPercent", null);
                             var targetLabel = HueConfigurationPage.readStatusField(run, "TargetLabel", "Default bridge target");
+                            var targetAllEnabledMappings = HueConfigurationPage.readStatusField(run, "TargetAllEnabledMappings", false) === true;
+                            var targetUserIds = HueConfigurationPage.readStatusField(run, "TargetUserIds", []);
+                            targetUserIds = Array.isArray(targetUserIds)
+                                ? targetUserIds.map(function (value) { return String(value || "").trim(); }).filter(Boolean)
+                                : [];
+                            var targetRoutes = HueConfigurationPage.readStatusField(run, "TargetRoutes", []);
+                            targetRoutes = Array.isArray(targetRoutes)
+                                ? targetRoutes.map(function (route) {
+                                    if (!route) return "";
+                                    var routeUserId = String(HueConfigurationPage.readStatusField(route, "UserId", "") || "").trim();
+                                    var routeDeviceId = String(HueConfigurationPage.readStatusField(route, "DeviceId", "") || "").trim();
+                                    if (!routeUserId && !routeDeviceId) return "";
+                                    return routeUserId + (routeDeviceId ? " / " + routeDeviceId : "");
+                                }).filter(Boolean)
+                                : [];
+                            var includeDefaultTarget = HueConfigurationPage.readStatusField(run, "IncludeDefaultTarget", false) === true;
+                            var targetDetails = [];
+                            if (targetAllEnabledMappings) {
+                                targetDetails.push("All enabled targets");
+                            } else {
+                                if (includeDefaultTarget) targetDetails.push("Default bridge");
+                                if (targetUserIds.length) targetDetails.push("Mappings: " + targetUserIds.join(", "));
+                                if (targetRoutes.length) targetDetails.push("Routes: " + targetRoutes.join(", "));
+                            }
+                            var targetSummary = targetDetails.length ? targetDetails.join(" · ") : targetLabel;
                             var succeeded = HueConfigurationPage.readStatusField(run, "Succeeded", false);
                             var skipped = HueConfigurationPage.readStatusField(run, "Skipped", false);
                             var wasCatchUp = HueConfigurationPage.readStatusField(run, "WasCatchUp", false);
@@ -7321,7 +7346,7 @@
                                 ? " · brightness " + Number(runBrightness) + "%"
                                 : "";
                             addCell(String(runContentName) + (playlistName ? " · " + (Array.isArray(playlistSteps) ? playlistSteps.length : 0) + " expanded steps × " + Number(playlistRepeatCount || 1) + " pass" + (Number(playlistRepeatCount || 1) === 1 ? "" : "es") + " · " + (String(playlistPlaybackOrder).toLowerCase() === "shuffle" ? "shuffle" : "saved order") + historyPlan : " · rgb " + runRed + "," + runGreen + "," + runBlue + runBrightnessLabel) + " · " + String(runEffect) + " · speed " + String(runSpeed || 100) + "%");
-                            addCell(targetLabel);
+                            addCell(targetSummary);
                             var historyResult = skipped ? "Skipped" : (succeeded ? "Succeeded" : "Failed");
                             if (wasCatchUp) historyResult = "Recovered · " + historyResult;
                             if (wasDeferred) historyResult = "Deferred · " + historyResult;
