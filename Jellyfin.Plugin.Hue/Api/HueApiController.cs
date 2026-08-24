@@ -1286,6 +1286,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 (selectedTargetUserIds?.Count > 0) ||
                 selectedTargetRoutes.Count > 0;
             var multiTarget = broadcast || hasSelectedTargetOverride;
+            if (request != null && !string.IsNullOrWhiteSpace(request.DeviceId) &&
+                (string.IsNullOrWhiteSpace(request.UserId) || multiTarget))
+            {
+                return BadRequest("A deviceId requires one specific user mapping and cannot be combined with broadcast or selected targets.");
+            }
             if (request != null && !string.IsNullOrWhiteSpace(request.UserId) && multiTarget)
             {
                 return BadRequest(
@@ -1308,6 +1313,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     request.AppKey,
                     request.ClientKey,
                     request.UserId,
+                    request.DeviceId,
                     allowStoredClientKey: true,
                     out bridgeIp,
                     out appKey,
@@ -10010,6 +10016,9 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonPropertyName("userId")]
         public string? UserId { get; set; }
+
+        [JsonPropertyName("deviceId")]
+        public string? DeviceId { get; set; }
 
         [JsonPropertyName("ipAddress")]
         public string IpAddress { get; set; } = string.Empty;

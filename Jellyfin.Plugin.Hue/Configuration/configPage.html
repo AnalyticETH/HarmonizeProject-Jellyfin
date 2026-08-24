@@ -2794,7 +2794,7 @@
                         dataType: "json"
                     });
                 },
-                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId, transitionSeconds, transitionOutSeconds, effect, effectSpeedPercent, transitionCurve, targetAllEnabledMappings, targetSelection) {
+                fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId, transitionSeconds, transitionOutSeconds, effect, effectSpeedPercent, transitionCurve, targetAllEnabledMappings, targetSelection, deviceId) {
                     targetSelection = targetSelection || {};
                     var selectedTargetIds = Array.isArray(targetSelection.targetUserIds) ? targetSelection.targetUserIds : [];
                     var selectedTargetRoutes = Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : [];
@@ -2805,6 +2805,7 @@
                         clientKey: multiTarget ? "" : clientKey,
                         entertainmentAreaId: multiTarget ? "" : areaId,
                         userId: multiTarget ? "" : (userId || ""),
+                        deviceId: multiTarget ? "" : (deviceId || ""),
                         red: red,
                         green: green,
                         blue: blue,
@@ -9984,6 +9985,7 @@
                     var selectors = [
                         '#mappingBridgeIp',
                         '#mappingDiscoverBtn',
+                        '#mappingDiscoverDevicesBtn',
                         '#mappingTestConnectionBtn',
                         '#mappingLinkBridgeBtn',
                         '#mappingAppKey',
@@ -9992,6 +9994,7 @@
                         '#mappingRefreshAreasBtn',
                         '#mappingAreaManual',
                         '#mappingDeviceTargets',
+                        '#mappingDeviceRouteSelect',
                         '#mappingUseCinemaModeOverride',
                         '#mappingPlaybackMediaFilterOverride',
                         '#mappingAudioSensitivityPercentOverride',
@@ -10266,7 +10269,10 @@
                         values.transitionOutSeconds,
                         values.effect,
                         values.effectSpeedPercent,
-                        values.transitionCurve);
+                        values.transitionCurve,
+                        false,
+                        undefined,
+                        target.deviceId);
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request

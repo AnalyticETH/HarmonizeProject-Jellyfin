@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.263] - 2026-08-24
+
+### Device routes
+- **Preview parity**: selecting a nested playback-device route in the administrator mapping editor now sends its exact device identity through the direct color preview path, so Preview Current Color uses the same stored bridge, area, channel profile, and credentials as area/channel/test diagnostics.
+
+### Tests
+- **Direct-preview coverage**: verifies blank redacted credentials resolve to the exact nested route, while missing-user, multi-target, wrong-case, and wrong-bridge requests fail closed without falling back to outer or global keys.
+
 ## [1.5.262] - 2026-08-24
 
 ### Device routes

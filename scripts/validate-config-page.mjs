@@ -293,6 +293,8 @@ const requiredScript = [
     "if (!HueConfigurationPage.requireSceneScheduleMetadata(page)) return;",
     "targetMetadataReady",
     "fetchColorPreview: function",
+    "deviceId: multiTarget ? \"\" : (deviceId || \"\")",
+    "target.deviceId",
     "var selectedTargetRoutes = Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : []",
     "payload.targetRoutes = selectedTargetRoutes",
     "fetchSavedColorPreview: function",

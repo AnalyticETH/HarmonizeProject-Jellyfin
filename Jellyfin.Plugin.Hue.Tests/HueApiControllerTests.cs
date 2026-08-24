@@ -2357,6 +2357,203 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_BlankRedactedCredentialsUsesExactNestedDeviceRouteKeys()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-custom",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-key",
+                    HueClientKey = "mapping-client-key",
+                    EntertainmentAreaId = "outer-area",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "tv-1",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-app-key",
+                            HueClientKey = "device-client-key",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    }
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":1}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<System.Text.Json.JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>(),
+                0,
+                0,
+                PluginConfiguration.ColorPresetEffectSolid,
+                PluginConfiguration.DefaultColorPresetEffectSpeedPercent))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Preview sent." });
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.Preview(new HuePreviewRequest
+        {
+            UserId = "user-custom",
+            DeviceId = "tv-1",
+            IpAddress = "192.168.1.102",
+            AppKey = "",
+            ClientKey = "",
+            EntertainmentAreaId = "device-area",
+            Red = 20,
+            Green = 30,
+            Blue = 40,
+            DurationSeconds = 2
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        streamTester.Verify(tester => tester.PreviewAsync(
+            "192.168.1.102",
+            "device-app-key",
+            "device-client-key",
+            "device-area",
+            It.IsAny<System.Text.Json.JsonElement>(),
+            It.IsAny<IReadOnlySet<int>?>(),
+            20,
+            30,
+            40,
+            100,
+            2,
+            It.IsAny<CancellationToken>(),
+            0,
+            0,
+            PluginConfiguration.ColorPresetEffectSolid,
+            PluginConfiguration.DefaultColorPresetEffectSpeedPercent), Times.Once);
+    }
+
+    [Fact]
+    public async Task Preview_DeviceRouteRequiresSpecificUserMappingWithoutContactingBridge()
+    {
+        var streamTester = new Mock<IHueStreamTester>();
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.Preview(new HuePreviewRequest
+        {
+            DeviceId = "tv-1",
+            IpAddress = "192.168.1.102",
+            AppKey = "",
+            ClientKey = "",
+            EntertainmentAreaId = "device-area"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("one specific user mapping", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        streamTester.VerifyNoOtherCalls();
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Preview_DeviceRouteCannotUseBroadcastOrSelectedTargets()
+    {
+        var streamTester = new Mock<IHueStreamTester>();
+        var controller = CreateController(streamTester.Object);
+
+        var broadcast = await controller.Preview(new HuePreviewRequest
+        {
+            UserId = "user-custom",
+            DeviceId = "tv-1",
+            TargetAllEnabledMappings = true
+        });
+        var broadcastResponse = Assert.IsType<BadRequestObjectResult>(broadcast.Result);
+        Assert.Contains("cannot be combined", broadcastResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+
+        var selected = await controller.Preview(new HuePreviewRequest
+        {
+            UserId = "user-custom",
+            DeviceId = "tv-1",
+            TargetRoutes = new List<HueCurrentLightColorTargetRoute>
+            {
+                new() { UserId = "selected-user", DeviceId = "selected-tv" }
+            }
+        });
+        var selectedResponse = Assert.IsType<BadRequestObjectResult>(selected.Result);
+        Assert.Contains("cannot be combined", selectedResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+
+        streamTester.VerifyNoOtherCalls();
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Preview_DeviceRouteWrongCaseOrBridgeFailsClosedWithoutStoredCredentialFallback()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-custom",
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-key",
+                    HueClientKey = "mapping-client-key",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "tv-1",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-app-key",
+                            HueClientKey = "device-client-key"
+                        }
+                    }
+                }
+            }
+        });
+        var streamTester = new Mock<IHueStreamTester>();
+        var controller = CreateController(streamTester.Object);
+
+        var wrongCase = await controller.Preview(new HuePreviewRequest
+        {
+            UserId = "user-custom",
+            DeviceId = "TV-1",
+            IpAddress = "192.168.1.102",
+            EntertainmentAreaId = "device-area"
+        });
+        Assert.IsType<BadRequestObjectResult>(wrongCase.Result);
+
+        var wrongBridge = await controller.Preview(new HuePreviewRequest
+        {
+            UserId = "user-custom",
+            DeviceId = "tv-1",
+            IpAddress = "192.168.1.103",
+            EntertainmentAreaId = "device-area"
+        });
+        Assert.IsType<BadRequestObjectResult>(wrongBridge.Result);
+
+        streamTester.VerifyNoOtherCalls();
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Preview_AllEnabledTargetsRunsConfiguredTargetsAndReturnsSanitizedOutcomes()
     {
         InstallConfiguration(new PluginConfiguration
