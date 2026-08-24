@@ -2260,7 +2260,10 @@ public sealed class HueApiControllerTests : IDisposable
             DurationSeconds = 2
         });
 
-        Assert.IsType<OkObjectResult>(action.Result);
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HuePreviewResult>(response.Value);
+        Assert.Empty(result.TargetUserIds);
+        Assert.Empty(result.TargetRoutes);
         streamTester.Verify(tester => tester.PreviewAsync(
             "192.168.1.100",
             "stored-app-key",
@@ -2336,7 +2339,10 @@ public sealed class HueApiControllerTests : IDisposable
             DurationSeconds = 2
         });
 
-        Assert.IsType<OkObjectResult>(action.Result);
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HuePreviewResult>(response.Value);
+        Assert.Equal(new[] { "user-custom" }, result.TargetUserIds);
+        Assert.Empty(result.TargetRoutes);
         streamTester.Verify(tester => tester.PreviewAsync(
             "192.168.1.101",
             "mapping-app-key",
@@ -2427,7 +2433,15 @@ public sealed class HueApiControllerTests : IDisposable
             DurationSeconds = 2
         });
 
-        Assert.IsType<OkObjectResult>(action.Result);
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HuePreviewResult>(response.Value);
+        Assert.Equal(new[] { "user-custom" }, result.TargetUserIds);
+        var route = Assert.Single(result.TargetRoutes);
+        Assert.Equal("user-custom", route.UserId);
+        Assert.Equal("tv-1", route.DeviceId);
+        var serializedResult = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("device-app-key", serializedResult, StringComparison.Ordinal);
+        Assert.DoesNotContain("device-client-key", serializedResult, StringComparison.Ordinal);
         streamTester.Verify(tester => tester.PreviewAsync(
             "192.168.1.102",
             "device-app-key",

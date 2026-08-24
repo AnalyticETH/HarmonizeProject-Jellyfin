@@ -1567,6 +1567,19 @@ namespace Jellyfin.Plugin.Hue.Api
                 TransitionOutSeconds = request.TransitionOutSeconds,
                 TransitionCurve = transitionCurve,
                 TargetAllEnabledMappings = false,
+                TargetUserIds = string.IsNullOrWhiteSpace(request.UserId)
+                    ? Array.Empty<string>()
+                    : new[] { request.UserId.Trim() },
+                TargetRoutes = string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.DeviceId)
+                    ? Array.Empty<HueCurrentLightColorTargetRoute>()
+                    : new[]
+                    {
+                        new HueCurrentLightColorTargetRoute
+                        {
+                            UserId = request.UserId.Trim(),
+                            DeviceId = request.DeviceId.Trim()
+                        }
+                    },
                 TargetResults = new[]
                 {
                     new HuePreviewTargetResult

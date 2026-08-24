@@ -136,7 +136,17 @@ const requiredMarkup = [
     'id="exportSceneScheduleHistoryCsvBtn"',
     'id="mappingDiscoverDevicesBtn"',
     'id="mappingDeviceRouteSelect"',
-    'id="mappingDeviceDiscoveryStatus"'
+    'id="mappingDeviceDiscoveryStatus"',
+    'id="mappingDeviceRouteEditor"',
+    'id="mappingDeviceRouteId"',
+    'id="mappingDeviceRouteBridge"',
+    'id="mappingDeviceRouteAppKey"',
+    'id="mappingDeviceRouteClientKey"',
+    'id="mappingDeviceRouteAreaSelect"',
+    'id="mappingDeviceRouteAreaId"',
+    'id="mappingDeviceRouteChannels"',
+    'id="mappingAddDeviceRouteBtn"',
+    'id="mappingRemoveDeviceRouteBtn"'
 ];
 
 for (const marker of requiredMarkup) {
@@ -295,6 +305,13 @@ const requiredScript = [
     "fetchColorPreview: function",
     "deviceId: multiTarget ? \"\" : (deviceId || \"\")",
     "target.deviceId",
+    "discoveryUrl += \"?userId=\" + encodeURIComponent(userId)",
+    "upsertMappingDeviceRoute: function",
+    "removeMappingDeviceRoute: function",
+    "loadMappingDeviceRouteAreas: function",
+    "_hueDeviceRouteCredentials",
+    "delete route.HueAppKey",
+    "mappingDeviceRouteAreaSelect",
     "var selectedTargetRoutes = Array.isArray(targetSelection.targetRoutes) ? targetSelection.targetRoutes : []",
     "payload.targetRoutes = selectedTargetRoutes",
     "fetchSavedColorPreview: function",

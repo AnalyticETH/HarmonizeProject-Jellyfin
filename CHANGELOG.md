@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.264] - 2026-08-24
+
+### Device routes
+- **Setup-complete route editor**: the administrator mapping page can now add, update, remove, and area-discover nested playback-device routes without hand-editing JSON. New routes require their own bridge, App Key, Client Key, and entertainment area; blank keys on existing routes remain server-side and are preserved on save.
+- **Scoped device discovery**: recent playback-device discovery sends a valid selected Jellyfin user ID to the elevated endpoint, reducing unnecessary session metadata and keeping the exact device identity case-sensitive.
+- **Direct preview metadata**: successful direct previews now return credential-free target-user and exact target-route metadata for the selected user/device route.
+
+### Tests
+- **Route editor and preview contracts**: static page contracts cover route CRUD controls, secret omission, scoped discovery, and route-aware preview propagation; API tests cover direct-preview target metadata and secret-free serialization.
+
 ## [1.5.263] - 2026-08-24
 
 ### Device routes
