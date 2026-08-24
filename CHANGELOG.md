@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.246] - 2026-08-24
+
+### Security
+- **Active-cue deletion guard**: single scheduled-cue deletion now uses the same transactional service guard as bulk deletion and refuses to remove a cue while its restorative run is active.
+
+### Tests
+- **Deletion lifecycle coverage**: verify a running cue returns `409 Conflict` and remains configured until its run completes.
+
 ## [1.5.245] - 2026-08-24
 
 ### Security

@@ -4767,6 +4767,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpDelete("SceneSchedules/{id}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult DeleteSceneSchedule(string id)
         {
@@ -4787,6 +4788,14 @@ namespace Jellyfin.Plugin.Hue.Api
                 string.Equals(schedule.Id?.Trim(), normalizedId, StringComparison.OrdinalIgnoreCase));
             if (removed == 0)
                 return NotFound("Scene schedule not found.");
+
+            if (_sceneAutomationService != null)
+            {
+                if (!_sceneAutomationService.TryDeleteSchedules(new[] { normalizedId }, out var message))
+                    return Conflict(message);
+
+                return Ok(new { message });
+            }
 
             config.SceneSchedules = candidateSchedules;
             try

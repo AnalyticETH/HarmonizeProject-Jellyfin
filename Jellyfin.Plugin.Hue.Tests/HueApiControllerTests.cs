@@ -3444,6 +3444,58 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteSceneSchedule_RefusesActiveCueAndPreservesConfiguration()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "active-delete-app-key",
+            HueClientKey = "active-delete-client-key",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Active delete scene", DurationSeconds = 8 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "active-delete-cue",
+                    Name = "Active delete cue",
+                    PresetName = "Active delete scene",
+                    MaxRuns = 3
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new BlockingPreviewStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+        var runTask = service.RunScheduleAsync("active-delete-cue");
+
+        await streamTester.PreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            var action = controller.DeleteSceneSchedule("active-delete-cue");
+
+            var response = Assert.IsType<ConflictObjectResult>(action);
+            Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+            Assert.Contains("currently running", Assert.IsType<string>(response.Value), StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("active-delete-cue", Assert.Single(configuration.SceneSchedules).Id);
+        }
+        finally
+        {
+            streamTester.ReleasePreview.TrySetResult(true);
+            await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
     public void RenameScenePlaylist_MigratesCueReferencesAndReturnsCredentialFreeMetadata()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -11389,6 +11441,58 @@ public sealed class HueApiControllerTests : IDisposable
                 channelIds,
                 steps,
                 cancellationToken);
+    }
+
+    private sealed class BlockingPreviewStreamTester : IHueStreamTester
+    {
+        public TaskCompletionSource<bool> PreviewStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> ReleasePreview { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "Not used by this test."
+            });
+
+        public async Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        {
+            PreviewStarted.TrySetResult(true);
+            await ReleasePreview.Task.WaitAsync(cancellationToken);
+            return new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Preview completed."
+            };
+        }
+
+        public bool CancelActiveDiagnostic() => false;
     }
 
     private HueApiController CreateController(
