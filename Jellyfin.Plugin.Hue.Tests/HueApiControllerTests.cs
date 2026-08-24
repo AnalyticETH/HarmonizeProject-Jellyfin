@@ -3498,6 +3498,73 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveSceneSchedule_RefusesActiveCueUpdateAndPreservesConfiguration()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "active-update-app-key",
+            HueClientKey = "active-update-client-key",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Active update scene", DurationSeconds = 8 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "active-update-cue",
+                    Name = "Active update cue",
+                    PresetName = "Active update scene",
+                    MaxRuns = 3
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+        var streamTester = new BlockingPreviewStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new[] { service });
+        var runTask = service.RunScheduleAsync("active-update-cue");
+
+        await streamTester.PreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            var action = controller.SaveSceneSchedule(new HueSceneScheduleRequest
+            {
+                Id = "active-update-cue",
+                Name = "Changed while active",
+                PresetName = "Active update scene",
+                TimeOfDay = "07:30",
+                Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                DaysOfWeekMask = 0,
+                Enabled = false
+            });
+
+            var response = Assert.IsType<ConflictObjectResult>(action.Result);
+            Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+            Assert.Contains("running", Assert.IsType<string>(response.Value), StringComparison.OrdinalIgnoreCase);
+
+            var unchanged = Assert.Single(configuration.SceneSchedules);
+            Assert.Equal("active-update-cue", unchanged.Id);
+            Assert.Equal("Active update cue", unchanged.Name);
+            Assert.Equal("Active update scene", unchanged.PresetName);
+            Assert.True(unchanged.Enabled);
+            Assert.Equal(3, unchanged.MaxRuns);
+        }
+        finally
+        {
+            streamTester.ReleasePreview.TrySetResult(true);
+            await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
     public void RenameScenePlaylist_MigratesCueReferencesAndReturnsCredentialFreeMetadata()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

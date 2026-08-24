@@ -4430,6 +4430,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult<HueSceneScheduleResult> SaveSceneSchedule(
             [FromBody] HueSceneScheduleRequest? request)
@@ -4548,6 +4549,22 @@ namespace Jellyfin.Plugin.Hue.Api
                     message = "Scene schedule is invalid.",
                     errors = validationErrors
                 });
+            }
+
+            if (existingIndex >= 0 && _sceneAutomationService != null)
+            {
+                if (!_sceneAutomationService.TryReplaceScheduleConfiguration(
+                        schedule.Id,
+                        candidateSchedules,
+                        out var blockedByActiveRun,
+                        out var message))
+                {
+                    return blockedByActiveRun
+                        ? Conflict(message)
+                        : StatusCode(StatusCodes.Status500InternalServerError, message);
+                }
+
+                return Ok(ToSceneScheduleResult(schedule, config));
             }
 
             config.SceneSchedules = candidateSchedules;

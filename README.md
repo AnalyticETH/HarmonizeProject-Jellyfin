@@ -433,7 +433,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.249 (Current)
+### Version 1.5.250 (Current)
+- **Active-cue update guard**: existing scheduled cues cannot be replaced while their restorative run is active; the API returns `409 Conflict` and preserves the original definition.
+- **Schedule lifecycle coverage**: in-flight update rejection and configuration preservation are covered through the controller path.
+
+### Version 1.5.249
 - **Pause telemetry status parity**: `/HueSync/Status` and support-bundle runtime diagnostics now expose effective pause behavior and pause brightness while keeping the response credential-free.
 - **Hosted status coverage**: live-service projection, support-bundle inheritance, safe serialization, and null/no-service behavior are covered by regression tests.
 

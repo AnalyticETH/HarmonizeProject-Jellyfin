@@ -537,6 +537,61 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     /// <summary>
+    /// Replaces an existing scene cue as one configuration transaction. The runtime-state
+    /// lock is held through the active-run check and persistence so a cue cannot start
+    /// between the check and the replacement.
+    /// </summary>
+    public bool TryReplaceScheduleConfiguration(
+        string scheduleId,
+        IReadOnlyList<HueSceneSchedule> candidateSchedules,
+        out bool blockedByActiveRun,
+        out string message)
+    {
+        blockedByActiveRun = false;
+        message = string.Empty;
+
+        var plugin = Plugin.Instance;
+        var config = plugin?.Configuration;
+        var key = scheduleId?.Trim() ?? string.Empty;
+        if (plugin == null || config == null)
+        {
+            message = "Plugin configuration is not available.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            message = "The scene schedule ID is required.";
+            return false;
+        }
+
+        lock (_runtimeStateLock)
+        {
+            if (_runtimeStates.TryGetValue(key, out var state) && state.ActiveRuns > 0)
+            {
+                blockedByActiveRun = true;
+                message = "The scene schedule cannot be changed while it is running.";
+                return false;
+            }
+
+            var previousSchedules = config.SceneSchedules;
+            config.SceneSchedules = candidateSchedules.ToList();
+            try
+            {
+                plugin.SaveConfiguration();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                config.SceneSchedules = previousSchedules;
+                _logger.LogWarning(ex, "Could not persist replacement of Hue scene schedule {0}", key);
+                message = "The scene schedule could not be saved.";
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
     /// Deletes several scene cues as one persistence transaction. Every selected cue is
     /// resolved and checked before the collection changes, and an active cue blocks the
     /// complete operation so a running restorative lifecycle cannot lose its definition.

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.250] - 2026-08-24
+
+### Security
+- **Active-cue update guard**: an existing scheduled cue cannot be replaced while its restorative run is active; the API returns `409 Conflict` and preserves the configured cue.
+
+### Tests
+- **Schedule lifecycle coverage**: verify an in-flight cue update is rejected atomically and the original definition remains unchanged until the run completes.
+
 ## [1.5.249] - 2026-08-24
 
 ### Added
