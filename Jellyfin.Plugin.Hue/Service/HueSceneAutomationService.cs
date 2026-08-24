@@ -2057,6 +2057,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 config,
                 playlist,
                 targetSchedule,
+                normalizedTargetRoutesOverride,
                 resolvedTargets,
                 resolvedPresets,
                 plannedSteps,
@@ -2187,6 +2188,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         PluginConfiguration config,
         HueScenePlaylist playlist,
         HueSceneSchedule targetSchedule,
+        IReadOnlyList<HueSceneAutomationTargetRoute> targetRoutes,
         IReadOnlyList<HueSceneAutomationTargetDescription> resolvedTargets,
         IReadOnlyList<HueColorPreset> resolvedPresets,
         IReadOnlyList<HueScenePlaylistScheduleStep> plannedSteps,
@@ -2326,7 +2328,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistName = playlist.Name?.Trim() ?? string.Empty,
             RepeatCount = repeatCount,
             PlaybackOrder = playbackOrder,
-            TargetLabel = ResolveTargetLabel(config, targetSchedule, normalizedTargetRoutesOverride),
+            TargetLabel = ResolveTargetLabel(config, targetSchedule, targetRoutes),
             TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
