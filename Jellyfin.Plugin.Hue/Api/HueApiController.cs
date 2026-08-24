@@ -7371,6 +7371,19 @@ namespace Jellyfin.Plugin.Hue.Api
                             ? new List<string>()
                             : candidateSchedules[existingIndex].TargetUserIds?.ToList() ?? new List<string>();
                     }
+                    if (scheduleRequest?.TargetRoutes == null)
+                    {
+                        schedule.TargetRoutes = scheduleRequest?.TargetAllEnabledMappings == true ||
+                            !string.IsNullOrWhiteSpace(scheduleRequest?.TargetUserId) ||
+                            scheduleRequest?.TargetUserIds != null
+                            ? new List<HueSceneScheduleTargetRoute>()
+                            : candidateSchedules[existingIndex].TargetRoutes?.Where(route => route != null)
+                                .Select(route => new HueSceneScheduleTargetRoute
+                                {
+                                    UserId = route.UserId?.Trim() ?? string.Empty,
+                                    DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                                }).ToList() ?? new List<HueSceneScheduleTargetRoute>();
+                    }
                     if (scheduleRequest?.IncludeDefaultTarget == null)
                     {
                         schedule.IncludeDefaultTarget = scheduleRequest?.TargetAllEnabledMappings == true ||
@@ -7918,10 +7931,7 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             var normalizedUserId = mapping.UserId?.Trim() ?? string.Empty;
             var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
-                .Where(schedule => schedule != null &&
-                    (string.Equals(schedule.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase) ||
-                     (schedule.TargetUserIds ?? new List<string>()).Any(targetUserId =>
-                         string.Equals(targetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase))))
+                .Where(schedule => schedule != null && ScheduleReferencesUserMapping(schedule, normalizedUserId))
                 .Select(schedule => new HueUserMappingScheduleDependencyResult
                 {
                     Id = schedule.Id?.Trim() ?? string.Empty,
@@ -7958,6 +7968,13 @@ namespace Jellyfin.Plugin.Hue.Api
                 ScenePlaylists = playlists
             };
         }
+
+        private static bool ScheduleReferencesUserMapping(HueSceneSchedule schedule, string userId)
+            => string.Equals(schedule.TargetUserId?.Trim(), userId, StringComparison.OrdinalIgnoreCase) ||
+               (schedule.TargetUserIds ?? new List<string>()).Any(targetUserId =>
+                   string.Equals(targetUserId?.Trim(), userId, StringComparison.OrdinalIgnoreCase)) ||
+               (schedule.TargetRoutes ?? new List<HueSceneScheduleTargetRoute>()).Any(route =>
+                   route != null && string.Equals(route.UserId?.Trim(), userId, StringComparison.OrdinalIgnoreCase));
 
         private static string? GetUserMappingEnableValidationError(UserBridgeMapping mapping)
         {
@@ -8117,10 +8134,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var scheduledCueCount = config.SceneSchedules?.Count(schedule =>
-                schedule != null &&
-                (string.Equals(schedule.TargetUserId?.Trim(), mapping.UserId.Trim(), StringComparison.OrdinalIgnoreCase) ||
-                 (schedule.TargetUserIds ?? new List<string>()).Any(targetUserId =>
-                     string.Equals(targetUserId?.Trim(), mapping.UserId.Trim(), StringComparison.OrdinalIgnoreCase)))) ?? 0;
+                schedule != null && ScheduleReferencesUserMapping(schedule, mapping.UserId.Trim())) ?? 0;
             var scenePlaylistCount = config.ScenePlaylists?.Count(playlist =>
                 playlist != null &&
                 (string.Equals(playlist.TargetUserId?.Trim(), mapping.UserId.Trim(), StringComparison.OrdinalIgnoreCase) ||
@@ -8135,6 +8149,31 @@ namespace Jellyfin.Plugin.Hue.Api
             var existingMapping = config.UserMappings.FirstOrDefault(existing =>
                 existing != null &&
                 string.Equals(existing.UserId?.Trim(), mapping.UserId, StringComparison.OrdinalIgnoreCase));
+
+            if (mapping.SyncEnabled && existingMapping != null)
+            {
+                var requestedDeviceIds = new HashSet<string>(
+                    (mapping.DeviceTargets ?? new List<UserDeviceBridgeTarget>())
+                        .Where(target => target != null && !string.IsNullOrWhiteSpace(target.DeviceId))
+                        .Select(target => target.DeviceId.Trim()),
+                    StringComparer.Ordinal);
+                var removedRouteSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+                    .Where(schedule => schedule != null &&
+                        (schedule.TargetRoutes ?? new List<HueSceneScheduleTargetRoute>()).Any(route =>
+                            route != null &&
+                            string.Equals(route.UserId?.Trim(), mapping.UserId, StringComparison.OrdinalIgnoreCase) &&
+                            !requestedDeviceIds.Contains(route.DeviceId?.Trim() ?? string.Empty)))
+                    .Select(schedule => schedule.Name?.Trim() ?? schedule.Id?.Trim() ?? "unnamed cue")
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                if (removedRouteSchedules.Length > 0)
+                {
+                    return Conflict(
+                        $"This mapping's device targets are used by scheduled cue(s): {string.Join(", ", removedRouteSchedules)}. Keep those device routes or update the scheduled cues first.");
+                }
+            }
 
             var inheritsDefaultBridge = string.IsNullOrWhiteSpace(mapping.HueBridgeIp);
 
@@ -8257,10 +8296,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var scheduledCueCount = config.SceneSchedules?.Count(schedule =>
-                schedule != null &&
-                (string.Equals(schedule.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase) ||
-                 (schedule.TargetUserIds ?? new List<string>()).Any(targetUserId =>
-                     string.Equals(targetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase)))) ?? 0;
+                schedule != null && ScheduleReferencesUserMapping(schedule, normalizedUserId)) ?? 0;
             var scenePlaylistCount = config.ScenePlaylists?.Count(playlist =>
                 playlist != null &&
                 (string.Equals(playlist.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase) ||

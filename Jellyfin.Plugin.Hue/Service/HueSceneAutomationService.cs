@@ -4417,6 +4417,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
+            TargetRoutes = GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule.IncludeDefaultTarget,
             Succeeded = allSucceeded,
             Message = message,

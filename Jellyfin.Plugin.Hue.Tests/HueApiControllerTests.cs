@@ -5439,6 +5439,29 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("user-device", importedRoute.UserId);
         Assert.Equal("living-room-tv", importedRoute.DeviceId);
         Assert.Equal("destination-app", destination.UserMappings[0].DeviceTargets[0].HueAppKey);
+
+        var partialImport = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = exported.Configuration,
+            ReplaceMappings = false,
+            ReplaceColorPresets = false,
+            ReplaceSceneSchedules = false,
+            SceneSchedules = new List<HueSceneScheduleRequest>
+            {
+                new()
+                {
+                    Id = exportedSchedule.Id,
+                    Name = "Device welcome retained",
+                    PresetName = exportedSchedule.PresetName
+                }
+            }
+        });
+
+        Assert.IsType<OkObjectResult>(partialImport.Result);
+        var retainedRoute = Assert.Single(Assert.Single(destination.SceneSchedules).TargetRoutes);
+        Assert.Equal("user-device", retainedRoute.UserId);
+        Assert.Equal("living-room-tv", retainedRoute.DeviceId);
+        Assert.Equal("Device welcome retained", destination.SceneSchedules[0].Name);
     }
 
     [Fact]
@@ -8561,6 +8584,16 @@ public sealed class HueApiControllerTests : IDisposable
                 },
                 new()
                 {
+                    Id = "mapping-cue-device-route",
+                    Name = "Nested device cue",
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "user-1", DeviceId = "living-room-tv" }
+                    },
+                    Enabled = true
+                },
+                new()
+                {
                     Id = "other-mapping-cue",
                     Name = "Other mapping cue",
                     TargetUserId = "user-2",
@@ -8589,14 +8622,14 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(result.SyncEnabled);
         Assert.False(result.CanDisable);
         Assert.False(result.CanDelete);
-        Assert.Equal(3, result.ScheduledCueCount);
+        Assert.Equal(4, result.ScheduledCueCount);
         Assert.Equal(1, result.ScenePlaylistCount);
         Assert.Equal("Kitchen playlist", Assert.Single(result.ScenePlaylists).Name);
-        Assert.Equal(new[] { "Disabled mapping cue", "Enabled mapping cue", "Selected mapping cue" }, result.ScheduledCues.Select(cue => cue.Name));
+        Assert.Equal(new[] { "Disabled mapping cue", "Enabled mapping cue", "Nested device cue", "Selected mapping cue" }, result.ScheduledCues.Select(cue => cue.Name));
         Assert.False(result.ScheduledCues[0].Enabled);
         Assert.True(result.ScheduledCues[1].Enabled);
         Assert.True(result.ScheduledCues[2].Enabled);
-        Assert.Equal(new[] { "mapping-cue-disabled", "mapping-cue-enabled", "mapping-cue-selected" }, result.ScheduledCues.Select(cue => cue.Id));
+        Assert.Equal(new[] { "mapping-cue-disabled", "mapping-cue-enabled", "mapping-cue-device-route", "mapping-cue-selected" }, result.ScheduledCues.Select(cue => cue.Id));
 
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("mapping-dependency-app-secret", serialized, StringComparison.Ordinal);
@@ -10908,6 +10941,79 @@ public sealed class HueApiControllerTests : IDisposable
         var deleteResponse = Assert.IsType<ConflictObjectResult>(delete);
         Assert.Contains("saved playlist", deleteResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Single(configuration.UserMappings);
+    }
+
+    [Fact]
+    public void UserMappingLifecycle_ProtectsScheduledDeviceRouteDependencies()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    UserName = "Device room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "device-app-secret",
+                    HueClientKey = "device-client-secret",
+                    EntertainmentAreaId = "device-area",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "tv-app-secret",
+                            HueClientKey = "tv-client-secret",
+                            EntertainmentAreaId = "tv-area"
+                        }
+                    }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "device-route-cue",
+                    Name = "Device route cue",
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "user-device", DeviceId = "living-room-tv" }
+                    }
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var disable = controller.SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "user-device",
+            UserName = "Device room",
+            SyncEnabled = false
+        });
+        var disableResponse = Assert.IsType<ConflictObjectResult>(disable);
+        Assert.Contains("scheduled cue", disableResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.True(configuration.UserMappings[0].SyncEnabled);
+
+        var delete = controller.DeleteUserMapping("user-device");
+        var deleteResponse = Assert.IsType<ConflictObjectResult>(delete);
+        Assert.Contains("scheduled cue", deleteResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Single(configuration.UserMappings);
+
+        var removeDevice = controller.SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "user-device",
+            UserName = "Device room",
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.101",
+            EntertainmentAreaId = "device-area",
+            DeviceTargets = new List<UserDeviceBridgeTarget>()
+        });
+        var removeDeviceResponse = Assert.IsType<ConflictObjectResult>(removeDevice);
+        Assert.Contains("device targets", removeDeviceResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("living-room-tv", Assert.Single(configuration.UserMappings[0].DeviceTargets).DeviceId);
     }
 
     [Fact]

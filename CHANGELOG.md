@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.235] - 2026-08-24
+
+### Fixed
+- **Scheduled-route dependency protection**: mapping dependency reports and lifecycle operations now account for exact nested device routes, and removing a device still referenced by a cue is rejected before persistence.
+- **Import and runtime parity**: partial configuration imports preserve omitted scheduled routes, and direct scheduled runs now carry route IDs through result, history, persisted-history, and runtime telemetry.
+
+### Tests
+- **Route lifecycle regression coverage**: validate nested-route dependency blocking, partial-import preservation, and direct scheduled-route telemetry without exposing credentials.
+
 ## [1.5.234] - 2026-08-24
 
 ### Fixed

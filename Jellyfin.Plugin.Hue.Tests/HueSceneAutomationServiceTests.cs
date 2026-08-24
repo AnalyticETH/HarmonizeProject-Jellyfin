@@ -4485,6 +4485,78 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunSchedule_ReportsPersistedDeviceRouteTelemetryWithoutCredentials()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            PersistSceneScheduleHistory = true,
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Device scene", Red = 12, Green = 34, Blue = 56, DurationSeconds = 1 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    UserName = "Device room",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            DeviceName = "Living Room TV",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-app-secret",
+                            HueClientKey = "device-client-secret",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "device-route-cue",
+                    Name = "Device route cue",
+                    PresetName = "Device scene",
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "user-device", DeviceId = "living-room-tv" }
+                    }
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunScheduleAsync("device-route-cue");
+
+        Assert.True(result.Succeeded);
+        var route = Assert.Single(result.TargetRoutes);
+        Assert.Equal("user-device", route.UserId);
+        Assert.Equal("living-room-tv", route.DeviceId);
+        var history = Assert.Single(service.GetHistory());
+        Assert.Equal("living-room-tv", Assert.Single(history.TargetRoutes).DeviceId);
+        var persistedHistory = Assert.Single(configuration.PersistedSceneScheduleHistory);
+        Assert.Equal("user-device", Assert.Single(persistedHistory.TargetRoutes).UserId);
+        var runtime = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal("living-room-tv", Assert.Single(runtime.TargetRoutes).DeviceId);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("device-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("device-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunSchedule_BroadcastRunsSequentiallyAndReportsEachTarget()
     {
         InstallConfiguration(new PluginConfiguration
