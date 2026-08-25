@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.276] - 2026-08-25
+
+### User-mapping lifecycle
+- **Safe stale-row cleanup**: add stable non-secret mapping row identities, optimistic reconciliation report versions, and an atomic administrator cleanup endpoint for missing or malformed rows with dependency checks and rollback-safe persistence.
+- **Duplicate protection**: duplicate, healthy, renamed, referenced, and stale-report selections fail closed; the configuration page exposes credential-free cleanup status without attempting ambiguous user-ID deletion.
+- **Regression coverage**: verify exact-row deletion, stale report rejection, dependency blocking, credential omission, and API/UI documentation contracts.
+
 ## [1.5.275] - 2026-08-25
 
 ### User-mapping lifecycle

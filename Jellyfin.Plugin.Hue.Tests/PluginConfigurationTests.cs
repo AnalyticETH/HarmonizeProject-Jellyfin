@@ -6,6 +6,29 @@ namespace Jellyfin.Plugin.Hue.Tests;
 public class PluginConfigurationTests
 {
     [Fact]
+    public void EnsureUserMappingIdsBackfillsAndDeduplicatesLegacyRows()
+    {
+        var mappings = new List<UserBridgeMapping>
+        {
+            new() { MappingId = " stable-row " },
+            new() { MappingId = "stable-row" },
+            new() { MappingId = "" },
+            null!
+        };
+
+        Assert.True(PluginConfiguration.EnsureUserMappingIds(mappings));
+        var ids = mappings
+            .Where(mapping => mapping != null)
+            .Select(mapping => mapping.MappingId)
+            .ToArray();
+        Assert.Equal(3, ids.Length);
+        Assert.Equal(3, ids.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Equal("stable-row", ids[0]);
+        Assert.All(ids, id => Assert.False(string.IsNullOrWhiteSpace(id)));
+        Assert.False(PluginConfiguration.EnsureUserMappingIds(mappings));
+    }
+
+    [Fact]
     public void PlaybackMediaFilter_DefaultsToAllVideoAndNormalizesCase()
     {
         var config = new PluginConfiguration();

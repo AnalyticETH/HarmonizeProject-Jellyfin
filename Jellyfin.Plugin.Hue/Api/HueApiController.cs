@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Mime;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -7562,6 +7563,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var existingMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
                 .Where(mapping => mapping != null)
                 .ToList();
+            PluginConfiguration.EnsureUserMappingIds(existingMappings);
             var existingPresets = (config.ColorPresets ?? new List<HueColorPreset>())
                 .Where(preset => preset != null)
                 .ToList();
@@ -7628,6 +7630,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var candidateMappings = request.ReplaceMappings
                 ? importedMappingValues
                 : MergeMappings(existingMappings, importedMappingValues);
+            PluginConfiguration.EnsureUserMappingIds(candidateMappings);
 
             var candidatePresets = request.ReplaceColorPresets
                 ? new List<HueColorPreset>()
@@ -8122,6 +8125,9 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             var mapping = new UserBridgeMapping
             {
+                MappingId = string.IsNullOrWhiteSpace(source.MappingId)
+                    ? existing?.MappingId?.Trim() ?? Guid.NewGuid().ToString("N")
+                    : source.MappingId.Trim(),
                 UserId = source.UserId?.Trim() ?? string.Empty,
                 UserName = source.UserName?.Trim() ?? string.Empty,
                 SyncEnabled = source.SyncEnabled,
@@ -8373,6 +8379,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public ActionResult<IEnumerable<UserBridgeMappingSummary>> GetUserMappings()
         {
             var config = Plugin.Instance?.Configuration;
+            PluginConfiguration.EnsureUserMappingIds(config?.UserMappings);
             var mappings = config?.UserMappings?
                 .Where(mapping => mapping != null)
                 .Select(UserBridgeMappingSummary.From)
@@ -8391,6 +8398,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public ActionResult<HueUserMappingReconciliationResult> GetUserMappingReconciliation()
         {
+            PluginConfiguration.EnsureUserMappingIds(Plugin.Instance?.Configuration?.UserMappings);
             var result = BuildUserMappingReconciliationResult();
             return result.UserDirectoryAvailable
                 ? Ok(result)
@@ -8409,6 +8417,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public ActionResult<HueUserMappingReconciliationResult> ApplyUserMappingReconciliation()
         {
+            PluginConfiguration.EnsureUserMappingIds(Plugin.Instance?.Configuration?.UserMappings);
             var initial = BuildUserMappingReconciliationResult();
             if (!initial.UserDirectoryAvailable)
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, initial);
@@ -8511,6 +8520,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var mappings = Plugin.Instance?.Configuration?.UserMappings ?? new List<UserBridgeMapping>();
+            PluginConfiguration.EnsureUserMappingIds(mappings);
             var normalizedIdCounts = mappings
                 .Where(mapping => mapping != null)
                 .Select(mapping => PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId))
@@ -8527,6 +8537,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     var normalizedUserId = PluginConfiguration.NormalizeJellyfinUserId(persistedUserId);
                     var entry = new HueUserMappingReconciliationEntry
                     {
+                        MappingId = mapping.MappingId?.Trim() ?? string.Empty,
                         UserId = persistedUserId,
                         CanonicalUserId = normalizedUserId,
                         PersistedUserName = mapping.UserName?.Trim() ?? string.Empty,
@@ -8573,6 +8584,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             result.Mappings = entries;
+            result.ReportVersion = ComputeUserMappingReconciliationVersion(entries);
             result.MappingCount = entries.Count;
             result.HealthyCount = entries.Count(entry => entry.Status == HueUserMappingReconciliationStatus.Healthy);
             result.RenamedCount = entries.Count(entry => entry.Status == HueUserMappingReconciliationStatus.RenamedUser);
@@ -8584,6 +8596,186 @@ namespace Jellyfin.Plugin.Hue.Api
                 ? "All persisted user mappings match Jellyfin's current user directory."
                 : "Review the mapping statuses before applying safe identity repairs.";
             return result;
+        }
+
+        /// <summary>
+        /// Deletes only exact stale mapping rows selected from a reconciliation report.
+        /// The report version prevents an administrator from applying a decision to a
+        /// changed configuration; duplicate rows and referenced rows always remain
+        /// untouched until an explicit retain/remap workflow exists.
+        /// </summary>
+        [HttpPost("UserMappings/Cleanup")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public ActionResult<HueUserMappingCleanupResult> CleanupStaleUserMappings(
+            [FromBody] HueUserMappingCleanupRequest? request)
+        {
+            if (request == null)
+                return BadRequest("A stale user-mapping selection and report version are required.");
+            if (string.IsNullOrWhiteSpace(request.ExpectedReportVersion))
+                return BadRequest("The reconciliation report version is required.");
+
+            var requestedIds = request.MappingIds ?? new List<string>();
+            if (requestedIds.Any(mappingId => string.IsNullOrWhiteSpace(mappingId)))
+                return BadRequest("Selected mapping IDs must not be blank.");
+
+            var mappingIds = requestedIds
+                .Select(mappingId => mappingId.Trim())
+                .ToArray();
+            if (mappingIds.Length == 0)
+                return BadRequest("Select at least one stale user mapping.");
+            if (mappingIds.Length > PluginConfiguration.MaxBulkUserMappingDeletes)
+            {
+                return BadRequest(
+                    $"Select no more than {PluginConfiguration.MaxBulkUserMappingDeletes} stale user mappings at once.");
+            }
+            if (mappingIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != mappingIds.Length)
+                return BadRequest("Selected mapping IDs must be unique.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            config.UserMappings ??= new List<UserBridgeMapping>();
+            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
+            var report = BuildUserMappingReconciliationResult();
+            if (!report.UserDirectoryAvailable)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, report);
+
+            if (!string.Equals(request.ExpectedReportVersion.Trim(), report.ReportVersion, StringComparison.Ordinal))
+            {
+                return Conflict(new HueUserMappingCleanupResult
+                {
+                    RequestedCount = mappingIds.Length,
+                    RemainingCount = config.UserMappings.Count(mapping => mapping != null),
+                    ReportVersion = report.ReportVersion,
+                    Message = "The reconciliation report is stale; refresh it and review the current mapping statuses before retrying."
+                });
+            }
+
+            var requestedIdSet = new HashSet<string>(mappingIds, StringComparer.OrdinalIgnoreCase);
+            var selectedMappings = config.UserMappings
+                .Where(mapping => mapping != null && requestedIdSet.Contains(mapping.MappingId?.Trim() ?? string.Empty))
+                .Cast<UserBridgeMapping>()
+                .ToArray();
+            var missingMappingIds = mappingIds
+                .Where(mappingId => !selectedMappings.Any(mapping =>
+                    string.Equals(mapping.MappingId?.Trim(), mappingId, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            if (missingMappingIds.Length > 0)
+            {
+                return NotFound(new HueUserMappingCleanupResult
+                {
+                    RequestedCount = mappingIds.Length,
+                    RemainingCount = config.UserMappings.Count(mapping => mapping != null),
+                    ReportVersion = report.ReportVersion,
+                    MissingMappingIds = missingMappingIds,
+                    Message = "One or more selected mapping rows no longer exist; no mappings were deleted."
+                });
+            }
+
+            var entriesByMappingId = report.Mappings.ToDictionary(
+                entry => entry.MappingId,
+                entry => entry,
+                StringComparer.OrdinalIgnoreCase);
+            var invalidMappingIds = mappingIds
+                .Where(mappingId => !entriesByMappingId.ContainsKey(mappingId))
+                .ToArray();
+            if (invalidMappingIds.Length > 0)
+            {
+                return Conflict(new HueUserMappingCleanupResult
+                {
+                    RequestedCount = mappingIds.Length,
+                    RemainingCount = config.UserMappings.Count(mapping => mapping != null),
+                    ReportVersion = report.ReportVersion,
+                    InvalidMappingIds = invalidMappingIds,
+                    Message = "The reconciliation report did not contain every selected mapping row; no mappings were deleted."
+                });
+            }
+
+            var unsupportedEntries = mappingIds
+                .Select(mappingId => entriesByMappingId[mappingId])
+                .Where(entry => entry.Status != HueUserMappingReconciliationStatus.MissingUser &&
+                    entry.Status != HueUserMappingReconciliationStatus.InvalidUserId)
+                .ToArray();
+            if (unsupportedEntries.Length > 0)
+            {
+                return Conflict(new HueUserMappingCleanupResult
+                {
+                    RequestedCount = mappingIds.Length,
+                    RemainingCount = config.UserMappings.Count(mapping => mapping != null),
+                    ReportVersion = report.ReportVersion,
+                    InvalidMappingIds = unsupportedEntries.Select(entry => entry.MappingId).ToArray(),
+                    Message = "Only missing or malformed user mappings can be cleaned automatically. Healthy, renamed, and duplicate rows were left unchanged."
+                });
+            }
+
+            var blockedMappings = selectedMappings
+                .Select(mapping => BuildUserMappingDependenciesResult(mapping, config))
+                .Where(dependencies => !dependencies.CanDelete)
+                .ToArray();
+            if (blockedMappings.Length > 0)
+            {
+                return Conflict(new HueUserMappingCleanupResult
+                {
+                    RequestedCount = mappingIds.Length,
+                    RemainingCount = config.UserMappings.Count(mapping => mapping != null),
+                    ReportVersion = report.ReportVersion,
+                    BlockedMappings = blockedMappings,
+                    Message = "One or more stale mappings are still referenced by scheduled cues or saved playlists; no mappings were deleted."
+                });
+            }
+
+            var previousMappings = config.UserMappings.ToList();
+            var deletedMappings = selectedMappings.Select(UserBridgeMappingSummary.From).ToArray();
+            config.UserMappings = previousMappings
+                .Where(mapping => mapping == null || !requestedIdSet.Contains(mapping.MappingId?.Trim() ?? string.Empty))
+                .ToList();
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.UserMappings = previousMappings;
+                _logger?.LogError(ex, "Could not persist cleanup of stale Hue user mappings");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "The stale user mappings could not be deleted; no changes were retained.");
+            }
+
+            var remainingReport = BuildUserMappingReconciliationResult();
+            return Ok(new HueUserMappingCleanupResult
+            {
+                RequestedCount = mappingIds.Length,
+                DeletedCount = deletedMappings.Length,
+                RemainingCount = config.UserMappings.Count(mapping => mapping != null),
+                ReportVersion = remainingReport.ReportVersion,
+                Mappings = deletedMappings,
+                Message = $"Deleted {deletedMappings.Length} stale user mapping(s); referenced and duplicate rows were protected."
+            });
+        }
+
+        private static string ComputeUserMappingReconciliationVersion(
+            IEnumerable<HueUserMappingReconciliationEntry> entries)
+        {
+            var payload = JsonSerializer.Serialize(entries.Select(entry => new
+            {
+                entry.MappingId,
+                entry.UserId,
+                entry.CanonicalUserId,
+                entry.PersistedUserName,
+                entry.CurrentUserName,
+                entry.SyncEnabled,
+                entry.Status,
+                entry.NeedsRepair
+            }));
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
         }
 
         /// <summary>
@@ -8645,6 +8837,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
             return new HueUserMappingDependenciesResult
             {
+                MappingId = mapping.MappingId?.Trim() ?? string.Empty,
                 UserId = mapping.UserId?.Trim() ?? normalizedUserId,
                 UserName = mapping.UserName?.Trim() ?? string.Empty,
                 SyncEnabled = mapping.SyncEnabled,
@@ -8863,9 +9056,11 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             config.UserMappings ??= new List<UserBridgeMapping>();
+            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
             var existingMapping = config.UserMappings.FirstOrDefault(existing =>
                 existing != null &&
                 PluginConfiguration.AreSameJellyfinUserId(existing.UserId, mapping.UserId));
+            mapping.MappingId = existingMapping?.MappingId?.Trim() ?? mapping.MappingId?.Trim() ?? string.Empty;
 
             if (mapping.SyncEnabled && existingMapping != null)
             {
@@ -8972,6 +9167,7 @@ namespace Jellyfin.Plugin.Hue.Api
             candidateMappings.RemoveAll(existing =>
                 PluginConfiguration.AreSameJellyfinUserId(existing.UserId, mapping.UserId));
             candidateMappings.Add(mapping);
+            PluginConfiguration.EnsureUserMappingIds(candidateMappings);
             config.UserMappings = candidateMappings;
 
             try
@@ -9637,6 +9833,7 @@ namespace Jellyfin.Plugin.Hue.Api
     /// </summary>
     public class UserBridgeMappingSummary
     {
+        public string MappingId { get; set; } = string.Empty;
         public string UserId { get; set; } = string.Empty;
         public string UserName { get; set; } = string.Empty;
         public bool SyncEnabled { get; set; }
@@ -9700,6 +9897,7 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             return new UserBridgeMappingSummary
             {
+                MappingId = mapping.MappingId?.Trim() ?? string.Empty,
                 UserId = PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId),
                 UserName = mapping.UserName,
                 SyncEnabled = mapping.SyncEnabled,
@@ -9777,6 +9975,9 @@ namespace Jellyfin.Plugin.Hue.Api
     /// </summary>
     public sealed class HueUserMappingDependenciesResult
     {
+        [JsonPropertyName("mappingId")]
+        public string MappingId { get; init; } = string.Empty;
+
         [JsonPropertyName("userId")]
         public string UserId { get; init; } = string.Empty;
 
@@ -9825,6 +10026,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("updatedCount")]
         public int UpdatedCount { get; set; }
 
+        [JsonPropertyName("reportVersion")]
+        public string ReportVersion { get; set; } = string.Empty;
+
         [JsonPropertyName("mappingCount")]
         public int MappingCount { get; set; }
 
@@ -9858,6 +10062,9 @@ namespace Jellyfin.Plugin.Hue.Api
     /// </summary>
     public sealed class HueUserMappingReconciliationEntry
     {
+        [JsonPropertyName("mappingId")]
+        public string MappingId { get; set; } = string.Empty;
+
         [JsonPropertyName("userId")]
         public string UserId { get; set; } = string.Empty;
 
@@ -9924,6 +10131,52 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonPropertyName("userIds")]
         public List<string> UserIds { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Request shape for removing exact stale mapping rows from a reconciliation report.
+    /// </summary>
+    public sealed class HueUserMappingCleanupRequest
+    {
+        [JsonPropertyName("mappingIds")]
+        public List<string> MappingIds { get; set; } = new();
+
+        [JsonPropertyName("expectedReportVersion")]
+        public string ExpectedReportVersion { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Credential-free result for an atomic stale mapping cleanup operation.
+    /// </summary>
+    public sealed class HueUserMappingCleanupResult
+    {
+        [JsonPropertyName("requestedCount")]
+        public int RequestedCount { get; set; }
+
+        [JsonPropertyName("deletedCount")]
+        public int DeletedCount { get; set; }
+
+        [JsonPropertyName("remainingCount")]
+        public int RemainingCount { get; set; }
+
+        [JsonPropertyName("reportVersion")]
+        public string ReportVersion { get; set; } = string.Empty;
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("mappings")]
+        public IReadOnlyList<UserBridgeMappingSummary> Mappings { get; set; } = Array.Empty<UserBridgeMappingSummary>();
+
+        [JsonPropertyName("missingMappingIds")]
+        public IReadOnlyList<string> MissingMappingIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("invalidMappingIds")]
+        public IReadOnlyList<string> InvalidMappingIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("blockedMappings")]
+        public IReadOnlyList<HueUserMappingDependenciesResult> BlockedMappings { get; set; } =
+            Array.Empty<HueUserMappingDependenciesResult>();
     }
 
     /// <summary>

@@ -18,6 +18,21 @@ namespace Jellyfin.Plugin.Hue
         public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
             : base(applicationPaths, xmlSerializer)
         {
+            var initialConfiguration = Configuration;
+            if (initialConfiguration != null &&
+                PluginConfiguration.EnsureUserMappingIds(initialConfiguration.UserMappings))
+            {
+                try
+                {
+                    SaveConfiguration();
+                }
+                catch
+                {
+                    // A later guarded configuration write can retry the non-secret
+                    // identity migration; plugin startup must remain available.
+                }
+            }
+
             Instance = this;
         }
 

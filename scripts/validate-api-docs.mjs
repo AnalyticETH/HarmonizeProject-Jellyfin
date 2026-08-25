@@ -83,6 +83,17 @@ if (!userMappingReconcileRow ||
     throw new Error("README.md user-mapping reconciliation contract is missing lifecycle and atomicity markers");
 }
 
+const userMappingCleanupRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/UserMappings/Cleanup` |"));
+if (!userMappingCleanupRow ||
+    !userMappingCleanupRow.includes("mapping IDs") ||
+    !userMappingCleanupRow.includes("report version") ||
+    !userMappingCleanupRow.includes("missing") ||
+    !userMappingCleanupRow.includes("duplicate") ||
+    !userMappingCleanupRow.includes("credential-free") ||
+    !userMappingCleanupRow.includes("atomic")) {
+    throw new Error("README.md user-mapping cleanup contract is missing exact-row, concurrency, safety, or atomicity markers");
+}
+
 const configurationImportRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Configuration/Import` |"));
 if (!configurationImportRow ||
     !configurationImportRow.includes("valid Jellyfin user GUIDs") ||
@@ -102,6 +113,18 @@ for (const marker of [
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API preview route support is missing source marker: ${marker}`);
+    }
+}
+
+for (const marker of [
+    "[HttpPost(\"UserMappings/Cleanup\")]",
+    "ExpectedReportVersion",
+    "Only missing or malformed user mappings can be cleaned automatically.",
+    "referenced and duplicate rows were protected",
+    "Could not persist cleanup of stale Hue user mappings"
+]) {
+    if (!controller.includes(marker)) {
+        throw new Error(`Hue API stale user-mapping cleanup is missing source marker: ${marker}`);
     }
 }
 

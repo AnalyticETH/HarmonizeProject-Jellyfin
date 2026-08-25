@@ -154,6 +154,118 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void CleanupStaleUserMappingsDeletesExactMissingAndMalformedRows()
+    {
+        var missingUserId = Guid.Parse("66666666-6666-6666-6666-666666666666");
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(missingUserId))
+            .Returns((Jellyfin.Data.Entities.User?)null);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "missing-row",
+                    UserId = missingUserId.ToString("D"),
+                    UserName = "Deleted Viewer",
+                    HueAppKey = "secret-app",
+                    HueClientKey = "secret-client"
+                },
+                new()
+                {
+                    MappingId = "malformed-row",
+                    UserId = "not-a-guid",
+                    UserName = "Malformed Viewer"
+                }
+            }
+        });
+        var controller = CreateController(userManager: userManager.Object);
+        var reportResponse = Assert.IsType<OkObjectResult>(controller.GetUserMappingReconciliation().Result);
+        var report = Assert.IsType<HueUserMappingReconciliationResult>(reportResponse.Value);
+        Assert.NotEmpty(report.ReportVersion);
+
+        var action = controller.CleanupStaleUserMappings(new HueUserMappingCleanupRequest
+        {
+            MappingIds = new List<string> { "missing-row", "malformed-row" },
+            ExpectedReportVersion = report.ReportVersion
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingCleanupResult>(response.Value);
+        Assert.Equal(2, result.RequestedCount);
+        Assert.Equal(2, result.DeletedCount);
+        Assert.DoesNotContain(configuration.UserMappings, mapping => mapping != null);
+        Assert.DoesNotContain("secret-app", JsonSerializer.Serialize(result), StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-client", JsonSerializer.Serialize(result), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CleanupStaleUserMappingsRejectsStaleReportWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "stale-row", UserId = "not-a-guid", UserName = "Original" }
+            }
+        });
+        var controller = CreateController(userManager: new Mock<IUserManager>().Object);
+        var reportResponse = Assert.IsType<OkObjectResult>(controller.GetUserMappingReconciliation().Result);
+        var report = Assert.IsType<HueUserMappingReconciliationResult>(reportResponse.Value);
+        configuration.UserMappings[0].UserName = "Changed after report";
+
+        var action = controller.CleanupStaleUserMappings(new HueUserMappingCleanupRequest
+        {
+            MappingIds = new List<string> { "stale-row" },
+            ExpectedReportVersion = report.ReportVersion
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingCleanupResult>(response.Value);
+        Assert.Equal(0, result.DeletedCount);
+        Assert.Single(configuration.UserMappings);
+        Assert.Equal("Changed after report", configuration.UserMappings[0].UserName);
+        Assert.NotEqual(report.ReportVersion, result.ReportVersion);
+    }
+
+    [Fact]
+    public void CleanupStaleUserMappingsBlocksReferencedRowsAtomically()
+    {
+        var missingUserId = Guid.Parse("77777777-7777-7777-7777-777777777777");
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(missingUserId))
+            .Returns((Jellyfin.Data.Entities.User?)null);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "referenced-row", UserId = missingUserId.ToString("D"), UserName = "Deleted Viewer" }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "schedule-1", Name = "Keep this cue", TargetUserId = missingUserId.ToString("D") }
+            }
+        });
+        var controller = CreateController(userManager: userManager.Object);
+        var reportResponse = Assert.IsType<OkObjectResult>(controller.GetUserMappingReconciliation().Result);
+        var report = Assert.IsType<HueUserMappingReconciliationResult>(reportResponse.Value);
+
+        var action = controller.CleanupStaleUserMappings(new HueUserMappingCleanupRequest
+        {
+            MappingIds = new List<string> { "referenced-row" },
+            ExpectedReportVersion = report.ReportVersion
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingCleanupResult>(response.Value);
+        var blocked = Assert.Single(result.BlockedMappings);
+        Assert.Equal("referenced-row", blocked.MappingId);
+        Assert.False(blocked.CanDelete);
+        Assert.Single(configuration.UserMappings);
+    }
+
+    [Fact]
     public async Task RegisterBridge_RejectsPublicAddressWithoutContactingBridge()
     {
         var controller = CreateController();

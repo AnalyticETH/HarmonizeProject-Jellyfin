@@ -35,6 +35,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// </summary>
     public class UserBridgeMapping
     {
+        /// <summary>
+        /// Stable local identity for this persisted mapping row. This is deliberately
+        /// unrelated to the Jellyfin user ID so duplicate or stale rows can be addressed
+        /// exactly without deleting every mapping for one user.
+        /// </summary>
+        public string MappingId { get; set; } = Guid.NewGuid().ToString("N");
         public string UserId { get; set; } = string.Empty;
         public string UserName { get; set; } = string.Empty; // For display purposes
         // Missing values in older saved configurations deserialize to true, preserving
@@ -618,6 +624,44 @@ namespace Jellyfin.Plugin.Hue.Configuration
             }
 
             return string.Equals(left?.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Backfills and de-duplicates stable mapping row identities for legacy
+        /// configurations. The method never touches credentials or user identity fields.
+        /// </summary>
+        public static bool EnsureUserMappingIds(IList<UserBridgeMapping>? mappings)
+        {
+            if (mappings == null)
+                return false;
+
+            var changed = false;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var mapping in mappings)
+            {
+                if (mapping == null)
+                    continue;
+
+                var mappingId = mapping.MappingId?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(mappingId) || !seen.Add(mappingId))
+                {
+                    do
+                    {
+                        mappingId = Guid.NewGuid().ToString("N");
+                    }
+                    while (!seen.Add(mappingId));
+
+                    mapping.MappingId = mappingId;
+                    changed = true;
+                }
+                else if (!string.Equals(mapping.MappingId, mappingId, StringComparison.Ordinal))
+                {
+                    mapping.MappingId = mappingId;
+                    changed = true;
+                }
+            }
+
+            return changed;
         }
 
         public const string PauseBehaviorKeepLastColors = "KeepLastColors";
