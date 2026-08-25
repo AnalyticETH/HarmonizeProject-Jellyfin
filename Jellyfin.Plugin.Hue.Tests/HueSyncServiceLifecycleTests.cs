@@ -1042,7 +1042,8 @@ public sealed class HueSyncServiceLifecycleTests
         {
             false,
             "session-old",
-            false
+            false,
+            CancellationToken.None
         }));
 
         await streamer.FirstSendCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1074,7 +1075,8 @@ public sealed class HueSyncServiceLifecycleTests
         {
             false,
             "session-new",
-            true
+            true,
+            CancellationToken.None
         }));
         await finishNewStop;
         SetPrivateField(service, "_currentBridgeConfig", null);
