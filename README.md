@@ -268,7 +268,7 @@ credential-safe migration.
 | `GET /HueSync/UserMappings/{userId}/Dependencies` | Inspect one mapping's credential-free scheduled-cue and saved-playlist target dependencies before disabling or deleting it. Supply the stable `mappingId` query value for an exact duplicate row; user-ID-only requests fail with `409` when multiple rows are present. Returns `canDisable`, `canDelete`, dependent cue and playlist counts, and bounded IDs/names/enabled state; bridge credentials and target details are never returned. |
 | `DELETE /HueSync/UserMappings/{userId}` | Remove one per-user bridge mapping. Supply the stable `mappingId` query value to delete exactly the selected row; legacy user-ID-only deletion fails with `409` when multiple rows are present, and dependency or persistence failures leave every row unchanged. The response is credential-free. |
 | `POST /HueSync/UserMappings/BulkDelete` | Atomically delete up to 50 selected mapping rows with `{ "mappingIds": ["..."] }`; legacy `{ "userIds": ["..."] }` remains supported only when every user resolves to one row and fails closed for ambiguous duplicates. Null/blank IDs, missing rows, scheduled-cue dependencies, or save failures leave the complete mapping collection unchanged. The credential-free response includes exact deleted summaries, remaining count, missing/ambiguous IDs, and blocked dependency details. |
-| `POST /HueSync/UserMappings/BulkEnabled` | Atomically enable or disable up to 50 selected user IDs with `{ "userIds": ["..."], "syncEnabled": true|false }`. Missing IDs, scheduled-cue references while disabling, incomplete custom targets while enabling, or save failure leave every selected mapping unchanged. Disabling clears custom bridge credentials/target fields and the credential-free response includes updated summaries, missing IDs, invalid IDs, and blocked dependency details. |
+| `POST /HueSync/UserMappings/BulkEnabled` | Atomically enable or disable up to 50 selected mapping rows with `{ "mappingIds": ["..."], "syncEnabled": true|false }`; legacy `{ "userIds": ["..."], "syncEnabled": true|false }` remains supported only when every user resolves to one row and fails closed for ambiguous duplicates. Missing rows, scheduled-cue references while disabling, incomplete custom targets while enabling, or save failure leave every selected mapping unchanged. Disabling clears custom bridge credentials/target fields and the credential-free response includes updated summaries, missing/ambiguous/invalid IDs, and blocked dependency details. |
 
 Single-scene scheduled cues may carry nullable `red`, `green`, and `blue` channel overrides (0-255); omitted channels inherit the saved scene and effective RGB is included in scheduler status, occurrence JSON/CSV, iCalendar metadata, and retained run telemetry. Playlist cues continue to use their per-step color overrides.
 
@@ -447,7 +447,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.278 (Current)
+### Version 1.5.279 (Current)
+- **Exact-row mapping state changes**: bulk enable/disable carries stable mapping IDs so duplicate rows cannot update or scrub the wrong credentials; legacy user-ID-only state changes fail closed with `409 Conflict` when ambiguous.
+
+### Version 1.5.278
 - **Exact-row mapping deletion**: single-row, bulk, and dependency actions carry stable mapping IDs so deleting one duplicate cannot remove its siblings; legacy user-ID-only deletion fails closed with `409 Conflict` when ambiguous.
 
 ### Version 1.5.277

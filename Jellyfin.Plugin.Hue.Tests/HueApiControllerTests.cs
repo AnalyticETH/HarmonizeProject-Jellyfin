@@ -10151,6 +10151,87 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void UserMappings_BulkEnabledWithStableRowIdChangesOnlySelectedDuplicate()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "mapping-enabled-a",
+                    UserId = "user-enabled-duplicate",
+                    UserName = "First",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.121",
+                    HueAppKey = "enabled-a-app-secret",
+                    HueClientKey = "enabled-a-client-secret",
+                    EntertainmentAreaId = "area-enabled-a"
+                },
+                new()
+                {
+                    MappingId = "mapping-enabled-b",
+                    UserId = "user-enabled-duplicate",
+                    UserName = "Second",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.122",
+                    HueAppKey = "enabled-b-app-secret",
+                    HueClientKey = "enabled-b-client-secret",
+                    EntertainmentAreaId = "area-enabled-b"
+                }
+            }
+        });
+
+        var action = CreateController().SetUserMappingsEnabledBulk(new HueUserMappingBulkEnabledRequest
+        {
+            MappingIds = new List<string> { "mapping-enabled-b" },
+            SyncEnabled = false
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingBulkEnabledResult>(response.Value);
+        Assert.Equal(1, result.RequestedCount);
+        Assert.Equal(1, result.UpdatedCount);
+        var first = Assert.Single(configuration.UserMappings, mapping => mapping.MappingId == "mapping-enabled-a");
+        Assert.True(first.SyncEnabled);
+        Assert.Equal("enabled-a-app-secret", first.HueAppKey);
+        Assert.Equal("area-enabled-a", first.EntertainmentAreaId);
+        var second = Assert.Single(configuration.UserMappings, mapping => mapping.MappingId == "mapping-enabled-b");
+        Assert.False(second.SyncEnabled);
+        Assert.Empty(second.HueAppKey);
+        Assert.Empty(second.HueClientKey);
+        Assert.Empty(second.EntertainmentAreaId);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("enabled-b-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("enabled-b-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UserMappings_BulkEnabledRejectsAmbiguousLegacyUserIdWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "mapping-enabled-a", UserId = "user-enabled-duplicate", UserName = "First", SyncEnabled = true, HueAppKey = "enabled-a-app-secret" },
+                new() { MappingId = "mapping-enabled-b", UserId = "user-enabled-duplicate", UserName = "Second", SyncEnabled = true, HueAppKey = "enabled-b-app-secret" }
+            }
+        });
+
+        var action = CreateController().SetUserMappingsEnabledBulk(new HueUserMappingBulkEnabledRequest
+        {
+            UserIds = new List<string> { "user-enabled-duplicate" },
+            SyncEnabled = false
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingBulkEnabledResult>(response.Value);
+        Assert.Equal(new[] { "user-enabled-duplicate" }, result.AmbiguousUserIds);
+        Assert.All(configuration.UserMappings, mapping => Assert.True(mapping.SyncEnabled));
+        Assert.Equal(new[] { "enabled-a-app-secret", "enabled-b-app-secret" }, configuration.UserMappings.Select(mapping => mapping.HueAppKey));
+    }
+
+    [Fact]
     public void UserMappings_BulkEnabledRefusesDependenciesAndMissingIdsAtomically()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

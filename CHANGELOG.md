@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.279] - 2026-08-25
+
+### User-mapping lifecycle
+- **Exact-row enable/disable**: carry stable mapping IDs through bulk enabled-state actions so duplicate rows cannot update or scrub the wrong credentials.
+- **Fail-closed legacy state changes**: user-ID-only bulk enable/disable now returns `409 Conflict` when duplicate rows make the selection ambiguous; exact mapping-ID requests retain dependency validation and transactional rollback.
+- **Regression coverage**: verify selected duplicate isolation, ambiguous legacy rejection, credential preservation, and credential-free result serialization.
+
 ## [1.5.278] - 2026-08-25
 
 ### User-mapping lifecycle

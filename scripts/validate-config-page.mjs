@@ -472,6 +472,8 @@ const requiredScript = [
     "getSelectedUserMappingBulkMappingIds: function",
     "mappingIds: mappingIds",
     "?mappingId=\" + encodeURIComponent(mappingId)",
+    "selection.syncEnabled = syncEnabled",
+    "data: JSON.stringify(selection)",
     "inspectUserMappingDependencies(this.closest(\\'.page\\'), this.dataset.userid, this.dataset.mappingid)",
     "deleteUserMapping(this.closest(\\'.page\\'), this.dataset.userid, this.dataset.mappingid)",
     "cleanupStaleUserMappings: function",

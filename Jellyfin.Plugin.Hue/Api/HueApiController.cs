@@ -9564,49 +9564,122 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             if (request == null)
                 return BadRequest("A user-mapping selection and sync-enabled value are required.");
+            if (request.UserIds?.Any(userId => string.IsNullOrWhiteSpace(userId)) == true ||
+                request.MappingIds?.Any(mappingId => string.IsNullOrWhiteSpace(mappingId)) == true)
+                return BadRequest("Selected user mapping IDs must not be blank.");
 
             var plugin = Plugin.Instance;
             var config = plugin?.Configuration;
             if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
-            var userIds = (request.UserIds ?? new List<string>())
+            var requestedMappingIds = (request.MappingIds ?? new List<string>())
+                .Where(mappingId => !string.IsNullOrWhiteSpace(mappingId))
+                .Select(mappingId => mappingId.Trim())
+                .ToArray();
+            var requestedUserIds = (request.UserIds ?? new List<string>())
                 .Where(userId => !string.IsNullOrWhiteSpace(userId))
                 .Select(userId => userId.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            if (userIds.Length == 0)
+            if (requestedMappingIds.Length > 0 && requestedUserIds.Length > 0)
+                return BadRequest("Supply mappingIds or userIds, not both.");
+            if (requestedMappingIds.Length == 0 && requestedUserIds.Length == 0)
                 return BadRequest("Select at least one user mapping.");
-            if (userIds.Length > PluginConfiguration.MaxBulkUserMappingUpdates)
+            var requestedIds = requestedMappingIds.Length > 0 ? requestedMappingIds : requestedUserIds;
+            if (requestedIds.Length > PluginConfiguration.MaxBulkUserMappingUpdates)
             {
                 return BadRequest(
                     $"Select no more than {PluginConfiguration.MaxBulkUserMappingUpdates} user mappings at once.");
             }
-
-            config.UserMappings ??= new List<UserBridgeMapping>();
-            var selectedMappings = userIds
-                .Select(userId => config.UserMappings.FirstOrDefault(mapping =>
-                    mapping != null &&
-                    PluginConfiguration.AreSameJellyfinUserId(mapping.UserId, userId)))
-                .ToArray();
-            var missingUserIds = userIds
-                .Where((_, index) => selectedMappings[index] == null)
-                .ToArray();
-            if (missingUserIds.Length > 0)
+            if (requestedMappingIds.Length > 0 &&
+                requestedMappingIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != requestedMappingIds.Length)
             {
-                return NotFound(new HueUserMappingBulkEnabledResult
-                {
-                    SyncEnabled = request.SyncEnabled,
-                    RequestedCount = userIds.Length,
-                    MissingUserIds = missingUserIds,
-                    Message = $"The requested user mapping(s) were not found: {string.Join(", ", missingUserIds)}."
-                });
+                return BadRequest("Selected mapping IDs must be unique.");
             }
 
-            var mappings = selectedMappings
-                .Where(mapping => mapping != null)
-                .Cast<UserBridgeMapping>()
-                .ToArray();
+            config.UserMappings ??= new List<UserBridgeMapping>();
+            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
+
+            UserBridgeMapping[] mappings;
+            if (requestedMappingIds.Length > 0)
+            {
+                var selectedById = requestedMappingIds
+                    .Select(mappingId => config.UserMappings
+                        .Where(mapping => mapping != null &&
+                            string.Equals(mapping.MappingId?.Trim(), mappingId, StringComparison.OrdinalIgnoreCase))
+                        .Cast<UserBridgeMapping>()
+                        .ToArray())
+                    .ToArray();
+                var ambiguousMappingIds = requestedMappingIds
+                    .Where((_, index) => selectedById[index].Length > 1)
+                    .ToArray();
+                if (ambiguousMappingIds.Length > 0)
+                {
+                    return Conflict(new HueUserMappingBulkEnabledResult
+                    {
+                        SyncEnabled = request.SyncEnabled,
+                        RequestedCount = requestedMappingIds.Length,
+                        AmbiguousMappingIds = ambiguousMappingIds,
+                        Message = "One or more selected mapping IDs are not unique; no mappings were changed."
+                    });
+                }
+
+                var missingMappingIds = requestedMappingIds
+                    .Where((_, index) => selectedById[index].Length == 0)
+                    .ToArray();
+                if (missingMappingIds.Length > 0)
+                {
+                    return NotFound(new HueUserMappingBulkEnabledResult
+                    {
+                        SyncEnabled = request.SyncEnabled,
+                        RequestedCount = requestedMappingIds.Length,
+                        MissingMappingIds = missingMappingIds,
+                        Message = $"The requested mapping row(s) were not found: {string.Join(", ", missingMappingIds)}."
+                    });
+                }
+
+                mappings = selectedById.Select(matches => matches[0]).ToArray();
+            }
+            else
+            {
+                var selectedByUser = requestedUserIds
+                    .Select(userId => config.UserMappings
+                        .Where(mapping => mapping != null &&
+                            PluginConfiguration.AreSameJellyfinUserId(mapping.UserId, userId))
+                        .Cast<UserBridgeMapping>()
+                        .ToArray())
+                    .ToArray();
+                var ambiguousUserIds = requestedUserIds
+                    .Where((_, index) => selectedByUser[index].Length > 1)
+                    .ToArray();
+                if (ambiguousUserIds.Length > 0)
+                {
+                    return Conflict(new HueUserMappingBulkEnabledResult
+                    {
+                        SyncEnabled = request.SyncEnabled,
+                        RequestedCount = requestedUserIds.Length,
+                        AmbiguousUserIds = ambiguousUserIds,
+                        Message = "One or more selected users have multiple mapping rows. Supply exact mappingIds; no mappings were changed."
+                    });
+                }
+
+                var missingUserIds = requestedUserIds
+                    .Where((_, index) => selectedByUser[index].Length == 0)
+                    .ToArray();
+                if (missingUserIds.Length > 0)
+                {
+                    return NotFound(new HueUserMappingBulkEnabledResult
+                    {
+                        SyncEnabled = request.SyncEnabled,
+                        RequestedCount = requestedUserIds.Length,
+                        MissingUserIds = missingUserIds,
+                        Message = $"The requested user mapping(s) were not found: {string.Join(", ", missingUserIds)}."
+                    });
+                }
+
+                mappings = selectedByUser.Select(matches => matches[0]).ToArray();
+            }
             if (!request.SyncEnabled)
             {
                 var blockedMappings = mappings
@@ -9618,7 +9691,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     return Conflict(new HueUserMappingBulkEnabledResult
                     {
                         SyncEnabled = false,
-                        RequestedCount = userIds.Length,
+                        RequestedCount = mappings.Length,
                         Message = "One or more selected user mappings are used by scheduled cues or saved playlists. Delete or update those targets first; no mappings were disabled.",
                         BlockedMappings = blockedMappings
                     });
@@ -9639,7 +9712,10 @@ namespace Jellyfin.Plugin.Hue.Api
                     return Conflict(new HueUserMappingBulkEnabledResult
                     {
                         SyncEnabled = true,
-                        RequestedCount = userIds.Length,
+                        RequestedCount = mappings.Length,
+                        InvalidMappingIds = validationErrors
+                            .Select(result => result.Mapping.MappingId?.Trim() ?? string.Empty)
+                            .ToArray(),
                         InvalidUserIds = validationErrors
                             .Select(result => result.Mapping.UserId?.Trim() ?? string.Empty)
                             .ToArray(),
@@ -10415,6 +10491,9 @@ namespace Jellyfin.Plugin.Hue.Api
     /// </summary>
     public sealed class HueUserMappingBulkEnabledRequest
     {
+        [JsonPropertyName("mappingIds")]
+        public List<string> MappingIds { get; set; } = new();
+
         [JsonPropertyName("userIds")]
         public List<string> UserIds { get; set; } = new();
 
@@ -10445,8 +10524,20 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("missingUserIds")]
         public IReadOnlyList<string> MissingUserIds { get; set; } = Array.Empty<string>();
 
+        [JsonPropertyName("missingMappingIds")]
+        public IReadOnlyList<string> MissingMappingIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("ambiguousUserIds")]
+        public IReadOnlyList<string> AmbiguousUserIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("ambiguousMappingIds")]
+        public IReadOnlyList<string> AmbiguousMappingIds { get; set; } = Array.Empty<string>();
+
         [JsonPropertyName("invalidUserIds")]
         public IReadOnlyList<string> InvalidUserIds { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("invalidMappingIds")]
+        public IReadOnlyList<string> InvalidMappingIds { get; set; } = Array.Empty<string>();
 
         [JsonPropertyName("blockedMappings")]
         public IReadOnlyList<HueUserMappingDependenciesResult> BlockedMappings { get; set; } =

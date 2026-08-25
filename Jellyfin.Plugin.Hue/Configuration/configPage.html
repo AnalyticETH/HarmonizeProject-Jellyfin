@@ -10384,6 +10384,7 @@
                 },
                 setUserMappingsEnabledBulk: function (page, syncEnabled) {
                     var userIds = HueConfigurationPage.getSelectedUserMappingBulkIds(page);
+                    var mappingIds = HueConfigurationPage.getSelectedUserMappingBulkMappingIds(page);
                     var statusEl = page.querySelector('#userMappingBulkStatus');
                     if (!userIds.length) {
                         Dashboard.alert("Select at least one user mapping first.");
@@ -10404,10 +10405,14 @@
                             statusEl.textContent = "Checking mapping dependencies and applying the selected enabled state atomically...";
                             statusEl.style.color = "";
                         }
+                        var selection = mappingIds.length === userIds.length
+                            ? { mappingIds: mappingIds }
+                            : { userIds: userIds };
+                        selection.syncEnabled = syncEnabled;
                         ApiClient.ajax({
                             type: "POST",
                             url: ApiClient.getUrl("HueSync/UserMappings/BulkEnabled"),
-                            data: JSON.stringify({ userIds: userIds, syncEnabled: syncEnabled }),
+                            data: JSON.stringify(selection),
                             contentType: "application/json",
                             dataType: "json"
                         }).then(function (response) {

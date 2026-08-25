@@ -140,7 +140,10 @@ for (const marker of [
     "var matchingUserMappings = config.UserMappings",
     "multiple mapping rows",
     "selected user-mapping row no longer exists",
-    "string.Equals(existing.MappingId?.Trim(), existingMapping.MappingId.Trim()"
+    "string.Equals(existing.MappingId?.Trim(), existingMapping.MappingId.Trim()",
+    "Supply mappingIds or userIds, not both.",
+    "AmbiguousMappingIds",
+    "InvalidMappingIds = validationErrors"
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API duplicate user-mapping edit protection is missing source marker: ${marker}`);
