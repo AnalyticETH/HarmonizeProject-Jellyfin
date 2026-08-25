@@ -7088,6 +7088,8 @@
                             var deferredUntilLocal = HueConfigurationPage.readStatusField(schedule, "DeferredUntilLocal", null);
                             var message = HueConfigurationPage.readStatusField(schedule, "LastMessage", "");
                             var cleanupWarning = HueConfigurationPage.readStatusField(schedule, "LastCleanupWarning", "");
+                            var lastTargetResults = HueConfigurationPage.readStatusField(schedule, "LastTargetResults", []);
+                            var lastTargetOutcomeText = HueConfigurationPage.formatSceneScheduleTargetResults(lastTargetResults);
                             var runCount = HueConfigurationPage.readStatusField(schedule, "RunCount", 0);
                             var maxRuns = HueConfigurationPage.readStatusField(schedule, "MaxRuns", 0);
                             var running = HueConfigurationPage.readStatusField(schedule, "IsRunning", false);
@@ -7148,6 +7150,7 @@
                             if (running) resultText += " · Running";
                             if (message) resultText += " — " + String(message);
                             if (cleanupWarning) resultText += " · Cleanup warning: " + String(cleanupWarning);
+                            if (lastTargetOutcomeText.length) resultText += " · Targets: " + lastTargetOutcomeText.join(" | ");
                             addCell(resultText, lastSkipped ? "#f0ad4e" : (succeeded === false ? "#f0ad4e" : (succeeded === true ? "#8bc34a" : "")));
                             addCell(String(runCount || 0) + (Number(maxRuns) > 0 ? " / " + String(Number(maxRuns)) : " / unlimited"));
                             body.appendChild(row);
@@ -7785,6 +7788,8 @@
                             var wasDeferredRestored = HueConfigurationPage.readStatusField(run, "WasDeferredRestored", false);
                             var message = HueConfigurationPage.readStatusField(run, "Message", "");
                             var warning = HueConfigurationPage.readStatusField(run, "CleanupWarning", "");
+                            var targetResults = HueConfigurationPage.readStatusField(run, "TargetResults", []);
+                            var targetOutcomeText = HueConfigurationPage.formatSceneScheduleTargetResults(targetResults);
                             var runCount = HueConfigurationPage.readStatusField(run, "RunCount", 0);
                             var row = document.createElement('tr');
                             row.style.borderBottom = '1px solid rgba(255,255,255,.08)';
@@ -7807,7 +7812,9 @@
                             if (wasDeferred) historyResult = "Deferred · " + historyResult;
                             if (wasDeferredRestored) historyResult = "Restored after restart · " + historyResult;
                             addCell(historyResult + " · run " + String(runCount || 0), skipped ? "#f0ad4e" : (succeeded ? "#8bc34a" : "#d9534f"));
-                            addCell((message || "") + (warning ? " · Cleanup warning: " + warning : ""));
+                            var historyDetails = (message || "") + (warning ? " · Cleanup warning: " + warning : "");
+                            if (targetOutcomeText.length) historyDetails += " · Targets: " + targetOutcomeText.join(" | ");
+                            addCell(historyDetails);
                             body.appendChild(row);
                         });
                         table.appendChild(body);
@@ -8993,6 +9000,30 @@
                     if (typeof status[camelName] !== 'undefined') return status[camelName];
                     if (typeof status[name] !== 'undefined') return status[name];
                     return fallback;
+                },
+                formatSceneScheduleTargetResults: function (targetResults) {
+                    if (!Array.isArray(targetResults)) return [];
+                    return targetResults.map(function (target) {
+                        if (!target) return "";
+                        var label = String(HueConfigurationPage.readStatusField(target, "TargetLabel", "Target") || "Target").trim() || "Target";
+                        var succeeded = HueConfigurationPage.readStatusField(target, "Succeeded", false) === true;
+                        var skipped = HueConfigurationPage.readStatusField(target, "Skipped", false) === true;
+                        var state = skipped ? "Skipped" : (succeeded ? "Succeeded" : "Failed");
+                        var message = String(HueConfigurationPage.readStatusField(
+                            target,
+                            "Message",
+                            skipped ? "Target was skipped." : (succeeded ? "Target completed." : "Target failed.")) || "").trim();
+                        var cleanupWarning = String(HueConfigurationPage.readStatusField(target, "CleanupWarning", "") || "").trim();
+                        var availableChannels = Number(HueConfigurationPage.readStatusField(target, "AvailableChannelCount", 0) || 0);
+                        var selectedChannels = Number(HueConfigurationPage.readStatusField(target, "SelectedChannelCount", 0) || 0);
+                        var channelSummary = availableChannels > 0 || selectedChannels > 0
+                            ? " · channels " + selectedChannels + "/" + availableChannels
+                            : "";
+                        return label + ": " + state +
+                            (message ? " — " + message : "") +
+                            channelSummary +
+                            (cleanupWarning ? " · cleanup warning: " + cleanupWarning : "");
+                    }).filter(Boolean);
                 },
                 formatRuntimeDuration: function (seconds) {
                     if (seconds === null || typeof seconds === 'undefined' || isNaN(Number(seconds))) {

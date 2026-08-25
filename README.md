@@ -448,7 +448,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.285 (Current)
+### Version 1.5.286 (Current)
+- **Per-target scheduled-cue observability**: administrator scheduler status and retained history now render each credential-free target's label, success/skip/failure state, message, channel counts, and cleanup warning, so partial multi-room outcomes remain visible beside the aggregate result.
+
+### Version 1.5.285
 - **Host-cancellation-aware shutdown**: service stop propagates Jellyfin's host shutdown token through workers, paused cleanup, lifecycle acquisition, sync-loop waits, and bridge cleanup so a blocked capture or DTLS loop cannot indefinitely delay application termination; interrupted cleanup remains visible as a credential-free warning.
 
 ### Version 1.5.284

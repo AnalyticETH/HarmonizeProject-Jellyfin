@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.286] - 2026-08-25
+
+### Scheduled-cue observability
+- **Per-target status visibility**: the administrator scheduler status now renders each credential-free target label, success/skip/failure state, target message, channel counts, and cleanup warning instead of showing only the aggregate outcome.
+- **Per-target history visibility**: retained scheduled-cue history now includes the same independent target outcomes, preserving partial multi-room failures and restoration warnings after a run.
+- **Configuration-page contract coverage**: static validation protects the target-outcome renderer and both runtime/history data paths.
+
 ## [1.5.285] - 2026-08-25
 
 ### Shutdown lifecycle safety
