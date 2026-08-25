@@ -23,7 +23,9 @@ fi
 echo "📦 Cleaning previous builds..."
 rm -rf ./Jellyfin.Plugin.Hue/bin/Release
 rm -rf ./release-package
+rm -rf ./publish
 rm -f jellyfin-plugin-hue-*.zip
+rm -f jellyfin-plugin-hue-*.zip.sha256
 
 # Restore dependencies
 echo "📥 Restoring dependencies..."
@@ -46,20 +48,12 @@ dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj \
     --no-build \
     --output ./publish
 
-# Create release package directory
-echo "📦 Creating release package..."
-mkdir -p release-package
-
-# Copy only the required files
-cp publish/Jellyfin.Plugin.Hue.dll release-package/
-cp publish/BouncyCastle.Cryptography.dll release-package/
-cp publish/meta.json release-package/
-
 # Extract and validate the release version from both sources of truth.
 VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' meta.json | head -n 1)
 PROJECT_VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj | head -n 1)
-if [ -z "$VERSION" ] || [ "$VERSION" != "$PROJECT_VERSION" ]; then
-    echo "❌ Version mismatch: meta.json=$VERSION project=$PROJECT_VERSION" >&2
+PUBLISHED_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' publish/meta.json | head -n 1)
+if [ -z "$VERSION" ] || [ "$VERSION" != "$PROJECT_VERSION" ] || [ "$VERSION" != "$PUBLISHED_VERSION" ]; then
+    echo "❌ Version mismatch: meta.json=$VERSION project=$PROJECT_VERSION published=$PUBLISHED_VERSION" >&2
     exit 1
 fi
 
@@ -71,6 +65,15 @@ if [ ! -f publish/BouncyCastle.Cryptography.dll ]; then
     echo "❌ Managed DTLS dependency was not produced." >&2
     exit 1
 fi
+
+# Create release package directory
+echo "📦 Creating release package..."
+mkdir -p release-package
+
+# Copy only the required files after validating the publish output.
+cp publish/Jellyfin.Plugin.Hue.dll release-package/
+cp publish/BouncyCastle.Cryptography.dll release-package/
+cp publish/meta.json release-package/
 echo ""
 echo "📋 Package Information:"
 echo "   Version: $VERSION"
@@ -91,11 +94,16 @@ if [ "$ARCHIVE_FILES" != "BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll 
     exit 1
 fi
 
+CHECKSUM_FILE="$ZIPFILE.sha256"
+sha256sum "$ZIPFILE" > "$CHECKSUM_FILE"
+sha256sum --check --strict "$CHECKSUM_FILE"
+
 echo ""
 echo "✅ Build complete!"
 echo ""
 echo "📁 Release package: $ZIPFILE"
 echo "   Size: $(ls -lh $ZIPFILE | awk '{print $5}')"
+echo "   Checksum: $CHECKSUM_FILE"
 echo ""
 echo "🚀 Installation:"
 echo "   1. Extract $ZIPFILE to your Jellyfin plugins directory"

@@ -49,6 +49,7 @@ bld/
 publish/
 release-package/
 *.zip
+*.zip.sha256
 
 # OS files
 .DS_Store

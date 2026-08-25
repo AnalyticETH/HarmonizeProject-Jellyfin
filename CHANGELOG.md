@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.291] - 2026-08-25
+
+### Administrator runtime safety
+- **Fail-closed status refresh**: failed or superseded runtime-status requests now clear stale playback, target, health, and session telemetry instead of leaving old values visible.
+- **Polling lifecycle**: hidden-page teardown invalidates and aborts the current runtime request when supported, releases the loading guard, and prevents late responses from overwriting a newer page state.
+
+### API documentation parity
+- **Status contract**: document `playbackObservedAtUtc` in the public `GET /HueSync/Status` contract and protect it with the API documentation validator.
+
 ## [1.5.290] - 2026-08-25
 
 ### Security boundary hardening

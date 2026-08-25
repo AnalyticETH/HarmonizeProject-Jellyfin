@@ -94,6 +94,11 @@ if (!targetDiagnosticsRow ||
     throw new Error("README.md target-diagnostics contract is missing duplicate-group readiness and bridge-safety guidance");
 }
 
+const statusRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/Status` |"));
+if (!statusRow || !statusRow.includes("playbackObservedAtUtc")) {
+    throw new Error("README.md status contract is missing the playback observation timestamp");
+}
+
 const userMappingsRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET/POST /HueSync/UserMappings` |"));
 if (!userMappingsRow || !userMappingsRow.includes("valid Jellyfin user GUID") || !userMappingsRow.includes("before configuration mutation")) {
     throw new Error("README.md user-mapping contract is missing GUID validation and fail-before-mutation markers");

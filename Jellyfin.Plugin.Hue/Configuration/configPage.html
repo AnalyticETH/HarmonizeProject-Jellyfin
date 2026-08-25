@@ -9045,17 +9045,82 @@
                     var parsed = new Date(value);
                     return isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
                 },
+                resetRuntimeStatus: function (page, message) {
+                    if (!page) return;
+
+                    var unavailable = "Unavailable";
+                    [
+                        "runtimeState",
+                        "runtimeItem",
+                        "runtimeUser",
+                        "runtimeDevice",
+                        "runtimePlaybackMediaFilter",
+                        "runtimeTarget",
+                        "runtimeResolution",
+                        "runtimeScalingMode",
+                        "runtimeDeinterlaceMode",
+                        "runtimeCaptureProfile",
+                        "runtimeAudioProfile",
+                        "runtimeSamplingProfile",
+                        "runtimeSpatialOrientation",
+                        "runtimeColorProfile",
+                        "runtimeExecutionProfile",
+                        "runtimeChannelProfile",
+                        "runtimeRestorationProfile",
+                        "runtimePauseBehavior",
+                        "runtimeHealth",
+                        "runtimeFrames",
+                        "runtimeQuality",
+                        "runtimeSeekRecovery",
+                        "runtimeDuration",
+                        "runtimePlaybackProgress",
+                        "runtimePlaybackObservedAt",
+                        "runtimeLastSession",
+                        "runtimeSessions"
+                    ].forEach(function (id) {
+                        var element = page.querySelector('#' + id);
+                        if (element) element.textContent = unavailable;
+                    });
+
+                    var statusMessage = page.querySelector('#runtimeStatusMessage');
+                    if (statusMessage) {
+                        statusMessage.textContent = message || "Runtime status is unavailable; previous runtime data was cleared.";
+                        statusMessage.style.color = "#d9534f";
+                    }
+                    var errorElement = page.querySelector('#runtimeStatusError');
+                    if (errorElement) {
+                        errorElement.textContent = message || "Unable to read runtime status. Check the server log for details.";
+                        errorElement.style.display = "block";
+                    }
+                    var cleanupWarningElement = page.querySelector('#runtimeCleanupWarning');
+                    if (cleanupWarningElement) {
+                        cleanupWarningElement.textContent = "";
+                        cleanupWarningElement.style.display = "none";
+                    }
+                    var stopButton = page.querySelector('#stopRuntimeSyncBtn');
+                    if (stopButton) stopButton.disabled = true;
+                },
                 loadRuntimeStatus: function (page) {
                     if (!page || page._hueRuntimeStatusLoading) {
                         return Promise.resolve();
                     }
 
+                    var generation = (page._hueRuntimeStatusGeneration || 0) + 1;
+                    page._hueRuntimeStatusGeneration = generation;
                     page._hueRuntimeStatusLoading = true;
                     var refreshButton = page.querySelector('#refreshRuntimeStatusBtn');
                     var stopButton = page.querySelector('#stopRuntimeSyncBtn');
                     if (refreshButton) refreshButton.disabled = true;
 
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/Status")).then(function (status) {
+                    var request = ApiClient.getJSON(ApiClient.getUrl("HueSync/Status"));
+                    page._hueRuntimeStatusRequest = request;
+                    var isCurrentRequest = function () {
+                        return page._hueRuntimeStatusGeneration === generation &&
+                            page._hueRuntimeStatusRequest === request;
+                    };
+
+                    return request.then(function (status) {
+                        if (!isCurrentRequest()) return;
                         var state = HueConfigurationPage.readStatusField(status, "State", "Unavailable");
                         var serviceAvailable = HueConfigurationPage.readStatusField(status, "ServiceAvailable", false);
                         var isSyncing = HueConfigurationPage.readStatusField(status, "IsSyncing", false);
@@ -9256,7 +9321,11 @@
                                 });
                             }
                         }
-                        page.querySelector('#runtimeStatusMessage').textContent = message || "No runtime message.";
+                        var runtimeStatusMessage = page.querySelector('#runtimeStatusMessage');
+                        if (runtimeStatusMessage) {
+                            runtimeStatusMessage.textContent = message || "No runtime message.";
+                            runtimeStatusMessage.style.color = "";
+                        }
                         if (stopButton) stopButton.disabled = !serviceAvailable || !canStop;
 
                         var errorElement = page.querySelector('#runtimeStatusError');
@@ -9270,10 +9339,12 @@
                             cleanupWarningElement.style.display = cleanupWarning ? "block" : "none";
                         }
                     }).catch(function (err) {
+                        if (!isCurrentRequest()) return;
                         console.error("Failed to load Hue runtime status:", err);
-                        page.querySelector('#runtimeState').textContent = "Unavailable";
-                        page.querySelector('#runtimeStatusMessage').textContent = "Unable to read runtime status. Check the server log for details.";
+                        HueConfigurationPage.resetRuntimeStatus(page, "Unable to read runtime status. Previous runtime data was cleared; check the server log for details.");
                     }).finally(function () {
+                        if (!isCurrentRequest()) return;
+                        page._hueRuntimeStatusRequest = null;
                         page._hueRuntimeStatusLoading = false;
                         if (refreshButton) refreshButton.disabled = false;
                         HueConfigurationPage.loadSceneScheduleRuntimeStatus(page);
@@ -9865,6 +9936,21 @@
                     if (page && page._hueRuntimeStatusTimer) {
                         window.clearInterval(page._hueRuntimeStatusTimer);
                         page._hueRuntimeStatusTimer = null;
+                    }
+                    if (page) {
+                        var runtimeRequest = page._hueRuntimeStatusRequest;
+                        page._hueRuntimeStatusGeneration = (page._hueRuntimeStatusGeneration || 0) + 1;
+                        page._hueRuntimeStatusLoading = false;
+                        page._hueRuntimeStatusRequest = null;
+                        var refreshButton = page.querySelector('#refreshRuntimeStatusBtn');
+                        if (refreshButton) refreshButton.disabled = false;
+                        if (runtimeRequest && typeof runtimeRequest.abort === "function") {
+                            try {
+                                runtimeRequest.abort();
+                            } catch (err) {
+                                console.debug("Unable to abort stale Hue runtime status request:", err);
+                            }
+                        }
                     }
                 },
                 getSelectedAreaId: function (page) {

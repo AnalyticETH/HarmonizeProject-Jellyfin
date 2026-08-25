@@ -19,7 +19,11 @@ if (Test-Path "./Jellyfin.Plugin.Hue/bin/Release") {
 if (Test-Path "./release-package") {
     Remove-Item -Recurse -Force "./release-package"
 }
+if (Test-Path "./publish") {
+    Remove-Item -Recurse -Force "./publish"
+}
 Get-ChildItem -Filter "jellyfin-plugin-hue-*.zip" | Remove-Item -Force
+Get-ChildItem -Filter "jellyfin-plugin-hue-*.zip.sha256" | Remove-Item -Force
 
 # Restore dependencies
 Write-Host "📥 Restoring dependencies..." -ForegroundColor Yellow
@@ -43,22 +47,15 @@ Write-Host "📤 Publishing plugin dependencies..." -ForegroundColor Yellow
 dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj --configuration Release --no-build --output ./publish
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# Create release package directory
-Write-Host "📦 Creating release package..." -ForegroundColor Yellow
-New-Item -ItemType Directory -Force -Path "./release-package" | Out-Null
-
-# Copy only the required files
-Copy-Item "publish/Jellyfin.Plugin.Hue.dll" "release-package/"
-Copy-Item "publish/BouncyCastle.Cryptography.dll" "release-package/"
-Copy-Item "publish/meta.json" "release-package/"
-
 # Extract version from meta.json
 $metaContent = Get-Content "meta.json" -Raw
 $version = ($metaContent | Select-String '"version":\s*"([^"]+)"').Matches.Groups[1].Value
 $projectContent = Get-Content "Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj" -Raw
 $projectVersion = ($projectContent | Select-String '<Version>([^<]+)</Version>').Matches.Groups[1].Value
-if ([string]::IsNullOrWhiteSpace($version) -or $version -ne $projectVersion) {
-    throw "Version mismatch: meta.json=$version project=$projectVersion"
+$publishedMetaContent = Get-Content "publish/meta.json" -Raw
+$publishedVersion = ($publishedMetaContent | Select-String '"version":\s*"([^"]+)"').Matches.Groups[1].Value
+if ([string]::IsNullOrWhiteSpace($version) -or $version -ne $projectVersion -or $version -ne $publishedVersion) {
+    throw "Version mismatch: meta.json=$version project=$projectVersion published=$publishedVersion"
 }
 
 $dllPath = "publish/Jellyfin.Plugin.Hue.dll"
@@ -68,6 +65,15 @@ if (-not (Test-Path $dllPath)) {
 if (-not (Test-Path "publish/BouncyCastle.Cryptography.dll")) {
     throw "Managed DTLS dependency was not produced."
 }
+
+# Create release package directory after validating the publish output.
+Write-Host "📦 Creating release package..." -ForegroundColor Yellow
+New-Item -ItemType Directory -Force -Path "./release-package" | Out-Null
+
+# Copy only the required files
+Copy-Item "publish/Jellyfin.Plugin.Hue.dll" "release-package/"
+Copy-Item "publish/BouncyCastle.Cryptography.dll" "release-package/"
+Copy-Item "publish/meta.json" "release-package/"
 
 Write-Host ""
 Write-Host "📋 Package Information:" -ForegroundColor Cyan
@@ -101,11 +107,20 @@ if (($archiveEntries -join ' ') -ne 'BouncyCastle.Cryptography.dll Jellyfin.Plug
     throw "Unexpected release archive contents: $($archiveEntries -join ', ')"
 }
 
+$checksumFile = $zipFile + ".sha256"
+$archiveHash = (Get-FileHash -Algorithm SHA256 -Path $zipFile).Hash.ToLowerInvariant()
+($archiveHash + "  " + [System.IO.Path]::GetFileName($zipFile)) | Set-Content -Path $checksumFile -Encoding ascii
+$verifiedHash = (Get-FileHash -Algorithm SHA256 -Path $zipFile).Hash.ToLowerInvariant()
+if ($archiveHash -ne $verifiedHash) {
+    throw "Checksum verification failed for $zipFile"
+}
+
 Write-Host ""
 Write-Host "✅ Build complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "📁 Release package: $zipFile" -ForegroundColor Cyan
 Write-Host "   Size: $zipSize KB"
+Write-Host "   Checksum: $checksumFile"
 Write-Host ""
 Write-Host "🚀 Installation:" -ForegroundColor Cyan
 Write-Host "   1. Extract $zipFile to your Jellyfin plugins directory"

@@ -277,6 +277,7 @@ const requiredScript = [
     "getMappingValue('AudioSpatialModeOverride', 'audioSpatialModeOverride')",
     "getMappingValue('AudioChannelModeOverride', 'audioChannelModeOverride')",
     "HueConfigurationPage.cancelPreview(e.target)",
+    "HueConfigurationPage.stopRuntimeStatusPolling(e.target)",
     "var activeCancelButton = page.querySelector('#cancelPreviewBtn')",
     "ClearStoredCredentials: !!(clearCredentialsCheckbox && clearCredentialsCheckbox.checked)",
     "Clear Stored Credentials",
@@ -540,6 +541,58 @@ const requiredScript = [
 for (const marker of requiredScript) {
     if (!scriptMatch[1].includes(marker)) {
         throw new Error(`${file} is missing required behavior: ${marker}`);
+    }
+}
+
+{
+    const runtimeStatusStart = scriptMatch[1].indexOf("loadRuntimeStatus: function");
+    const runtimeStatusEnd = scriptMatch[1].indexOf("\n                },", runtimeStatusStart);
+    const runtimeStatusBody = runtimeStatusStart >= 0 && runtimeStatusEnd > runtimeStatusStart
+        ? scriptMatch[1].slice(runtimeStatusStart, runtimeStatusEnd)
+        : "";
+    const resetStatusStart = scriptMatch[1].indexOf("resetRuntimeStatus: function");
+    const resetStatusEnd = scriptMatch[1].indexOf("\n                },", resetStatusStart);
+    const resetStatusBody = resetStatusStart >= 0 && resetStatusEnd > resetStatusStart
+        ? scriptMatch[1].slice(resetStatusStart, resetStatusEnd)
+        : "";
+    for (const marker of [
+        "runtimeItem",
+        "runtimeTarget",
+        "runtimeHealth",
+        "runtimeQuality",
+        "runtimePlaybackProgress",
+        "runtimePlaybackObservedAt",
+        "runtimeSessions"
+    ]) {
+        if (!resetStatusBody.includes(`\"${marker}\"`)) {
+            throw new Error(`${file} resetRuntimeStatus must clear runtime field: ${marker}`);
+        }
+    }
+    for (const marker of [
+        "page._hueRuntimeStatusGeneration",
+        "page._hueRuntimeStatusRequest",
+        "var isCurrentRequest = function ()",
+        "if (!isCurrentRequest()) return;",
+        "HueConfigurationPage.resetRuntimeStatus(page"
+    ]) {
+        if (!runtimeStatusBody.includes(marker)) {
+            throw new Error(`${file} loadRuntimeStatus is missing stale-request protection: ${marker}`);
+        }
+    }
+
+    const pollingStart = scriptMatch[1].indexOf("stopRuntimeStatusPolling: function");
+    const pollingEnd = scriptMatch[1].indexOf("\n                },", pollingStart);
+    const pollingBody = pollingStart >= 0 && pollingEnd > pollingStart
+        ? scriptMatch[1].slice(pollingStart, pollingEnd)
+        : "";
+    for (const marker of [
+        "page._hueRuntimeStatusLoading = false",
+        "page._hueRuntimeStatusRequest = null",
+        "typeof runtimeRequest.abort === \"function\""
+    ]) {
+        if (!pollingBody.includes(marker)) {
+            throw new Error(`${file} stopRuntimeStatusPolling must release runtime requests: ${marker}`);
+        }
     }
 }
 

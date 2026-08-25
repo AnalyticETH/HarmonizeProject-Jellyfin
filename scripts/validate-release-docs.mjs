@@ -54,7 +54,20 @@ for (const marker of requiredWorkflowMarkers) {
 }
 
 for (const [name, script] of [["build-release.sh", releaseShell], ["build-release.ps1", releasePowerShell]]) {
-  for (const marker of ["dotnet restore --locked-mode", "dotnet publish", "publish/Jellyfin.Plugin.Hue.dll", "publish/BouncyCastle.Cryptography.dll"]) {
+  const markers = [
+    "dotnet restore --locked-mode",
+    "dotnet publish",
+    "publish/Jellyfin.Plugin.Hue.dll",
+    "publish/BouncyCastle.Cryptography.dll",
+    "publish/meta.json",
+    "sha256",
+  ];
+  if (name === "build-release.sh") {
+    markers.push("rm -rf ./publish", "sha256sum --check --strict");
+  } else {
+    markers.push("Remove-Item -Recurse -Force \"./publish\"", "Get-FileHash -Algorithm SHA256");
+  }
+  for (const marker of markers) {
     if (!script.includes(marker)) {
       throw new Error(`${name} is missing publish-authoritative dependency marker: ${marker}`);
     }
