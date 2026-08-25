@@ -66,7 +66,9 @@ namespace Jellyfin.Plugin.Hue.Hue
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    return await operation().ConfigureAwait(false);
+                    // WaitAsync enforces the caller's deadline even when a custom
+                    // HttpMessageHandler does not observe cancellation itself.
+                    return await operation().WaitAsync(cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -404,12 +406,21 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// Deactivates a Hue Entertainment Area after streaming ends.
         /// This returns lights to normal Hue control.
         /// </summary>
-        public async Task StopEntertainmentArea(string bridgeIp, string appKey, string areaId)
+        /// <param name="cancellationToken">Bounds cleanup without changing its best-effort result contract.</param>
+        public async Task StopEntertainmentArea(
+            string bridgeIp,
+            string appKey,
+            string areaId,
+            CancellationToken cancellationToken = default)
         {
-            await StopEntertainmentAreaWithResult(bridgeIp, appKey, areaId).ConfigureAwait(false);
+            await StopEntertainmentAreaWithResult(bridgeIp, appKey, areaId, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task<bool> StopEntertainmentAreaWithResult(string bridgeIp, string appKey, string areaId)
+        public async Task<bool> StopEntertainmentAreaWithResult(
+            string bridgeIp,
+            string appKey,
+            string areaId,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -420,7 +431,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     request.Headers.Add("hue-application-key", appKey);
                     request.Content = new StringContent("{\"action\":\"stop\"}", System.Text.Encoding.UTF8, "application/json");
 
-                    using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                    using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
                         if (IsRetriableStatusCode(response.StatusCode))
@@ -437,7 +448,7 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                     _logger.LogInformation("Entertainment area {0} deactivated", areaId);
                     return true;
-                }).ConfigureAwait(false);
+                }, cancellationToken: cancellationToken).ConfigureAwait(false);
                 return result == true;
             }
             catch (Exception ex)
@@ -745,9 +756,14 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="bridgeIp">The IP address of the Hue Bridge</param>
         /// <param name="appKey">The application key for authentication</param>
         /// <param name="lightStates">The saved light states to restore</param>
-        public async Task RestoreLightStates(string bridgeIp, string appKey, List<LightState> lightStates)
+        /// <param name="cancellationToken">Bounds cleanup without changing its best-effort result contract.</param>
+        public async Task RestoreLightStates(
+            string bridgeIp,
+            string appKey,
+            List<LightState> lightStates,
+            CancellationToken cancellationToken = default)
         {
-            await RestoreLightStatesWithResult(bridgeIp, appKey, lightStates).ConfigureAwait(false);
+            await RestoreLightStatesWithResult(bridgeIp, appKey, lightStates, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -759,7 +775,8 @@ namespace Jellyfin.Plugin.Hue.Hue
             string bridgeIp,
             string appKey,
             IReadOnlyList<LightState> lightStates,
-            int brightnessPercent)
+            int brightnessPercent,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(lightStates);
 
@@ -767,8 +784,9 @@ namespace Jellyfin.Plugin.Hue.Hue
             var updatedCount = 0;
             var failedCount = 0;
 
-            foreach (var state in lightStates)
+            for (var index = 0; index < lightStates.Count; index++)
             {
+                var state = lightStates[index];
                 try
                 {
                     var updated = await ExecuteWithRetry(async () =>
@@ -786,15 +804,20 @@ namespace Jellyfin.Plugin.Hue.Hue
                             System.Text.Encoding.UTF8,
                             "application/json");
 
-                        using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                         response.EnsureSuccessStatusCode();
                         return true;
-                    }).ConfigureAwait(false);
+                    }, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                     if (updated == true)
                         updatedCount++;
                     else
                         failedCount++;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    failedCount += lightStates.Count - index;
+                    break;
                 }
                 catch (Exception ex)
                 {
@@ -821,7 +844,8 @@ namespace Jellyfin.Plugin.Hue.Hue
         public async Task<LightStateRestoreResult> RestoreLightStatesWithResult(
             string bridgeIp,
             string appKey,
-            List<LightState> lightStates)
+            List<LightState> lightStates,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(lightStates);
 
@@ -830,8 +854,9 @@ namespace Jellyfin.Plugin.Hue.Hue
 
             // Restore each light independently — failures on one light don't block others —
             // while still applying the configured retry policy to transient failures.
-            foreach (var state in lightStates)
+            for (var index = 0; index < lightStates.Count; index++)
             {
+                var state = lightStates[index];
                 try
                 {
                     var restored = await ExecuteWithRetry(async () =>
@@ -863,15 +888,20 @@ namespace Jellyfin.Plugin.Hue.Hue
                         var json = JsonSerializer.Serialize(payload);
                         request.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
-                        using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                         response.EnsureSuccessStatusCode();
                         return true;
-                    }).ConfigureAwait(false);
+                    }, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                     if (restored == true)
                         restoredCount++;
                     else
                         failedCount++;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    failedCount += lightStates.Count - index;
+                    break;
                 }
                 catch (Exception ex)
                 {

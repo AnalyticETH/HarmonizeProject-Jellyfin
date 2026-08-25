@@ -2031,6 +2031,9 @@ namespace Jellyfin.Plugin.Hue.Service
                     deactivateArea: false,
                     expectedPlaySessionId: playSessionId).ConfigureAwait(false);
 
+                using var cleanupCancellation = HueCleanupBudget.CreateCancellationSource();
+                var cleanupToken = cleanupCancellation.Token;
+
                 if (restoreOnPause)
                 {
                     _currentBridgeConfig = null;
@@ -2077,7 +2080,8 @@ namespace Jellyfin.Plugin.Hue.Service
                                 bridgeConfig.Value.BridgeIp,
                                 bridgeConfig.Value.AppKey,
                                 savedLightStates,
-                                activePauseBrightnessPercent ?? config?.BrightnessDimLevel ?? 30).ConfigureAwait(false)
+                                activePauseBrightnessPercent ?? config?.BrightnessDimLevel ?? 30,
+                                cleanupToken).ConfigureAwait(false)
                             : null;
                         if (dimResult == null || !dimResult.Succeeded)
                         {
@@ -2094,7 +2098,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     await _hueClient.StopEntertainmentArea(
                         bridgeConfig.Value.BridgeIp,
                         bridgeConfig.Value.AppKey,
-                        bridgeConfig.Value.AreaId).ConfigureAwait(false);
+                        bridgeConfig.Value.AreaId,
+                        cleanupToken).ConfigureAwait(false);
                     _bridgeAreaDeactivated = true;
                     ReleasePlaybackLifecycleLease();
                     SetRuntimeStatus("Paused", pauseMessage);
@@ -2120,7 +2125,8 @@ namespace Jellyfin.Plugin.Hue.Service
         private async Task StopSyncAsync(
             bool deactivateArea = true,
             string? expectedPlaySessionId = null,
-            bool clearSession = true)
+            bool clearSession = true,
+            CancellationToken cancellationToken = default)
         {
             CancellationTokenSource? syncCts;
             Task? syncLoopTask;
@@ -2170,10 +2176,15 @@ namespace Jellyfin.Plugin.Hue.Service
             if (deactivateArea && _currentBridgeConfig != null && !_bridgeAreaDeactivated)
             {
                 var cfg = _currentBridgeConfig.Value;
+                using var cleanupCancellation = cancellationToken == default
+                    ? HueCleanupBudget.CreateCancellationSource()
+                    : null;
+                var cleanupToken = cleanupCancellation?.Token ?? cancellationToken;
                 await _hueClient.StopEntertainmentAreaWithResult(
                     cfg.BridgeIp,
                     cfg.AppKey,
-                    cfg.AreaId).ConfigureAwait(false);
+                    cfg.AreaId,
+                    cleanupToken).ConfigureAwait(false);
             }
         }
 
@@ -2247,7 +2258,12 @@ namespace Jellyfin.Plugin.Hue.Service
             }
             finally
             {
-                if (activated && !await _hueClient.StopEntertainmentAreaWithResult(bridgeIp, appKey, areaId).ConfigureAwait(false))
+                using var cleanupCancellation = HueCleanupBudget.CreateCancellationSource();
+                if (activated && !await _hueClient.StopEntertainmentAreaWithResult(
+                        bridgeIp,
+                        appKey,
+                        areaId,
+                        cleanupCancellation.Token).ConfigureAwait(false))
                 {
                     _logger.LogWarning("SendTemporaryColorsWithConfig: could not deactivate area {0}", areaId);
                     succeeded = false;
@@ -2316,11 +2332,16 @@ namespace Jellyfin.Plugin.Hue.Service
             string appKey,
             string clientKey,
             string areaId,
-            IReadOnlySet<int>? channelIds)
+            IReadOnlySet<int>? channelIds,
+            CancellationToken cancellationToken = default)
         {
             try
             {
-                var areaConfig = await _hueClient.GetEntertainmentConfiguration(bridgeIp, appKey, areaId);
+                var areaConfig = await _hueClient.GetEntertainmentConfiguration(
+                    bridgeIp,
+                    appKey,
+                    areaId,
+                    cancellationToken);
                 if (areaConfig == null || !areaConfig.Value.TryGetProperty("channels", out var channels))
                     return false;
 
@@ -2344,7 +2365,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     clientKey,
                     areaId,
                     channelColors,
-                    RestoreLightsDelayMs).ConfigureAwait(false);
+                    RestoreLightsDelayMs,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -4964,6 +4986,9 @@ namespace Jellyfin.Plugin.Hue.Service
             string sessionOutcome = "Stopped",
             bool recordSessionSummary = true)
         {
+            using var cleanupCancellation = HueCleanupBudget.CreateCancellationSource();
+            var cleanupToken = cleanupCancellation.Token;
+
             var sessionSummarySeed = recordSessionSummary
                 ? CaptureSessionSummarySeed(bridgeConfig, sessionOutcome)
                 : null;
@@ -4988,10 +5013,11 @@ namespace Jellyfin.Plugin.Hue.Service
                     var restoreResult = await _hueClient.RestoreLightStatesWithResult(
                         bridgeConfig.Value.BridgeIp,
                         bridgeConfig.Value.AppKey,
-                        savedLightStates).ConfigureAwait(false);
+                        savedLightStates,
+                        cleanupToken).ConfigureAwait(false);
                     if (!restoreResult.Succeeded)
                     {
-                        cleanupWarning = $"Light restoration was incomplete: restored {restoreResult.RestoredCount} of {restoreResult.AttemptedCount} light(s); {restoreResult.FailedCount} failed. Some lights may need manual recovery.";
+                        cleanupWarning = $"Light restoration was incomplete: restored {restoreResult.RestoredCount} of {restoreResult.AttemptedCount} light(s); {restoreResult.FailedCount} failed or exceeded the cleanup deadline. Some lights may need manual recovery.";
                     }
 
                     if (ReferenceEquals(_savedLightStates, savedLightStates))
@@ -5008,7 +5034,8 @@ namespace Jellyfin.Plugin.Hue.Service
                             bridgeConfig.Value.AppKey,
                             bridgeConfig.Value.ClientKey,
                             bridgeConfig.Value.AreaId,
-                            activeChannelIds).ConfigureAwait(false))
+                            activeChannelIds,
+                            cleanupToken).ConfigureAwait(false))
                     {
                         cleanupWarning = "Cinema-mode light restoration did not complete. Some lights may need manual recovery.";
                     }
@@ -5069,13 +5096,14 @@ namespace Jellyfin.Plugin.Hue.Service
                         var deactivated = await _hueClient.StopEntertainmentAreaWithResult(
                             bridgeConfig.Value.BridgeIp,
                             bridgeConfig.Value.AppKey,
-                            bridgeConfig.Value.AreaId).ConfigureAwait(false);
+                            bridgeConfig.Value.AreaId,
+                            cleanupToken).ConfigureAwait(false);
                         _bridgeAreaDeactivated = deactivated;
                         if (!deactivated)
                         {
                             cleanupWarning = cleanupWarning == null
-                                ? "The entertainment area could not be deactivated during cleanup."
-                                : $"{cleanupWarning} The entertainment area could not be deactivated during cleanup.";
+                                ? "The entertainment area could not be deactivated during cleanup or exceeded the cleanup deadline."
+                                : $"{cleanupWarning} The entertainment area could not be deactivated during cleanup or exceeded the cleanup deadline.";
                         }
                     }
                     catch (Exception ex)

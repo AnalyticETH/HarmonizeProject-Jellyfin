@@ -1029,6 +1029,80 @@ public class HueClientTests : IDisposable
         Assert.Equal(1, requestCount);
     }
 
+    [Fact]
+    public async Task StopEntertainmentAreaWithResult_CancellationBoundsNonCompletingRequest()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var pending = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Returns((HttpRequestMessage _, CancellationToken _) =>
+            {
+                cancellation.Cancel();
+                return pending.Task;
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 3
+        };
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await client.StopEntertainmentAreaWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            "area-1",
+            cancellation.Token);
+        stopwatch.Stop();
+
+        Assert.False(result);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task RestoreLightStatesWithResult_CancellationReportsUnattemptedLightsAsFailed()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var pending = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Returns((HttpRequestMessage _, CancellationToken _) =>
+            {
+                cancellation.Cancel();
+                return pending.Task;
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 3
+        };
+        var lightStates = new List<HueClient.LightState>
+        {
+            new("light-1", true, 80, 0.3, 0.33),
+            new("light-2", true, 70, 0.4, 0.34),
+            new("light-3", false, 50, null, null)
+        };
+
+        var result = await client.RestoreLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            lightStates,
+            cancellation.Token);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(lightStates.Count, result.AttemptedCount);
+        Assert.Equal(0, result.RestoredCount);
+        Assert.Equal(lightStates.Count, result.FailedCount);
+    }
+
     #endregion
 
     #region RegisterWithBridge Tests

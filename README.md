@@ -406,7 +406,9 @@ Full CI runs locked restores, build/tests, formatting, dependency auditing, Gitl
   partial restoration plan.
   Light restoration retries each light using the active Network Retry Attempts policy. If the
   bridge remains unavailable or area deactivation fails, Live Sync Status shows a cleanup warning
-  with the restored/failed count so the remaining lights can be recovered manually.
+  with the restored/failed/deadline count so the remaining lights can be recovered manually;
+  diagnostic, preview, pause, startup-rollback, and playback cleanup all use an independent
+  30-second deadline so a canceled request cannot strand the lifecycle lease indefinitely.
   If FFmpeg remains running but stops producing complete frames, the configured FFmpeg Stall
   Timeout ends synchronization through the same cleanup path; increase it for slow storage or
   hardware decoding, or lower it to recover faster from a stuck pipeline.
@@ -442,7 +444,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.270 (Current)
+### Version 1.5.271 (Current)
+- **Bounded cancellation cleanup**: diagnostic, preview, pause, startup rollback, and playback restoration use an independent 30-second budget that survives page/request cancellation while preventing an unreachable bridge from holding the lifecycle lease indefinitely.
+- **Partial restoration telemetry**: timed-out cleanup retains credential-free attempted/restored/failed counts and surfaces the existing cleanup warning instead of claiming success.
+
+### Version 1.5.270
 - **Credential-free cue metadata parity**: valid GUID mapping IDs now serialize as canonical D-format text across scheduler status, upcoming occurrences, playlist/scene preview results, skip/failure telemetry, and restored history while malformed opaque legacy IDs remain unchanged and fail closed.
 - **Legacy route editor matching**: the administrator cue editor compares brace/N-format route and mapping IDs by GUID value, so legacy persisted targets remain selectable instead of appearing unavailable.
 

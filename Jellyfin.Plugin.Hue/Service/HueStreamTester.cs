@@ -1953,8 +1953,19 @@ public sealed class HueStreamTester :
         List<HueClient.LightState> savedLightStates)
     {
         var warnings = new List<string>();
-        if (!await _hueClient.StopEntertainmentAreaWithResult(bridgeIp, appKey, areaId).ConfigureAwait(false))
-            warnings.Add("The entertainment area could not be deactivated.");
+        // Cleanup deliberately uses an independent budget. A canceled request must not
+        // abort bridge restoration, but an unreachable bridge must not hold the diagnostic
+        // lifecycle lease indefinitely.
+        using var cleanupCancellation = HueCleanupBudget.CreateCancellationSource();
+        var cleanupToken = cleanupCancellation.Token;
+        if (!await _hueClient.StopEntertainmentAreaWithResult(
+                bridgeIp,
+                appKey,
+                areaId,
+                cleanupToken).ConfigureAwait(false))
+        {
+            warnings.Add("The entertainment area could not be deactivated within the cleanup deadline.");
+        }
 
         if (savedLightStates.Count > 0)
         {
@@ -1963,11 +1974,12 @@ public sealed class HueStreamTester :
                 var restoreResult = await _hueClient.RestoreLightStatesWithResult(
                     bridgeIp,
                     appKey,
-                    savedLightStates).ConfigureAwait(false);
+                    savedLightStates,
+                    cleanupToken).ConfigureAwait(false);
                 if (!restoreResult.Succeeded)
                 {
                     warnings.Add(
-                        $"Light restoration was incomplete: restored {restoreResult.RestoredCount} of {restoreResult.AttemptedCount} light(s); {restoreResult.FailedCount} failed.");
+                        $"Light restoration was incomplete: restored {restoreResult.RestoredCount} of {restoreResult.AttemptedCount} light(s); {restoreResult.FailedCount} failed or exceeded the cleanup deadline.");
                 }
             }
             catch (Exception ex)

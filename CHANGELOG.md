@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.271] - 2026-08-25
+
+### Reliability
+- **Bounded cancellation cleanup**: diagnostic, preview, pause, startup rollback, and playback restoration now use an independent 30-second cleanup budget that survives request cancellation but releases lifecycle ownership when a bridge or custom transport never completes.
+- **Partial cleanup telemetry**: timed-out per-light restoration reports attempted, restored, and failed/deadline counts through the existing credential-free cleanup warnings.
+
+### Tests
+- **Cleanup deadline coverage**: non-completing Hue requests now verify prompt cancellation and accurate remaining-light failure accounting.
+
 ## [1.5.270] - 2026-08-25
 
 ### API and scheduler hardening
