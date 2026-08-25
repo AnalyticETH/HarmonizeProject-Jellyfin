@@ -451,7 +451,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.287 (Current)
+### Version 1.5.288 (Current)
+- **Self-hosted runner resilience**: the diagnostics FFmpeg version probe now tolerates bounded process-start contention, and CI preflights the exact short PCM capture required for audio playback before running tests.
+
+### Version 1.5.287
 - **Reproducible release tooling**: Linux and PowerShell release helpers now enforce locked NuGet restores, matching CI and failing closed on dependency-graph drift; the release-documentation validator protects that contract.
 
 ### Version 1.5.286

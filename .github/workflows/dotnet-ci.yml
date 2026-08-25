@@ -52,6 +52,30 @@ jobs:
     - name: Build solution
       run: dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
+    - name: Preflight FFmpeg capability
+      run: |
+        set -euo pipefail
+        ffmpeg_path="$(command -v ffmpeg || true)"
+        if [ -z "$ffmpeg_path" ]; then
+          echo "FFmpeg is required on the self-hosted runner but was not found on PATH." >&2
+          exit 1
+        fi
+        timeout --kill-after=5s 15s "$ffmpeg_path" -version >/dev/null 2>&1
+        pcm_path="$RUNNER_TEMP/hue-audio-preflight.pcm"
+        error_path="$RUNNER_TEMP/hue-audio-preflight.err"
+        timeout --kill-after=5s 15s "$ffmpeg_path" \
+          -hide_banner -loglevel error -nostdin \
+          -f lavfi -i "sine=frequency=440:sample_rate=8000:duration=0.15" \
+          -map 0:a:0 -vn -sn -dn -ar 8000 -ac 2 -c:a pcm_s16le \
+          -f s16le -t 0.15 pipe:1 >"$pcm_path" 2>"$error_path"
+        pcm_bytes="$(wc -c <"$pcm_path")"
+        if [ "$pcm_bytes" -lt 800 ]; then
+          echo "FFmpeg PCM preflight returned only $pcm_bytes bytes; at least 800 were expected." >&2
+          sed -n '1,20p' "$error_path" >&2 || true
+          exit 1
+        fi
+        echo "FFmpeg preflight passed: $ffmpeg_path ($pcm_bytes PCM bytes)."
+
     - name: Run tests
       run: dotnet test --configuration ${{ env.BUILD_CONFIGURATION }} --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage" --results-directory ./TestResults
 

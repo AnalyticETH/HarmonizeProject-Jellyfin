@@ -22,7 +22,10 @@ public interface IHueEnvironmentProbe
 /// </summary>
 public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
 {
-    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(3);
+    // Version startup is bounded separately from the longer PCM probe. A busy
+    // self-hosted runner can briefly contend for process startup without making
+    // an installed FFmpeg executable unavailable to diagnostics.
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(10);
     // The probe launches the configured playback encoder and captures a short PCM
     // stream. On a busy self-hosted Jellyfin host, process startup can legitimately
     // exceed the normal version-check budget; keep the diagnostic bounded while

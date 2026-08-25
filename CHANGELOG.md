@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.288] - 2026-08-25
+
+### Self-hosted runner resilience
+- **FFmpeg startup tolerance**: the bounded diagnostics version probe now allows up to 10 seconds for a contended self-hosted runner while still failing closed on hangs or startup errors.
+- **Capability preflight**: CI now runs the same short, 8 kHz stereo PCM capture used by diagnostics before tests, reporting a clear runner dependency failure when FFmpeg is missing or unusable.
+
 ## [1.5.287] - 2026-08-25
 
 ### Reproducible release tooling
