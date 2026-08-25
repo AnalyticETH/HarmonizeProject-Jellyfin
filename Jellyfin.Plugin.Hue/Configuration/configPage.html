@@ -10146,6 +10146,7 @@
                                 : deviceTargets.length === 0
                                     ? 'None'
                                     : String(deviceTargets.length) + (deviceTargets.length === 1 ? ' route' : ' routes');
+                            var mappingId = mapping.MappingId || mapping.mappingId || '';
                             html += '<tr style="border-bottom: 1px solid #333;">';
                             html += '<td style="padding: 8px;">' + escapeHtml(mapping.UserName || mapping.userName || userId || 'Unknown') + '</td>';
                             html += '<td style="padding: 8px;">' + (syncEnabled ? 'Enabled' : 'Disabled') + '</td>';
@@ -10155,7 +10156,7 @@
                             html += '<td style="padding: 8px;">' + (hasProfile ? 'Custom' : 'Global') + '</td>';
                             html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid)">Edit</button> ';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">Edit</button> ';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid)">View References</button> ';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid)">Delete</button>';
                             html += '</td></tr>';
@@ -11198,6 +11199,7 @@
                     }
 
                     var mapping = {
+                        MappingId: HueConfigurationPage.mappingEditingMappingId || '',
                         UserId: userId,
                         UserName: userName,
                         SyncEnabled: syncEnabled,
@@ -11289,6 +11291,7 @@
                     var statusEl = page.querySelector('#mappingBridgeStatus');
 
                     HueConfigurationPage.mappingEditingUserId = "";
+                    HueConfigurationPage.mappingEditingMappingId = "";
                     HueConfigurationPage.mappingEditingHasAppKey = false;
                     HueConfigurationPage.mappingEditingHasClientKey = false;
                     if (userSelect) {
@@ -11381,15 +11384,19 @@
                     HueConfigurationPage.refreshMappingDeviceRoutes();
                 },
 
-                editUserMapping: function (page, userId) {
+                editUserMapping: function (page, userId, mappingId) {
                     Dashboard.showLoadingMsg();
 
                     ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings")).then(function (mappings) {
                         mappings = Array.isArray(mappings) ? mappings : [];
                         var mapping = null;
                         mappings.forEach(function (candidate) {
+                            var candidateMappingId = candidate.MappingId || candidate.mappingId || "";
                             var candidateId = candidate.UserId || candidate.userId || "";
-                            if (!mapping && HueConfigurationPage.areSameJellyfinUserId(candidateId, userId)) {
+                            if (!mapping && mappingId && candidateMappingId &&
+                                String(candidateMappingId).toLowerCase() === String(mappingId).toLowerCase()) {
+                                mapping = candidate;
+                            } else if (!mapping && !mappingId && HueConfigurationPage.areSameJellyfinUserId(candidateId, userId)) {
                                 mapping = candidate;
                             }
                         });
@@ -11399,6 +11406,7 @@
                         }
 
                         var mappingUserId = mapping.UserId || mapping.userId || userId;
+                        var selectedMappingId = mapping.MappingId || mapping.mappingId || mappingId || "";
                         var mappingUserName = mapping.UserName || mapping.userName || "";
                         var syncEnabled = typeof mapping.SyncEnabled !== 'undefined'
                             ? mapping.SyncEnabled !== false
@@ -11568,6 +11576,7 @@
                         }
                         page.querySelector('#mappingBridgeStatus').style.background = "#3f51b5";
                         HueConfigurationPage.mappingEditingUserId = mappingUserId;
+                        HueConfigurationPage.mappingEditingMappingId = selectedMappingId;
                         HueConfigurationPage.mappingEditingHasAppKey = hasAppKey;
                         HueConfigurationPage.mappingEditingHasClientKey = hasClientKey;
                         HueConfigurationPage.toggleMappingSyncFields(page);

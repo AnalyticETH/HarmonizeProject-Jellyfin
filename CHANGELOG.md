@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.277] - 2026-08-25
+
+### User-mapping lifecycle
+- **Duplicate-safe edits**: carry stable non-secret mapping row IDs through the administrator editor, allow exact-row updates without deleting sibling duplicates, and reject ambiguous user-ID-only saves before mutation.
+- **Regression coverage**: verify ambiguous duplicate rejection, exact-row editing, credential preservation, and API/configuration-page contract markers.
+
 ## [1.5.276] - 2026-08-25
 
 ### User-mapping lifecycle

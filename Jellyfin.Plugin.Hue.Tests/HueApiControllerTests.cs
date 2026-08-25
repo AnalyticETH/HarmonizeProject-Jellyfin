@@ -12536,6 +12536,77 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMapping_RejectsAmbiguousDuplicateWithoutStableRowId()
+    {
+        var userId = Guid.Parse("88888888-8888-8888-8888-888888888888");
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "duplicate-row-one",
+                    UserId = userId.ToString("D"),
+                    UserName = "First duplicate",
+                    SyncEnabled = false,
+                    HueAppKey = "first-secret"
+                },
+                new()
+                {
+                    MappingId = "duplicate-row-two",
+                    UserId = "{" + userId.ToString("D") + "}",
+                    UserName = "Second duplicate",
+                    SyncEnabled = false,
+                    HueAppKey = "second-secret"
+                }
+            }
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = userId.ToString("D"),
+            UserName = "Ambiguous edit",
+            SyncEnabled = false
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action);
+        Assert.Contains("multiple mapping rows", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, configuration.UserMappings.Count);
+        Assert.Equal("First duplicate", configuration.UserMappings[0].UserName);
+        Assert.Equal("Second duplicate", configuration.UserMappings[1].UserName);
+        Assert.Equal("first-secret", configuration.UserMappings[0].HueAppKey);
+        Assert.Equal("second-secret", configuration.UserMappings[1].HueAppKey);
+    }
+
+    [Fact]
+    public void SaveUserMapping_WithStableRowIdEditsOnlySelectedDuplicate()
+    {
+        var userId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "duplicate-row-one", UserId = userId.ToString("D"), UserName = "First duplicate", SyncEnabled = false },
+                new() { MappingId = "duplicate-row-two", UserId = userId.ToString("D"), UserName = "Second duplicate", SyncEnabled = false }
+            }
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            MappingId = "duplicate-row-two",
+            UserId = userId.ToString("D"),
+            UserName = "Selected duplicate",
+            SyncEnabled = false
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        Assert.Equal(2, configuration.UserMappings.Count);
+        Assert.Equal("First duplicate", configuration.UserMappings[0].UserName);
+        Assert.Equal("Selected duplicate", configuration.UserMappings[1].UserName);
+        Assert.Equal("duplicate-row-two", configuration.UserMappings[1].MappingId);
+    }
+
+    [Fact]
     public void SaveUserMapping_WithoutBridgeInheritsGlobalConfiguration()
     {
         var userId = Guid.Parse("00000000-0000-0000-0000-000000000001");

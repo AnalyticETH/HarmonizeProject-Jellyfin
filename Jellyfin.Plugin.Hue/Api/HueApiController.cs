@@ -9057,10 +9057,40 @@ namespace Jellyfin.Plugin.Hue.Api
 
             config.UserMappings ??= new List<UserBridgeMapping>();
             PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
-            var existingMapping = config.UserMappings.FirstOrDefault(existing =>
-                existing != null &&
-                PluginConfiguration.AreSameJellyfinUserId(existing.UserId, mapping.UserId));
-            mapping.MappingId = existingMapping?.MappingId?.Trim() ?? mapping.MappingId?.Trim() ?? string.Empty;
+            var matchingUserMappings = config.UserMappings
+                .Where(existing => existing != null &&
+                    PluginConfiguration.AreSameJellyfinUserId(existing.UserId, mapping.UserId))
+                .Cast<UserBridgeMapping>()
+                .ToArray();
+            var requestedMappingId = mapping.MappingId?.Trim() ?? string.Empty;
+            var exactMappingMatches = string.IsNullOrWhiteSpace(requestedMappingId)
+                ? Array.Empty<UserBridgeMapping>()
+                : config.UserMappings
+                    .Where(existing => existing != null &&
+                        string.Equals(existing.MappingId?.Trim(), requestedMappingId, StringComparison.OrdinalIgnoreCase))
+                    .Cast<UserBridgeMapping>()
+                    .ToArray();
+            if (exactMappingMatches.Length > 1 ||
+                (exactMappingMatches.Length == 1 &&
+                 !PluginConfiguration.AreSameJellyfinUserId(exactMappingMatches[0].UserId, mapping.UserId)))
+            {
+                return Conflict("The selected user-mapping row no longer matches its Jellyfin user; refresh the mapping list and try again.");
+            }
+
+            if (exactMappingMatches.Length == 0 &&
+                !string.IsNullOrWhiteSpace(requestedMappingId) &&
+                matchingUserMappings.Length > 0)
+            {
+                return Conflict("The selected user-mapping row no longer exists; refresh the mapping list before editing it.");
+            }
+
+            if (exactMappingMatches.Length == 0 && matchingUserMappings.Length > 1)
+            {
+                return Conflict("This Jellyfin user has multiple mapping rows. Select an exact mapping row from the refreshed administrator list before editing; no rows were changed.");
+            }
+
+            var existingMapping = exactMappingMatches.FirstOrDefault() ?? matchingUserMappings.SingleOrDefault();
+            mapping.MappingId = existingMapping?.MappingId?.Trim() ?? requestedMappingId;
 
             if (mapping.SyncEnabled && existingMapping != null)
             {
@@ -9164,8 +9194,16 @@ namespace Jellyfin.Plugin.Hue.Api
             var candidateMappings = previousMappings
                 .Where(existing => existing != null)
                 .ToList();
-            candidateMappings.RemoveAll(existing =>
-                PluginConfiguration.AreSameJellyfinUserId(existing.UserId, mapping.UserId));
+            if (existingMapping != null && !string.IsNullOrWhiteSpace(existingMapping.MappingId))
+            {
+                candidateMappings.RemoveAll(existing =>
+                    string.Equals(existing.MappingId?.Trim(), existingMapping.MappingId.Trim(), StringComparison.OrdinalIgnoreCase));
+            }
+            else
+            {
+                candidateMappings.RemoveAll(existing =>
+                    PluginConfiguration.AreSameJellyfinUserId(existing.UserId, mapping.UserId));
+            }
             candidateMappings.Add(mapping);
             PluginConfiguration.EnsureUserMappingIds(candidateMappings);
             config.UserMappings = candidateMappings;

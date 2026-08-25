@@ -40,7 +40,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// unrelated to the Jellyfin user ID so duplicate or stale rows can be addressed
         /// exactly without deleting every mapping for one user.
         /// </summary>
-        public string MappingId { get; set; } = Guid.NewGuid().ToString("N");
+        public string MappingId { get; set; } = string.Empty;
         public string UserId { get; set; } = string.Empty;
         public string UserName { get; set; } = string.Empty; // For display purposes
         // Missing values in older saved configurations deserialize to true, preserving

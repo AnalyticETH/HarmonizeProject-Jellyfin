@@ -93,6 +93,9 @@ if (!userMappingCleanupRow ||
     !userMappingCleanupRow.includes("atomic")) {
     throw new Error("README.md user-mapping cleanup contract is missing exact-row, concurrency, safety, or atomicity markers");
 }
+if (!userMappingCleanupRow.includes("Stable row IDs")) {
+    throw new Error("README.md user-mapping cleanup contract is missing stable row identity guidance");
+}
 
 const configurationImportRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Configuration/Import` |"));
 if (!configurationImportRow ||
@@ -113,6 +116,17 @@ for (const marker of [
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API preview route support is missing source marker: ${marker}`);
+    }
+}
+
+for (const marker of [
+    "var matchingUserMappings = config.UserMappings",
+    "multiple mapping rows",
+    "selected user-mapping row no longer exists",
+    "string.Equals(existing.MappingId?.Trim(), existingMapping.MappingId.Trim()"
+]) {
+    if (!controller.includes(marker)) {
+        throw new Error(`Hue API duplicate user-mapping edit protection is missing source marker: ${marker}`);
     }
 }
 
