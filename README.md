@@ -451,7 +451,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.288 (Current)
+### Version 1.5.289 (Current)
+- **Managed DTLS interoperability coverage**: deterministic loopback tests now negotiate Hue's DTLS 1.2 PSK contract, verify encrypted payload delivery and close health, and bound cancellation against an unresponsive UDP peer without requiring Hue hardware.
+
+### Version 1.5.288
 - **Self-hosted runner resilience**: the diagnostics FFmpeg version probe now tolerates bounded process-start contention, and CI preflights the exact short PCM capture required for audio playback before running tests.
 
 ### Version 1.5.287

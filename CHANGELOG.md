@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.289] - 2026-08-25
+
+### Managed DTLS interoperability coverage
+- **Loopback handshake coverage**: deterministic Bouncy Castle DTLS 1.2 PSK tests now negotiate Hue's exact cipher suite and identity, deliver an encrypted/decrypted payload, and verify health and close behavior without bridge hardware.
+- **Cancellation coverage**: a silent loopback UDP peer verifies that an unresponsive handshake is canceled within a bounded interval without leaving a background worker or socket open.
+
 ## [1.5.288] - 2026-08-25
 
 ### Self-hosted runner resilience

@@ -57,12 +57,31 @@ internal sealed class HueDtlsConnection : IHueDtlsConnection
         cancellationToken.ThrowIfCancellationRequested();
 
         var address = await ResolveBridgeAddressAsync(bridgeIp, cancellationToken).ConfigureAwait(false);
+        return await ConnectAsync(
+            new IPEndPoint(address, BridgePort),
+            appKey,
+            clientKey,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<HueDtlsConnection> ConnectAsync(
+        IPEndPoint endpoint,
+        string appKey,
+        string clientKey,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(appKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(clientKey);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var address = endpoint.Address;
         var socket = new Socket(address.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
 
         HueDatagramTransport? datagramTransport = null;
         try
         {
-            await socket.ConnectAsync(new IPEndPoint(address, BridgePort), cancellationToken).ConfigureAwait(false);
+            await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
             datagramTransport = new HueDatagramTransport(socket);
 
             using var cancellationRegistration = cancellationToken.Register(
