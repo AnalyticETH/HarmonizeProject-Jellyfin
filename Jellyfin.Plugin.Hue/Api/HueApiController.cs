@@ -6461,6 +6461,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 return NotFound("Plugin configuration not available.");
             }
 
+            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
+            var duplicateMappingGroups = BuildTargetDiagnosticsDuplicateMappingGroups(config);
             var targets = EnumerateConfiguredTargets(config).ToArray();
             var areaRequests = new Dictionary<string, Task<List<HueClient.EntertainmentArea>?>>(StringComparer.Ordinal);
             var configurationRequests = new Dictionary<string, Task<System.Text.Json.JsonElement?>>(StringComparer.Ordinal);
@@ -6469,21 +6471,24 @@ namespace Jellyfin.Plugin.Hue.Api
             foreach (var target in targets)
             {
                 diagnosticsCancellationToken.ThrowIfCancellationRequested();
-                results.Add(await ValidateTargetAsync(
-                    target,
-                    areaRequests,
-                    configurationRequests,
-                    diagnosticsCancellationToken).ConfigureAwait(false));
+                results.Add(HasAmbiguousCaptureUserMapping(config, target.UserId)
+                    ? BuildAmbiguousTargetDiagnostic(target)
+                    : await ValidateTargetAsync(
+                        target,
+                        areaRequests,
+                        configurationRequests,
+                        diagnosticsCancellationToken).ConfigureAwait(false));
             }
 
             var readyCount = results.Count(result => result.Ready);
             return Ok(new HueTargetDiagnosticsResult
             {
-                HasConfiguredTargets = results.Count > 0,
-                AllTargetsReady = results.Count > 0 && readyCount == results.Count,
+                HasConfiguredTargets = results.Count > 0 || duplicateMappingGroups.Count > 0,
+                AllTargetsReady = duplicateMappingGroups.Count == 0 && results.Count > 0 && readyCount == results.Count,
                 TargetCount = results.Count,
                 ReadyTargetCount = readyCount,
                 Targets = results,
+                DuplicateMappingGroups = duplicateMappingGroups,
                 CheckedAtUtc = DateTime.UtcNow
             });
         }
@@ -6568,6 +6573,60 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             return action.Value ?? (action.Result as ObjectResult)?.Value as T;
         }
+
+        private static IReadOnlyList<HueTargetDiagnosticsDuplicateMappingGroup> BuildTargetDiagnosticsDuplicateMappingGroups(
+            PluginConfiguration config)
+            => (config.UserMappings ?? new List<UserBridgeMapping>())
+                .Where(mapping => mapping != null && !string.IsNullOrWhiteSpace(mapping.UserId))
+                .Cast<UserBridgeMapping>()
+                .GroupBy(mapping => PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId), StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1)
+                .Select(group =>
+                {
+                    var mappings = group
+                        .OrderBy(mapping => mapping.MappingId, StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                    return new HueTargetDiagnosticsDuplicateMappingGroup
+                    {
+                        UserId = group.Key,
+                        MappingCount = mappings.Length,
+                        EnabledMappingCount = mappings.Count(mapping => mapping.SyncEnabled),
+                        MappingIds = mappings
+                            .Select(mapping => mapping.MappingId?.Trim() ?? string.Empty)
+                            .Where(mappingId => !string.IsNullOrWhiteSpace(mappingId))
+                            .ToArray(),
+                        UserNames = mappings
+                            .Select(mapping => mapping.UserName?.Trim() ?? string.Empty)
+                            .Where(userName => !string.IsNullOrWhiteSpace(userName))
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToArray()
+                    };
+                })
+                .OrderBy(group => group.UserId, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+        private static HueTargetDiagnostic BuildAmbiguousTargetDiagnostic(HueTarget target)
+            => new()
+            {
+                Scope = target.Scope,
+                UserId = target.UserId,
+                UserName = target.UserName,
+                DeviceId = target.DeviceId,
+                DeviceName = target.DeviceName,
+                SyncEnabled = target.SyncEnabled,
+                InheritsDefaultBridge = target.InheritsDefaultBridge,
+                BridgeIp = target.BridgeIp,
+                EntertainmentAreaId = target.AreaId,
+                EntertainmentAreaName = target.AreaName,
+                HasAppKey = !string.IsNullOrWhiteSpace(target.AppKey),
+                HasClientKey = !string.IsNullOrWhiteSpace(target.ClientKey),
+                ConfigurationValid = false,
+                BridgeReachable = false,
+                AreaFound = false,
+                ChannelProfileValid = false,
+                Ready = false,
+                Status = "The Jellyfin user has multiple mapping rows; resolve duplicate mappings before bridge validation."
+            };
 
         /// <summary>
         /// Requests cancellation for active non-mutating administrator diagnostics. The
@@ -13466,7 +13525,22 @@ namespace Jellyfin.Plugin.Hue.Api
         public int TargetCount { get; init; }
         public int ReadyTargetCount { get; init; }
         public IReadOnlyList<HueTargetDiagnostic> Targets { get; init; } = Array.Empty<HueTargetDiagnostic>();
+        public IReadOnlyList<HueTargetDiagnosticsDuplicateMappingGroup> DuplicateMappingGroups { get; init; } = Array.Empty<HueTargetDiagnosticsDuplicateMappingGroup>();
         public DateTime CheckedAtUtc { get; init; }
+    }
+
+    /// <summary>
+    /// Credential-free summary of one Jellyfin user whose persisted mapping rows are
+    /// ambiguous. Target diagnostics report these groups even when every duplicate row is
+    /// disabled, so an administrator cannot mistake hidden rows for a ready configuration.
+    /// </summary>
+    public sealed class HueTargetDiagnosticsDuplicateMappingGroup
+    {
+        public string UserId { get; init; } = string.Empty;
+        public int MappingCount { get; init; }
+        public int EnabledMappingCount { get; init; }
+        public IReadOnlyList<string> MappingIds { get; init; } = Array.Empty<string>();
+        public IReadOnlyList<string> UserNames { get; init; } = Array.Empty<string>();
     }
 
     /// <summary>

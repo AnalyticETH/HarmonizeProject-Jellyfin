@@ -9771,6 +9771,148 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task TargetDiagnostics_BlocksEnabledAndDisabledDuplicateBeforeBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "duplicate-enabled",
+                    UserId = "duplicate-user",
+                    UserName = "Enabled row",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.111",
+                    HueAppKey = "enabled-app-secret",
+                    HueClientKey = "enabled-client-secret",
+                    EntertainmentAreaId = "area-enabled"
+                },
+                new()
+                {
+                    MappingId = "duplicate-disabled",
+                    UserId = "duplicate-user",
+                    UserName = "Disabled row",
+                    SyncEnabled = false
+                }
+            }
+        });
+
+        var action = await CreateController().GetTargetDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueTargetDiagnosticsResult>(response.Value);
+        var group = Assert.Single(diagnostics.DuplicateMappingGroups);
+        Assert.Equal("duplicate-user", group.UserId);
+        Assert.Equal(2, group.MappingCount);
+        Assert.Equal(1, group.EnabledMappingCount);
+        Assert.Equal(2, group.MappingIds.Count);
+        var target = Assert.Single(diagnostics.Targets);
+        Assert.False(diagnostics.AllTargetsReady);
+        Assert.False(target.Ready);
+        Assert.Contains("multiple mapping rows", target.Status, StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+
+        var serialized = JsonSerializer.Serialize(diagnostics);
+        Assert.DoesNotContain("enabled-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("enabled-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TargetDiagnostics_BlocksTwoEnabledDuplicatesBeforeBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "duplicate-first",
+                    UserId = "duplicate-user",
+                    UserName = "First room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.111",
+                    HueAppKey = "first-app-secret",
+                    HueClientKey = "first-client-secret",
+                    EntertainmentAreaId = "area-first"
+                },
+                new()
+                {
+                    MappingId = "duplicate-second",
+                    UserId = "duplicate-user",
+                    UserName = "Second room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.112",
+                    HueAppKey = "second-app-secret",
+                    HueClientKey = "second-client-secret",
+                    EntertainmentAreaId = "area-second"
+                }
+            }
+        });
+
+        var action = await CreateController().GetTargetDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueTargetDiagnosticsResult>(response.Value);
+        var group = Assert.Single(diagnostics.DuplicateMappingGroups);
+        Assert.Equal(2, group.MappingCount);
+        Assert.Equal(2, group.EnabledMappingCount);
+        Assert.Equal(2, diagnostics.Targets.Count);
+        Assert.Equal(0, diagnostics.ReadyTargetCount);
+        Assert.False(diagnostics.AllTargetsReady);
+        Assert.All(diagnostics.Targets, target =>
+        {
+            Assert.False(target.Ready);
+            Assert.Contains("multiple mapping rows", target.Status, StringComparison.OrdinalIgnoreCase);
+        });
+        _httpHandlerMock.VerifyNoOtherCalls();
+
+        var serialized = JsonSerializer.Serialize(diagnostics);
+        Assert.DoesNotContain("first-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("first-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("second-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("second-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TargetDiagnostics_ReportsAllDisabledDuplicateGroupWithoutBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "duplicate-disabled-a",
+                    UserId = "duplicate-user",
+                    UserName = "Disabled A",
+                    SyncEnabled = false
+                },
+                new()
+                {
+                    MappingId = "duplicate-disabled-b",
+                    UserId = "duplicate-user",
+                    UserName = "Disabled B",
+                    SyncEnabled = false
+                }
+            }
+        });
+
+        var action = await CreateController().GetTargetDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueTargetDiagnosticsResult>(response.Value);
+        var group = Assert.Single(diagnostics.DuplicateMappingGroups);
+        Assert.Equal(2, group.MappingCount);
+        Assert.Equal(0, group.EnabledMappingCount);
+        Assert.Empty(diagnostics.Targets);
+        Assert.True(diagnostics.HasConfiguredTargets);
+        Assert.False(diagnostics.AllTargetsReady);
+        Assert.Equal(0, diagnostics.ReadyTargetCount);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task TargetDiagnostics_ValidatesDefaultInheritedAndCustomTargetsWithoutSecrets()
     {
         InstallConfiguration(new PluginConfiguration

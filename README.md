@@ -254,7 +254,7 @@ credential-safe migration.
 | `GET /HueSync/History/ExportCsv?limit=25&outcome=Error` | Download the same filtered completed-session history as credential-free UTF-8 CSV with playback quality counters, timestamps, target metadata, errors, and cleanup warnings. |
 | `DELETE /HueSync/History` | Clear retained completed-session summaries and the status API's last-session pointer without stopping active playback. |
 | `GET /HueSync/Diagnostics` | Run a non-mutating, cancellation-aware local prerequisite check for configuration validity, FFmpeg version, managed DTLS readiness, bounded PCM audio capture, bridge lifecycle contention, and playback/diagnostic readiness. The credential-safe result includes the compatibility-shaped managed `OpenSsl` status, `AudioCapture`, and `AudioCaptureRequired`; no bridge credentials or raw process output are returned. |
-| `GET /HueSync/TargetDiagnostics` | Validate every saved default, inherited, and enabled custom bridge target without mutating bridge state; reports reachability, selected-area presence, available and selected channel counts, stale channel-profile IDs, credential presence, and sanitized readiness messages. |
+| `GET /HueSync/TargetDiagnostics` | Validate every saved default, inherited, and enabled custom bridge target without mutating bridge state; reports reachability, selected-area presence, available and selected channel counts, stale channel-profile IDs, credential presence, and sanitized readiness messages. Credential-free `duplicateMappingGroups` includes stable row IDs, canonical user IDs/names, and enabled counts even when all duplicate rows are disabled; affected targets are blocked before bridge contact and `AllTargetsReady` remains false until each group is resolved. |
 | `GET /HueSync/Diagnostics/SupportBundle` | Collect a consolidated credential-safe support document containing local diagnostics, saved-target validation, runtime status, bounded playback and scheduled-cue history, scheduler status, and a support-specific redacted configuration export. Bridge keys, playback tokens, and custom FFmpeg flag values are omitted; private labels and media metadata may remain. The operation is cancellation-aware while target validation is running. |
 | `POST /HueSync/Diagnostics/Cancel` | Request cancellation of active non-mutating System Diagnostics or saved-target validation checks. The bounded response reports whether any operation was found; the canceled request still owns its normal process/network cleanup. |
 | `GET /HueSync/Configuration/Export` | Download a credential-safe JSON backup containing global settings, per-user profile fields, target labels, credential-presence flags, the session/cue-history retention preferences, the recurring-automation pause preference, saved scene effects and effect speeds, saved scene playlists with per-step duration/brightness/effect-speed/fade overrides, repeat counts, and `playbackOrder`, and recurring or one-time scene cues with optional direct-scene brightness overrides. Bridge credential values and persisted history entries are never included; custom FFmpeg flags are retained for migration and may contain sensitive paths or URLs, so review the backup before sharing. |
@@ -448,7 +448,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.281 (Current)
+### Version 1.5.282 (Current)
+- **Honest target diagnostics**: saved-target validation now reports credential-free duplicate mapping groups, blocks affected rows before bridge contact, and prevents the administrator UI from displaying an all-ready result while any duplicate group remains unresolved.
+
+### Version 1.5.281
 - **Fail-closed current-light capture**: direct, selected-route, and all-target diagnostic capture rejects ambiguous duplicate Jellyfin-user mappings before resolving credentials or contacting a bridge.
 
 ### Version 1.5.280

@@ -131,6 +131,7 @@
                     <div id="diagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Run diagnostics to verify FFmpeg, PCM audio capture, managed DTLS, and saved configuration.</div>
                     <div id="diagnosticsErrors" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
                     <div id="targetDiagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Validate saved default and per-user bridge targets to confirm that each selected area still has controllable channels and that saved channel profiles contain only IDs available in that area.</div>
+                    <div id="targetDiagnosticsDuplicateMappings" class="fieldDescription" role="status" aria-live="polite" style="display: none; color: #f0ad4e; margin-top: 0.5em;"></div>
                     <div id="targetDiagnosticsTable" style="margin-top: 0.5em; overflow-x: auto;"></div>
                 </fieldset>
                 <fieldset class="verticalSection" id="configurationPortabilitySection">
@@ -9622,9 +9623,30 @@
                         targets = Array.isArray(targets) ? targets : [];
                         var allReady = HueConfigurationPage.readStatusField(diagnostics, "AllTargetsReady", false);
                         var readyCount = HueConfigurationPage.readStatusField(diagnostics, "ReadyTargetCount", 0);
+                        var duplicateGroups = HueConfigurationPage.readStatusField(diagnostics, "DuplicateMappingGroups", []);
+                        duplicateGroups = Array.isArray(duplicateGroups) ? duplicateGroups : [];
+                        var duplicateWarning = page.querySelector('#targetDiagnosticsDuplicateMappings');
+                        if (duplicateWarning) {
+                            if (duplicateGroups.length > 0) {
+                                var duplicateLabels = duplicateGroups.map(function (group) {
+                                    var names = HueConfigurationPage.readStatusField(group, "UserNames", []);
+                                    names = Array.isArray(names) ? names : [];
+                                    var userId = HueConfigurationPage.readStatusField(group, "UserId", "user mapping");
+                                    return names.length > 0 ? names.join(" / ") : userId;
+                                });
+                                duplicateWarning.textContent = "Resolve " + String(duplicateGroups.length) + " duplicate user-mapping group(s) before target diagnostics can be ready: " + duplicateLabels.join(", ") + ".";
+                                duplicateWarning.style.display = "block";
+                            } else {
+                                duplicateWarning.textContent = "";
+                                duplicateWarning.style.display = "none";
+                            }
+                        }
 
                         if (message) {
-                            if (targets.length === 0) {
+                            if (duplicateGroups.length > 0) {
+                                message.textContent = "Duplicate user mappings are blocked from bridge validation; resolve them before relying on saved-target readiness.";
+                                message.style.color = "#f0ad4e";
+                            } else if (targets.length === 0) {
                                 message.textContent = "No default or enabled per-user bridge targets are configured.";
                                 message.style.color = "#f0ad4e";
                             } else {

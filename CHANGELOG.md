@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.282] - 2026-08-25
+
+### Diagnostics safety
+- **Honest saved-target readiness**: target diagnostics now return credential-free duplicate mapping groups, including all-disabled groups, block affected bridge checks before contacting Hue, and keep `AllTargetsReady` false until every duplicate group is resolved.
+- **Administrator warning**: the configuration page shows an amber duplicate-group warning instead of reporting all saved targets as ready.
+- **Regression coverage**: verify enabled/disabled, multiple-enabled, and all-disabled duplicate groups without bridge requests or credential leakage.
+
 ## [1.5.281] - 2026-08-25
 
 ### Diagnostics safety
