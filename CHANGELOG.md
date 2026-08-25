@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.299] - 2026-08-25
+
+### Capacity and report lifecycle safety
+- **Bounded mapping saves**: the public user-mapping endpoint now rejects a new 101st row before configuration assignment or persistence while allowing safe edits at the exact limit.
+- **Scheduled-cue lifecycle protection**: status, conflict, occurrence, and history loaders ignore superseded responses, and conflict JSON exports preserve the current report scope across navigation and filter changes.
+- **Regression coverage**: capacity, no-mutation, exact-limit update, and administrator lifecycle contracts cover the new paths.
+
 ## [1.5.298] - 2026-08-25
 
 ### Release reproducibility

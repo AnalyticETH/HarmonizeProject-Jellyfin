@@ -455,7 +455,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.298 (Current)
+### Version 1.5.299 (Current)
+- **Bounded mapping saves**: public user-mapping saves reject a new 101st row before assignment or persistence while exact-limit edits remain supported.
+- **Scheduled-cue lifecycle safety**: runtime status, conflicts, occurrences, history, and conflict-report export requests cancel superseded work and ignore stale responses or filter scopes.
+- **Regression contracts**: mapping capacity and administrator report lifecycle checks preserve no-mutation and credential-free behavior.
+
+### Version 1.5.298
 - **Reproducible releases**: CI and both local release helpers use the same deterministic packager with canonical entry order, fixed timestamps/metadata, and fixed DEFLATE settings.
 - **Package determinism gate**: release validation proves identical staged bytes produce identical archive hashes despite source order and mtimes, then verifies the strict checksum sidecar.
 

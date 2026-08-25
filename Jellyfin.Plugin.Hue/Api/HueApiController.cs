@@ -9889,6 +9889,15 @@ namespace Jellyfin.Plugin.Hue.Api
                     PluginConfiguration.AreSameJellyfinUserId(existing.UserId, mapping.UserId));
             }
             candidateMappings.Add(mapping);
+            if (candidateMappings.Count > PluginConfiguration.MaxUserMappings)
+            {
+                return BadRequest(new
+                {
+                    message = $"No more than {PluginConfiguration.MaxUserMappings} user mappings may be saved.",
+                    errors = new[] { $"No more than {PluginConfiguration.MaxUserMappings} user mappings may be saved" }
+                });
+            }
+
             PluginConfiguration.EnsureUserMappingIds(candidateMappings);
             config.UserMappings = candidateMappings;
 

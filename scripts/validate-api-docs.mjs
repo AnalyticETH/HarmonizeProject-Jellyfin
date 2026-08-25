@@ -288,6 +288,17 @@ for (const marker of [
 }
 
 for (const marker of [
+    "var candidateMappings = previousMappings",
+    "candidateMappings.Add(mapping);",
+    "candidateMappings.Count > PluginConfiguration.MaxUserMappings",
+    "No more than {PluginConfiguration.MaxUserMappings} user mappings may be saved."
+]) {
+    if (!controller.includes(marker)) {
+        throw new Error(`Hue API user-mapping save capacity guard is missing source marker: ${marker}`);
+    }
+}
+
+for (const marker of [
     "var importedMappings = request.UserMappings ?? new List<UserBridgeMappingImport>();",
     "importedMappings.Count > PluginConfiguration.MaxUserMappings",
     "No more than {PluginConfiguration.MaxUserMappings} user mappings may be imported."

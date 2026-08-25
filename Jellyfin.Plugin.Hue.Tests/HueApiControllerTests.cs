@@ -653,6 +653,71 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMappingJsonRequest_RejectsNewMappingAtMaximumCapacityWithoutMutation()
+    {
+        var mappings = Enumerable.Range(0, PluginConfiguration.MaxUserMappings)
+            .Select(index => new UserBridgeMapping
+            {
+                MappingId = $"mapping-{index}",
+                UserId = Guid.NewGuid().ToString("D"),
+                UserName = $"Viewer {index}",
+                SyncEnabled = false
+            })
+            .ToList();
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = mappings
+        });
+        var previousMappings = configuration.UserMappings;
+        var newUserId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>(
+            "{\"UserId\":\"" + newUserId + "\",\"UserName\":\"Rejected Viewer\",\"SyncEnabled\":false}")!;
+
+        var action = CreateController().SaveUserMapping(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Contains(
+            $"No more than {PluginConfiguration.MaxUserMappings} user mappings may be saved",
+            JsonSerializer.Serialize(response.Value),
+            StringComparison.Ordinal);
+        Assert.Same(previousMappings, configuration.UserMappings);
+        Assert.Equal(PluginConfiguration.MaxUserMappings, configuration.UserMappings.Count);
+        Assert.DoesNotContain(configuration.UserMappings, mapping => mapping.UserId == newUserId);
+    }
+
+    [Fact]
+    public void SaveUserMappingJsonRequest_UpdatesExistingMappingAtMaximumCapacity()
+    {
+        var mappings = Enumerable.Range(0, PluginConfiguration.MaxUserMappings)
+            .Select(index => new UserBridgeMapping
+            {
+                MappingId = $"mapping-{index}",
+                UserId = Guid.NewGuid().ToString("D"),
+                UserName = $"Viewer {index}",
+                SyncEnabled = false
+            })
+            .ToList();
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = mappings
+        });
+        var existing = configuration.UserMappings[0];
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>(
+            "{\"MappingId\":\"" + existing.MappingId + "\",\"UserId\":\"" + existing.UserId + "\",\"UserName\":\"Updated Viewer\",\"SyncEnabled\":false}")!;
+
+        var action = CreateController().SaveUserMapping(request);
+
+        Assert.IsType<OkObjectResult>(action);
+        Assert.Equal(PluginConfiguration.MaxUserMappings, configuration.UserMappings.Count);
+        var updated = Assert.Single(configuration.UserMappings, mapping => mapping.MappingId == existing.MappingId);
+        Assert.Equal("Updated Viewer", updated.UserName);
+        Assert.Equal(
+            PluginConfiguration.MaxUserMappings,
+            configuration.UserMappings.Select(mapping => mapping.MappingId).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
     public async Task DiscoverBridge_ReturnsDiscoveredAddress()
     {
         SetupHttpResponse(HttpStatusCode.OK, "[{\"internalipaddress\":\"192.168.1.100\"}]");

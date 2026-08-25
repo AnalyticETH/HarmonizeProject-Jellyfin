@@ -458,6 +458,7 @@ const requiredScript = [
     "targetOutcomeText",
     "downloadJsonDocument: function",
     "exportSceneScheduleConflicts: function",
+    "sceneScheduleConflictsExport",
     "exportSceneScheduleOccurrences: function",
     "url += \"&scheduleId=\"",
     "days=\" + String(horizonDays)",
@@ -693,6 +694,63 @@ for (const functionName of [
     }
 }
 
+for (const [functionName, requestKey, loadingProperty, queryMarker] of [
+    ["loadSceneScheduleRuntimeStatus", "sceneScheduleRuntimeStatus", "_hueSceneScheduleRuntimeStatusLoading", ""],
+    ["loadSceneScheduleConflicts", "sceneScheduleConflicts", "_hueSceneScheduleConflictsLoading", "getSceneScheduleConflictQuery(page)"],
+    ["loadSceneScheduleOccurrences", "sceneScheduleOccurrences", "_hueSceneScheduleOccurrencesLoading", "getSceneScheduleOccurrenceQuery(page)"],
+    ["loadSceneScheduleHistory", "sceneScheduleHistory", "_hueSceneScheduleHistoryLoading", "historyUrl"]
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration",
+        `cancelPageLifecycleRequest(page, '${requestKey}')`,
+        "isPageLifecycleCurrent(page, pageGeneration)",
+        "getPageLifecycleRequest",
+        "isPageLifecycleRequestCurrent(page, pageGeneration",
+        `${loadingProperty} = true`,
+        `${loadingProperty} = false`,
+        "if (!isCurrent()) return;"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing scheduled-cue lifecycle protection: ${marker}`);
+        }
+    }
+    if (queryMarker && !functionBody.includes(queryMarker)) {
+        throw new Error(`${file} ${functionName} must preserve its report filter scope`);
+    }
+    const staleGuards = functionBody.match(/if \(!isCurrent\(\)\) return;/g) || [];
+    if (staleGuards.length < 3) {
+        throw new Error(`${file} ${functionName} must guard success, catch, and finally callbacks`);
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("exportSceneScheduleConflicts: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration",
+        "cancelPageLifecycleRequest(page, 'sceneScheduleConflictsExport')",
+        "getSceneScheduleConflictQuery(page)",
+        "getPageLifecycleRequest",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, request)",
+        "currentQuery.url === scheduleQuery.url",
+        "if (!isCurrent()) return;",
+        "downloadJsonDocument(report, \"jellyfin-hue-scene-schedule-conflicts.json\")",
+        "if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} exportSceneScheduleConflicts is missing query-scoped lifecycle protection: ${marker}`);
+        }
+    }
+    const staleGuards = functionBody.match(/if \(!isCurrent\(\)/g) || [];
+    if (staleGuards.length < 3) {
+        throw new Error(`${file} exportSceneScheduleConflicts must guard success, catch, and finally callbacks`);
+    }
+}
+
 {
     const start = scriptMatch[1].indexOf("invalidatePageLifecycle: function");
     const end = scriptMatch[1].indexOf("\n                },", start);
@@ -703,6 +761,11 @@ for (const functionName of [
         "page._huePageRequests = {}",
         "abortPageLifecycleRequest(requests[key])",
         "page._hueSessionHistoryLoading = false",
+        "page._hueSceneScheduleRuntimeStatusLoading = false",
+        "page._hueSceneScheduleConflictsLoading = false",
+        "page._hueSceneScheduleConflictsExporting = false",
+        "page._hueSceneScheduleOccurrencesLoading = false",
+        "page._hueSceneScheduleHistoryLoading = false",
         "page._hueDiagnosticsLoading = false",
         "page._hueTargetDiagnosticsLoading = false",
         "page._hueDiagnosticsRequest = null",
@@ -885,7 +948,7 @@ for (const functionName of ["loadEnvironmentDiagnostics", "loadTargetDiagnostics
     }
 }
 
-for (const functionName of ["exportSceneScheduleConflicts", "exportSceneScheduleOccurrences"]) {
+for (const functionName of ["exportSceneScheduleOccurrences"]) {
     const start = scriptMatch[1].indexOf(`${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";

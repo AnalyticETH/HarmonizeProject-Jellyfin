@@ -2374,6 +2374,11 @@
                         HueConfigurationPage.abortPageLifecycleRequest(requests[key]);
                     });
                     page._hueSessionHistoryLoading = false;
+                    page._hueSceneScheduleRuntimeStatusLoading = false;
+                    page._hueSceneScheduleConflictsLoading = false;
+                    page._hueSceneScheduleConflictsExporting = false;
+                    page._hueSceneScheduleOccurrencesLoading = false;
+                    page._hueSceneScheduleHistoryLoading = false;
                     page._hueDiagnosticsLoading = false;
                     page._hueTargetDiagnosticsLoading = false;
                     page._hueDiagnosticsRequest = null;
@@ -7172,10 +7177,10 @@
                     });
                 },
                 loadSceneScheduleRuntimeStatus: function (page) {
-                    if (!page || page._hueSceneScheduleRuntimeStatusLoading) {
-                        return Promise.resolve();
-                    }
-
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleRuntimeStatus');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleRuntimeStatusLoading = true;
                     var button = page.querySelector('#refreshSceneScheduleStatusBtn');
                     var summary = page.querySelector('#sceneScheduleRuntimeStatusSummary');
@@ -7183,7 +7188,16 @@
                     if (button) button.disabled = true;
                     if (summary) summary.textContent = "Loading scheduler status...";
 
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/SceneSchedules/Status")).then(function (response) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleRuntimeStatus',
+                        ApiClient.getUrl("HueSync/SceneSchedules/Status"));
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         var serviceAvailable = HueConfigurationPage.readStatusField(response, "ServiceAvailable", false);
                         var automationEnabled = HueConfigurationPage.readStatusField(response, "AutomationEnabled", true) !== false;
                         var catchUpMinutes = Number(HueConfigurationPage.readStatusField(response, "CatchUpMinutes", 0) || 0);
@@ -7403,6 +7417,7 @@
                         table.appendChild(body);
                         container.appendChild(table);
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to load scheduled cue status:", err);
                         if (summary) {
                             summary.textContent = "Unable to read scheduler status. Check the server log.";
@@ -7410,6 +7425,7 @@
                         }
                         if (container) container.textContent = "";
                     }).finally(function () {
+                        if (!isCurrent()) return;
                         page._hueSceneScheduleRuntimeStatusLoading = false;
                         if (button) button.disabled = false;
                         HueConfigurationPage.loadSceneScheduleConflicts(page);
@@ -7484,10 +7500,10 @@
                     });
                 },
                 loadSceneScheduleConflicts: function (page) {
-                    if (!page || page._hueSceneScheduleConflictsLoading) {
-                        return Promise.resolve();
-                    }
-
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleConflicts');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleConflictsLoading = true;
                     var button = page.querySelector('#refreshSceneScheduleConflictsBtn');
                     var summary = page.querySelector('#sceneScheduleConflictsSummary');
@@ -7502,7 +7518,16 @@
                     var conflictsUrl = conflictQuery.url;
                     var selectedScheduleLabel = conflictQuery.label;
 
-                    return ApiClient.getJSON(ApiClient.getUrl(conflictsUrl)).then(function (response) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleConflicts',
+                        ApiClient.getUrl(conflictsUrl));
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         var conflicts = HueConfigurationPage.readStatusField(response, "Conflicts", []);
                         conflicts = Array.isArray(conflicts) ? conflicts : [];
                         var horizonDays = Number(HueConfigurationPage.readStatusField(response, "HorizonDays", 31) || 31);
@@ -7575,6 +7600,7 @@
                         table.appendChild(body);
                         container.appendChild(table);
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to load scheduled cue conflicts:", err);
                         if (summary) {
                             summary.textContent = "Unable to check schedule conflicts. Check the server log.";
@@ -7582,31 +7608,56 @@
                         }
                         if (container) container.textContent = "";
                     }).finally(function () {
+                        if (!isCurrent()) return;
                         page._hueSceneScheduleConflictsLoading = false;
                         if (button) button.disabled = false;
                     });
                 },
                 exportSceneScheduleConflicts: function (page) {
                     if (!page || page._hueSceneScheduleConflictsExporting) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleConflictsExport');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleConflictsExporting = true;
                     var button = page.querySelector('#exportSceneScheduleConflictsBtn');
                     var summary = page.querySelector('#sceneScheduleConflictsSummary');
                     if (button) button.disabled = true;
                     var scheduleQuery = HueConfigurationPage.getSceneScheduleConflictQuery(page);
                     var scopeText = scheduleQuery.label ? " for " + scheduleQuery.label : "";
-                    return ApiClient.getJSON(ApiClient.getUrl(scheduleQuery.url)).then(function (report) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleConflictsExport',
+                        ApiClient.getUrl(scheduleQuery.url),
+                        null,
+                        scheduleQuery.url);
+                    var isCurrent = function () {
+                        var currentQuery = HueConfigurationPage.getSceneScheduleConflictQuery(page);
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request) &&
+                            currentQuery.url === scheduleQuery.url;
+                    };
+                    return request.then(function (report) {
+                        if (!isCurrent()) return;
                         HueConfigurationPage.downloadJsonDocument(report, "jellyfin-hue-scene-schedule-conflicts.json");
                         if (summary) {
                             summary.textContent = "Conflict report exported" + scopeText + " for the next " + String(scheduleQuery.horizonDays) + " days. Credential values were omitted.";
                             summary.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to export scheduled cue conflicts:", err);
                         if (summary) {
                             summary.textContent = "Unable to export the conflict report. Check the server log.";
                             summary.style.color = "#d9534f";
                         }
                     }).finally(function () {
+                        if (!isCurrent()) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
+                            page._hueSceneScheduleConflictsExporting = false;
+                            if (button) button.disabled = false;
+                            HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleConflictsExport');
+                            return;
+                        }
                         page._hueSceneScheduleConflictsExporting = false;
                         if (button) button.disabled = false;
                     });
@@ -7641,10 +7692,10 @@
                     });
                 },
                 loadSceneScheduleOccurrences: function (page) {
-                    if (!page || page._hueSceneScheduleOccurrencesLoading) {
-                        return Promise.resolve();
-                    }
-
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleOccurrences');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleOccurrencesLoading = true;
                     var button = page.querySelector('#refreshSceneScheduleOccurrencesBtn');
                     var summary = page.querySelector('#sceneScheduleOccurrencesSummary');
@@ -7660,7 +7711,16 @@
                     var selectedScheduleLabel = occurrenceQuery.label;
                     var scopeText = selectedScheduleLabel ? " for " + selectedScheduleLabel : "";
 
-                    return ApiClient.getJSON(ApiClient.getUrl(occurrencesUrl)).then(function (response) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleOccurrences',
+                        ApiClient.getUrl(occurrencesUrl));
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         var occurrences = HueConfigurationPage.readStatusField(response, "Occurrences", []);
                         occurrences = Array.isArray(occurrences) ? occurrences : [];
                         var horizonDays = HueConfigurationPage.readStatusField(response, "HorizonDays", 31);
@@ -7790,6 +7850,7 @@
                         table.appendChild(body);
                         container.appendChild(table);
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to load upcoming scheduled cue occurrences:", err);
                         if (summary) {
                             summary.textContent = "Unable to preview upcoming cues. Check the server log.";
@@ -7797,6 +7858,7 @@
                         }
                         if (container) container.textContent = "";
                     }).finally(function () {
+                        if (!isCurrent()) return;
                         page._hueSceneScheduleOccurrencesLoading = false;
                         if (button) button.disabled = false;
                     });
@@ -7898,10 +7960,10 @@
                     });
                 },
                 loadSceneScheduleHistory: function (page) {
-                    if (!page || page._hueSceneScheduleHistoryLoading) {
-                        return Promise.resolve();
-                    }
-
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistory');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleHistoryLoading = true;
                     var refreshButton = page.querySelector('#refreshSceneScheduleHistoryBtn');
                     var exportButton = page.querySelector('#exportSceneScheduleHistoryBtn');
@@ -7926,7 +7988,16 @@
                         ? cueFilter.options[cueFilter.selectedIndex].textContent
                         : '';
                     var scopeText = selectedScheduleLabel ? " · " + selectedScheduleLabel : '';
-                    return ApiClient.getJSON(ApiClient.getUrl(historyUrl)).then(function (response) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleHistory',
+                        ApiClient.getUrl(historyUrl));
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         var runs = HueConfigurationPage.readStatusField(response, "Runs", []);
                         runs = Array.isArray(runs) ? runs : [];
                         var serviceAvailable = HueConfigurationPage.readStatusField(response, "ServiceAvailable", false);
@@ -8065,6 +8136,7 @@
                         table.appendChild(body);
                         container.appendChild(table);
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to load scheduled-cue history:", err);
                         if (status) {
                             status.textContent = "Unable to read cue history. Check the server log.";
@@ -8072,6 +8144,7 @@
                         }
                         if (container) container.textContent = "—";
                     }).finally(function () {
+                        if (!isCurrent()) return;
                         page._hueSceneScheduleHistoryLoading = false;
                         if (refreshButton) refreshButton.disabled = false;
                         if (exportButton) exportButton.disabled = false;
