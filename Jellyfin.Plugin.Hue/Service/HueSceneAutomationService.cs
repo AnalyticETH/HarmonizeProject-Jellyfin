@@ -2249,7 +2249,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PresetName = resolvedPresets[0].Name?.Trim() ?? string.Empty,
             TargetUserId = hasTargetOverride || effectiveIncludeDefaultTarget || effectiveTargetUserIds.Count > 0
                 ? string.Empty
-                : playlist.TargetAllEnabledMappings ? string.Empty : playlist.TargetUserId?.Trim() ?? string.Empty,
+                : playlist.TargetAllEnabledMappings ? string.Empty : PluginConfiguration.NormalizeJellyfinUserId(playlist.TargetUserId),
             TargetUserIds = effectiveTargetUserIds,
             IncludeDefaultTarget = effectiveIncludeDefaultTarget,
             TargetAllEnabledMappings = !hasTargetOverride && !effectiveIncludeDefaultTarget &&
@@ -3692,7 +3692,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ? new HueSceneAutomationTargetRoute()
                 : new HueSceneAutomationTargetRoute
                 {
-                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                     DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
                 })
             .ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>();
@@ -3716,7 +3716,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
         }
 
-        var targetUserId = targetUserIdValue?.Trim() ?? string.Empty;
+        var targetUserId = PluginConfiguration.NormalizeJellyfinUserId(targetUserIdValue);
         if (targetRoutes?.Any(route => route == null ||
                 string.IsNullOrWhiteSpace(route.UserId) ||
                 string.IsNullOrWhiteSpace(route.DeviceId)) == true)
@@ -3726,7 +3726,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         var selectedUserIds = (targetUserIds ?? Array.Empty<string>())
-            .Select(value => value?.Trim() ?? string.Empty)
+            .Select(PluginConfiguration.NormalizeJellyfinUserId)
             .ToArray();
         var selectedRoutes = NormalizeTargetRoutes(targetRoutes);
         if (selectedUserIds.Length + selectedRoutes.Count > PluginConfiguration.MaxSceneScheduleTargetMappings)
@@ -3776,7 +3776,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 seenTargets.Add(GetTargetIdentity(selectedGlobalTarget));
             }
 
-            var seenUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenUserIds = new List<string>();
             foreach (var selectedUserId in selectedUserIds)
             {
                 if (string.IsNullOrWhiteSpace(selectedUserId))
@@ -3785,17 +3785,19 @@ public sealed class HueSceneAutomationService : BackgroundService
                     return false;
                 }
 
-                if (!seenUserIds.Add(selectedUserId))
+                if (seenUserIds.Any(existing =>
+                        PluginConfiguration.AreSameJellyfinUserId(existing, selectedUserId)))
                 {
                     error = $"Selected scene cue targets contain user mapping '{selectedUserId}' more than once.";
                     return false;
                 }
+                seenUserIds.Add(selectedUserId);
 
                 if (!TryResolveSingleTarget(config, new HueSceneSchedule(), selectedUserId, null, out var selectedTarget, out var selectedError))
                 {
                     var mapping = config.UserMappings?.FirstOrDefault(candidate =>
                         candidate != null &&
-                        string.Equals(candidate.UserId?.Trim(), selectedUserId, StringComparison.OrdinalIgnoreCase));
+                        PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, selectedUserId));
                     var mappingLabel = mapping == null
                         ? selectedUserId
                         : GetMappingLabel(mapping);
@@ -3918,7 +3920,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
         }
 
-        var targetUserId = requestedTargetUserId?.Trim() ?? string.Empty;
+        var targetUserId = PluginConfiguration.NormalizeJellyfinUserId(requestedTargetUserId);
         var targetDeviceId = requestedTargetDeviceId?.Trim() ?? string.Empty;
         var bridgeIp = config.HueBridgeIp?.Trim() ?? string.Empty;
         var appKey = config.HueAppKey?.Trim() ?? string.Empty;
@@ -3932,7 +3934,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             var mapping = config.UserMappings?.FirstOrDefault(candidate =>
                 candidate != null &&
-                string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
+                PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, targetUserId));
             if (mapping == null)
             {
                 error = "The selected user mapping no longer exists.";
@@ -4049,7 +4051,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ? new HueSceneAutomationTargetRoute()
                 : new HueSceneAutomationTargetRoute
                 {
-                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                     DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
                 })
             .ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>();
@@ -4059,12 +4061,13 @@ public sealed class HueSceneAutomationService : BackgroundService
         public bool Equals(
             (string UserId, string DeviceId) left,
             (string UserId, string DeviceId) right)
-            => string.Equals(left.UserId, right.UserId, StringComparison.OrdinalIgnoreCase) &&
+            => PluginConfiguration.AreSameJellyfinUserId(left.UserId, right.UserId) &&
                string.Equals(left.DeviceId, right.DeviceId, StringComparison.Ordinal);
 
         public int GetHashCode((string UserId, string DeviceId) value)
             => HashCode.Combine(
-                StringComparer.OrdinalIgnoreCase.GetHashCode(value.UserId),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(
+                    PluginConfiguration.NormalizeJellyfinUserId(value.UserId)),
                 StringComparer.Ordinal.GetHashCode(value.DeviceId));
     }
 
@@ -4583,7 +4586,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     || schedule.IncludeDefaultTarget
                     || (schedule.TargetUserIds?.Count ?? 0) > 0
                     ? string.Empty
-                    : schedule.TargetUserId?.Trim() ?? string.Empty,
+                    : PluginConfiguration.NormalizeJellyfinUserId(schedule.TargetUserId),
                 TargetAllEnabledMappings = schedule.TargetAllEnabledMappings
             };
             var selectedTargetIds = schedule.IncludeDefaultTarget || (schedule.TargetUserIds?.Count ?? 0) > 0
@@ -5516,7 +5519,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetRoutes = result.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneScheduleTargetRoute
                 {
-                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                     DeviceId = route.DeviceId?.Trim() ?? string.Empty
                 }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
             IncludeDefaultTarget = result.IncludeDefaultTarget,
@@ -5720,7 +5723,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetRoutes = source.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneScheduleTargetRoute
                 {
-                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                     DeviceId = route.DeviceId?.Trim() ?? string.Empty
                 }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
             IncludeDefaultTarget = source.IncludeDefaultTarget,
@@ -5786,7 +5789,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetRoutes = entry.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneAutomationTargetRoute
                 {
-                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                     DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
                 }).ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>(),
             IncludeDefaultTarget = entry.IncludeDefaultTarget,
@@ -5831,7 +5834,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetRoutes = source.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneAutomationTargetRoute
                 {
-                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                     DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
                 }).ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>(),
             IncludeDefaultTarget = source.IncludeDefaultTarget,
@@ -5888,13 +5891,13 @@ public sealed class HueSceneAutomationService : BackgroundService
                 : $"{selectedTargetCount} selected target(s)";
         }
 
-        var targetUserId = schedule.TargetUserId?.Trim() ?? string.Empty;
+        var targetUserId = PluginConfiguration.NormalizeJellyfinUserId(schedule.TargetUserId);
         if (string.IsNullOrWhiteSpace(targetUserId))
             return "Default bridge target";
 
         var mapping = config?.UserMappings?.FirstOrDefault(candidate =>
             candidate != null &&
-            string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
+            PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, targetUserId));
         if (mapping == null)
             return "Missing user mapping";
 
@@ -6334,7 +6337,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetRoutes = source.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneScheduleTargetRoute
                 {
-                    UserId = route.UserId?.Trim() ?? string.Empty,
+                    UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                     DeviceId = route.DeviceId?.Trim() ?? string.Empty
                 }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
             TargetAllEnabledMappings = source.TargetAllEnabledMappings,

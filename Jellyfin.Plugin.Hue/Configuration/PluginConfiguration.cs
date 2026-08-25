@@ -589,6 +589,37 @@ namespace Jellyfin.Plugin.Hue.Configuration
     /// </summary>
     public class PluginConfiguration : BasePluginConfiguration
     {
+        /// <summary>
+        /// Returns a stable representation of a Jellyfin user ID for persisted target
+        /// references. Valid GUIDs are written in canonical D format; older malformed
+        /// identifiers are retained after trimming so validation remains fail-closed
+        /// without silently rewriting an opaque legacy value.
+        /// </summary>
+        public static string NormalizeJellyfinUserId(string? value)
+        {
+            var trimmed = value?.Trim() ?? string.Empty;
+            return Guid.TryParse(trimmed, out var parsed)
+                ? parsed.ToString("D")
+                : trimmed;
+        }
+
+        /// <summary>
+        /// Compares Jellyfin user IDs by GUID value when both sides are valid GUIDs,
+        /// including brace and N-format legacy values. Non-GUID values use the existing
+        /// case-insensitive textual comparison so malformed legacy data cannot broaden
+        /// into a match with a valid user ID.
+        /// </summary>
+        public static bool AreSameJellyfinUserId(string? left, string? right)
+        {
+            if (Guid.TryParse(left?.Trim(), out var leftGuid) &&
+                Guid.TryParse(right?.Trim(), out var rightGuid))
+            {
+                return leftGuid == rightGuid;
+            }
+
+            return string.Equals(left?.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
         public const string PauseBehaviorKeepLastColors = "KeepLastColors";
         public const string PauseBehaviorRestoreLightState = "RestoreLightState";
         public const string PauseBehaviorDimToCinemaLevel = "DimToCinemaLevel";
@@ -1770,7 +1801,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             var userIdText = userId.ToString();
             return UserMappings?.Find(mapping =>
                 mapping != null &&
-                string.Equals(mapping.UserId?.Trim(), userIdText, StringComparison.OrdinalIgnoreCase));
+                AreSameJellyfinUserId(mapping.UserId, userIdText));
         }
 
         /// <summary>
@@ -3022,25 +3053,26 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (targetUserIds.Count > MaxSceneScheduleTargetMappings)
                 errors.Add($"{label} may select no more than {MaxSceneScheduleTargetMappings} user mappings");
 
-            var seenTargetUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenTargetUserIds = new List<string>();
             for (var index = 0; index < targetUserIds.Count; index++)
             {
-                var selectedUserId = targetUserIds[index]?.Trim() ?? string.Empty;
+                var selectedUserId = NormalizeJellyfinUserId(targetUserIds[index]);
                 if (string.IsNullOrWhiteSpace(selectedUserId))
                 {
                     errors.Add($"{label} selected user mapping {index + 1} is required");
                     continue;
                 }
 
-                if (!seenTargetUserIds.Add(selectedUserId))
+                if (seenTargetUserIds.Any(existing => AreSameJellyfinUserId(existing, selectedUserId)))
                 {
                     errors.Add($"{label} selects user mapping {selectedUserId} more than once");
                     continue;
                 }
+                seenTargetUserIds.Add(selectedUserId);
 
                 var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
                     candidate != null &&
-                    string.Equals(candidate.UserId?.Trim(), selectedUserId, StringComparison.OrdinalIgnoreCase));
+                    AreSameJellyfinUserId(candidate.UserId, selectedUserId));
                 if (mapping == null)
                     errors.Add($"{label} references a selected user mapping that does not exist: {selectedUserId}");
                 else if (!mapping.SyncEnabled)
@@ -3060,7 +3092,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             {
                 var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
                     candidate != null &&
-                    string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
+                    AreSameJellyfinUserId(candidate.UserId, targetUserId));
                 if (mapping == null)
                     errors.Add($"{label} references a user mapping that does not exist");
                 else if (!mapping.SyncEnabled)
@@ -3383,36 +3415,37 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.Add($"{label} may select no more than {MaxSceneScheduleTargetMappings} target routes");
             }
 
-            var seenTargetUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenTargetUserIds = new List<string>();
             for (var index = 0; index < targetUserIds.Count; index++)
             {
-                var selectedUserId = targetUserIds[index]?.Trim() ?? string.Empty;
+                var selectedUserId = NormalizeJellyfinUserId(targetUserIds[index]);
                 if (string.IsNullOrWhiteSpace(selectedUserId))
                 {
                     errors.Add($"{label} selected user mapping {index + 1} is required");
                     continue;
                 }
 
-                if (!seenTargetUserIds.Add(selectedUserId))
+                if (seenTargetUserIds.Any(existing => AreSameJellyfinUserId(existing, selectedUserId)))
                 {
                     errors.Add($"{label} selects user mapping {selectedUserId} more than once");
                     continue;
                 }
+                seenTargetUserIds.Add(selectedUserId);
 
                 var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
                     candidate != null &&
-                    string.Equals(candidate.UserId?.Trim(), selectedUserId, StringComparison.OrdinalIgnoreCase));
+                    AreSameJellyfinUserId(candidate.UserId, selectedUserId));
                 if (mapping == null)
                     errors.Add($"{label} references a selected user mapping that does not exist: {selectedUserId}");
                 else if (!mapping.SyncEnabled)
                     errors.Add($"{label} references a disabled selected user mapping: {selectedUserId}");
             }
 
-            var seenTargetRoutes = new HashSet<(string UserId, string DeviceId)>();
+            var seenTargetRoutes = new List<(string UserId, string DeviceId)>();
             for (var index = 0; index < targetRoutes.Count; index++)
             {
                 var route = targetRoutes[index];
-                var routeUserId = route?.UserId?.Trim() ?? string.Empty;
+                var routeUserId = NormalizeJellyfinUserId(route?.UserId);
                 var routeDeviceId = route?.DeviceId?.Trim() ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(routeUserId) || string.IsNullOrWhiteSpace(routeDeviceId))
                 {
@@ -3420,15 +3453,18 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     continue;
                 }
 
-                if (!seenTargetRoutes.Add((routeUserId.ToUpperInvariant(), routeDeviceId)))
+                if (seenTargetRoutes.Any(existing =>
+                        AreSameJellyfinUserId(existing.UserId, routeUserId) &&
+                        string.Equals(existing.DeviceId, routeDeviceId, StringComparison.Ordinal)))
                 {
                     errors.Add($"{label} selects device route {routeUserId}/{routeDeviceId} more than once");
                     continue;
                 }
+                seenTargetRoutes.Add((routeUserId, routeDeviceId));
 
                 var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
                     candidate != null &&
-                    string.Equals(candidate.UserId?.Trim(), routeUserId, StringComparison.OrdinalIgnoreCase));
+                    AreSameJellyfinUserId(candidate.UserId, routeUserId));
                 if (mapping == null)
                 {
                     errors.Add($"{label} references a device route whose user mapping does not exist: {routeUserId}");
@@ -3462,7 +3498,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             {
                 var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
                     candidate != null &&
-                    string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
+                    AreSameJellyfinUserId(candidate.UserId, targetUserId));
                 if (mapping == null)
                     errors.Add($"{label} references a user mapping that does not exist");
                 else if (!mapping.SyncEnabled)
@@ -4124,7 +4160,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (UserMappings == null)
                 return;
 
-            var seenUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenUserIds = new List<string>();
             for (var index = 0; index < UserMappings.Count; index++)
             {
                 var mapping = UserMappings[index];
@@ -4162,9 +4198,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 {
                     errors.Add($"{label} requires a user ID");
                 }
-                else if (!seenUserIds.Add(mapping.UserId.Trim()))
+                else if (seenUserIds.Any(existing => AreSameJellyfinUserId(existing, mapping.UserId)))
                 {
                     errors.Add($"{label} duplicates another user mapping");
+                }
+                else
+                {
+                    seenUserIds.Add(mapping.UserId.Trim());
                 }
 
                 if (!mapping.SyncEnabled)

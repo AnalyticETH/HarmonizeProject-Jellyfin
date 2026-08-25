@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.269] - 2026-08-24
+
+### API hardening
+- **GUID-equivalent target references**: canonicalize schedule and playlist target user IDs during save/import and compare valid GUIDs by value across runtime resolution, mapping CRUD, dependency checks, and legacy brace/N-format routes while retaining fail-closed handling for malformed IDs.
+
+### UI and documentation
+- **Import target warning**: explain that stored bridge keys are preserved only for the same bridge target and that a changed target requires replacement keys or an explicit credential clear.
+
+### Tests
+- **Target compatibility coverage**: verify brace/N-format schedule routes import and execute, and legacy GUID mappings update/delete without duplicate records or lost credentials.
+
 ## [1.5.268] - 2026-08-24
 
 ### Security

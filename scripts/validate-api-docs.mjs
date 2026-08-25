@@ -77,8 +77,10 @@ const configurationImportRow = readme.split("\n").find(line => line.startsWith("
 if (!configurationImportRow ||
     !configurationImportRow.includes("valid Jellyfin user GUIDs") ||
     !configurationImportRow.includes("canonical D-format") ||
+    !configurationImportRow.includes("targetRoutes.userId") ||
+    !configurationImportRow.includes("legacy brace/N-format routes resolve") ||
     !configurationImportRow.includes("invalid documents leave the current configuration unchanged")) {
-    throw new Error("README.md configuration-import contract is missing GUID normalization and atomic rejection markers");
+    throw new Error("README.md configuration-import contract is missing GUID target normalization and atomic rejection markers");
 }
 
 for (const marker of [
@@ -102,7 +104,8 @@ if (!controller.includes("Guid.TryParse(mapping.UserId?.Trim(), out var parsedUs
 for (const marker of [
     "var hasValidUserId = Guid.TryParse(sourceUserId, out var parsedUserId)",
     "var normalizedUserId = hasValidUserId",
-    "AreSameJellyfinUserId(candidate.UserId, normalizedUserId)",
+    "PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, normalizedUserId)",
+    "TargetUserId = PluginConfiguration.NormalizeJellyfinUserId(TargetUserId)",
     "duplicates another imported user mapping",
     "user ID must be a valid Jellyfin user ID."
 ]) {

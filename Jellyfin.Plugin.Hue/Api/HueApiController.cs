@@ -209,7 +209,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 var deviceMapping = config?.UserMappings?.FirstOrDefault(candidate =>
                     candidate != null &&
                     !string.IsNullOrWhiteSpace(userId) &&
-                    string.Equals(candidate.UserId?.Trim(), userId.Trim(), StringComparison.OrdinalIgnoreCase));
+                    PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, userId));
                 var deviceTarget = deviceMapping?.DeviceTargets?.FirstOrDefault(candidate =>
                     candidate != null &&
                     string.Equals(candidate.DeviceId?.Trim(), normalizedDeviceId, StringComparison.Ordinal));
@@ -233,7 +233,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var mapping = config?.UserMappings?.FirstOrDefault(candidate =>
                 candidate != null &&
                 !string.IsNullOrWhiteSpace(userId) &&
-                string.Equals(candidate.UserId?.Trim(), userId.Trim(), StringComparison.OrdinalIgnoreCase));
+                PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, userId));
             if (mapping != null &&
                 !string.IsNullOrWhiteSpace(mapping.HueBridgeIp) &&
                 IsSameBridgeTarget(bridgeIp, mapping.HueBridgeIp))
@@ -295,12 +295,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, "Playback device discovery is temporarily unavailable.");
             }
 
-            var normalizedUserId = userId?.Trim();
+            var normalizedUserId = PluginConfiguration.NormalizeJellyfinUserId(userId);
             var devices = sessions
                 .Where(session => session != null &&
                     !string.IsNullOrWhiteSpace(session.DeviceId) &&
                     (string.IsNullOrWhiteSpace(normalizedUserId) ||
-                     string.Equals(session.UserId.ToString(), normalizedUserId, StringComparison.OrdinalIgnoreCase)))
+                     PluginConfiguration.AreSameJellyfinUserId(session.UserId.ToString(), normalizedUserId)))
                 .Select(session => new HuePlaybackDeviceSummary
                 {
                     UserId = session.UserId.ToString(),
@@ -334,12 +334,13 @@ namespace Jellyfin.Plugin.Hue.Api
         private sealed class PlaybackDeviceRouteKeyComparer : IEqualityComparer<(string UserId, string DeviceId)>
         {
             public bool Equals((string UserId, string DeviceId) left, (string UserId, string DeviceId) right)
-                => string.Equals(left.UserId, right.UserId, StringComparison.OrdinalIgnoreCase) &&
+                => PluginConfiguration.AreSameJellyfinUserId(left.UserId, right.UserId) &&
                    string.Equals(left.DeviceId, right.DeviceId, StringComparison.Ordinal);
 
             public int GetHashCode((string UserId, string DeviceId) value)
                 => HashCode.Combine(
-                    StringComparer.OrdinalIgnoreCase.GetHashCode(value.UserId),
+                    StringComparer.OrdinalIgnoreCase.GetHashCode(
+                        PluginConfiguration.NormalizeJellyfinUserId(value.UserId)),
                     StringComparer.Ordinal.GetHashCode(value.DeviceId));
         }
 
@@ -594,17 +595,17 @@ namespace Jellyfin.Plugin.Hue.Api
             HueScenePlaylist playlist,
             PluginConfiguration config)
         {
-            var targetUserId = playlist.TargetUserId?.Trim() ?? string.Empty;
+            var targetUserId = PluginConfiguration.NormalizeJellyfinUserId(playlist.TargetUserId);
             var targetUserIds = (playlist.TargetUserIds ?? new List<string>())
                 .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim())
+                .Select(PluginConfiguration.NormalizeJellyfinUserId)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             var mapping = string.IsNullOrWhiteSpace(targetUserId)
                 ? null
                 : config.UserMappings?.FirstOrDefault(candidate =>
                     candidate != null &&
-                    string.Equals(candidate.UserId?.Trim(), targetUserId, StringComparison.OrdinalIgnoreCase));
+                    PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, targetUserId));
             var targetLabel = playlist.TargetAllEnabledMappings
                 ? "All enabled targets"
                 : playlist.IncludeDefaultTarget || targetUserIds.Length > 0
@@ -727,8 +728,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 StepTransitionCurves = (playlist.StepTransitionCurves ?? new List<string?>()).ToList(),
                 RepeatCount = playlist.RepeatCount,
                 PlaybackOrder = playlist.PlaybackOrder,
-                TargetUserId = playlist.TargetUserId,
-                TargetUserIds = (playlist.TargetUserIds ?? new List<string>()).ToList(),
+                TargetUserId = PluginConfiguration.NormalizeJellyfinUserId(playlist.TargetUserId),
+                TargetUserIds = (playlist.TargetUserIds ?? new List<string>())
+                    .Select(PluginConfiguration.NormalizeJellyfinUserId)
+                    .ToList(),
                 IncludeDefaultTarget = playlist.IncludeDefaultTarget,
                 TargetAllEnabledMappings = playlist.TargetAllEnabledMappings
             };
@@ -799,7 +802,7 @@ namespace Jellyfin.Plugin.Hue.Api
             HueSceneSchedule schedule,
             PluginConfiguration config)
         {
-            var targetUserId = schedule.TargetUserId?.Trim() ?? string.Empty;
+            var targetUserId = PluginConfiguration.NormalizeJellyfinUserId(schedule.TargetUserId);
             var targetLabel = HueSceneAutomationService.ResolveTargetLabel(config, schedule);
             IReadOnlyList<string> excludedDates =
                 PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
@@ -863,12 +866,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserId = targetUserId,
                 TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                 TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                    .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                    .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                     ?? Array.Empty<string>(),
                 TargetRoutes = schedule.TargetRoutes?.Where(route => route != null)
                     .Select(route => new HueSceneScheduleTargetRoute
                     {
-                        UserId = route.UserId?.Trim() ?? string.Empty,
+                        UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                         DeviceId = route.DeviceId?.Trim() ?? string.Empty
                     }).ToArray() ?? Array.Empty<HueSceneScheduleTargetRoute>(),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
@@ -928,12 +931,14 @@ namespace Jellyfin.Plugin.Hue.Api
                 PlaylistName = schedule.PlaylistName,
                 Priority = schedule.Priority,
                 PlaybackPolicy = schedule.PlaybackPolicy,
-                TargetUserId = schedule.TargetUserId,
-                TargetUserIds = schedule.TargetUserIds?.ToList() ?? new List<string>(),
+                TargetUserId = PluginConfiguration.NormalizeJellyfinUserId(schedule.TargetUserId),
+                TargetUserIds = schedule.TargetUserIds?
+                    .Select(PluginConfiguration.NormalizeJellyfinUserId)
+                    .ToList() ?? new List<string>(),
                 TargetRoutes = schedule.TargetRoutes?.Where(route => route != null)
                     .Select(route => new HueSceneScheduleTargetRoute
                     {
-                        UserId = route.UserId?.Trim() ?? string.Empty,
+                        UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                         DeviceId = route.DeviceId?.Trim() ?? string.Empty
                     }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
@@ -6887,7 +6892,7 @@ namespace Jellyfin.Plugin.Hue.Api
             string targetUserId,
             string targetDeviceId = "")
         {
-            var normalizedUserId = targetUserId?.Trim() ?? string.Empty;
+            var normalizedUserId = PluginConfiguration.NormalizeJellyfinUserId(targetUserId);
             var normalizedDeviceId = targetDeviceId?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(normalizedUserId))
             {
@@ -6897,7 +6902,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             return EnumerateConfiguredTargets(config).FirstOrDefault(candidate =>
-                string.Equals(candidate.UserId, normalizedUserId, StringComparison.OrdinalIgnoreCase) &&
+                PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, normalizedUserId) &&
                 (string.IsNullOrWhiteSpace(normalizedDeviceId)
                     ? candidate.Scope == "User"
                     : candidate.Scope == "UserDevice" &&
@@ -6911,7 +6916,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     ? new HueSceneAutomationTargetRoute()
                     : new HueSceneAutomationTargetRoute
                     {
-                        UserId = route.UserId?.Trim() ?? string.Empty,
+                        UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                         DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
                     })
                 .ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>();
@@ -7198,12 +7203,13 @@ namespace Jellyfin.Plugin.Hue.Api
             public bool Equals(
                 (string UserId, string DeviceId) left,
                 (string UserId, string DeviceId) right)
-                => string.Equals(left.UserId, right.UserId, StringComparison.OrdinalIgnoreCase) &&
+                => PluginConfiguration.AreSameJellyfinUserId(left.UserId, right.UserId) &&
                    string.Equals(left.DeviceId, right.DeviceId, StringComparison.Ordinal);
 
             public int GetHashCode((string UserId, string DeviceId) value)
                 => HashCode.Combine(
-                    StringComparer.OrdinalIgnoreCase.GetHashCode(value.UserId),
+                    StringComparer.OrdinalIgnoreCase.GetHashCode(
+                        PluginConfiguration.NormalizeJellyfinUserId(value.UserId)),
                     StringComparer.Ordinal.GetHashCode(value.DeviceId));
         }
 
@@ -7587,7 +7593,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     : string.Empty;
                 var existing = hasValidUserId
                     ? existingMappings.FirstOrDefault(candidate =>
-                        AreSameJellyfinUserId(candidate.UserId, normalizedUserId))
+                        PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, normalizedUserId))
                     : null;
                 var imported = ToImportedMapping(source, existing, out var preservedCredentialPair);
                 if (hasValidUserId)
@@ -7937,7 +7943,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var mappings = CompareImportCollection(
                 existingMappings,
                 candidateMappings,
-                mapping => NormalizeJellyfinUserIdForComparison(mapping.UserId),
+                mapping => PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId),
                 AreEquivalentMapping);
             var presets = CompareImportCollection(
                 existingPresets,
@@ -8093,28 +8099,12 @@ namespace Jellyfin.Plugin.Hue.Api
             foreach (var imported in importedMappings)
             {
                 merged.RemoveAll(existing =>
-                    AreSameJellyfinUserId(existing.UserId, imported.UserId));
+                    PluginConfiguration.AreSameJellyfinUserId(existing.UserId, imported.UserId));
                 merged.Add(imported);
             }
 
             return merged;
         }
-
-        private static bool AreSameJellyfinUserId(string? left, string? right)
-        {
-            if (Guid.TryParse(left?.Trim(), out var leftGuid) &&
-                Guid.TryParse(right?.Trim(), out var rightGuid))
-            {
-                return leftGuid == rightGuid;
-            }
-
-            return string.Equals(left?.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static string NormalizeJellyfinUserIdForComparison(string? value)
-            => Guid.TryParse(value?.Trim(), out var parsedUserId)
-                ? parsedUserId.ToString("D")
-                : value?.Trim() ?? string.Empty;
 
         private static UserBridgeMapping ToImportedMapping(
             UserBridgeMappingImport source,
@@ -8401,7 +8391,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var normalizedUserId = userId.Trim();
             var mapping = config.UserMappings?.FirstOrDefault(candidate =>
                 candidate != null &&
-                string.Equals(candidate.UserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase));
+                PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, normalizedUserId));
             if (mapping == null)
                 return NotFound("Mapping not found for the specified user.");
 
@@ -8426,9 +8416,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 .ToArray();
             var playlists = (config.ScenePlaylists ?? new List<HueScenePlaylist>())
                 .Where(playlist => playlist != null &&
-                    (string.Equals(playlist.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase) ||
+                    (PluginConfiguration.AreSameJellyfinUserId(playlist.TargetUserId, normalizedUserId) ||
                      (playlist.TargetUserIds ?? new List<string>()).Any(targetUserId =>
-                         string.Equals(targetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase))))
+                         PluginConfiguration.AreSameJellyfinUserId(targetUserId, normalizedUserId))))
                 .Select(playlist => new HueUserMappingPlaylistDependencyResult
                 {
                     Id = playlist.Id?.Trim() ?? string.Empty,
@@ -8453,11 +8443,11 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         private static bool ScheduleReferencesUserMapping(HueSceneSchedule schedule, string userId)
-            => string.Equals(schedule.TargetUserId?.Trim(), userId, StringComparison.OrdinalIgnoreCase) ||
+            => PluginConfiguration.AreSameJellyfinUserId(schedule.TargetUserId, userId) ||
                (schedule.TargetUserIds ?? new List<string>()).Any(targetUserId =>
-                   string.Equals(targetUserId?.Trim(), userId, StringComparison.OrdinalIgnoreCase)) ||
+                   PluginConfiguration.AreSameJellyfinUserId(targetUserId, userId)) ||
                (schedule.TargetRoutes ?? new List<HueSceneScheduleTargetRoute>()).Any(route =>
-                   route != null && string.Equals(route.UserId?.Trim(), userId, StringComparison.OrdinalIgnoreCase));
+                   route != null && PluginConfiguration.AreSameJellyfinUserId(route.UserId, userId));
 
         private static string? GetUserMappingEnableValidationError(UserBridgeMapping mapping)
         {
@@ -8603,7 +8593,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("User ID is required.");
             }
 
-            mapping.UserId = mapping.UserId.Trim();
+            mapping.UserId = PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId);
 
             var overrideLabel = string.IsNullOrWhiteSpace(mapping.UserName)
                 ? "User mapping"
@@ -8649,9 +8639,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 schedule != null && ScheduleReferencesUserMapping(schedule, mapping.UserId.Trim())) ?? 0;
             var scenePlaylistCount = config.ScenePlaylists?.Count(playlist =>
                 playlist != null &&
-                (string.Equals(playlist.TargetUserId?.Trim(), mapping.UserId.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                (PluginConfiguration.AreSameJellyfinUserId(playlist.TargetUserId, mapping.UserId) ||
                  (playlist.TargetUserIds ?? new List<string>()).Any(targetUserId =>
-                     string.Equals(targetUserId?.Trim(), mapping.UserId.Trim(), StringComparison.OrdinalIgnoreCase)))) ?? 0;
+                     PluginConfiguration.AreSameJellyfinUserId(targetUserId, mapping.UserId)))) ?? 0;
             if ((scheduledCueCount > 0 || scenePlaylistCount > 0) && !mapping.SyncEnabled)
             {
                 return Conflict($"This user mapping is used by {scheduledCueCount} scheduled cue(s) and {scenePlaylistCount} saved playlist(s). Delete or update those targets before disabling the mapping.");
@@ -8660,7 +8650,7 @@ namespace Jellyfin.Plugin.Hue.Api
             config.UserMappings ??= new List<UserBridgeMapping>();
             var existingMapping = config.UserMappings.FirstOrDefault(existing =>
                 existing != null &&
-                string.Equals(existing.UserId?.Trim(), mapping.UserId, StringComparison.OrdinalIgnoreCase));
+                PluginConfiguration.AreSameJellyfinUserId(existing.UserId, mapping.UserId));
 
             if (mapping.SyncEnabled && existingMapping != null)
             {
@@ -8673,7 +8663,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     .Where(schedule => schedule != null &&
                         (schedule.TargetRoutes ?? new List<HueSceneScheduleTargetRoute>()).Any(route =>
                             route != null &&
-                            string.Equals(route.UserId?.Trim(), mapping.UserId, StringComparison.OrdinalIgnoreCase) &&
+                            PluginConfiguration.AreSameJellyfinUserId(route.UserId, mapping.UserId) &&
                             !requestedDeviceIds.Contains(route.DeviceId?.Trim() ?? string.Empty)))
                     .Select(schedule => schedule.Name?.Trim() ?? schedule.Id?.Trim() ?? "unnamed cue")
                     .Where(name => !string.IsNullOrWhiteSpace(name))
@@ -8765,7 +8755,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(existing => existing != null)
                 .ToList();
             candidateMappings.RemoveAll(existing =>
-                string.Equals(existing.UserId?.Trim(), mapping.UserId, StringComparison.OrdinalIgnoreCase));
+                PluginConfiguration.AreSameJellyfinUserId(existing.UserId, mapping.UserId));
             candidateMappings.Add(mapping);
             config.UserMappings = candidateMappings;
 
@@ -8811,9 +8801,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 schedule != null && ScheduleReferencesUserMapping(schedule, normalizedUserId)) ?? 0;
             var scenePlaylistCount = config.ScenePlaylists?.Count(playlist =>
                 playlist != null &&
-                (string.Equals(playlist.TargetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase) ||
+                (PluginConfiguration.AreSameJellyfinUserId(playlist.TargetUserId, normalizedUserId) ||
                  (playlist.TargetUserIds ?? new List<string>()).Any(targetUserId =>
-                     string.Equals(targetUserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase)))) ?? 0;
+                     PluginConfiguration.AreSameJellyfinUserId(targetUserId, normalizedUserId)))) ?? 0;
             if (scheduledCueCount > 0 || scenePlaylistCount > 0)
             {
                 return Conflict($"This user mapping is used by {scheduledCueCount} scheduled cue(s) and {scenePlaylistCount} saved playlist(s). Delete or update those targets first.");
@@ -8825,7 +8815,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(mapping => mapping != null)
                 .ToList();
             var removed = candidateMappings.RemoveAll(mapping =>
-                string.Equals(mapping.UserId?.Trim(), normalizedUserId, StringComparison.OrdinalIgnoreCase));
+                PluginConfiguration.AreSameJellyfinUserId(mapping.UserId, normalizedUserId));
             if (removed == 0)
             {
                 return NotFound("Mapping not found for the specified user.");
@@ -8888,7 +8878,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var selectedMappings = userIds
                 .Select(userId => config.UserMappings.FirstOrDefault(mapping =>
                     mapping != null &&
-                    string.Equals(mapping.UserId?.Trim(), userId, StringComparison.OrdinalIgnoreCase)))
+                    PluginConfiguration.AreSameJellyfinUserId(mapping.UserId, userId)))
                 .ToArray();
             var missingUserIds = userIds
                 .Where((_, index) => selectedMappings[index] == null)
@@ -8922,13 +8912,14 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var previousMappings = config.UserMappings;
-            var selectedIds = new HashSet<string>(userIds, StringComparer.OrdinalIgnoreCase);
             var candidateMappings = previousMappings
-                .Where(mapping => mapping == null || !selectedIds.Contains(mapping.UserId?.Trim() ?? string.Empty))
+                .Where(mapping => mapping == null || !userIds.Any(userId =>
+                    PluginConfiguration.AreSameJellyfinUserId(mapping.UserId, userId)))
                 .ToList();
             var deletedCount = previousMappings.Count - candidateMappings.Count;
             var deletedResults = previousMappings
-                .Where(mapping => mapping != null && selectedIds.Contains(mapping.UserId?.Trim() ?? string.Empty))
+                .Where(mapping => mapping != null && userIds.Any(userId =>
+                    PluginConfiguration.AreSameJellyfinUserId(mapping.UserId, userId)))
                 .Select(UserBridgeMappingSummary.From)
                 .ToArray();
             config.UserMappings = candidateMappings;
@@ -8996,7 +8987,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var selectedMappings = userIds
                 .Select(userId => config.UserMappings.FirstOrDefault(mapping =>
                     mapping != null &&
-                    string.Equals(mapping.UserId?.Trim(), userId, StringComparison.OrdinalIgnoreCase)))
+                    PluginConfiguration.AreSameJellyfinUserId(mapping.UserId, userId)))
                 .ToArray();
             var missingUserIds = userIds
                 .Where((_, index) => selectedMappings[index] == null)
@@ -11079,9 +11070,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 PlaybackOrder = normalizedPlaybackOrder,
                 TargetUserId = TargetAllEnabledMappings || IncludeDefaultTarget || (TargetUserIds?.Count ?? 0) > 0
                     ? string.Empty
-                    : TargetUserId?.Trim() ?? string.Empty,
+                    : PluginConfiguration.NormalizeJellyfinUserId(TargetUserId),
                 TargetUserIds = (TargetUserIds ?? new List<string>())
-                    .Select(value => value?.Trim() ?? string.Empty)
+                    .Select(PluginConfiguration.NormalizeJellyfinUserId)
                     .ToList(),
                 IncludeDefaultTarget = IncludeDefaultTarget,
                 TargetAllEnabledMappings = TargetAllEnabledMappings
@@ -11393,15 +11384,15 @@ namespace Jellyfin.Plugin.Hue.Api
                 PlaybackPolicy = string.IsNullOrWhiteSpace(PlaybackPolicy)
                     ? PluginConfiguration.SceneAutomationPlaybackPolicyInherit
                     : PlaybackPolicy.Trim(),
-                TargetUserId = TargetUserId?.Trim() ?? string.Empty,
+                TargetUserId = PluginConfiguration.NormalizeJellyfinUserId(TargetUserId),
                 TargetUserIds = (TargetUserIds ?? new List<string>())
-                    .Select(value => value?.Trim() ?? string.Empty)
+                    .Select(PluginConfiguration.NormalizeJellyfinUserId)
                     .ToList(),
                 TargetRoutes = (TargetRoutes ?? new List<HueSceneScheduleTargetRoute>())
                     .Where(route => route != null)
                     .Select(route => new HueSceneScheduleTargetRoute
                     {
-                        UserId = route.UserId?.Trim() ?? string.Empty,
+                        UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                         DeviceId = route.DeviceId?.Trim() ?? string.Empty
                     })
                     .ToList(),

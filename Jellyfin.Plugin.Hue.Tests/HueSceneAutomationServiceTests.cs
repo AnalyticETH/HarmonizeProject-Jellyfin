@@ -4315,6 +4315,66 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TryResolveTargets_PersistedScheduleDeviceRouteAcceptsBraceAndNFormatUserIds()
+    {
+        const string canonicalUserId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        var config = new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = canonicalUserId,
+                    UserName = "Living Room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "device-tv",
+                            DeviceName = "Bedroom TV",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-app-secret",
+                            HueClientKey = "device-client-secret",
+                            EntertainmentAreaId = "device-area"
+                        },
+                        new()
+                        {
+                            DeviceId = "device-panel",
+                            DeviceName = "Wall Panel",
+                            HueBridgeIp = "192.168.1.103",
+                            HueAppKey = "panel-app-secret",
+                            HueClientKey = "panel-client-secret",
+                            EntertainmentAreaId = "panel-area"
+                        }
+                    }
+                }
+            }
+        };
+        var schedule = new HueSceneSchedule
+        {
+            TargetRoutes = new List<HueSceneScheduleTargetRoute>
+            {
+                new() { UserId = "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}", DeviceId = "device-tv" },
+                new() { UserId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DeviceId = "device-panel" }
+            }
+        };
+
+        Assert.True(HueSceneAutomationService.TryResolveTargets(config, schedule, out var targets, out var error));
+        Assert.Empty(error);
+        Assert.Equal(
+            new[] { "Living Room / Bedroom TV", "Living Room / Wall Panel" },
+            targets.Select(target => target.TargetLabel));
+        Assert.Equal(
+            new[] { "192.168.1.102", "192.168.1.103" },
+            targets.Select(target => target.BridgeIp));
+    }
+
+    [Fact]
     public async Task RunPlaylistPreview_ReportsExplicitDeviceRoutesWithoutCredentials()
     {
         var configuration = new PluginConfiguration

@@ -583,6 +583,7 @@ for (const contract of [
     if (!functionBody.includes("if (!page._hueImportValidated)") ||
         !functionBody.includes("Validate Import successfully before importing.") ||
         !functionBody.includes("HueConfigurationPage.applyConfigurationImportCredentials(page)") ||
+        !functionBody.includes("changing the bridge requires replacement App/Client keys or explicit credential clearing") ||
         !functionBody.includes("HueConfigurationPage.loadSceneSchedules(page)")) {
         throw new Error(`${file} ${functionName} must fail closed until import preflight succeeds`);
     }

@@ -2946,7 +2946,7 @@
                     }
                     if (!HueConfigurationPage.applyConfigurationImportCredentials(page)) return;
 
-                    Dashboard.confirm("Import this configuration? Existing settings, mappings, saved scenes, and scheduled cues will be replaced. Stored matching bridge keys are preserved; any values entered above are sent once for this import and are never exported.", "Import Hue Configuration", function (confirmed) {
+                    Dashboard.confirm("Import this configuration? Existing settings, mappings, saved scenes, and scheduled cues will be replaced. Stored bridge keys are preserved only when the imported target matches this server's target; changing the bridge requires replacement App/Client keys or explicit credential clearing. Any values entered above are sent once for this import and are never exported.", "Import Hue Configuration", function (confirmed) {
                         if (!confirmed) return;
                         var button = page.querySelector('#importConfigurationBtn');
                         var applyButton = page.querySelector('#applyConfigurationImportBtn');

@@ -11588,6 +11588,81 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ConfigurationImport_NormalizesBraceAndNFormatScheduleRouteUserIds()
+    {
+        const string canonicalUserId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = canonicalUserId,
+                    UserName = "Imported viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.120",
+                    HueAppKey = "stored-mapping-app",
+                    HueClientKey = "stored-mapping-client",
+                    EntertainmentAreaId = "stored-area",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueBridgeIp = "192.168.1.121",
+                            HueAppKey = "stored-device-app",
+                            HueClientKey = "stored-device-client",
+                            EntertainmentAreaId = "living-room-area"
+                        },
+                        new()
+                        {
+                            DeviceId = "bedroom-tv",
+                            HueBridgeIp = "192.168.1.122",
+                            HueAppKey = "stored-bedroom-app",
+                            HueClientKey = "stored-bedroom-client",
+                            EntertainmentAreaId = "bedroom-area"
+                        }
+                    }
+                }
+            }
+        });
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            ReplaceMappings = false,
+            ReplaceColorPresets = false,
+            ReplaceSceneSchedules = true,
+            SceneSchedules = new List<HueSceneScheduleRequest>
+            {
+                new()
+                {
+                    Id = "guid-route-schedule",
+                    Name = "GUID route schedule",
+                    PresetName = "Welcome",
+                    TimeOfDay = "20:00",
+                    DaysOfWeekMask = 127,
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}", DeviceId = "living-room-tv" },
+                        new() { UserId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DeviceId = "bedroom-tv" }
+                    }
+                }
+            }
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        var imported = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal(
+            new[] { canonicalUserId, canonicalUserId },
+            imported.TargetRoutes.Select(route => route.UserId));
+        Assert.Equal(
+            new[] { "living-room-tv", "bedroom-tv" },
+            imported.TargetRoutes.Select(route => route.DeviceId));
+    }
+
+    [Fact]
     public void ConfigurationImport_RejectsDuplicateUserMappingsAfterGuidNormalization()
     {
         var configuration = InstallConfiguration(new PluginConfiguration());
@@ -12414,6 +12489,45 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMapping_UpdatesLegacyBraceGuidMappingWithoutDuplicatingOrDroppingCredentials()
+    {
+        const string canonicalUserId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "{BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB}",
+                    UserName = "Old viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.125",
+                    HueAppKey = "stored-legacy-app",
+                    HueClientKey = "stored-legacy-client",
+                    EntertainmentAreaId = "legacy-area"
+                }
+            }
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = canonicalUserId,
+            UserName = "Updated viewer",
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.125",
+            EntertainmentAreaId = "updated-area"
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        var updated = Assert.Single(configuration.UserMappings);
+        Assert.Equal(canonicalUserId, updated.UserId);
+        Assert.Equal("Updated viewer", updated.UserName);
+        Assert.Equal("updated-area", updated.EntertainmentAreaId);
+        Assert.Equal("stored-legacy-app", updated.HueAppKey);
+        Assert.Equal("stored-legacy-client", updated.HueClientKey);
+    }
+
+    [Fact]
     public void UserMappingLifecycle_RejectsSavedPlaylistTargetDependency()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -12538,6 +12652,29 @@ public sealed class HueApiControllerTests : IDisposable
         });
 
         var action = CreateController().DeleteUserMapping(" USER-DELETE ");
+
+        Assert.IsType<OkObjectResult>(action);
+        Assert.Empty(configuration.UserMappings);
+    }
+
+    [Fact]
+    public void DeleteUserMapping_RemovesLegacyBraceGuidWhenCalledWithCanonicalId()
+    {
+        const string canonicalUserId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "{CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC}",
+                    UserName = "Legacy viewer",
+                    SyncEnabled = false
+                }
+            }
+        });
+
+        var action = CreateController().DeleteUserMapping(canonicalUserId);
 
         Assert.IsType<OkObjectResult>(action);
         Assert.Empty(configuration.UserMappings);
