@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.290] - 2026-08-25
+
+### Security boundary hardening
+- **Private resolved peers**: `.local` bridge names are resolved once and every returned address must be private, link-local, or unique-local before the exact address is used for REST or managed DTLS. Mixed or public DNS/mDNS answers fail closed before Hue credentials leave the process.
+- **Regression coverage**: verify literal address rejection, mixed DNS-answer rejection, and exact credential-free endpoint selection for the shared REST/DTLS boundary.
+
+### Administrator observability
+- **Playback freshness**: Live Sync Status now displays the localized timestamp of the latest Jellyfin playback observation, or `—` when no active timeline exists.
+- **Contract coverage**: API/support-bundle serialization and configuration-page validators protect the observation timestamp across active, paused, and stopped playback states.
+
 ## [1.5.289] - 2026-08-25
 
 ### Managed DTLS interoperability coverage

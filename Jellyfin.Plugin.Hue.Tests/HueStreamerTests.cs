@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -71,11 +72,18 @@ public class HueStreamerTests
     [Fact]
     public async Task StartStreamAsync_WhenHandshakeIsCanceledDoesNotLeaveABackgroundTask()
     {
+        var streamer = new HueStreamer(
+            _loggerMock.Object,
+            async (_, _, _, cancellationToken) =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return new TestDtlsConnection();
+            });
         using var cancellationSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         var stopwatch = Stopwatch.StartNew();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            _streamer.StartStreamAsync(
+            streamer.StartStreamAsync(
                 "127.0.0.1",
                 "app-key",
                 "00112233445566778899aabbccddeeff",
@@ -83,7 +91,62 @@ public class HueStreamerTests
 
         stopwatch.Stop();
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2));
-        Assert.False(_streamer.IsHealthy());
+        Assert.False(streamer.IsHealthy());
+    }
+
+    [Fact]
+    public async Task StartStreamAsync_WhenCanceledReconnectOverlapsReplacementStart_PreservesReplacementStream()
+    {
+        var firstConnection = new TestDtlsConnection();
+        var reconnectStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseReconnect = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connectionNumber = 0;
+        var streamer = new HueStreamer(
+            _loggerMock.Object,
+            async (_, _, _, cancellationToken) =>
+            {
+                var number = Interlocked.Increment(ref connectionNumber);
+                if (number == 1)
+                {
+                    return firstConnection;
+                }
+
+                if (number == 2)
+                {
+                    reconnectStarted.TrySetResult(true);
+                    await releaseReconnect.Task.WaitAsync(cancellationToken);
+                    return new TestDtlsConnection();
+                }
+
+                return new TestDtlsConnection();
+            });
+
+        await streamer.StartStreamAsync(
+            "192.168.1.100",
+            "app-key",
+            "00112233445566778899aabbccddeeff");
+
+        firstConnection.ThrowOnSend = true;
+        Assert.False(await streamer.SendColors(
+            "area-id",
+            new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } }));
+
+        await reconnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var replacementStart = streamer.StartStreamAsync(
+            "192.168.1.101",
+            "replacement-app-key",
+            "00112233445566778899aabbccddeeff");
+
+        await Task.Delay(100);
+        Assert.False(replacementStart.IsCompleted);
+
+        releaseReconnect.TrySetResult(true);
+        await replacementStart;
+
+        Assert.True(streamer.IsHealthy());
+        Assert.True(await streamer.SendColors(
+            "area-id",
+            new Dictionary<int, byte[]> { [1] = new byte[] { 4, 4, 5, 5, 6, 6 } }));
     }
 
     [Fact]
@@ -253,8 +316,15 @@ public class HueStreamerTests
     {
         public bool IsHealthy { get; set; } = true;
 
+        public bool ThrowOnSend { get; set; }
+
         public void Send(byte[] buffer, int offset, int count)
         {
+            if (ThrowOnSend)
+            {
+                IsHealthy = false;
+                throw new IOException("synthetic DTLS failure");
+            }
         }
 
         public void Close()

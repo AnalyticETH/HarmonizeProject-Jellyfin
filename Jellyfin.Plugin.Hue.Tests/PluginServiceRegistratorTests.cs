@@ -3,6 +3,8 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Security;
+using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue;
 using Jellyfin.Plugin.Hue.Service;
@@ -123,6 +125,60 @@ public class PluginServiceRegistratorTests
     public void IsValidBridgeAddress_RejectsPublicOrUrlTargets(string address)
     {
         Assert.False(HueBridgeCertificateValidation.IsValidBridgeAddress(address));
+    }
+
+    [Theory]
+    [InlineData("192.168.1.100")]
+    [InlineData("10.0.0.15")]
+    [InlineData("172.16.20.4")]
+    [InlineData("169.254.1.20")]
+    [InlineData("fc00::1234")]
+    [InlineData("fe80::1234")]
+    public async Task ResolveLocalBridgeAddress_LiteralPrivateAddressesAreReturned(string address)
+    {
+        var resolved = await HueBridgeCertificateValidation.ResolveLocalBridgeAddressAsync(
+            address,
+            CancellationToken.None);
+
+        Assert.Equal(IPAddress.Parse(address), resolved);
+    }
+
+    [Theory]
+    [InlineData("8.8.8.8")]
+    [InlineData("127.0.0.1")]
+    [InlineData("0.0.0.0")]
+    [InlineData("224.0.0.1")]
+    [InlineData("::1")]
+    [InlineData("2001:db8::10")]
+    public async Task ResolveLocalBridgeAddress_LiteralPublicOrNonRoutableAddressesAreRejected(string address)
+    {
+        await Assert.ThrowsAsync<SocketException>(() => HueBridgeCertificateValidation.ResolveLocalBridgeAddressAsync(
+            address,
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public void SelectLocalBridgeAddress_RejectsAnyPublicAnswerBeforeCredentialUse()
+    {
+        var exception = Assert.Throws<SocketException>(() => HueBridgeCertificateValidation.SelectLocalBridgeAddress(
+        [
+            IPAddress.Parse("192.168.1.100"),
+            IPAddress.Parse("203.0.113.10")
+        ]));
+
+        Assert.Equal(SocketError.AddressNotAvailable, exception.SocketErrorCode);
+    }
+
+    [Fact]
+    public void SelectLocalBridgeAddress_AllowsPrivateAndLinkLocalAnswers()
+    {
+        var resolved = HueBridgeCertificateValidation.SelectLocalBridgeAddress(
+        [
+            IPAddress.Parse("fe80::1234"),
+            IPAddress.Parse("192.168.1.100")
+        ]);
+
+        Assert.Equal(IPAddress.Parse("fe80::1234"), resolved);
     }
 
     [Fact]

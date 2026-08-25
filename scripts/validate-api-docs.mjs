@@ -287,6 +287,7 @@ for (const marker of [
 for (const marker of [
     "public async Task<ActionResult<HueRegistrationResult>> RegisterBridge(",
     "HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress)",
+    "PlaybackObservedAtUtc = runtime?.PlaybackObservedAtUtc",
     "JsonSerializer.Serialize(run.TargetUserIds",
     "JsonSerializer.Serialize(run.TargetRoutes",
     "run.TargetAllEnabledMappings",

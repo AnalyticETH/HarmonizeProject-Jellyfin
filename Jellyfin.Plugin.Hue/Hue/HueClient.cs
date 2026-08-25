@@ -135,6 +135,41 @@ namespace Jellyfin.Plugin.Hue.Hue
         }
 
         /// <summary>
+        /// Sends one bridge request after resolving a .local host to a vetted private
+        /// address. The request URI is rewritten to that exact address so the HTTP stack
+        /// cannot perform a second, potentially different DNS/mDNS lookup after the
+        /// private-address check. Cloud discovery intentionally bypasses this helper and
+        /// continues to use the normal public HTTPS trust policy.
+        /// </summary>
+        private async Task<HttpResponseMessage> SendBridgeRequestAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (request.RequestUri is not { } requestUri)
+            {
+                throw new InvalidOperationException("Hue bridge requests require an absolute URI.");
+            }
+
+            if (requestUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+                requestUri.Host.EndsWith(".local", StringComparison.OrdinalIgnoreCase))
+            {
+                var address = await HueBridgeCertificateValidation
+                    .ResolveLocalBridgeAddressAsync(requestUri.Host, cancellationToken)
+                    .ConfigureAwait(false);
+                var builder = new UriBuilder(requestUri)
+                {
+                    Host = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                        ? $"[{address}]"
+                        : address.ToString()
+                };
+                request.RequestUri = builder.Uri;
+            }
+
+            return await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Discovers every private Hue Bridge visible to the server. Cloud discovery is
         /// combined with local mDNS results so multi-room installations can choose a
         /// bridge for each per-user mapping instead of losing every result after the first.
@@ -241,10 +276,11 @@ namespace Jellyfin.Plugin.Hue.Hue
                     // Hue bridge firmware now requires the local API to be accessed over TLS.
                     // The bridge certificate is handled by PluginServiceRegistrator for local
                     // bridge addresses only; public discovery traffic keeps normal validation.
-                    using var response = await _httpClient.PostAsync(
-                        BuildBridgeUrl("https", ip, "/api"),
-                        content,
-                        cancellationToken).ConfigureAwait(false);
+                    using var request = new HttpRequestMessage(HttpMethod.Post, BuildBridgeUrl("https", ip, "/api"))
+                    {
+                        Content = content
+                    };
+                    using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
                         response.EnsureSuccessStatusCode();
@@ -313,7 +349,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     using var request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Add("hue-application-key", appKey);
 
-                    using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
 
                     var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -370,7 +406,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     request.Headers.Add("hue-application-key", appKey);
                     request.Content = new StringContent("{\"action\":\"start\"}", System.Text.Encoding.UTF8, "application/json");
 
-                    using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
                         if (IsRetriableStatusCode(response.StatusCode))
@@ -434,7 +470,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     request.Headers.Add("hue-application-key", appKey);
                     request.Content = new StringContent("{\"action\":\"stop\"}", System.Text.Encoding.UTF8, "application/json");
 
-                    using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
                         if (IsRetriableStatusCode(response.StatusCode))
@@ -491,7 +527,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     using var request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Add("hue-application-key", appKey);
 
-                    using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
 
                     var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -674,7 +710,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                         using var request = new HttpRequestMessage(HttpMethod.Get, url);
                         request.Headers.Add("hue-application-key", appKey);
 
-                        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                        using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                         response.EnsureSuccessStatusCode();
 
                         var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -807,7 +843,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                             System.Text.Encoding.UTF8,
                             "application/json");
 
-                        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                        using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                         response.EnsureSuccessStatusCode();
                         return true;
                     }, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -892,7 +928,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                         var json = JsonSerializer.Serialize(payload);
                         request.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
-                        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                        using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                         response.EnsureSuccessStatusCode();
                         return true;
                     }, cancellationToken: cancellationToken).ConfigureAwait(false);

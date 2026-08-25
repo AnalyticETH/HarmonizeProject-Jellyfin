@@ -2,7 +2,10 @@ using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Security;
+using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Api;
 using Jellyfin.Plugin.Hue.Service;
 using MediaBrowser.Controller;
@@ -99,7 +102,55 @@ internal static class HueBridgeCertificateValidation
         return host.EndsWith(".local", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsLocalAddress(IPAddress address)
+    /// <summary>
+    /// Resolves a configured bridge host and returns an address that is permitted by
+    /// the same private/link-local policy used for literal bridge addresses.  The
+    /// caller must connect to the returned address rather than resolving the hostname
+    /// again, otherwise a DNS/mDNS answer could change between validation and connect.
+    /// </summary>
+    internal static async Task<IPAddress> ResolveLocalBridgeAddressAsync(
+        string value,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        var host = value.Trim().Trim('[', ']');
+        if (IPAddress.TryParse(host, out var address))
+        {
+            if (IsLocalAddress(address))
+            {
+                return address;
+            }
+
+            throw new SocketException((int)SocketError.AddressNotAvailable);
+        }
+
+        if (!IsValidBridgeAddress(host))
+        {
+            throw new ArgumentException("Bridge address must be a private IP address or .local host name.", nameof(value));
+        }
+
+        var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
+        return SelectLocalBridgeAddress(addresses);
+    }
+
+    /// <summary>
+    /// Selects a resolved bridge address only when every DNS/mDNS answer is within the
+    /// private/link-local/unique-local boundary. Rejecting mixed answers avoids silently
+    /// accepting a poisoned public answer alongside an otherwise valid local address.
+    /// </summary>
+    internal static IPAddress SelectLocalBridgeAddress(IPAddress[] addresses)
+    {
+        ArgumentNullException.ThrowIfNull(addresses);
+        if (addresses.Length == 0 || Array.Exists(addresses, candidate => !IsLocalAddress(candidate)))
+        {
+            throw new SocketException((int)SocketError.AddressNotAvailable);
+        }
+
+        return Array.Find(addresses, IsLocalAddress)
+            ?? throw new SocketException((int)SocketError.AddressNotAvailable);
+    }
+
+    internal static bool IsLocalAddress(IPAddress address)
     {
         if (IPAddress.IsLoopback(address) || address.Equals(IPAddress.IPv6Any) || address.IsIPv6Multicast)
         {

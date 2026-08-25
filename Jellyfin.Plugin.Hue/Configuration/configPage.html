@@ -41,6 +41,7 @@
                             <div><strong>Seek recovery:</strong> <span id="runtimeSeekRecovery">—</span></div>
                             <div><strong>Duration:</strong> <span id="runtimeDuration">—</span></div>
                             <div><strong>Playback progress:</strong> <span id="runtimePlaybackProgress">—</span></div>
+                            <div><strong>Playback observed:</strong> <span id="runtimePlaybackObservedAt">—</span></div>
                             <div><strong>Last session:</strong> <span id="runtimeLastSession">—</span></div>
                             <div><strong>Active sessions:</strong> <div id="runtimeSessions">—</div></div>
                         </div>
@@ -9039,6 +9040,11 @@
 
                     return minutes + "m " + String(remainingSeconds).padStart(2, "0") + "s";
                 },
+                formatRuntimeTimestamp: function (value) {
+                    if (!value) return "—";
+                    var parsed = new Date(value);
+                    return isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
+                },
                 loadRuntimeStatus: function (page) {
                     if (!page || page._hueRuntimeStatusLoading) {
                         return Promise.resolve();
@@ -9122,6 +9128,7 @@
                         var playbackDuration = HueConfigurationPage.readStatusField(status, "PlaybackDurationSeconds", null);
                         var playbackProgress = HueConfigurationPage.readStatusField(status, "PlaybackProgressPercent", null);
                         var playbackIsPaused = HueConfigurationPage.readStatusField(status, "PlaybackIsPaused", null);
+                        var playbackObservedAtUtc = HueConfigurationPage.readStatusField(status, "PlaybackObservedAtUtc", null);
                         var ffmpegHealthy = HueConfigurationPage.readStatusField(status, "IsFfmpegHealthy", false);
                         var dtlsHealthy = HueConfigurationPage.readStatusField(status, "IsDtlsHealthy", false);
                         var duration = HueConfigurationPage.readStatusField(status, "SyncDurationSeconds", null);
@@ -9203,6 +9210,7 @@
                                 (playbackProgress == null ? "" : " (" + Number(playbackProgress).toFixed(1) + "%)") +
                                 (playbackIsPaused === true ? " · paused" : "");
                         page.querySelector('#runtimePlaybackProgress').textContent = playbackProgressText;
+                        page.querySelector('#runtimePlaybackObservedAt').textContent = HueConfigurationPage.formatRuntimeTimestamp(playbackObservedAtUtc);
                         var lastSessionText = "—";
                         if (lastSession) {
                             var lastSessionItem = HueConfigurationPage.readStatusField(lastSession, "Item", "Playback");

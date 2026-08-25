@@ -175,16 +175,12 @@ internal sealed class HueDtlsConnection : IHueDtlsConnection
         string bridgeIp,
         CancellationToken cancellationToken)
     {
-        var host = bridgeIp.Trim().Trim('[', ']');
-        if (IPAddress.TryParse(host, out var address))
-        {
-            return address;
-        }
-
-        var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
-        var resolved = Array.Find(addresses, candidate =>
-            candidate.AddressFamily is AddressFamily.InterNetwork or AddressFamily.InterNetworkV6);
-        return resolved ?? throw new SocketException((int)SocketError.HostNotFound);
+        // Resolve and validate once, then connect the UDP socket to this exact address.
+        // Re-resolving a .local name here would allow a DNS/mDNS answer to change after
+        // the private-address check and could send the DTLS PSK to an unintended peer.
+        return await global::Jellyfin.Plugin.Hue.HueBridgeCertificateValidation
+            .ResolveLocalBridgeAddressAsync(bridgeIp, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static byte[] ParseClientKey(string clientKey)

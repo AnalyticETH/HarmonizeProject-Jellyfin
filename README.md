@@ -451,8 +451,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.289 (Current)
-- **Managed DTLS interoperability coverage**: deterministic loopback tests now negotiate Hue's DTLS 1.2 PSK contract, verify encrypted payload delivery and close health, and bound cancellation against an unresponsive UDP peer without requiring Hue hardware.
+### Version 1.5.290 (Current)
+- **Resolved-peer security**: `.local` bridge names are resolved once and every answer must be private, link-local, or unique-local before the exact address is used for REST or managed DTLS credentials; mixed/public answers fail closed.
+- **Playback freshness**: Live Sync Status shows the localized timestamp of the latest Jellyfin playback observation and clears it when no timeline is active.
+- **Lifecycle and interoperability coverage**: public replacement starts serialize with reconnects so stale cleanup cannot close a new stream, while deterministic loopback DTLS tests negotiate Hue's PSK contract and bound cancellation without hardware.
 
 ### Version 1.5.288
 - **Self-hosted runner resilience**: the diagnostics FFmpeg version probe now tolerates bounded process-start contention, and CI preflights the exact short PCM capture required for audio playback before running tests.

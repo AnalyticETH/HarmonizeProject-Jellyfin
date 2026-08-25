@@ -45,6 +45,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         private long _packetSendFailures;
         private int _totalReconnectAttempts;
         private readonly SemaphoreSlim _reconnectLock = new SemaphoreSlim(1, 1);
+        private readonly Func<string, string, string, CancellationToken, Task<IHueDtlsConnection>> _connectDtlsAsync;
         // A stream stop cancels any delayed reconnect or in-flight DTLS startup. The
         // source is replaced for the next stream so a later playback can reconnect normally.
         private CancellationTokenSource _streamLifecycleCts = new CancellationTokenSource();
@@ -127,8 +128,29 @@ namespace Jellyfin.Plugin.Hue.Hue
         }
 
         public HueStreamer(ILogger<HueStreamer> logger)
+            : this(logger, null)
         {
-            _logger = logger;
+        }
+
+        internal HueStreamer(
+            ILogger<HueStreamer> logger,
+            Func<string, string, string, CancellationToken, Task<IHueDtlsConnection>>? connectDtlsAsync)
+        {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _connectDtlsAsync = connectDtlsAsync ?? ConnectDefaultDtlsAsync;
+        }
+
+        private static async Task<IHueDtlsConnection> ConnectDefaultDtlsAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            CancellationToken cancellationToken)
+        {
+            return await HueDtlsConnection.ConnectAsync(
+                bridgeIp,
+                appKey,
+                clientKey,
+                cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -192,12 +214,24 @@ namespace Jellyfin.Plugin.Hue.Hue
             string clientKey,
             CancellationToken cancellationToken = default)
         {
-            await StartStreamCoreAsync(
-                bridgeIp,
-                appKey,
-                clientKey,
-                cancellationToken,
-                cancelPendingReconnect: true).ConfigureAwait(false);
+            // Reconnects use the same gate. A public replacement start must wait for an
+            // in-flight reconnect to finish (or observe its canceled lifecycle) before
+            // replacing the connection; otherwise stale reconnect cleanup can close the
+            // newly installed stream after this method returns.
+            await _reconnectLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await StartStreamCoreAsync(
+                    bridgeIp,
+                    appKey,
+                    clientKey,
+                    cancellationToken,
+                    cancelPendingReconnect: true).ConfigureAwait(false);
+            }
+            finally
+            {
+                _reconnectLock.Release();
+            }
         }
 
         private async Task StartStreamCoreAsync(
@@ -258,7 +292,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                 // this process's memory instead of being exposed through /proc or ps.
                 _logger.LogInformation("Starting managed DTLS tunnel to {0}:2100", bridgeIp);
 
-                var dtlsConnection = await HueDtlsConnection.ConnectAsync(
+                var dtlsConnection = await _connectDtlsAsync(
                     bridgeIp,
                     appKey,
                     clientKey,
