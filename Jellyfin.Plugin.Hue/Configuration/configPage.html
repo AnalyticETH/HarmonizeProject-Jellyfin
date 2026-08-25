@@ -1884,6 +1884,18 @@
                     var element = document.getElementById(id);
                     return element ? String(element.value || '').trim() : '';
                 },
+                getMappingDeviceRouteTarget: function () {
+                    var userSelect = document.getElementById('mappingUserSelect');
+                    return {
+                        userId: userSelect ? String(userSelect.value || '').trim() : '',
+                        deviceId: HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingDeviceRouteId'),
+                        bridgeIp: HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingDeviceRouteBridge'),
+                        appKey: HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingDeviceRouteAppKey'),
+                        clientKey: HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingDeviceRouteClientKey'),
+                        areaId: HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingDeviceRouteAreaId'),
+                        mappingId: HueConfigurationPage.mappingEditingMappingId || ''
+                    };
+                },
                 setMappingDeviceRouteEditorValue: function (id, value) {
                     var element = document.getElementById(id);
                     if (element) element.value = value == null ? '' : String(value);
@@ -2073,25 +2085,46 @@
                     HueConfigurationPage.clearMappingDeviceRouteEditor('Device route removed from this mapping draft. Save the user mapping to persist the change.');
                 },
                 loadMappingDeviceRouteAreas: function () {
-                    var userSelect = document.getElementById('mappingUserSelect');
-                    var userId = userSelect ? String(userSelect.value || '').trim() : '';
-                    var deviceId = HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingDeviceRouteId');
-                    var bridgeIp = HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingDeviceRouteBridge');
-                    var appKey = HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingDeviceRouteAppKey');
-                    if (!deviceId || !bridgeIp || !userId) {
+                    var page = document.querySelector('.pluginConfigurationPage');
+                    if (!page) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'mappingDeviceRouteAreas');
+                    var target = HueConfigurationPage.getMappingDeviceRouteTarget();
+                    if (!target.deviceId || !target.bridgeIp || !target.userId) {
                         HueConfigurationPage.setMappingDeviceRouteEditorStatus('Enter a user, device ID, and route bridge address before loading areas.', 'error');
                         return;
                     }
-                    var target = { bridgeIp: bridgeIp, appKey: appKey, userId: userId, deviceId: deviceId };
-                    if (!appKey && !HueConfigurationPage.canUseStoredTargetCredentials(null, target, false)) {
+                    if (!target.appKey && !HueConfigurationPage.canUseStoredTargetCredentials(null, target, false)) {
                         HueConfigurationPage.setMappingDeviceRouteEditorStatus('Enter a route App Key for a new route, or select an existing route to use its stored key.', 'error');
                         return;
                     }
                     var button = document.getElementById('mappingLoadDeviceRouteAreasBtn');
                     if (button) button.disabled = true;
                     HueConfigurationPage.setMappingDeviceRouteEditorStatus('Loading route entertainment areas...');
-                    HueConfigurationPage.fetchEntertainmentAreas(bridgeIp, appKey, userId, deviceId)
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'mappingDeviceRouteAreas',
+                        ApiClient.getUrl("HueSync/EntertainmentAreas"),
+                        {
+                            type: 'POST',
+                            data: JSON.stringify({
+                                ipAddress: target.bridgeIp,
+                                appKey: target.appKey,
+                                userId: target.userId,
+                                deviceId: target.deviceId
+                            }),
+                            contentType: 'application/json',
+                            dataType: 'json'
+                        },
+                        target);
+                    request
                         .then(function (areas) {
+                            if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                                page,
+                                pageGeneration,
+                                request,
+                                HueConfigurationPage.getMappingDeviceRouteTarget())) return;
                             var select = document.getElementById('mappingDeviceRouteAreaSelect');
                             if (!select) return;
                             select.innerHTML = '<option value="">Select a route area...</option>';
@@ -2106,10 +2139,21 @@
                             if (selected) select.value = selected;
                             HueConfigurationPage.setMappingDeviceRouteEditorStatus('Route areas loaded. Select one or enter an ID manually.', 'success');
                         })
-                        .catch(function () {
+                        .catch(function (err) {
+                            if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                                page,
+                                pageGeneration,
+                                request,
+                                HueConfigurationPage.getMappingDeviceRouteTarget())) return;
+                            console.error("Failed to load route areas:", err);
                             HueConfigurationPage.setMappingDeviceRouteEditorStatus('Unable to load route areas. Enter the area ID manually and verify the route credentials.', 'error');
                         })
                         .finally(function () {
+                            if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                                page,
+                                pageGeneration,
+                                request,
+                                HueConfigurationPage.getMappingDeviceRouteTarget())) return;
                             if (button) button.disabled = false;
                         });
                 },
@@ -2170,7 +2214,11 @@
                     select.value = entries.some(function (entry) { return entry.deviceId === previous; }) ? previous : '';
                     if (!preserveEditor) HueConfigurationPage.populateMappingDeviceRouteEditor(select.value);
                 },
-                discoverMappingDevices: function () {
+                discoverMappingDevices: function (page) {
+                    page = page || document.querySelector('.pluginConfigurationPage');
+                    if (!page) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'mappingPlaybackDevices');
                     var button = document.getElementById('mappingDiscoverDevicesBtn');
                     var status = document.getElementById('mappingDeviceDiscoveryStatus');
                     var userSelect = document.getElementById('mappingUserSelect');
@@ -2186,8 +2234,25 @@
                     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
                         discoveryUrl += "?userId=" + encodeURIComponent(userId);
                     }
-                    ApiClient.getJSON(discoveryUrl)
+                    var target = { userId: userId };
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'mappingPlaybackDevices',
+                        discoveryUrl,
+                        null,
+                        target);
+                    request
                         .then(function (response) {
+                            var currentUserSelect = page && page.querySelector('#mappingUserSelect');
+                            var currentTarget = {
+                                userId: currentUserSelect ? String(currentUserSelect.value || '').trim() : ''
+                            };
+                            if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                                page,
+                                pageGeneration,
+                                request,
+                                currentTarget)) return;
                             var devices = Array.isArray(response) ? response : [];
                             devices = devices.filter(function (device) {
                                 var candidate = device && (device.userId !== undefined ? device.userId : device.UserId);
@@ -2202,10 +2267,28 @@
                             }
                         })
                         .catch(function (err) {
+                            var currentUserSelect = page && page.querySelector('#mappingUserSelect');
+                            var currentTarget = {
+                                userId: currentUserSelect ? String(currentUserSelect.value || '').trim() : ''
+                            };
+                            if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                                page,
+                                pageGeneration,
+                                request,
+                                currentTarget)) return;
                             console.error("Playback device discovery error:", err);
                             if (status) status.textContent = "Playback device discovery failed. Verify the server session service and try again.";
                         })
                         .finally(function () {
+                            var currentUserSelect = page && page.querySelector('#mappingUserSelect');
+                            var currentTarget = {
+                                userId: currentUserSelect ? String(currentUserSelect.value || '').trim() : ''
+                            };
+                            if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                                page,
+                                pageGeneration,
+                                request,
+                                currentTarget)) return;
                             if (button) button.disabled = false;
                             Dashboard.hideLoadingMsg();
                         });
@@ -2236,6 +2319,23 @@
                         return !!record && requests[record.key] === record;
                     });
                 },
+                getMappingTargetFingerprint: function (target) {
+                    target = target || {};
+                    return JSON.stringify({
+                        userId: HueConfigurationPage.normalizeJellyfinUserId(target.userId).toLowerCase(),
+                        deviceId: String(target.deviceId || '').trim(),
+                        bridgeIp: String(target.bridgeIp || '').trim().replace(/\.+$/, '').toLowerCase(),
+                        appKey: String(target.appKey || '').trim(),
+                        clientKey: String(target.clientKey || '').trim(),
+                        areaId: String(target.areaId || '').trim(),
+                        mappingId: String(target.mappingId || '').trim()
+                    });
+                },
+                isPageLifecycleTargetRequestCurrent: function (page, generation, request, target) {
+                    var record = request && request._huePageRequestRecord;
+                    return HueConfigurationPage.isPageLifecycleRequestCurrent(page, generation, request) &&
+                        !!record && record.targetFingerprint === HueConfigurationPage.getMappingTargetFingerprint(target);
+                },
                 abortPageLifecycleRequest: function (record) {
                     if (!record || record.aborted) return;
                     record.aborted = true;
@@ -2253,6 +2353,15 @@
                             console.warn('Unable to abort page lifecycle request:', err);
                         }
                     }
+                },
+                cancelPageLifecycleRequest: function (page, key) {
+                    if (!page || !key) return;
+                    HueConfigurationPage.ensurePageLifecycle(page);
+                    var requests = page._huePageRequests || {};
+                    var record = requests[key];
+                    if (!record) return;
+                    delete requests[key];
+                    HueConfigurationPage.abortPageLifecycleRequest(record);
                 },
                 invalidatePageLifecycle: function (page) {
                     if (!page) return;
@@ -2273,7 +2382,7 @@
                     page._hueDiagnosticsCancellationRequest = null;
                     page._hueDiagnosticsCancellationRequested = false;
                 },
-                getPageLifecycleRequest: function (page, generation, key, url) {
+                getPageLifecycleRequest: function (page, generation, key, url, requestOptions, target) {
                     HueConfigurationPage.ensurePageLifecycle(page);
                     var requests = page._huePageRequests;
                     var previous = requests[key];
@@ -2286,19 +2395,23 @@
                             controller = null;
                         }
                     }
-                    var options = {
+                    var options = Object.assign({
                         type: 'GET',
                         url: url,
                         dataType: 'json'
-                    };
+                    }, requestOptions || {});
                     if (controller) options.signal = controller.signal;
                     var request = ApiClient.ajax(options);
+                    var targetFingerprint = target && typeof target === 'object'
+                        ? HueConfigurationPage.getMappingTargetFingerprint(target)
+                        : String(target || '');
                     var record = {
                         key: key,
                         generation: generation,
                         controller: controller,
                         request: request,
-                        aborted: false
+                        aborted: false,
+                        targetFingerprint: targetFingerprint
                     };
                     requests[key] = record;
                     var trackedRequest = Promise.resolve(request);
@@ -11369,6 +11482,10 @@
                 },
 
                 loadMappingAreas: function (selectedAreaId) {
+                    var page = document.querySelector('.pluginConfigurationPage');
+                    if (!page) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'mappingAreas');
                     var selectEl = document.getElementById('mappingAreaSelect');
                     var syncEnabledEl = document.getElementById('mappingSyncEnabled');
 
@@ -11379,7 +11496,9 @@
                         return;
                     }
 
-                    var target = HueConfigurationPage.getEffectiveMappingTarget();
+                    var target = HueConfigurationPage.getEffectiveMappingTarget(page);
+                    target.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
+                    var requestTarget = Object.assign({}, target, { areaId: '' });
                     var bridgeIp = target.bridgeIp;
                     var appKey = target.appKey;
 
@@ -11405,7 +11524,32 @@
                     selectEl.disabled = true;
 
                     console.log("Fetching entertainment areas from bridge:", bridgeIp);
-                    HueConfigurationPage.fetchEntertainmentAreas(bridgeIp, appKey, target.userId, target.deviceId).then(function (areas) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'mappingAreas',
+                        ApiClient.getUrl("HueSync/EntertainmentAreas"),
+                        {
+                            type: 'POST',
+                            data: JSON.stringify({
+                                ipAddress: bridgeIp,
+                                appKey: appKey,
+                                userId: target.userId || '',
+                                deviceId: target.deviceId || ''
+                            }),
+                            contentType: 'application/json',
+                            dataType: 'json'
+                        },
+                        requestTarget);
+                    request.then(function (areas) {
+                        var currentTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
+                        currentTarget.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
+                        currentTarget.areaId = '';
+                        if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                            page,
+                            pageGeneration,
+                            request,
+                            currentTarget)) return;
                         console.log("Entertainment areas response:", areas);
                         selectEl.innerHTML = '<option value="">Select an area...</option>';
                         areas = Array.isArray(areas) ? areas : [];
@@ -11443,9 +11587,25 @@
                             }
                         }
                     }).catch(function (err) {
+                        var currentTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
+                        currentTarget.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
+                        currentTarget.areaId = '';
+                        if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                            page,
+                            pageGeneration,
+                            request,
+                            currentTarget)) return;
                         console.error("Failed to load areas for mapping:", err);
                         selectEl.innerHTML = '<option value="">Failed to load areas</option><option value="manual">Enter ID manually</option>';
                     }).finally(function () {
+                        var currentTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
+                        currentTarget.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
+                        currentTarget.areaId = '';
+                        if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                            page,
+                            pageGeneration,
+                            request,
+                            currentTarget)) return;
                         selectEl.disabled = false;
                     });
                 },
@@ -11482,9 +11642,21 @@
                     selectEl.disabled = false;
                 },
 
-                loadChannelIds: function (bridgeIp, appKey, areaId, button, channelInput, statusEl, userId, deviceId) {
-                    var page = document.querySelector('.pluginConfigurationPage');
-                    var target = { bridgeIp: bridgeIp, appKey: appKey, userId: userId || "", deviceId: deviceId || "" };
+                loadChannelIds: function (bridgeIp, appKey, areaId, button, channelInput, statusEl, userId, deviceId, clientKey, page, requestKey) {
+                    page = page || document.querySelector('.pluginConfigurationPage');
+                    if (!page) return Promise.resolve();
+                    requestKey = requestKey || 'defaultChannels';
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, requestKey);
+                    var target = {
+                        bridgeIp: bridgeIp,
+                        appKey: appKey,
+                        clientKey: clientKey || "",
+                        areaId: areaId || "",
+                        userId: userId || "",
+                        deviceId: deviceId || "",
+                        mappingId: requestKey === 'mappingChannels' ? HueConfigurationPage.mappingEditingMappingId || '' : ''
+                    };
                     var canUseStoredCredentials = HueConfigurationPage.canUseStoredTargetCredentials(page, target, false);
                     if (!bridgeIp || (!appKey && !canUseStoredCredentials) || !areaId) {
                         Dashboard.alert("Enter a bridge address, app key, and entertainment area first.");
@@ -11497,19 +11669,49 @@
                         statusEl.style.color = "";
                     }
 
-                    return ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/EntertainmentChannels"),
-                        data: JSON.stringify({
-                            ipAddress: bridgeIp,
-                            appKey: appKey,
-                            entertainmentAreaId: areaId,
-                            userId: userId || "",
-                            deviceId: deviceId || ""
-                        }),
-                        contentType: "application/json",
-                        dataType: "json"
-                    }).then(function (response) {
+                    var getCurrentTarget = function () {
+                        if (requestKey === 'mappingChannels') {
+                            var mappingTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
+                            mappingTarget.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
+                            return mappingTarget;
+                        }
+
+                        return {
+                            bridgeIp: page.querySelector('#hueBridgeIp').value.trim(),
+                            appKey: page.querySelector('#hueAppKey').value.trim(),
+                            clientKey: page.querySelector('#hueClientKey').value.trim(),
+                            areaId: HueConfigurationPage.getSelectedAreaId(page),
+                            userId: '',
+                            deviceId: ''
+                        };
+                    };
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                            page,
+                            pageGeneration,
+                            request,
+                            getCurrentTarget());
+                    };
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        requestKey,
+                        ApiClient.getUrl("HueSync/EntertainmentChannels"),
+                        {
+                            type: "POST",
+                            data: JSON.stringify({
+                                ipAddress: bridgeIp,
+                                appKey: appKey,
+                                entertainmentAreaId: areaId,
+                                userId: userId || "",
+                                deviceId: deviceId || ""
+                            }),
+                            contentType: "application/json",
+                            dataType: "json"
+                        },
+                        target);
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         var channels = Array.isArray(response)
                             ? response
                             : response && Array.isArray(response.data)
@@ -11540,12 +11742,14 @@
                             statusEl.style.color = "#8bc34a";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to load entertainment channel IDs:", err);
                         if (statusEl) {
                             statusEl.textContent = "Unable to load channel IDs. Verify the bridge credentials and selected area.";
                             statusEl.style.color = "#d9534f";
                         }
                     }).finally(function () {
+                        if (!isCurrent()) return;
                         if (button) button.disabled = false;
                     });
                 },
@@ -11561,11 +11765,17 @@
                         page.querySelector('#loadChannelsBtn'),
                         page.querySelector('#channelIds'),
                         page.querySelector('#channelIdsStatus'),
-                        "");
+                        "",
+                        "",
+                        "",
+                        page,
+                        'defaultChannels');
                 },
 
-                loadMappingChannels: function () {
-                    var target = HueConfigurationPage.getEffectiveMappingTarget();
+                loadMappingChannels: function (page) {
+                    page = page || document.querySelector('.pluginConfigurationPage');
+                    var target = HueConfigurationPage.getEffectiveMappingTarget(page);
+                    target.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
 
                     return HueConfigurationPage.loadChannelIds(
                         target.bridgeIp,
@@ -11575,7 +11785,10 @@
                         document.getElementById('mappingChannelIdsOverride'),
                         document.getElementById('mappingChannelIdsStatus'),
                         target.userId,
-                        target.deviceId);
+                        target.deviceId,
+                        target.clientKey,
+                        page,
+                        'mappingChannels');
                 },
 
                 addUserMapping: function () {
@@ -12702,7 +12915,7 @@
             });
 
             document.querySelector('#mappingLoadChannelsBtn').addEventListener('click', function () {
-                HueConfigurationPage.loadMappingChannels();
+                HueConfigurationPage.loadMappingChannels(this.closest('.page'));
             });
 
             document.querySelector('#addMappingBtn').addEventListener('click', function () {

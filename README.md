@@ -455,7 +455,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.295 (Current)
+### Version 1.5.296 (Current)
+- **Target-scoped mapping safety**: entertainment-area, channel-ID, route-area, and playback-device discovery responses now carry page generations and target fingerprints, so a stale bridge response cannot overwrite a newer mapping draft.
+- **Cancelable mapping requests**: newer target requests and pagehide now abort the previous mapping request when the client supports it.
+
+### Version 1.5.295
 - **Bounded mapping storage**: persisted user mappings are capped at 100 rows, and oversized configuration imports are rejected before normalization or mutation.
 - **Capacity contract coverage**: exact-limit and limit-plus-one validation tests protect both runtime configuration and import preflight behavior.
 

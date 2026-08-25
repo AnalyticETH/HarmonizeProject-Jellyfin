@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.296] - 2026-08-25
+
+### Mapping editor reliability
+- **Target-scoped stale-response protection**: entertainment-area, channel-ID, route-area, and playback-device discovery requests now carry page generations and target fingerprints, preventing late responses from overwriting a newer mapping draft.
+- **Request cancellation**: newer target requests and page teardown abort tracked mapping requests when supported.
+- **Regression contracts**: static checks protect the channel-write guard and target fingerprint lifecycle wiring.
+
 ## [1.5.295] - 2026-08-25
 
 ### Configuration capacity safety

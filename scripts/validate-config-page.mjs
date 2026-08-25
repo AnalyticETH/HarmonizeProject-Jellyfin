@@ -377,6 +377,15 @@ const requiredScript = [
     "upsertMappingDeviceRoute: function",
     "removeMappingDeviceRoute: function",
     "loadMappingDeviceRouteAreas: function",
+    "getMappingDeviceRouteTarget: function",
+    "getMappingTargetFingerprint: function",
+    "isPageLifecycleTargetRequestCurrent: function",
+    "cancelPageLifecycleRequest: function",
+    "targetFingerprint",
+    "'mappingAreas'",
+    "'mappingChannels'",
+    "'mappingDeviceRouteAreas'",
+    "'mappingPlaybackDevices'",
     "_hueDeviceRouteCredentials",
     "delete route.HueAppKey",
     "mappingDeviceRouteAreaSelect",
@@ -578,6 +587,61 @@ const requiredScript = [
 for (const marker of requiredScript) {
     if (!scriptMatch[1].includes(marker)) {
         throw new Error(`${file} is missing required behavior: ${marker}`);
+    }
+}
+
+for (const [functionName, markers] of [
+    ["loadMappingAreas", [
+        "var page",
+        "var pageGeneration",
+        "cancelPageLifecycleRequest(page, 'mappingAreas')",
+        "getPageLifecycleRequest",
+        "isPageLifecycleTargetRequestCurrent"
+    ]],
+    ["loadMappingDeviceRouteAreas", [
+        "var page",
+        "var pageGeneration",
+        "cancelPageLifecycleRequest(page, 'mappingDeviceRouteAreas')",
+        "getMappingDeviceRouteTarget",
+        "getPageLifecycleRequest",
+        "isPageLifecycleTargetRequestCurrent"
+    ]],
+    ["discoverMappingDevices", [
+        "var page",
+        "var pageGeneration",
+        "cancelPageLifecycleRequest(page, 'mappingPlaybackDevices')",
+        "getPageLifecycleRequest",
+        "isPageLifecycleTargetRequestCurrent",
+        "HueConfigurationPage.refreshMappingDeviceRoutes()"
+    ]],
+    ["loadChannelIds", [
+        "var pageGeneration",
+        "cancelPageLifecycleRequest(page, requestKey)",
+        "getPageLifecycleRequest",
+        "isPageLifecycleTargetRequestCurrent",
+        "channelInput.value = channelIds.join(', ')",
+        "if (!isCurrent()) return;"
+    ]]
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of markers) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing target-scoped stale-request protection: ${marker}`);
+        }
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("loadChannelIds: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    const staleGuards = functionBody.match(/if \(!isCurrent\(\)\) return;/g) || [];
+    const writeIndex = functionBody.indexOf("channelInput.value = channelIds.join(', ')");
+    const firstGuardIndex = functionBody.indexOf("if (!isCurrent()) return;");
+    if (staleGuards.length < 3 || firstGuardIndex < 0 || writeIndex < 0 || firstGuardIndex > writeIndex) {
+        throw new Error(`${file} loadChannelIds must guard channel writes and terminal callbacks against stale targets`);
     }
 }
 
