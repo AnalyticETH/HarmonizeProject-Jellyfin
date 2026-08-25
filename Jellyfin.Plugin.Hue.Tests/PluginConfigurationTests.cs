@@ -29,6 +29,50 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void Validate_UserMappingsAcceptsMaximumConfiguredRows()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = false,
+            UserMappings = Enumerable.Range(0, PluginConfiguration.MaxUserMappings)
+                .Select(_ => new UserBridgeMapping
+                {
+                    UserId = Guid.NewGuid().ToString("D"),
+                    SyncEnabled = false
+                })
+                .ToList()
+        };
+
+        var errors = config.Validate();
+
+        Assert.DoesNotContain(
+            $"No more than {PluginConfiguration.MaxUserMappings} user mappings may be saved",
+            errors);
+    }
+
+    [Fact]
+    public void Validate_UserMappingsRejectsMoreThanMaximumConfiguredRows()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = false,
+            UserMappings = Enumerable.Range(0, PluginConfiguration.MaxUserMappings + 1)
+                .Select(_ => new UserBridgeMapping
+                {
+                    UserId = Guid.NewGuid().ToString("D"),
+                    SyncEnabled = false
+                })
+                .ToList()
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains(
+            $"No more than {PluginConfiguration.MaxUserMappings} user mappings may be saved",
+            errors);
+    }
+
+    [Fact]
     public void PlaybackMediaFilter_DefaultsToAllVideoAndNormalizesCase()
     {
         var config = new PluginConfiguration();

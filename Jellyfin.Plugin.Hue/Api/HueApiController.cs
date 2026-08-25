@@ -7705,6 +7705,19 @@ namespace Jellyfin.Plugin.Hue.Api
             PluginConfiguration config,
             HueConfigurationImportRequest request)
         {
+            var importedMappings = request.UserMappings ?? new List<UserBridgeMappingImport>();
+            if (importedMappings.Count > PluginConfiguration.MaxUserMappings)
+            {
+                return new HueConfigurationImportPlan
+                {
+                    ImportedMappingCount = importedMappings.Count,
+                    ValidationErrors = new List<string>
+                    {
+                        $"No more than {PluginConfiguration.MaxUserMappings} user mappings may be imported."
+                    }
+                };
+            }
+
             var existingMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
                 .Where(mapping => mapping != null)
                 .Select(CloneUserMapping)
@@ -7721,7 +7734,6 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(schedule => schedule != null)
                 .Select(CloneSceneSchedule)
                 .ToList();
-            var importedMappings = request.UserMappings ?? new List<UserBridgeMappingImport>();
             var importedPresets = request.ColorPresets ?? new List<HueColorPresetRequest>();
             var importedPlaylists = request.ScenePlaylists ?? new List<HueScenePlaylistRequest>();
             var importedSchedules = request.SceneSchedules ?? new List<HueSceneScheduleRequest>();

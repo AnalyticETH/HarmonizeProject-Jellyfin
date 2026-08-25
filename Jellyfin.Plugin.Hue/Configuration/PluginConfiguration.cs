@@ -802,6 +802,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int DefaultColorPresetEffectSpeedPercent = 100;
         public const int MaxColorPresets = 50;
         public const int MaxColorPresetNameLength = 64;
+        public const int MaxUserMappings = 100;
         public const int MaxBulkUserMappingDeletes = 50;
         public const int MaxBulkUserMappingUpdates = 50;
         public const int MaxDeviceTargetsPerUser = 25;
@@ -4248,6 +4249,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             if (UserMappings == null)
                 return;
+
+            if (UserMappings.Count > MaxUserMappings)
+                errors.Add($"No more than {MaxUserMappings} user mappings may be saved");
 
             var seenUserIds = new List<string>();
             for (var index = 0; index < UserMappings.Count; index++)

@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 const readme = fs.readFileSync("README.md", "utf8");
 const controller = fs.readFileSync("Jellyfin.Plugin.Hue/Api/HueApiController.cs", "utf8");
+const pluginConfiguration = fs.readFileSync("Jellyfin.Plugin.Hue/Configuration/PluginConfiguration.cs", "utf8");
 const automationService = fs.readFileSync("Jellyfin.Plugin.Hue/Service/HueSceneAutomationService.cs", "utf8");
 
 const previewEndpoints = [
@@ -109,8 +110,12 @@ if (!statusRow || !statusRow.includes("playbackObservedAtUtc")) {
 }
 
 const userMappingsRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET/POST /HueSync/UserMappings` |"));
-if (!userMappingsRow || !userMappingsRow.includes("valid Jellyfin user GUID") || !userMappingsRow.includes("before configuration mutation")) {
-    throw new Error("README.md user-mapping contract is missing GUID validation and fail-before-mutation markers");
+if (!userMappingsRow ||
+    !userMappingsRow.includes("valid Jellyfin user GUID") ||
+    !userMappingsRow.includes("before configuration mutation") ||
+    !userMappingsRow.includes("100 mapping rows") ||
+    !userMappingsRow.includes("oversized mapping imports")) {
+    throw new Error("README.md user-mapping contract is missing GUID, capacity, or fail-before-mutation markers");
 }
 
 const userMappingReconcileRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET/POST /HueSync/UserMappings/Reconcile` |"));
@@ -267,6 +272,26 @@ for (const marker of [
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API user-mapping reconciliation is missing source marker: ${marker}`);
+    }
+}
+
+for (const marker of [
+    "public const int MaxUserMappings = 100;",
+    "if (UserMappings.Count > MaxUserMappings)",
+    "No more than {MaxUserMappings} user mappings may be saved"
+]) {
+    if (!pluginConfiguration.includes(marker)) {
+        throw new Error(`PluginConfiguration user-mapping capacity guard is missing source marker: ${marker}`);
+    }
+}
+
+for (const marker of [
+    "var importedMappings = request.UserMappings ?? new List<UserBridgeMappingImport>();",
+    "importedMappings.Count > PluginConfiguration.MaxUserMappings",
+    "No more than {PluginConfiguration.MaxUserMappings} user mappings may be imported."
+]) {
+    if (!controller.includes(marker)) {
+        throw new Error(`Hue API configuration import capacity guard is missing source marker: ${marker}`);
     }
 }
 

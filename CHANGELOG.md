@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.295] - 2026-08-25
+
+### Configuration capacity safety
+- **Bounded user mappings**: persisted user-mapping collections accept at most 100 rows, and oversized imports fail before cloning, normalization, or configuration mutation.
+- **Regression coverage**: exact-limit and limit-plus-one tests cover configuration validation and credential-safe import preflight.
+
 ## [1.5.294] - 2026-08-25
 
 ### Administrator page reliability

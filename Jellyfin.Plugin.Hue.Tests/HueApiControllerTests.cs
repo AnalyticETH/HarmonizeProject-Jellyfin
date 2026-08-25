@@ -11284,6 +11284,80 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ValidateConfigurationImport_AcceptsMaximumUserMappingCollection()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration { SyncEnabled = false });
+        var request = new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            UserMappings = Enumerable.Range(0, PluginConfiguration.MaxUserMappings)
+                .Select(_ => new UserBridgeMappingImport
+                {
+                    UserId = Guid.NewGuid().ToString("D"),
+                    SyncEnabled = false
+                })
+                .ToList()
+        };
+
+        var action = CreateController().ValidateConfigurationImport(request);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConfigurationImportValidationResult>(response.Value);
+        Assert.True(result.Valid);
+        Assert.True(result.CanImport);
+        Assert.Equal(PluginConfiguration.MaxUserMappings, result.MappingsImported);
+        Assert.Equal(PluginConfiguration.MaxUserMappings, result.TotalMappings);
+        Assert.Empty(configuration.UserMappings);
+    }
+
+    [Fact]
+    public void ConfigurationImport_RejectsOversizedUserMappingCollectionBeforePlanning()
+    {
+        var existingMapping = new UserBridgeMapping
+        {
+            UserId = "99999999-9999-9999-9999-999999999999",
+            UserName = "Existing viewer",
+            SyncEnabled = false
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            UserMappings = new List<UserBridgeMapping> { existingMapping }
+        });
+        var request = new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            UserMappings = Enumerable.Range(0, PluginConfiguration.MaxUserMappings + 1)
+                .Select(_ => new UserBridgeMappingImport
+                {
+                    UserId = Guid.NewGuid().ToString("D"),
+                    SyncEnabled = false
+                })
+                .ToList()
+        };
+        var controller = CreateController();
+
+        var validation = controller.ValidateConfigurationImport(request);
+
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        Assert.False(validationResult.Valid);
+        Assert.False(validationResult.CanImport);
+        Assert.Contains(
+            $"No more than {PluginConfiguration.MaxUserMappings} user mappings may be imported.",
+            validationResult.ValidationErrors);
+        Assert.Same(existingMapping, Assert.Single(configuration.UserMappings));
+
+        var import = controller.ImportConfiguration(request);
+
+        var importResponse = Assert.IsType<BadRequestObjectResult>(import.Result);
+        Assert.Contains(
+            $"No more than {PluginConfiguration.MaxUserMappings} user mappings may be imported.",
+            JsonSerializer.Serialize(importResponse.Value));
+        Assert.Same(existingMapping, Assert.Single(configuration.UserMappings));
+    }
+
+    [Fact]
     public void ConfigurationImport_ReportsAndRejectsActiveBridgeLifecycle()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
