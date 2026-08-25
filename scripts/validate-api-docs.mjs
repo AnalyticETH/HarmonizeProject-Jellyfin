@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 const readme = fs.readFileSync("README.md", "utf8");
 const controller = fs.readFileSync("Jellyfin.Plugin.Hue/Api/HueApiController.cs", "utf8");
+const automationService = fs.readFileSync("Jellyfin.Plugin.Hue/Service/HueSceneAutomationService.cs", "utf8");
 
 const previewEndpoints = [
     "POST /HueSync/Preview",
@@ -106,11 +107,22 @@ for (const marker of [
     "var normalizedUserId = hasValidUserId",
     "PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, normalizedUserId)",
     "TargetUserId = PluginConfiguration.NormalizeJellyfinUserId(TargetUserId)",
+    "UserId = PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId)",
     "duplicates another imported user mapping",
     "user ID must be a valid Jellyfin user ID."
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API configuration import is missing GUID normalization marker: ${marker}`);
+    }
+}
+
+for (const marker of [
+    ".Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()",
+    ".Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToList()",
+    "TargetUserId = PluginConfiguration.NormalizeJellyfinUserId(source.TargetUserId)"
+]) {
+    if (!automationService.includes(marker)) {
+        throw new Error(`Hue scheduler credential-free metadata is missing canonical target-ID marker: ${marker}`);
     }
 }
 

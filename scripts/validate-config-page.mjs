@@ -159,6 +159,10 @@ for (const marker of requiredMarkup) {
 
 const requiredScript = [
     "function escapeAttribute(str)",
+    "normalizeJellyfinUserId: function",
+    "areSameJellyfinUserId: function",
+    "HueConfigurationPage.areSameJellyfinUserId(candidateRoute.userId, route.userId)",
+    "userId: HueConfigurationPage.normalizeJellyfinUserId(route.userId)",
     "data-userid=\"' + escapeAttribute(userId)",
     "setDiagnosticBusy: function",
     "setDiagnosticsBusy: function",

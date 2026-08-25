@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.270] - 2026-08-25
+
+### API and scheduler hardening
+- **Credential-free target parity**: normalize valid GUID mapping IDs to canonical D-format text across scheduler status, upcoming occurrences, scene/playlist preview results, skip/failure telemetry, restored history, and mapping summaries while retaining fail-closed opaque legacy values.
+
+### UI and tests
+- **Legacy route editor matching**: compare brace/N-format mapping and device-route IDs by GUID value so persisted legacy targets remain selectable.
+- **Parity coverage**: verify canonical mapping summaries, live/occurrence/history metadata, and playlist preview telemetry without exposing credentials.
+
 ## [1.5.269] - 2026-08-24
 
 ### API hardening

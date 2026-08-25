@@ -1155,7 +1155,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 DayOfWeek = schedule.DayOfWeek,
                 TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                 TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                    .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                    .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                     ?? Array.Empty<string>(),
                 TargetRoutes = GetScheduleTargetRoutes(schedule),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
@@ -1686,7 +1686,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 Priority = schedule.Priority,
                 TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
                 TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                    .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                    .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                     ?? Array.Empty<string>(),
                 TargetRoutes = GetScheduleTargetRoutes(schedule),
                 IncludeDefaultTarget = schedule.IncludeDefaultTarget,
@@ -2172,7 +2172,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = ResolveTargetLabel(config, schedule, targetRoutesOverride),
             TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
             TargetRoutes = normalizedTargetRoutesOverride.Count > 0
                 ? normalizedTargetRoutesOverride
@@ -2228,7 +2228,7 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         var normalizedTargetUserIdsOverride = targetUserIdsOverride?
             .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value.Trim())
+            .Select(PluginConfiguration.NormalizeJellyfinUserId)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         var hasTargetOverride = includeDefaultTargetOverride ||
@@ -2237,7 +2237,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         var effectiveTargetUserIds = hasTargetOverride
             ? normalizedTargetUserIdsOverride ?? new List<string>()
             : (playlist.TargetUserIds ?? new List<string>())
-                .Select(value => value?.Trim() ?? string.Empty)
+                .Select(PluginConfiguration.NormalizeJellyfinUserId)
                 .ToList();
         var effectiveIncludeDefaultTarget = hasTargetOverride
             ? includeDefaultTargetOverride
@@ -2401,7 +2401,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = ResolveTargetLabel(config, targetSchedule, normalizedTargetRoutesOverride),
             TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
             TargetRoutes = normalizedTargetRoutesOverride,
             IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
@@ -2561,7 +2561,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = ResolveTargetLabel(config, targetSchedule, targetRoutes),
             TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
             TargetRoutes = targetRoutes,
             IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
@@ -2808,7 +2808,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 : PluginConfiguration.ScenePlaylistOrderSequential,
             TargetAllEnabledMappings = playlist?.TargetAllEnabledMappings == true,
             TargetUserIds = playlist?.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
             TargetRoutes = NormalizeTargetRoutes(targetRoutes),
             IncludeDefaultTarget = playlist?.IncludeDefaultTarget == true,
@@ -4509,7 +4509,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = ResolveTargetLabel(config, schedule),
             TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
             TargetRoutes = GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule.IncludeDefaultTarget,
@@ -4662,7 +4662,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = ResolveTargetLabel(config, schedule),
             TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
             TargetRoutes = GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule.IncludeDefaultTarget,
@@ -4704,7 +4704,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 : playlistRun.TargetLabel,
             TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
             TargetRoutes = GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule.IncludeDefaultTarget,
@@ -5515,7 +5515,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             Blue = result.Blue,
             TargetLabel = result.TargetLabel,
             TargetAllEnabledMappings = result.TargetAllEnabledMappings,
-            TargetUserIds = result.TargetUserIds?.ToList() ?? new List<string>(),
+            TargetUserIds = result.TargetUserIds?
+                .Select(PluginConfiguration.NormalizeJellyfinUserId)
+                .ToList() ?? new List<string>(),
             TargetRoutes = result.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneScheduleTargetRoute
                 {
@@ -5718,7 +5720,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = source.TargetLabel?.Trim(),
             TargetAllEnabledMappings = source.TargetAllEnabledMappings,
             TargetUserIds = source.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+                .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
                 ?? new List<string>(),
             TargetRoutes = source.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneScheduleTargetRoute
@@ -5784,7 +5786,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = entry.TargetLabel?.Trim(),
             TargetAllEnabledMappings = entry.TargetAllEnabledMappings,
             TargetUserIds = entry.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
             TargetRoutes = entry.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneAutomationTargetRoute
@@ -5830,7 +5832,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             TransitionCurve = source.TransitionCurve,
             TargetLabel = source.TargetLabel,
             TargetAllEnabledMappings = source.TargetAllEnabledMappings,
-            TargetUserIds = source.TargetUserIds?.ToArray() ?? Array.Empty<string>(),
+            TargetUserIds = source.TargetUserIds?
+                .Select(PluginConfiguration.NormalizeJellyfinUserId)
+                .ToArray() ?? Array.Empty<string>(),
             TargetRoutes = source.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneAutomationTargetRoute
                 {
@@ -6332,8 +6336,10 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistName = source.PlaylistName,
             Priority = source.Priority,
             PlaybackPolicy = source.PlaybackPolicy,
-            TargetUserId = source.TargetUserId,
-            TargetUserIds = source.TargetUserIds?.ToList() ?? new List<string>(),
+            TargetUserId = PluginConfiguration.NormalizeJellyfinUserId(source.TargetUserId),
+            TargetUserIds = source.TargetUserIds?
+                .Select(PluginConfiguration.NormalizeJellyfinUserId)
+                .ToList() ?? new List<string>(),
             TargetRoutes = source.TargetRoutes?.Where(route => route != null)
                 .Select(route => new HueSceneScheduleTargetRoute
                 {
@@ -6430,7 +6436,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             TargetLabel = targetLabel,
             TargetAllEnabledMappings = schedule?.TargetAllEnabledMappings ?? false,
             TargetUserIds = schedule?.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
             TargetRoutes = targetRoutes ?? GetScheduleTargetRoutes(schedule),
             IncludeDefaultTarget = schedule?.IncludeDefaultTarget ?? false,

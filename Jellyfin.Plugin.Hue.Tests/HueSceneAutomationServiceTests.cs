@@ -4375,6 +4375,61 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void CredentialFreeCueMetadata_NormalizesLegacyGuidTargetIds()
+    {
+        const string canonicalUserId = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+        var schedule = new HueSceneSchedule
+        {
+            Id = "legacy-guid-cue",
+            Name = "Legacy GUID cue",
+            Enabled = true,
+            PresetName = "Welcome",
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeFixed,
+            TimeOfDay = "13:00",
+            DaysOfWeekMask = 127,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            DurationSeconds = 1,
+            TargetUserIds = new List<string> { "{DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD}" }
+        };
+        InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            SceneSchedules = new List<HueSceneSchedule> { schedule },
+            PersistSceneScheduleHistory = true,
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new()
+                {
+                    ScheduleId = schedule.Id,
+                    ScheduleName = schedule.Name,
+                    TargetUserIds = new List<string> { "dddddddddddddddddddddddddddddddd" },
+                    RunAtUtc = DateTime.UtcNow
+                }
+            }
+        });
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var statusSchedule = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(new[] { canonicalUserId }, statusSchedule.TargetUserIds);
+
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            new DateTime(2026, 8, 24, 12, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: 1,
+            horizonDays: 2);
+        Assert.Equal(new[] { canonicalUserId }, Assert.Single(occurrences).TargetUserIds);
+
+        var history = Assert.Single(service.GetHistory());
+        Assert.Equal(new[] { canonicalUserId }, history.TargetUserIds);
+    }
+
+    [Fact]
     public async Task RunPlaylistPreview_ReportsExplicitDeviceRoutesWithoutCredentials()
     {
         var configuration = new PluginConfiguration
@@ -4533,6 +4588,7 @@ public sealed class HueSceneAutomationServiceTests
     [Fact]
     public async Task RunPlaylistPreview_UsesPersistedSelectedTargetsAndPreservesTargetTelemetry()
     {
+        const string canonicalUserId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
         var configuration = new PluginConfiguration
         {
             HueBridgeIp = "192.168.1.100",
@@ -4547,7 +4603,7 @@ public sealed class HueSceneAutomationServiceTests
             {
                 new()
                 {
-                    UserId = "user-1",
+                    UserId = canonicalUserId,
                     UserName = "Kitchen",
                     SyncEnabled = true,
                     HueBridgeIp = "192.168.1.101",
@@ -4573,7 +4629,7 @@ public sealed class HueSceneAutomationServiceTests
                     Id = "selected-playlist",
                     Name = "Selected sequence",
                     PresetNames = new List<string> { "Welcome" },
-                    TargetUserIds = new List<string> { "user-1" },
+                    TargetUserIds = new List<string> { "{EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE}" },
                     IncludeDefaultTarget = true
                 }
             }
@@ -4591,7 +4647,7 @@ public sealed class HueSceneAutomationServiceTests
 
         Assert.True(result.Succeeded);
         Assert.Equal("Default bridge + 1 selected target(s)", result.TargetLabel);
-        Assert.Equal(new[] { "user-1" }, result.TargetUserIds);
+        Assert.Equal(new[] { canonicalUserId }, result.TargetUserIds);
         Assert.True(result.IncludeDefaultTarget);
         Assert.Equal(new[] { "Default bridge target", "Kitchen" }, result.TargetResults.Select(target => target.TargetLabel));
         Assert.DoesNotContain(result.TargetResults, target => target.TargetLabel == "Office");

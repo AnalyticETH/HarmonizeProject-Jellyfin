@@ -9585,6 +9585,29 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetUserMappings_NormalizesLegacyGuidRepresentation()
+    {
+        const string canonicalUserId = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "{DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD}",
+                    UserName = "Legacy viewer"
+                }
+            }
+        });
+
+        var action = CreateController().GetUserMappings();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var mapping = Assert.Single(Assert.IsAssignableFrom<IEnumerable<UserBridgeMappingSummary>>(response.Value));
+        Assert.Equal(canonicalUserId, mapping.UserId);
+    }
+
+    [Fact]
     public void GetUserMappings_ReportsDefaultBridgeInheritanceWithoutCredentials()
     {
         InstallConfiguration(new PluginConfiguration

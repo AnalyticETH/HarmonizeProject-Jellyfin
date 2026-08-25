@@ -9485,7 +9485,7 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             return new UserBridgeMappingSummary
             {
-                UserId = mapping.UserId,
+                UserId = PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId),
                 UserName = mapping.UserName,
                 SyncEnabled = mapping.SyncEnabled,
                 InheritsDefaultBridge = string.IsNullOrWhiteSpace(mapping.HueBridgeIp),

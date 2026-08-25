@@ -1766,6 +1766,28 @@
                     if (!left || !right) return false;
                     return left.trim().replace(/\.+$/, '').toLowerCase() === right.trim().replace(/\.+$/, '').toLowerCase();
                 },
+                normalizeJellyfinUserId: function (value) {
+                    var trimmed = String(value || '').trim();
+                    var match = trimmed.match(/^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})$/i) ||
+                        trimmed.match(/^\{([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})\}$/i) ||
+                        trimmed.match(/^\(([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})\)$/i);
+                    if (match) {
+                        return [match[1], match[2], match[3], match[4], match[5]].join('-').toLowerCase();
+                    }
+
+                    var compact = trimmed.match(/^([0-9a-f]{32})$/i);
+                    if (compact) {
+                        var value32 = compact[1].toLowerCase();
+                        return value32.slice(0, 8) + '-' + value32.slice(8, 12) + '-' +
+                            value32.slice(12, 16) + '-' + value32.slice(16, 20) + '-' + value32.slice(20);
+                    }
+
+                    return trimmed;
+                },
+                areSameJellyfinUserId: function (left, right) {
+                    return HueConfigurationPage.normalizeJellyfinUserId(left).toLowerCase() ===
+                        HueConfigurationPage.normalizeJellyfinUserId(right).toLowerCase();
+                },
                 getBridgeDiscoveryAddresses: function (response) {
                     response = response || {};
                     var values = response.ipAddresses || response.IpAddresses || response.addresses || response.Addresses;
@@ -1807,7 +1829,7 @@
                 },
                 canUseStoredMappingCredentials: function (target, requireClientKey) {
                     if (!target || !target.userId || !target.bridgeIp ||
-                        String(HueConfigurationPage.mappingEditingUserId || '').toLowerCase() !== String(target.userId).toLowerCase() ||
+                        !HueConfigurationPage.areSameJellyfinUserId(HueConfigurationPage.mappingEditingUserId, target.userId) ||
                         !HueConfigurationPage.mappingEditingHasAppKey) {
                         return false;
                     }
@@ -2080,7 +2102,7 @@
                 },
                 canUseStoredDeviceRouteCredentials: function (target, requireClientKey) {
                     if (!target || !target.deviceId || !target.userId ||
-                        String(HueConfigurationPage.mappingEditingUserId || '').toLowerCase() !== String(target.userId).toLowerCase()) {
+                        !HueConfigurationPage.areSameJellyfinUserId(HueConfigurationPage.mappingEditingUserId, target.userId)) {
                         return false;
                     }
 
@@ -2156,7 +2178,7 @@
                             var devices = Array.isArray(response) ? response : [];
                             devices = devices.filter(function (device) {
                                 var candidate = device && (device.userId !== undefined ? device.userId : device.UserId);
-                                return !candidate || String(candidate).toLowerCase() === userId.toLowerCase();
+                                return !candidate || HueConfigurationPage.areSameJellyfinUserId(candidate, userId);
                             });
                             HueConfigurationPage._huePlaybackDevices = devices;
                             HueConfigurationPage.refreshMappingDeviceRoutes();
@@ -5653,7 +5675,7 @@
                         : [];
                     var mapping = mappings.find(function (candidate) {
                         var candidateUserId = candidate && (candidate.userId !== undefined ? candidate.userId : candidate.UserId);
-                        return String(candidateUserId || '').trim().toLowerCase() === userId.toLowerCase();
+                        return HueConfigurationPage.areSameJellyfinUserId(candidateUserId, userId);
                     });
                     if (!mapping) return false;
                     var enabled = mapping.syncEnabled !== undefined ? mapping.syncEnabled !== false : mapping.SyncEnabled !== false;
@@ -5684,7 +5706,7 @@
                         var route = HueConfigurationPage.parseCurrentLightDeviceTarget(value);
                         if (route) {
                             var normalizedRoute = {
-                                userId: String(route.userId || '').trim(),
+                                userId: HueConfigurationPage.normalizeJellyfinUserId(route.userId),
                                 deviceId: String(route.deviceId || '').trim()
                             };
                             if (!HueConfigurationPage.isSceneScheduleDeviceRouteAvailable(page, normalizedRoute)) {
@@ -5698,7 +5720,7 @@
                             invalidRoute = true;
                             return;
                         }
-                        targetUserIds.push(value);
+                        targetUserIds.push(HueConfigurationPage.normalizeJellyfinUserId(value));
                     });
                     var unavailablePersistedRoutes = page && Array.isArray(page._hueSceneScheduleUnavailableTargetRoutes) &&
                         page._hueSceneScheduleUnavailableTargetRoutes.length > 0;
@@ -8186,8 +8208,9 @@
                                 if (defaultOption) defaultOption.selected = true;
                             }
                             selectedTargetUserIds.forEach(function (userId) {
+                                var normalizedUserId = HueConfigurationPage.normalizeJellyfinUserId(userId);
                                 var option = Array.prototype.find.call(targetSelect.options, function (candidate) {
-                                    return candidate.value === String(userId || '');
+                                    return HueConfigurationPage.areSameJellyfinUserId(candidate.value, normalizedUserId);
                                 });
                                 if (option) option.selected = true;
                             });
@@ -8195,13 +8218,13 @@
                                 var routeUserId = routeValue && (routeValue.userId !== undefined ? routeValue.userId : routeValue.UserId);
                                 var routeDeviceId = routeValue && (routeValue.deviceId !== undefined ? routeValue.deviceId : routeValue.DeviceId);
                                 var route = {
-                                    userId: String(routeUserId || '').trim(),
+                                    userId: HueConfigurationPage.normalizeJellyfinUserId(routeUserId),
                                     deviceId: String(routeDeviceId || '').trim()
                                 };
                                 var routeOption = Array.prototype.find.call(targetSelect.options || [], function (candidate) {
                                     var candidateRoute = HueConfigurationPage.parseCurrentLightDeviceTarget(candidate && candidate.value);
                                     return candidateRoute &&
-                                        candidateRoute.userId.trim().toLowerCase() === route.userId.toLowerCase() &&
+                                        HueConfigurationPage.areSameJellyfinUserId(candidateRoute.userId, route.userId) &&
                                         candidateRoute.deviceId.trim() === route.deviceId;
                                 });
                                 if (routeOption && !routeOption.disabled &&
@@ -8214,7 +8237,7 @@
                         } else {
                             var legacyTargetId = get('TargetUserId', 'targetUserId', '');
                             var legacyOption = Array.prototype.find.call(targetSelect.options, function (candidate) {
-                                return candidate.value === String(legacyTargetId || '');
+                                return HueConfigurationPage.areSameJellyfinUserId(candidate.value, legacyTargetId);
                             });
                             if (legacyOption) legacyOption.selected = true;
                         }
@@ -11187,7 +11210,7 @@
                         var mapping = null;
                         mappings.forEach(function (candidate) {
                             var candidateId = candidate.UserId || candidate.userId || "";
-                            if (!mapping && String(candidateId).toLowerCase() === String(userId).toLowerCase()) {
+                            if (!mapping && HueConfigurationPage.areSameJellyfinUserId(candidateId, userId)) {
                                 mapping = candidate;
                             }
                         });
@@ -11448,7 +11471,7 @@
                             }).then(function () {
                                 Dashboard.alert("User mapping deleted.");
                                 HueConfigurationPage.loadUserMappings(page);
-                                if (String(HueConfigurationPage.mappingEditingUserId || '').toLowerCase() === String(userId).toLowerCase()) {
+                                if (HueConfigurationPage.areSameJellyfinUserId(HueConfigurationPage.mappingEditingUserId, userId)) {
                                     HueConfigurationPage.resetMappingForm(page);
                                 }
                             }).catch(function (err) {
