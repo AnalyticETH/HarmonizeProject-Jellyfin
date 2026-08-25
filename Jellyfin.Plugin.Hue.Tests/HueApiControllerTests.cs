@@ -11358,6 +11358,245 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ConfigurationImport_AcceptsMaximumColorPresetCollection()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration { SyncEnabled = false });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ColorPresets = Enumerable.Range(0, PluginConfiguration.MaxColorPresets)
+            .Select(index => new HueColorPresetRequest
+            {
+                Name = $"Imported scene {index}",
+                Red = index,
+                Green = index + 50,
+                Blue = index + 100
+            })
+            .ToList();
+
+        AssertConfigurationImportAccepted(
+            configuration,
+            request,
+            expectedPresets: PluginConfiguration.MaxColorPresets,
+            expectedPlaylists: 0,
+            expectedSchedules: 0);
+    }
+
+    [Fact]
+    public void ConfigurationImport_AcceptsMaximumScenePlaylistCollection()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration { SyncEnabled = false });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ColorPresets = new List<HueColorPresetRequest>
+        {
+            new() { Name = "Imported scene" }
+        };
+        request.ScenePlaylists = Enumerable.Range(0, PluginConfiguration.MaxScenePlaylists)
+            .Select(index => new HueScenePlaylistRequest
+            {
+                Id = $"imported-playlist-{index}",
+                Name = $"Imported playlist {index}",
+                PresetNames = new List<string> { "Imported scene" }
+            })
+            .ToList();
+
+        AssertConfigurationImportAccepted(
+            configuration,
+            request,
+            expectedPresets: 1,
+            expectedPlaylists: PluginConfiguration.MaxScenePlaylists,
+            expectedSchedules: 0);
+    }
+
+    [Fact]
+    public void ConfigurationImport_AcceptsMaximumSceneScheduleCollection()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration { SyncEnabled = false });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ColorPresets = new List<HueColorPresetRequest>
+        {
+            new() { Name = "Imported scene" }
+        };
+        request.SceneSchedules = Enumerable.Range(0, PluginConfiguration.MaxSceneSchedules)
+            .Select(index => new HueSceneScheduleRequest
+            {
+                Id = $"imported-schedule-{index}",
+                Name = $"Imported schedule {index}",
+                PresetName = "Imported scene",
+                TimeOfDay = "20:00",
+                TimeZoneId = TimeZoneInfo.Utc.Id,
+                Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                DaysOfWeekMask = 0,
+                Enabled = false
+            })
+            .ToList();
+
+        AssertConfigurationImportAccepted(
+            configuration,
+            request,
+            expectedPresets: 1,
+            expectedPlaylists: 0,
+            expectedSchedules: PluginConfiguration.MaxSceneSchedules);
+    }
+
+    [Fact]
+    public void ConfigurationImport_AcceptsMaximumPlaylistStepAndTargetCollections()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            EntertainmentAreaId = "area-1",
+            UserMappings = Enumerable.Range(0, PluginConfiguration.MaxSceneScheduleTargetMappings)
+                .Select(index => new UserBridgeMapping
+                {
+                    UserId = Guid.NewGuid().ToString("D"),
+                    UserName = $"Viewer {index}",
+                    SyncEnabled = true
+                })
+                .ToList()
+        });
+        var sceneNames = Enumerable.Range(0, PluginConfiguration.MaxScenePlaylistItems)
+            .Select(index => $"Scene {index}")
+            .ToList();
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ReplaceMappings = false;
+        request.ColorPresets = sceneNames
+            .Select(name => new HueColorPresetRequest { Name = name })
+            .ToList();
+        request.ScenePlaylists = new List<HueScenePlaylistRequest>
+        {
+            new()
+            {
+                Id = "maximum-playlist",
+                Name = "Maximum playlist",
+                PresetNames = sceneNames,
+                StepDurationSeconds = Enumerable.Repeat(0, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+                StepRed = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+                StepGreen = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+                StepBlue = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+                StepBrightnessPercent = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+                StepEffects = Enumerable.Repeat<string?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+                StepEffectSpeedPercent = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+                StepTransitionSeconds = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+                StepTransitionOutSeconds = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+                StepTransitionCurves = Enumerable.Repeat<string?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+                TargetUserIds = configuration.UserMappings.Select(mapping => mapping.UserId).ToList()
+            }
+        };
+
+        AssertConfigurationImportAccepted(
+            configuration,
+            request,
+            expectedPresets: PluginConfiguration.MaxScenePlaylistItems,
+            expectedPlaylists: 1,
+            expectedSchedules: 0);
+    }
+
+    [Fact]
+    public void ConfigurationImport_RejectsOversizedTopLevelCollectionsBeforePlanning()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration { SyncEnabled = false });
+
+        var presetRequest = CreateConfigurationImportRequest(configuration);
+        presetRequest.ColorPresets = Enumerable.Range(0, PluginConfiguration.MaxColorPresets + 1)
+            .Select(index => new HueColorPresetRequest { Name = $"Oversized scene {index}" })
+            .ToList();
+        AssertConfigurationImportCapacityRejected(
+            configuration,
+            presetRequest,
+            $"Imported color preset collection may contain no more than {PluginConfiguration.MaxColorPresets} items.");
+
+        var playlistRequest = CreateConfigurationImportRequest(configuration);
+        playlistRequest.ScenePlaylists = Enumerable.Range(0, PluginConfiguration.MaxScenePlaylists + 1)
+            .Select(index => new HueScenePlaylistRequest { Id = $"oversized-playlist-{index}" })
+            .ToList();
+        AssertConfigurationImportCapacityRejected(
+            configuration,
+            playlistRequest,
+            $"Imported scene playlist collection may contain no more than {PluginConfiguration.MaxScenePlaylists} items.");
+
+        var scheduleRequest = CreateConfigurationImportRequest(configuration);
+        scheduleRequest.SceneSchedules = Enumerable.Range(0, PluginConfiguration.MaxSceneSchedules + 1)
+            .Select(index => new HueSceneScheduleRequest { Id = $"oversized-schedule-{index}" })
+            .ToList();
+        AssertConfigurationImportCapacityRejected(
+            configuration,
+            scheduleRequest,
+            $"Imported scene schedule collection may contain no more than {PluginConfiguration.MaxSceneSchedules} items.");
+    }
+
+    [Fact]
+    public void ConfigurationImport_RejectsOversizedPlaylistNestedCollectionsBeforePlanning()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration { SyncEnabled = false });
+        var oversizedPlaylist = new HueScenePlaylistRequest
+        {
+            PresetNames = Enumerable.Repeat("Scene", PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            StepDurationSeconds = Enumerable.Repeat(0, PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            StepRed = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            StepGreen = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            StepBlue = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            StepBrightnessPercent = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            StepEffects = Enumerable.Repeat<string?>(null, PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            StepEffectSpeedPercent = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            StepTransitionSeconds = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            StepTransitionOutSeconds = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            StepTransitionCurves = Enumerable.Repeat<string?>(null, PluginConfiguration.MaxScenePlaylistItems + 1).ToList(),
+            TargetUserIds = Enumerable.Range(0, PluginConfiguration.MaxSceneScheduleTargetMappings + 1)
+                .Select(_ => Guid.NewGuid().ToString("D"))
+                .ToList()
+        };
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ScenePlaylists = new List<HueScenePlaylistRequest> { oversizedPlaylist };
+
+        AssertConfigurationImportCapacityRejected(
+            configuration,
+            request,
+            $"Imported scene playlist 1 saved scenes may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 step durations may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 step red overrides may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 step green overrides may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 step blue overrides may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 step brightness overrides may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 step effects may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 step effect-speed overrides may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 step transition overrides may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 step fade-out overrides may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 step transition curves may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
+            $"Imported scene playlist 1 target user IDs may contain no more than {PluginConfiguration.MaxSceneScheduleTargetMappings} items.");
+    }
+
+    [Fact]
+    public void ConfigurationImport_RejectsOversizedScheduleTargetAndExcludedDateCollectionsBeforePlanning()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration { SyncEnabled = false });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.SceneSchedules = new List<HueSceneScheduleRequest>
+        {
+            new()
+            {
+                TargetUserIds = Enumerable.Range(0, PluginConfiguration.MaxSceneScheduleTargetMappings)
+                    .Select(_ => Guid.NewGuid().ToString("D"))
+                    .ToList(),
+                TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                {
+                    new() { UserId = Guid.NewGuid().ToString("D"), DeviceId = "device-1" }
+                },
+                ExcludedDates = Enumerable.Range(0, PluginConfiguration.MaxSceneScheduleExcludedDates + 1)
+                    .Select(index => $"2026-01-{(index % 28) + 1:00}")
+                    .ToList()
+            }
+        };
+
+        AssertConfigurationImportCapacityRejected(
+            configuration,
+            request,
+            $"Imported scene schedule 1 target selection may contain no more than {PluginConfiguration.MaxSceneScheduleTargetMappings} target routes.",
+            $"Imported scene schedule 1 excluded dates may contain no more than {PluginConfiguration.MaxSceneScheduleExcludedDates} items.");
+    }
+
+    [Fact]
     public void ConfigurationImport_ReportsAndRejectsActiveBridgeLifecycle()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -14390,6 +14629,76 @@ public sealed class HueApiControllerTests : IDisposable
             diagnosticsCancellationGate,
             sessionManager,
             userManager: userManager);
+    }
+
+    private static HueConfigurationImportRequest CreateConfigurationImportRequest(
+        PluginConfiguration configuration)
+        => new()
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration)
+        };
+
+    private void AssertConfigurationImportAccepted(
+        PluginConfiguration configuration,
+        HueConfigurationImportRequest request,
+        int expectedPresets,
+        int expectedPlaylists,
+        int expectedSchedules)
+    {
+        var controller = CreateController();
+        var validation = controller.ValidateConfigurationImport(request);
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        Assert.True(validationResult.Valid);
+        Assert.True(validationResult.CanImport);
+        Assert.Equal(expectedPresets, validationResult.TotalColorPresets);
+        Assert.Equal(expectedPlaylists, validationResult.TotalScenePlaylists);
+        Assert.Equal(expectedSchedules, validationResult.TotalSceneSchedules);
+
+        var import = controller.ImportConfiguration(request);
+        var importResponse = Assert.IsType<OkObjectResult>(import.Result);
+        var importResult = Assert.IsType<HueConfigurationImportResult>(importResponse.Value);
+        Assert.Equal(expectedPresets, importResult.TotalColorPresets);
+        Assert.Equal(expectedPlaylists, importResult.TotalScenePlaylists);
+        Assert.Equal(expectedSchedules, importResult.TotalSceneSchedules);
+        Assert.Equal(expectedPresets, configuration.ColorPresets.Count);
+        Assert.Equal(expectedPlaylists, configuration.ScenePlaylists.Count);
+        Assert.Equal(expectedSchedules, configuration.SceneSchedules.Count);
+    }
+
+    private void AssertConfigurationImportCapacityRejected(
+        PluginConfiguration configuration,
+        HueConfigurationImportRequest request,
+        params string[] expectedErrors)
+    {
+        var previousMappings = configuration.UserMappings;
+        var previousPresets = configuration.ColorPresets;
+        var previousPlaylists = configuration.ScenePlaylists;
+        var previousSchedules = configuration.SceneSchedules;
+        var controller = CreateController();
+
+        var validation = controller.ValidateConfigurationImport(request);
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        Assert.False(validationResult.Valid);
+        Assert.False(validationResult.CanImport);
+        foreach (var expectedError in expectedErrors)
+        {
+            Assert.Contains(expectedError, validationResult.ValidationErrors);
+        }
+
+        var import = controller.ImportConfiguration(request);
+        var importResponse = Assert.IsType<BadRequestObjectResult>(import.Result);
+        var serializedImportResponse = JsonSerializer.Serialize(importResponse.Value);
+        foreach (var expectedError in expectedErrors)
+        {
+            Assert.Contains(expectedError, serializedImportResponse, StringComparison.Ordinal);
+        }
+
+        Assert.Same(previousMappings, configuration.UserMappings);
+        Assert.Same(previousPresets, configuration.ColorPresets);
+        Assert.Same(previousPlaylists, configuration.ScenePlaylists);
+        Assert.Same(previousSchedules, configuration.SceneSchedules);
     }
 
     private static void SetPrivateField(object target, string fieldName, object? value)

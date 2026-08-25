@@ -9116,14 +9116,24 @@
                     };
                 },
                 loadEntertainmentAreas: function (page, selectedId) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'entertainmentAreas');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     var statusEl = page.querySelector('#entertainmentAreaStatus');
                     var selectEl = page.querySelector('#entertainmentAreaSelect');
                     var refreshBtn = page.querySelector('#refreshAreasBtn');
-                    var bridgeStatus = page.querySelector('#bridgeStatus');
 
                     var bridgeIp = page.querySelector('#hueBridgeIp').value.trim();
                     var appKey = page.querySelector('#hueAppKey').value.trim();
                     var canUseStoredCredentials = HueConfigurationPage.canUseStoredGlobalCredentials(page, bridgeIp, false);
+                    var requestTarget = {
+                        bridgeIp: bridgeIp,
+                        appKey: appKey,
+                        userId: '',
+                        deviceId: '',
+                        areaId: ''
+                    };
 
                     statusEl.textContent = "";
                     selectEl.innerHTML = '<option value="">Loading...</option>' +
@@ -9143,7 +9153,41 @@
                         return;
                     }
 
-                    HueConfigurationPage.fetchEntertainmentAreas(bridgeIp, appKey).then(function (response) {
+                    var getCurrentTarget = function () {
+                        return {
+                            bridgeIp: page.querySelector('#hueBridgeIp').value.trim(),
+                            appKey: page.querySelector('#hueAppKey').value.trim(),
+                            userId: '',
+                            deviceId: '',
+                            areaId: ''
+                        };
+                    };
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                            page,
+                            pageGeneration,
+                            request,
+                            getCurrentTarget());
+                    };
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'entertainmentAreas',
+                        ApiClient.getUrl("HueSync/EntertainmentAreas"),
+                        {
+                            type: 'POST',
+                            data: JSON.stringify({
+                                ipAddress: bridgeIp,
+                                appKey: appKey,
+                                userId: '',
+                                deviceId: ''
+                            }),
+                            contentType: 'application/json',
+                            dataType: 'json'
+                        },
+                        requestTarget);
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         console.log("Entertainment areas response:", response);
                         console.log("Response type:", typeof response);
                         console.log("Is array:", Array.isArray(response));
@@ -9196,11 +9240,13 @@
 
                         HueConfigurationPage.syncSelectedArea(page, selectedId);
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Entertainment areas error:", err);
                         statusEl.textContent = "Unable to load areas: " + (err && err.message ? err.message : "unknown error");
                         HueConfigurationPage.refreshStatus(page, "Could not reach bridge. Verify IP, app key, and network access.", "error");
                         HueConfigurationPage.syncSelectedArea(page, selectedId);
                     }).finally(function () {
+                        if (!isCurrent()) return;
                         selectEl.disabled = false;
                         refreshBtn.disabled = false;
                     });

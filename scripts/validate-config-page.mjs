@@ -621,6 +621,16 @@ for (const [functionName, markers] of [
         "isPageLifecycleTargetRequestCurrent",
         "channelInput.value = channelIds.join(', ')",
         "if (!isCurrent()) return;"
+    ]],
+    ["loadEntertainmentAreas", [
+        "var pageGeneration",
+        "cancelPageLifecycleRequest(page, 'entertainmentAreas')",
+        "isPageLifecycleCurrent(page, pageGeneration)",
+        "getPageLifecycleRequest",
+        "isPageLifecycleTargetRequestCurrent",
+        "type: 'POST'",
+        "HueSync/EntertainmentAreas",
+        "if (!isCurrent()) return;"
     ]]
 ]) {
     const start = scriptMatch[1].indexOf(`${functionName}: function`);
@@ -630,6 +640,18 @@ for (const [functionName, markers] of [
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} ${functionName} is missing target-scoped stale-request protection: ${marker}`);
         }
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("loadEntertainmentAreas: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    const staleGuards = functionBody.match(/if \(!isCurrent\(\)\) return;/g) || [];
+    if (staleGuards.length < 3 ||
+        functionBody.indexOf("selectEl.innerHTML = ''") < functionBody.indexOf("if (!isCurrent()) return;") ||
+        functionBody.indexOf("statusEl.textContent = \"Unable to load areas:") < functionBody.indexOf("if (!isCurrent()) return;")) {
+        throw new Error(`${file} loadEntertainmentAreas must guard area-list writes and terminal callbacks against stale targets`);
     }
 }
 

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.297] - 2026-08-25
+
+### Import capacity safety
+- **Pre-normalization collection bounds**: configuration imports now reject oversized color-preset, scene-playlist, and scene-schedule collections before cloning or normalization, including playlist parallel step arrays, playlist targets, schedule target routes, and excluded dates.
+- **Regression coverage**: exact-limit and limit-plus-one API tests cover top-level and nested import capacity while preserving atomic no-mutation behavior.
+
+### Mapping editor reliability
+- **Entertainment-area lifecycle protection**: bridge area loading now uses page generations, target fingerprints, same-key cancellation, and stale-response guards across success, failure, and cleanup callbacks.
+
 ## [1.5.296] - 2026-08-25
 
 ### Mapping editor reliability

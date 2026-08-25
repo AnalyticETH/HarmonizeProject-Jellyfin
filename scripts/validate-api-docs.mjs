@@ -173,10 +173,12 @@ const configurationImportRow = readme.split("\n").find(line => line.startsWith("
 if (!configurationImportRow ||
     !configurationImportRow.includes("valid Jellyfin user GUIDs") ||
     !configurationImportRow.includes("canonical D-format") ||
+    !configurationImportRow.includes("capped at their persisted limits before normalization") ||
+    !configurationImportRow.includes("playlist step arrays and target selections") ||
     !configurationImportRow.includes("targetRoutes.userId") ||
     !configurationImportRow.includes("legacy brace/N-format routes resolve") ||
     !configurationImportRow.includes("invalid documents leave the current configuration unchanged")) {
-    throw new Error("README.md configuration-import contract is missing GUID target normalization and atomic rejection markers");
+    throw new Error("README.md configuration-import contract is missing capacity, GUID target normalization, and atomic rejection markers");
 }
 
 for (const marker of [
@@ -292,6 +294,23 @@ for (const marker of [
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API configuration import capacity guard is missing source marker: ${marker}`);
+    }
+}
+
+for (const marker of [
+    "var importedPresets = request.ColorPresets ?? new List<HueColorPresetRequest>();",
+    "var importCapacityErrors = new List<string>();",
+    "Imported color preset collection",
+    "Imported scene playlist collection",
+    "Imported scene schedule collection",
+    "AddImportCollectionLimitError(",
+    "PluginConfiguration.MaxScenePlaylistItems",
+    "PluginConfiguration.MaxSceneScheduleTargetMappings",
+    "PluginConfiguration.MaxSceneScheduleExcludedDates",
+    "if (importCapacityErrors.Count > 0)"
+]) {
+    if (!controller.includes(marker)) {
+        throw new Error(`Hue API configuration import is missing collection capacity marker: ${marker}`);
     }
 }
 

@@ -7701,6 +7701,16 @@ namespace Jellyfin.Plugin.Hue.Api
             });
         }
 
+        private static void AddImportCollectionLimitError(
+            List<string> errors,
+            string label,
+            int count,
+            int maximum)
+        {
+            if (count > maximum)
+                errors.Add($"{label} may contain no more than {maximum} items.");
+        }
+
         private static HueConfigurationImportPlan BuildConfigurationImportPlan(
             PluginConfiguration config,
             HueConfigurationImportRequest request)
@@ -7715,6 +7725,129 @@ namespace Jellyfin.Plugin.Hue.Api
                     {
                         $"No more than {PluginConfiguration.MaxUserMappings} user mappings may be imported."
                     }
+                };
+            }
+
+            var importedPresets = request.ColorPresets ?? new List<HueColorPresetRequest>();
+            var importedPlaylists = request.ScenePlaylists ?? new List<HueScenePlaylistRequest>();
+            var importedSchedules = request.SceneSchedules ?? new List<HueSceneScheduleRequest>();
+            var importCapacityErrors = new List<string>();
+            AddImportCollectionLimitError(
+                importCapacityErrors,
+                "Imported color preset collection",
+                importedPresets.Count,
+                PluginConfiguration.MaxColorPresets);
+            AddImportCollectionLimitError(
+                importCapacityErrors,
+                "Imported scene playlist collection",
+                importedPlaylists.Count,
+                PluginConfiguration.MaxScenePlaylists);
+            AddImportCollectionLimitError(
+                importCapacityErrors,
+                "Imported scene schedule collection",
+                importedSchedules.Count,
+                PluginConfiguration.MaxSceneSchedules);
+
+            for (var index = 0; index < importedPlaylists.Count; index++)
+            {
+                var playlist = importedPlaylists[index];
+                if (playlist == null)
+                    continue;
+
+                var label = $"Imported scene playlist {index + 1}";
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} saved scenes",
+                    playlist.PresetNames?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} step durations",
+                    playlist.StepDurationSeconds?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} step red overrides",
+                    playlist.StepRed?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} step green overrides",
+                    playlist.StepGreen?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} step blue overrides",
+                    playlist.StepBlue?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} step brightness overrides",
+                    playlist.StepBrightnessPercent?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} step effects",
+                    playlist.StepEffects?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} step effect-speed overrides",
+                    playlist.StepEffectSpeedPercent?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} step transition overrides",
+                    playlist.StepTransitionSeconds?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} step fade-out overrides",
+                    playlist.StepTransitionOutSeconds?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} step transition curves",
+                    playlist.StepTransitionCurves?.Count ?? 0,
+                    PluginConfiguration.MaxScenePlaylistItems);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} target user IDs",
+                    playlist.TargetUserIds?.Count ?? 0,
+                    PluginConfiguration.MaxSceneScheduleTargetMappings);
+            }
+
+            for (var index = 0; index < importedSchedules.Count; index++)
+            {
+                var schedule = importedSchedules[index];
+                if (schedule == null)
+                    continue;
+
+                var label = $"Imported scene schedule {index + 1}";
+                var targetUserCount = schedule.TargetUserIds?.Count ?? 0;
+                var targetRouteCount = schedule.TargetRoutes?.Count ?? 0;
+                if ((long)targetUserCount + targetRouteCount > PluginConfiguration.MaxSceneScheduleTargetMappings)
+                {
+                    importCapacityErrors.Add(
+                        $"{label} target selection may contain no more than {PluginConfiguration.MaxSceneScheduleTargetMappings} target routes.");
+                }
+
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} excluded dates",
+                    schedule.ExcludedDates?.Count ?? 0,
+                    PluginConfiguration.MaxSceneScheduleExcludedDates);
+            }
+
+            if (importCapacityErrors.Count > 0)
+            {
+                return new HueConfigurationImportPlan
+                {
+                    ImportedMappingCount = importedMappings.Count,
+                    ImportedPresetCount = importedPresets.Count,
+                    ImportedPlaylistCount = importedPlaylists.Count,
+                    ImportedScheduleCount = importedSchedules.Count,
+                    ValidationErrors = importCapacityErrors
                 };
             }
 
@@ -7734,9 +7867,6 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(schedule => schedule != null)
                 .Select(CloneSceneSchedule)
                 .ToList();
-            var importedPresets = request.ColorPresets ?? new List<HueColorPresetRequest>();
-            var importedPlaylists = request.ScenePlaylists ?? new List<HueScenePlaylistRequest>();
-            var importedSchedules = request.SceneSchedules ?? new List<HueSceneScheduleRequest>();
             var validationErrors = new List<string>();
             validationErrors.AddRange(ValidateGlobalCredentialTransition(
                 config,
