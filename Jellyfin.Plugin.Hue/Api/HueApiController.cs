@@ -7544,15 +7544,31 @@ namespace Jellyfin.Plugin.Hue.Api
                     continue;
                 }
 
-                var existing = existingMappings.FirstOrDefault(candidate =>
-                    string.Equals(candidate.UserId?.Trim(), source.UserId?.Trim(), StringComparison.OrdinalIgnoreCase));
+                var sourceUserId = source.UserId?.Trim() ?? string.Empty;
+                var hasValidUserId = Guid.TryParse(sourceUserId, out var parsedUserId);
+                var normalizedUserId = hasValidUserId
+                    ? parsedUserId.ToString("D")
+                    : string.Empty;
+                var existing = hasValidUserId
+                    ? existingMappings.FirstOrDefault(candidate =>
+                        AreSameJellyfinUserId(candidate.UserId, normalizedUserId))
+                    : null;
                 var imported = ToImportedMapping(source, existing, out var preservedCredentialPair);
+                if (hasValidUserId)
+                {
+                    // Jellyfin's public user APIs use canonical D-format IDs. Normalize
+                    // every accepted import before merge/diff/validation so brace/N-format
+                    // exports match an existing mapping and remain runtime-addressable.
+                    imported.UserId = normalizedUserId;
+                }
                 mappingCredentialPairsPreserved += preservedCredentialPair ? 1 : 0;
                 importedMappingValues.Add(imported);
 
                 var label = string.IsNullOrWhiteSpace(imported.UserName)
                     ? $"User mapping {index + 1}"
                     : $"User mapping for '{imported.UserName}'";
+                if (!hasValidUserId)
+                    validationErrors.Add($"{label} user ID must be a valid Jellyfin user ID.");
                 validationErrors.AddRange(ValidateImportedMapping(imported, label));
                 if (!string.IsNullOrWhiteSpace(imported.UserId) && !seenUserIds.Add(imported.UserId.Trim()))
                     validationErrors.Add($"{label} duplicates another imported user mapping.");
@@ -7885,7 +7901,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var mappings = CompareImportCollection(
                 existingMappings,
                 candidateMappings,
-                mapping => mapping.UserId,
+                mapping => NormalizeJellyfinUserIdForComparison(mapping.UserId),
                 AreEquivalentMapping);
             var presets = CompareImportCollection(
                 existingPresets,
@@ -8041,12 +8057,28 @@ namespace Jellyfin.Plugin.Hue.Api
             foreach (var imported in importedMappings)
             {
                 merged.RemoveAll(existing =>
-                    string.Equals(existing.UserId?.Trim(), imported.UserId?.Trim(), StringComparison.OrdinalIgnoreCase));
+                    AreSameJellyfinUserId(existing.UserId, imported.UserId));
                 merged.Add(imported);
             }
 
             return merged;
         }
+
+        private static bool AreSameJellyfinUserId(string? left, string? right)
+        {
+            if (Guid.TryParse(left?.Trim(), out var leftGuid) &&
+                Guid.TryParse(right?.Trim(), out var rightGuid))
+            {
+                return leftGuid == rightGuid;
+            }
+
+            return string.Equals(left?.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeJellyfinUserIdForComparison(string? value)
+            => Guid.TryParse(value?.Trim(), out var parsedUserId)
+                ? parsedUserId.ToString("D")
+                : value?.Trim() ?? string.Empty;
 
         private static UserBridgeMapping ToImportedMapping(
             UserBridgeMappingImport source,
@@ -9630,7 +9662,9 @@ namespace Jellyfin.Plugin.Hue.Api
     /// <summary>
     /// Import-only mapping shape. Export documents use <see cref="UserBridgeMappingSummary"/>
     /// so stored credentials are never serialized, while an administrator may explicitly
-    /// provide replacement keys in an import request.
+    /// provide replacement keys in an import request. UserId must be a Jellyfin user GUID;
+    /// accepted brace/N-format values are normalized to canonical D-format text before
+    /// merge, duplicate detection, credential preservation, and persistence.
     /// </summary>
     public sealed class UserBridgeMappingImport : UserBridgeMappingSummary
     {
@@ -9721,6 +9755,8 @@ namespace Jellyfin.Plugin.Hue.Api
     /// <summary>
     /// Request shape accepted by the configuration import endpoint. It is intentionally
     /// compatible with the export document while allowing explicit replacement keys.
+    /// Imported mapping IDs are validated as Jellyfin user GUIDs and normalized to
+    /// canonical D-format text before the candidate is merged or persisted.
     /// </summary>
     public sealed class HueConfigurationImportRequest
     {

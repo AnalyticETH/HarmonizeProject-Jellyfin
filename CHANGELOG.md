@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [1.5.267] - 2026-08-24
+
 ### API hardening
-- **Jellyfin user-ID validation**: require the public per-user mapping save request to use a valid Jellyfin user GUID and reject malformed IDs before configuration mutation.
+- **Import user-ID validation**: require imported per-user mapping IDs to be valid Jellyfin GUIDs, normalize accepted brace/N-format values to canonical D-format text before merge and duplicate detection, and reject malformed documents before mutation.
 
 ### Tests
-- **Mapping request coverage**: verify valid JSON mapping saves remain supported while malformed public user IDs return a clear `400` without changing persisted mappings.
+- **Import mapping coverage**: verify malformed import IDs preserve the complete configuration, brace-format IDs preserve matching stored credentials after normalization, and canonical-equivalent duplicate IDs fail closed.
 
 ## [1.5.266] - 2026-08-24
 

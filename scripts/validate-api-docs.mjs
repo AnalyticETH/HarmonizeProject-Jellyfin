@@ -73,6 +73,14 @@ if (!userMappingsRow || !userMappingsRow.includes("valid Jellyfin user GUID") ||
     throw new Error("README.md user-mapping contract is missing GUID validation and fail-before-mutation markers");
 }
 
+const configurationImportRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Configuration/Import` |"));
+if (!configurationImportRow ||
+    !configurationImportRow.includes("valid Jellyfin user GUIDs") ||
+    !configurationImportRow.includes("canonical D-format") ||
+    !configurationImportRow.includes("invalid documents leave the current configuration unchanged")) {
+    throw new Error("README.md configuration-import contract is missing GUID normalization and atomic rejection markers");
+}
+
 for (const marker of [
     "public List<HueCurrentLightColorTargetRoute>? TargetRoutes",
     "public sealed class HueSavedColorPresetPreviewRequest",
@@ -89,6 +97,18 @@ if (!controller.includes("Guid.TryParse(mapping.UserId?.Trim(), out var parsedUs
     !controller.includes("mapping.UserId = parsedUserId.ToString(\"D\")") ||
     !controller.includes("userId must be a valid Jellyfin user ID.")) {
     throw new Error("Hue API user-mapping endpoint is missing Jellyfin GUID validation or canonicalization");
+}
+
+for (const marker of [
+    "var hasValidUserId = Guid.TryParse(sourceUserId, out var parsedUserId)",
+    "var normalizedUserId = hasValidUserId",
+    "AreSameJellyfinUserId(candidate.UserId, normalizedUserId)",
+    "duplicates another imported user mapping",
+    "user ID must be a valid Jellyfin user ID."
+]) {
+    if (!controller.includes(marker)) {
+        throw new Error(`Hue API configuration import is missing GUID normalization marker: ${marker}`);
+    }
 }
 
 for (const marker of [
