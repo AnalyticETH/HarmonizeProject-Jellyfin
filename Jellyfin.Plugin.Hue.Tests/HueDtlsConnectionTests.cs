@@ -16,13 +16,18 @@ namespace Jellyfin.Plugin.Hue.Tests;
 public sealed class HueDtlsConnectionTests
 {
     private const string TestAppKey = "hue-loopback-app-key";
-    private const string TestClientKey = "00112233445566778899aabbccddeeff";
+    private static readonly byte[] TestPsk =
+    [
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff
+    ];
+    private static string TestClientKey => Convert.ToHexString(TestPsk);
     private const int TestDatagramLimit = 16 * 1024;
 
     [Fact]
     public async Task ConnectAsync_CompletesHuePskHandshake_SendsPayload_AndCloses()
     {
-        var psk = Convert.FromHexString(TestClientKey);
+        var psk = (byte[])TestPsk.Clone();
         await using var server = TestDtlsServer.Start(TestAppKey, psk);
 
         var connection = await HueDtlsConnection.ConnectAsync(

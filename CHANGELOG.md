@@ -14,6 +14,7 @@ No unreleased changes.
 ### Managed DTLS interoperability coverage
 - **Loopback handshake coverage**: deterministic Bouncy Castle DTLS 1.2 PSK tests now negotiate Hue's exact cipher suite and identity, deliver an encrypted/decrypted payload, and verify health and close behavior without bridge hardware.
 - **Cancellation coverage**: a silent loopback UDP peer verifies that an unresponsive handshake is canceled within a bounded interval without leaving a background worker or socket open.
+- **Secret-scan hygiene**: the fixture derives its non-secret PSK bytes at runtime, with one precise historical false-positive fingerprint ignored rather than weakening the scanner globally.
 
 ## [1.5.288] - 2026-08-25
 

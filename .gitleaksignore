@@ -1,0 +1,3 @@
+# Historical false positive: the loopback-only DTLS fixture used a fixed,
+# non-secret PSK before the test switched to derived bytes.
+e48423a4b31df7b94d8007072611e276469eb899:Jellyfin.Plugin.Hue.Tests/HueDtlsConnectionTests.cs:generic-api-key:19
