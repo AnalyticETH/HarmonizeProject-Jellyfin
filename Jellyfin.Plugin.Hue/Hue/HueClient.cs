@@ -406,6 +406,9 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// Deactivates a Hue Entertainment Area after streaming ends.
         /// This returns lights to normal Hue control.
         /// </summary>
+        /// <param name="bridgeIp">The IP address of the Hue Bridge.</param>
+        /// <param name="appKey">The application key for authentication.</param>
+        /// <param name="areaId">The entertainment area ID.</param>
         /// <param name="cancellationToken">Bounds cleanup without changing its best-effort result contract.</param>
         public async Task StopEntertainmentArea(
             string bridgeIp,
@@ -841,6 +844,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="bridgeIp">The IP address of the Hue Bridge</param>
         /// <param name="appKey">The application key for authentication</param>
         /// <param name="lightStates">The saved light states to restore</param>
+        /// <param name="cancellationToken">Bounds cleanup without changing its best-effort result contract.</param>
         public async Task<LightStateRestoreResult> RestoreLightStatesWithResult(
             string bridgeIp,
             string appKey,

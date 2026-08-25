@@ -1088,7 +1088,7 @@ public class HueClientTests : IDisposable
         {
             new("light-1", true, 80, 0.3, 0.33),
             new("light-2", true, 70, 0.4, 0.34),
-            new("light-3", false, 50, null, null)
+            new("light-3", false, 50, 0, 0)
         };
 
         var result = await client.RestoreLightStatesWithResult(
