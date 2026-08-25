@@ -455,7 +455,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.293 (Current)
+### Version 1.5.294 (Current)
+- **Page lifecycle safety**: administrator configuration and metadata loaders now use page-scoped generations, tracked aborts, and stale-response guards so navigation or reopen cannot overwrite current edits with late responses.
+- **Administrator accessibility**: manual entertainment-area, scheduled weekday, and playback-device route controls now expose explicit labels and ARIA names.
+
+### Version 1.5.293
 - **Bridge-safe diagnostics**: target diagnostics and support bundles now hold the shared diagnostic lifecycle lease for their complete live-bridge snapshot and return `409 Conflict` while playback or another diagnostic owns the bridge.
 - **Cross-platform package verification**: the PowerShell release helper now parses and independently verifies the generated SHA-256 sidecar filename and digest.
 

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.294] - 2026-08-25
+
+### Administrator page reliability
+- **Stale-response protection**: configuration, saved-scene, playlist, scheduled-cue, user, mapping, session-history, and diagnostics loaders now track page generations and abortable requests, preventing hidden-page or superseded responses from overwriting a reopened page.
+
+### Administrator accessibility
+- **Explicit control names**: manual entertainment-area, scheduled weekday, and playback-device route controls now have visible labels and ARIA names.
+
 ## [1.5.293] - 2026-08-25
 
 ### Diagnostic lifecycle safety

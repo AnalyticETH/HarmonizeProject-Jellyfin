@@ -166,7 +166,11 @@ const requiredMarkup = [
     'id="mappingDeviceRouteChannels"',
     'id="mappingDeviceRouteChannels" type="text" is="emby-input" aria-label="Channel IDs (optional, comma separated)"',
     'id="mappingAddDeviceRouteBtn"',
-    'id="mappingRemoveDeviceRouteBtn"'
+    'id="mappingRemoveDeviceRouteBtn"',
+    'id="entertainmentAreaManual" name="entertainmentAreaManual" type="text" is="emby-input" aria-label="Manual entertainment area ID"',
+    'id="sceneScheduleDayOfWeek" is="emby-select" aria-label="Monthly weekday day of week"',
+    'id="mappingAreaManual" type="text" is="emby-input" aria-label="Manual entertainment area ID"',
+    'id="mappingDeviceRouteSelect" is="emby-select" aria-label="Playback device route"'
 ];
 
 for (const marker of requiredMarkup) {
@@ -238,6 +242,21 @@ const requiredScript = [
     "PlaybackObservedAtUtc",
     "SyncStartedAtUtc",
     "formatRuntimeTimestamp: function",
+    "ensurePageLifecycle: function",
+    "beginPageLifecycle: function",
+    "isPageLifecycleCurrent: function",
+    "isPageLifecycleRequestCurrent: function",
+    "abortPageLifecycleRequest: function",
+    "invalidatePageLifecycle: function",
+    "getPageLifecycleRequest: function",
+    "page._huePageGeneration",
+    "page._huePageActive = false",
+    "page._huePageRequests",
+    "typeof AbortController === 'function'",
+    "controller.abort()",
+    "record.request.abort()",
+    "HueConfigurationPage.beginPageLifecycle(e.target)",
+    "HueConfigurationPage.invalidatePageLifecycle(e.target)",
     'aria-label="Replacement App Key for global target"',
     'aria-label="Replacement Client Key for global target"',
     "aria-label=\"Replacement App Key for mapping ' + (index + 1)",
@@ -562,6 +581,54 @@ for (const marker of requiredScript) {
     }
 }
 
+for (const functionName of [
+    "loadConfiguration",
+    "loadUsers",
+    "loadUserMappings",
+    "loadColorPresets",
+    "loadScenePlaylists",
+    "loadSceneSchedules",
+    "loadSessionHistory",
+    "loadEnvironmentDiagnostics",
+    "loadTargetDiagnostics",
+    "exportSupportBundle"
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration",
+        "getPageLifecycleRequest",
+        "isPageLifecycleRequestCurrent(page, pageGeneration"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing page-lifecycle stale-write protection: ${marker}`);
+        }
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("invalidatePageLifecycle: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "page._huePageGeneration += 1",
+        "page._huePageActive = false",
+        "page._huePageRequests = {}",
+        "abortPageLifecycleRequest(requests[key])",
+        "page._hueSessionHistoryLoading = false",
+        "page._hueDiagnosticsLoading = false",
+        "page._hueTargetDiagnosticsLoading = false",
+        "page._hueDiagnosticsRequest = null",
+        "page._hueTargetDiagnosticsRequest = null",
+        "page._hueSupportBundleRequest = null"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} invalidatePageLifecycle is missing cleanup contract: ${marker}`);
+        }
+    }
+}
+
 {
     const runtimeStatusStart = scriptMatch[1].indexOf("loadRuntimeStatus: function");
     const runtimeStatusEnd = scriptMatch[1].indexOf("\n                },", runtimeStatusStart);
@@ -725,7 +792,7 @@ for (const functionName of ["loadEnvironmentDiagnostics", "loadTargetDiagnostics
     const start = scriptMatch[1].indexOf(`${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
-    if (!functionBody.includes("ApiClient.ajax") ||
+    if ((!functionBody.includes("ApiClient.ajax") && !functionBody.includes("getPageLifecycleRequest")) ||
         !functionBody.includes("page._hue") ||
         !functionBody.includes("setDiagnosticsBusy(page)")) {
         throw new Error(`${file} ${functionName} is missing cancellable diagnostics lifecycle wiring`);
@@ -750,7 +817,10 @@ for (const functionName of ["exportSceneScheduleConflicts", "exportSceneSchedule
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
     if (!functionBody.includes("Diagnostics/SupportBundle") ||
         !functionBody.includes("downloadJsonDocument") ||
-        !functionBody.includes("_hueSupportBundleRequest")) {
+        !functionBody.includes("_hueSupportBundleRequest") ||
+        !functionBody.includes("var pageGeneration") ||
+        !functionBody.includes("getPageLifecycleRequest") ||
+        !functionBody.includes("isPageLifecycleRequestCurrent(page, pageGeneration")) {
         throw new Error(`${file} ${functionName} is missing support bundle export wiring`);
     }
 }
