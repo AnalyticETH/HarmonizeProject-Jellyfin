@@ -445,7 +445,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.272 (Current)
+### Version 1.5.273 (Current)
+- **Accurate release requirements**: release instructions now state that only FFmpeg is an external prerequisite; the managed Hue DTLS transport is included in the package and OpenSSL is not required.
+
+### Version 1.5.272
 - **Credential-safe DTLS**: replace the OpenSSL child process with managed Bouncy Castle DTLS 1.2 PSK, keeping Hue App/Client Keys out of process arguments and `/proc` command-line inspection.
 - **Dependency-complete packaging**: release archives include `BouncyCastle.Cryptography.dll`; managed DTLS startup is cancellation-bounded and no longer depends on an OpenSSL executable.
 - **Regression coverage**: verify the Hue cipher contract, connected UDP transport, and nonresponsive-handshake cancellation cleanup.

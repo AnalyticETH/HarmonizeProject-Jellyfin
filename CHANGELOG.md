@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.273] - 2026-08-25
+
+### Documentation
+- **Accurate release requirements**: remove the obsolete OpenSSL installation requirement from the GitHub release template and state that the managed Hue DTLS transport is included in the package.
+
+### Packaging
+- **Patch release metadata**: keep the project, manifest, release notes, and published artifact version aligned at 1.5.273.0.
+
 ## [1.5.272] - 2026-08-25
 
 ### Security

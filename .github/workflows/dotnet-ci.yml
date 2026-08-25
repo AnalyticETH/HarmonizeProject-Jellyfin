@@ -370,7 +370,7 @@ jobs:
           ### Requirements
           - Jellyfin 10.9.0+
           - Philips Hue Bridge V2
-          - `ffmpeg` and `openssl` installed on server
+          - `ffmpeg` installed on server (the Hue DTLS transport is included in the package)
 
           ### What's Included
           - `Jellyfin.Plugin.Hue.dll` - Main plugin assembly
