@@ -255,6 +255,12 @@ for (const marker of [
 for (const marker of [
     "var hasValidUserId = Guid.TryParse(sourceUserId, out var parsedUserId)",
     "var normalizedUserId = hasValidUserId",
+    "var exactMappingMatches = string.IsNullOrWhiteSpace(sourceMappingId)",
+    "var matchingUserMappings = hasValidUserId",
+    "matches multiple existing mapping rows; include the exact mappingId before importing.",
+    "var seenMappingIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)",
+    "mapping => mapping.MappingId",
+    "merged.FindIndex(existing => string.Equals(",
     "PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, normalizedUserId)",
     "TargetUserId = PluginConfiguration.NormalizeJellyfinUserId(TargetUserId)",
     "UserId = PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId)",

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.283] - 2026-08-25
+
+### Configuration portability safety
+- **Stable-row import matching**: credential-safe configuration imports now match per-user mappings by exact `mappingId`, use user-ID fallback only when the destination row is unique, and fail closed for ambiguous duplicate groups.
+- **Exact partial merge**: partial imports replace only the selected mapping row, preserve its matching credentials, and key normalized import diffs by stable mapping ID instead of deleting every row for a user.
+- **Regression coverage**: verify exact duplicate-row credential preservation, isolated partial merges, and id-less duplicate rejection without mutating the live configuration.
+
 ## [1.5.282] - 2026-08-25
 
 ### Diagnostics safety

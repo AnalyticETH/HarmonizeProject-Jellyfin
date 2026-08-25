@@ -12552,6 +12552,229 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ConfigurationImport_ReplaceMappings_UsesStableMappingIdForCredentialPreservation()
+    {
+        const string userId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "row-a",
+                    UserId = userId,
+                    UserName = "First duplicate",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "row-a-app-secret",
+                    HueClientKey = "row-a-client-secret",
+                    EntertainmentAreaId = "area-a"
+                },
+                new()
+                {
+                    MappingId = "row-b",
+                    UserId = userId,
+                    UserName = "Second duplicate",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "row-b-app-secret",
+                    HueClientKey = "row-b-client-secret",
+                    EntertainmentAreaId = "area-b"
+                }
+            }
+        });
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            UserMappings = new List<UserBridgeMappingImport>
+            {
+                new()
+                {
+                    MappingId = "row-b",
+                    UserId = userId,
+                    UserName = "Updated second duplicate",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    EntertainmentAreaId = "area-b-updated"
+                }
+            }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConfigurationImportResult>(response.Value);
+        Assert.Equal(1, result.MappingCredentialPairsPreserved);
+        var imported = Assert.Single(configuration.UserMappings);
+        Assert.Equal("row-b", imported.MappingId);
+        Assert.Equal("Updated second duplicate", imported.UserName);
+        Assert.Equal("row-b-app-secret", imported.HueAppKey);
+        Assert.Equal("row-b-client-secret", imported.HueClientKey);
+        Assert.Equal("area-b-updated", imported.EntertainmentAreaId);
+    }
+
+    [Fact]
+    public void ConfigurationImport_PartialMerge_ReplacesOnlyExactStableMappingRow()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "row-a",
+                    UserId = "dddddddd-dddd-dddd-dddd-dddddddddddd",
+                    UserName = "First viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.103",
+                    HueAppKey = "row-a-app-secret",
+                    HueClientKey = "row-a-client-secret",
+                    EntertainmentAreaId = "area-a"
+                },
+                new()
+                {
+                    MappingId = "row-b",
+                    UserId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+                    UserName = "Second viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.104",
+                    HueAppKey = "row-b-app-secret",
+                    HueClientKey = "row-b-client-secret",
+                    EntertainmentAreaId = "area-b"
+                }
+            }
+        });
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            ReplaceMappings = false,
+            UserMappings = new List<UserBridgeMappingImport>
+            {
+                new()
+                {
+                    MappingId = "row-b",
+                    UserId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+                    UserName = "Renamed second viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.104",
+                    EntertainmentAreaId = "area-b-updated"
+                }
+            }
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Equal(2, configuration.UserMappings.Count);
+        var first = Assert.Single(configuration.UserMappings, mapping => mapping.MappingId == "row-a");
+        var second = Assert.Single(configuration.UserMappings, mapping => mapping.MappingId == "row-b");
+        Assert.Equal("First viewer", first.UserName);
+        Assert.Equal("row-a-app-secret", first.HueAppKey);
+        Assert.Equal("row-a-client-secret", first.HueClientKey);
+        Assert.Equal("Renamed second viewer", second.UserName);
+        Assert.Equal("row-b-app-secret", second.HueAppKey);
+        Assert.Equal("row-b-client-secret", second.HueClientKey);
+        Assert.Equal("area-b-updated", second.EntertainmentAreaId);
+    }
+
+    [Fact]
+    public void ConfigurationImport_UsesUniqueUserFallbackButKeepsDestinationStableMappingId()
+    {
+        const string userId = "abababab-abab-abab-abab-abababababab";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "destination-row",
+                    UserId = userId,
+                    UserName = "Existing viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.105",
+                    HueAppKey = "destination-app-secret",
+                    HueClientKey = "destination-client-secret",
+                    EntertainmentAreaId = "destination-area"
+                }
+            }
+        });
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            ReplaceMappings = false,
+            UserMappings = new List<UserBridgeMappingImport>
+            {
+                new()
+                {
+                    MappingId = "source-server-row",
+                    UserId = userId,
+                    UserName = "Migrated viewer",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.105",
+                    EntertainmentAreaId = "migrated-area"
+                }
+            }
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        var imported = Assert.Single(configuration.UserMappings);
+        Assert.Equal("destination-row", imported.MappingId);
+        Assert.Equal("Migrated viewer", imported.UserName);
+        Assert.Equal("destination-app-secret", imported.HueAppKey);
+        Assert.Equal("destination-client-secret", imported.HueClientKey);
+        Assert.Equal("migrated-area", imported.EntertainmentAreaId);
+    }
+
+    [Fact]
+    public void ConfigurationImport_RejectsIdlessImportAgainstDuplicateRowsWithoutMutation()
+    {
+        const string userId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "row-a",
+                    UserId = userId,
+                    UserName = "First duplicate",
+                    SyncEnabled = false,
+                    HueAppKey = "row-a-app-secret"
+                },
+                new()
+                {
+                    MappingId = "row-b",
+                    UserId = userId,
+                    UserName = "Second duplicate",
+                    SyncEnabled = false,
+                    HueAppKey = "row-b-app-secret"
+                }
+            }
+        });
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            ReplaceMappings = false,
+            UserMappings = new List<UserBridgeMappingImport>
+            {
+                new()
+                {
+                    UserId = userId,
+                    UserName = "Ambiguous import",
+                    SyncEnabled = false
+                }
+            }
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        var serialized = JsonSerializer.Serialize(response.Value);
+        Assert.Contains("multiple existing mapping rows", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, configuration.UserMappings.Count);
+        Assert.Equal("row-a-app-secret", configuration.UserMappings[0].HueAppKey);
+        Assert.Equal("row-b-app-secret", configuration.UserMappings[1].HueAppKey);
+    }
+
+    [Fact]
     public void ImportConfiguration_WhenPersistenceFailsRestoresRetainedHistory()
     {
         var serializer = new Mock<IXmlSerializer>();
