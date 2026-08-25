@@ -128,7 +128,10 @@ namespace Jellyfin.Plugin.Hue.Api
             string operation)
         {
             var errors = new List<string>();
-            if (IsSameBridgeTarget(existingConfiguration.HueBridgeIp, incomingSettings.HueBridgeIp) ||
+            var bothTargetsUnset = string.IsNullOrWhiteSpace(existingConfiguration.HueBridgeIp) &&
+                string.IsNullOrWhiteSpace(incomingSettings.HueBridgeIp);
+            if (bothTargetsUnset ||
+                IsSameBridgeTarget(existingConfiguration.HueBridgeIp, incomingSettings.HueBridgeIp) ||
                 incomingSettings.ClearStoredCredentials)
             {
                 return errors;

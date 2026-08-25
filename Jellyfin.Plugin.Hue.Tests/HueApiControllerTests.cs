@@ -10796,7 +10796,7 @@ public sealed class HueApiControllerTests : IDisposable
 
         var destination = InstallConfiguration(new PluginConfiguration
         {
-            HueBridgeIp = "192.168.1.110",
+            HueBridgeIp = "192.168.1.100",
             HueAppKey = "destination-app-secret",
             HueClientKey = "destination-client-secret",
             EntertainmentAreaId = "destination-area",
@@ -10930,6 +10930,7 @@ public sealed class HueApiControllerTests : IDisposable
     {
         var source = new PluginConfiguration
         {
+            HueBridgeIp = "192.168.1.111",
             ColorPresets = new List<HueColorPreset>
             {
                 new() { Name = "First", DurationSeconds = 2 },
