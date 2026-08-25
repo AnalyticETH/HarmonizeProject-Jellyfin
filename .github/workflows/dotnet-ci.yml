@@ -85,6 +85,9 @@ jobs:
     - name: Validate release documentation and package contract
       run: node scripts/validate-release-docs.mjs
 
+    - name: Validate deterministic release package
+      run: node scripts/validate-release-package.mjs
+
     - name: Validate preview API documentation and route contract
       run: node scripts/validate-api-docs.mjs
 
@@ -234,11 +237,12 @@ jobs:
 
     - name: Create zip archive
       run: |
-        cd release-package
-        zip -q -r ../jellyfin-plugin-hue-release.zip .
-        cd ..
+        python3 scripts/create-deterministic-release-zip.py \
+          --input-dir release-package \
+          --output jellyfin-plugin-hue-release.zip
         test "$(unzip -Z1 jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "
         sha256sum jellyfin-plugin-hue-release.zip > jellyfin-plugin-hue-release.zip.sha256
+        sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
 
     - name: Upload release package
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

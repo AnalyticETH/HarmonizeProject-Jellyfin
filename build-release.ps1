@@ -7,8 +7,11 @@ Write-Host ""
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET 8 SDK is required (dotnet was not found in PATH)."
 }
-if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) {
-    throw "Compress-Archive is required to create the release archive."
+$pythonCommand = @("python", "python3") |
+    Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } |
+    Select-Object -First 1
+if (-not $pythonCommand) {
+    throw "Python 3 is required to create the deterministic release archive."
 }
 
 # Clean previous builds
@@ -83,22 +86,17 @@ Get-ChildItem "release-package" | ForEach-Object {
     Write-Host "   - $($_.Name) ($([math]::Round($_.Length/1KB, 2)) KB)"
 }
 
-# Create zip archive
+# Create the canonical deterministic ZIP archive. The shared helper fixes
+# entry order, timestamps, host metadata, and DEFLATE settings on Windows and
+# Linux alike.
 $zipFile = "jellyfin-plugin-hue-v$version.zip"
 Write-Host ""
 Write-Host "🗜️  Creating archive: $zipFile" -ForegroundColor Yellow
 
-# Use .NET compression if available, otherwise use Compress-Archive
-if ([System.IO.Compression.ZipFile]) {
-    [System.IO.Compression.ZipFile]::CreateFromDirectory(
-        (Resolve-Path "release-package").Path,
-        (Join-Path (Get-Location) $zipFile),
-        [System.IO.Compression.CompressionLevel]::Optimal,
-        $false
-    )
-} else {
-    Compress-Archive -Path "release-package/*" -DestinationPath $zipFile -Force
-}
+& $pythonCommand "scripts/create-deterministic-release-zip.py" `
+    --input-dir "release-package" `
+    --output $zipFile
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $zipSize = [math]::Round((Get-Item $zipFile).Length/1KB, 2)
 

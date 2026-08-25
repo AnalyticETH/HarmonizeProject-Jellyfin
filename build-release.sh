@@ -9,8 +9,8 @@ if ! command -v dotnet >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! command -v zip >/dev/null 2>&1; then
-    echo "❌ zip is required to create the release archive." >&2
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "❌ Python 3 is required to create the deterministic release archive." >&2
     exit 1
 fi
 
@@ -80,13 +80,15 @@ echo "   Version: $VERSION"
 echo "   Files:"
 ls -lh release-package/
 
-# Create zip archive
+# Create the canonical deterministic ZIP archive. The helper fixes entry
+# order, timestamps, host metadata, and DEFLATE settings for cross-platform
+# reproducibility.
 ZIPFILE="jellyfin-plugin-hue-v${VERSION}.zip"
 echo ""
 echo "🗜️  Creating archive: $ZIPFILE"
-cd release-package
-zip -r ../$ZIPFILE .
-cd ..
+python3 scripts/create-deterministic-release-zip.py \
+    --input-dir release-package \
+    --output "$ZIPFILE"
 
 ARCHIVE_FILES=$(unzip -Z1 "$ZIPFILE" | sort | tr '\n' ' ')
 if [ "$ARCHIVE_FILES" != "BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json " ]; then

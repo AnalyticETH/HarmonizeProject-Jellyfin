@@ -455,7 +455,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.297 (Current)
+### Version 1.5.298 (Current)
+- **Reproducible releases**: CI and both local release helpers use the same deterministic packager with canonical entry order, fixed timestamps/metadata, and fixed DEFLATE settings.
+- **Package determinism gate**: release validation proves identical staged bytes produce identical archive hashes despite source order and mtimes, then verifies the strict checksum sidecar.
+
+### Version 1.5.297
 - **Import capacity hardening**: preset, playlist, and schedule collections, playlist parallel step arrays and target selections, and schedule target/excluded-date collections are rejected before normalization when they exceed persisted limits.
 - **Mapping-area lifecycle safety**: entertainment-area requests now use page generations, target fingerprints, cancellation, and stale-response guards so bridge responses cannot overwrite a newer mapping draft or reopened page.
 

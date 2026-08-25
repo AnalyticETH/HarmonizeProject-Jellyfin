@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.298] - 2026-08-25
+
+### Release reproducibility
+- **Canonical release archives**: Linux, Windows, and CI now use one deterministic Python packager with sorted entries, fixed ZIP timestamps/metadata, and fixed DEFLATE settings.
+- **Determinism regression gate**: the release workflow builds identical-byte archives with different source order and mtimes, requires identical SHA-256 output, and still verifies the strict checksum sidecar.
+
 ## [1.5.297] - 2026-08-25
 
 ### Import capacity safety
