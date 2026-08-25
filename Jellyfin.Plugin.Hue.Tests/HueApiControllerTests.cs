@@ -12775,6 +12775,99 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ConfigurationImport_InvalidDocument_DoesNotMutateLegacyMappingIdentityOrCredentials()
+    {
+        var legacy = new UserBridgeMapping
+        {
+            MappingId = string.Empty,
+            UserId = "99999999-9999-9999-9999-999999999999",
+            UserName = "Legacy viewer",
+            SyncEnabled = false,
+            HueBridgeIp = "192.168.1.120",
+            HueAppKey = "legacy-app-secret",
+            HueClientKey = "legacy-client-secret",
+            EntertainmentAreaId = "legacy-area",
+            DeviceTargets = new List<UserDeviceBridgeTarget>
+            {
+                new()
+                {
+                    DeviceId = "living-room-tv",
+                    DeviceName = "Living Room TV",
+                    HueBridgeIp = "192.168.1.121",
+                    HueAppKey = "legacy-device-app",
+                    HueClientKey = "legacy-device-client",
+                    EntertainmentAreaId = "living-room-area",
+                    ChannelIdsOverride = "1, 3"
+                }
+            }
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { legacy }
+        });
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            UserMappings = new List<UserBridgeMappingImport>
+            {
+                new() { UserId = "not-a-jellyfin-user-id", SyncEnabled = false }
+            }
+        });
+
+        Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Empty(legacy.MappingId);
+        Assert.Equal("legacy-app-secret", legacy.HueAppKey);
+        Assert.Equal("legacy-client-secret", legacy.HueClientKey);
+        var device = Assert.Single(legacy.DeviceTargets);
+        Assert.Equal("living-room-tv", device.DeviceId);
+        Assert.Equal("legacy-device-app", device.HueAppKey);
+        Assert.Equal("legacy-device-client", device.HueClientKey);
+        Assert.Equal("1, 3", device.ChannelIdsOverride);
+        Assert.Same(legacy, Assert.Single(configuration.UserMappings));
+    }
+
+    [Fact]
+    public void ConfigurationImport_InvalidDocument_DoesNotNormalizeDuplicateLegacyMappingIds()
+    {
+        var first = new UserBridgeMapping
+        {
+            MappingId = "legacy-duplicate",
+            UserId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            UserName = "First legacy row",
+            HueAppKey = "first-app-secret"
+        };
+        var second = new UserBridgeMapping
+        {
+            MappingId = "legacy-duplicate",
+            UserId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            UserName = "Second legacy row",
+            HueAppKey = "second-app-secret"
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { first, second }
+        });
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = HuePluginConfigurationSettings.From(configuration),
+            UserMappings = new List<UserBridgeMappingImport>
+            {
+                new() { UserId = "not-a-jellyfin-user-id", SyncEnabled = false }
+            }
+        });
+
+        Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal("legacy-duplicate", first.MappingId);
+        Assert.Equal("legacy-duplicate", second.MappingId);
+        Assert.Equal("first-app-secret", first.HueAppKey);
+        Assert.Equal("second-app-secret", second.HueAppKey);
+        Assert.Same(first, configuration.UserMappings[0]);
+        Assert.Same(second, configuration.UserMappings[1]);
+    }
+
+    [Fact]
     public void ImportConfiguration_WhenPersistenceFailsRestoresRetainedHistory()
     {
         var serializer = new Mock<IXmlSerializer>();
@@ -12810,6 +12903,52 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(configuration.PersistSceneScheduleHistory);
         Assert.Equal("Private title", Assert.Single(configuration.PersistedSessionHistory).Item);
         Assert.Equal("private-cue", Assert.Single(configuration.PersistedSceneScheduleHistory).ScheduleId);
+    }
+
+    [Fact]
+    public void ImportConfiguration_WhenPersistenceFails_DoesNotMutateLegacyMappingRows()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("import persistence failed"));
+        var legacy = new UserBridgeMapping
+        {
+            MappingId = string.Empty,
+            UserId = "cccccccc-cccc-cccc-cccc-cccccccccccc",
+            UserName = "Legacy viewer",
+            HueAppKey = "legacy-app-secret",
+            HueClientKey = "legacy-client-secret",
+            DeviceTargets = new List<UserDeviceBridgeTarget>
+            {
+                new()
+                {
+                    DeviceId = "tv",
+                    HueAppKey = "legacy-device-app",
+                    HueClientKey = "legacy-device-client"
+                }
+            }
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { legacy }
+        }, serializer.Object);
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = new HuePluginConfigurationSettings(),
+            UserMappings = new List<UserBridgeMappingImport>()
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Empty(legacy.MappingId);
+        Assert.Equal("legacy-app-secret", legacy.HueAppKey);
+        Assert.Equal("legacy-client-secret", legacy.HueClientKey);
+        var device = Assert.Single(legacy.DeviceTargets);
+        Assert.Equal("legacy-device-app", device.HueAppKey);
+        Assert.Equal("legacy-device-client", device.HueClientKey);
+        Assert.Same(legacy, Assert.Single(configuration.UserMappings));
     }
 
     [Fact]

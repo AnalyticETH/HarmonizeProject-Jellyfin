@@ -7688,6 +7688,7 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             var existingMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
                 .Where(mapping => mapping != null)
+                .Select(CloneUserMapping)
                 .ToList();
             PluginConfiguration.EnsureUserMappingIds(existingMappings);
             var existingPresets = (config.ColorPresets ?? new List<HueColorPreset>())
@@ -9361,6 +9362,70 @@ namespace Jellyfin.Plugin.Hue.Api
             mapping.EntertainmentAreaId = string.Empty;
             mapping.EntertainmentAreaName = string.Empty;
             mapping.DeviceTargets = new List<UserDeviceBridgeTarget>();
+        }
+
+        private static UserBridgeMapping CloneUserMapping(UserBridgeMapping mapping)
+        {
+            return new UserBridgeMapping
+            {
+                MappingId = mapping.MappingId,
+                UserId = mapping.UserId,
+                UserName = mapping.UserName,
+                SyncEnabled = mapping.SyncEnabled,
+                HueBridgeIp = mapping.HueBridgeIp,
+                HueAppKey = mapping.HueAppKey,
+                HueClientKey = mapping.HueClientKey,
+                EntertainmentAreaId = mapping.EntertainmentAreaId,
+                EntertainmentAreaName = mapping.EntertainmentAreaName,
+                DeviceTargets = CloneDeviceTargets(mapping.DeviceTargets),
+                UseCinemaModeOverride = mapping.UseCinemaModeOverride,
+                BrightnessDimLevelOverride = mapping.BrightnessDimLevelOverride,
+                PauseBehaviorOverride = mapping.PauseBehaviorOverride,
+                RestoreLightStateOverride = mapping.RestoreLightStateOverride,
+                PlaybackMediaFilterOverride = mapping.PlaybackMediaFilterOverride,
+                BrightnessBoostOverride = mapping.BrightnessBoostOverride,
+                ColorSaturationOverride = mapping.ColorSaturationOverride,
+                HueShiftDegreesOverride = mapping.HueShiftDegreesOverride,
+                OutputBrightnessPercentOverride = mapping.OutputBrightnessPercentOverride,
+                GammaCorrectionOverride = mapping.GammaCorrectionOverride,
+                ContrastPercentOverride = mapping.ContrastPercentOverride,
+                ColorTemperatureKelvinOverride = mapping.ColorTemperatureKelvinOverride,
+                BlackoutThresholdOverride = mapping.BlackoutThresholdOverride,
+                BlackoutBehaviorOverride = mapping.BlackoutBehaviorOverride,
+                ColorChangeThresholdOverride = mapping.ColorChangeThresholdOverride,
+                RedGainOverride = mapping.RedGainOverride,
+                GreenGainOverride = mapping.GreenGainOverride,
+                BlueGainOverride = mapping.BlueGainOverride,
+                AudioSensitivityPercentOverride = mapping.AudioSensitivityPercentOverride,
+                AudioNoiseGatePercentOverride = mapping.AudioNoiseGatePercentOverride,
+                AudioLowFrequencyHzOverride = mapping.AudioLowFrequencyHzOverride,
+                AudioMidFrequencyHzOverride = mapping.AudioMidFrequencyHzOverride,
+                AudioHighFrequencyHzOverride = mapping.AudioHighFrequencyHzOverride,
+                AudioLowGainPercentOverride = mapping.AudioLowGainPercentOverride,
+                AudioMidGainPercentOverride = mapping.AudioMidGainPercentOverride,
+                AudioHighGainPercentOverride = mapping.AudioHighGainPercentOverride,
+                AudioResponseSmoothingPercentOverride = mapping.AudioResponseSmoothingPercentOverride,
+                AudioBandSpreadPercentOverride = mapping.AudioBandSpreadPercentOverride,
+                AudioBeatPulsePercentOverride = mapping.AudioBeatPulsePercentOverride,
+                AudioBeatPulseDecayPercentOverride = mapping.AudioBeatPulseDecayPercentOverride,
+                AudioBeatPulseThresholdPercentOverride = mapping.AudioBeatPulseThresholdPercentOverride,
+                AudioColorPaletteOverride = mapping.AudioColorPaletteOverride,
+                AudioSpatialModeOverride = mapping.AudioSpatialModeOverride,
+                AudioChannelModeOverride = mapping.AudioChannelModeOverride,
+                TargetFpsOverride = mapping.TargetFpsOverride,
+                FrameResolutionOverride = mapping.FrameResolutionOverride,
+                VideoScalingModeOverride = mapping.VideoScalingModeOverride,
+                VideoDeinterlaceModeOverride = mapping.VideoDeinterlaceModeOverride,
+                SamplingBreadthPercentOverride = mapping.SamplingBreadthPercentOverride,
+                SamplingModeOverride = mapping.SamplingModeOverride,
+                ColorSmoothingPercentOverride = mapping.ColorSmoothingPercentOverride,
+                SpatialOrientationOverride = mapping.SpatialOrientationOverride,
+                UseGpuOverride = mapping.UseGpuOverride,
+                CustomFfmpegFlagsOverride = mapping.CustomFfmpegFlagsOverride,
+                FfmpegStallTimeoutSecondsOverride = mapping.FfmpegStallTimeoutSecondsOverride,
+                NetworkRetryAttemptsOverride = mapping.NetworkRetryAttemptsOverride,
+                ChannelIdsOverride = mapping.ChannelIdsOverride
+            };
         }
 
         private static List<UserDeviceBridgeTarget> CloneDeviceTargets(IEnumerable<UserDeviceBridgeTarget>? targets)

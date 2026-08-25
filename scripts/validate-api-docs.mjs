@@ -257,6 +257,8 @@ for (const marker of [
     "var normalizedUserId = hasValidUserId",
     "var exactMappingMatches = string.IsNullOrWhiteSpace(sourceMappingId)",
     "var matchingUserMappings = hasValidUserId",
+    ".Select(CloneUserMapping)",
+    "private static UserBridgeMapping CloneUserMapping(UserBridgeMapping mapping)",
     "matches multiple existing mapping rows; include the exact mappingId before importing.",
     "var seenMappingIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)",
     "mapping => mapping.MappingId",

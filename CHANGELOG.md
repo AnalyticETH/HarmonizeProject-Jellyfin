@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.284] - 2026-08-25
+
+### Configuration portability safety
+- **Side-effect-free import planning**: configuration imports now deep-clone existing mapping rows, including nested device-target credentials and profile overrides, before legacy mapping-ID normalization; invalid documents and persistence failures cannot mutate live row identities or credentials.
+- **Regression coverage**: verify invalid imports, duplicate legacy row IDs, nested device credentials, and failed saves leave the live mapping objects unchanged.
+
 ## [1.5.283] - 2026-08-25
 
 ### Configuration portability safety
