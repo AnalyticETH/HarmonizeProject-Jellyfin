@@ -4,9 +4,9 @@ using System.Threading;
 namespace Jellyfin.Plugin.Hue.Service;
 
 /// <summary>
-/// Bounds bridge cleanup without linking it to the request or playback cancellation token.
-/// Cleanup must survive caller cancellation long enough to restore the bridge, but it must
-/// also release the lifecycle lease when a bridge is unreachable.
+/// Bounds bridge cleanup with a short deadline. Callers may additionally link a host
+/// shutdown token when waiting for cleanup must not delay application termination.
+/// A bridge that is unreachable still releases the lifecycle lease at the deadline.
 /// </summary>
 internal static class HueCleanupBudget
 {

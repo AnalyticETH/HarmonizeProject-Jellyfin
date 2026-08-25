@@ -326,7 +326,8 @@ public sealed class HueSyncServiceLifecycleTests
             true,
             true,
             "Stopped",
-            true
+            true,
+            CancellationToken.None
         }));
 
         await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1097,6 +1098,39 @@ public sealed class HueSyncServiceLifecycleTests
         await finishNewStop;
         SetPrivateField(service, "_currentBridgeConfig", null);
         await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StopAsync_HonorsHostCancellationWhileSyncLoopBlocks()
+    {
+        using var httpClient = new HttpClient(new BlockingHueHandler());
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var syncCts = new CancellationTokenSource();
+        var blockedLoop = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        SetPrivateField(service, "_syncCts", syncCts);
+        SetPrivateField(service, "_syncLoopTask", blockedLoop.Task);
+        SetPrivateField(service, "_currentPlaySessionId", "shutdown-session");
+
+        using var hostShutdown = new CancellationTokenSource();
+        var stopTask = service.StopAsync(hostShutdown.Token);
+        await Task.Delay(50);
+        Assert.False(stopTask.IsCompleted);
+
+        hostShutdown.Cancel();
+        await stopTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.Null(GetPrivateField(service, "_syncLoopTask"));
+        Assert.Equal("Idle", service.GetRuntimeStatus().State);
+        Assert.Contains(
+            "host shutdown",
+            service.GetRuntimeStatus().CleanupWarning,
+            StringComparison.OrdinalIgnoreCase);
+
+        // Allow the deferred CTS disposal to observe the predecessor task.
+        blockedLoop.TrySetResult(true);
     }
 
     [Fact]

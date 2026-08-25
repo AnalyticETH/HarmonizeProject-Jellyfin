@@ -377,21 +377,11 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             ConcurrentPlaybackWorker[] concurrentWorkers;
+            Task? pauseCleanup;
             lock (_syncLock)
             {
                 concurrentWorkers = _concurrentPlaybackWorkers.Values.ToArray();
                 _concurrentPlaybackWorkers.Clear();
-            }
-
-            if (concurrentWorkers.Length > 0)
-            {
-                await Task.WhenAll(concurrentWorkers.Select(worker =>
-                    worker.Service.StopAsync(CancellationToken.None))).ConfigureAwait(false);
-            }
-
-            Task? pauseCleanup;
-            lock (_syncLock)
-            {
                 _isStopping = true;
                 _startupCts?.Cancel();
                 _syncCts?.Cancel();
@@ -402,12 +392,37 @@ namespace Jellyfin.Plugin.Hue.Service
                 pauseCleanup = _pauseCleanupTask;
             }
 
-            try
+            if (concurrentWorkers.Length > 0)
             {
-                if (pauseCleanup != null)
-                    await pauseCleanup.ConfigureAwait(false);
+                try
+                {
+                    await Task.WhenAll(concurrentWorkers.Select(worker =>
+                        worker.Service.StopAsync(cancellationToken))).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Host shutdown cancellation interrupted one or more concurrent Hue playback workers.");
+                    SetCleanupWarning("Concurrent Hue playback cleanup was interrupted by host shutdown cancellation.");
+                }
             }
-            finally
+
+            if (pauseCleanup != null)
+            {
+                try
+                {
+                    if (cancellationToken.CanBeCanceled)
+                        await pauseCleanup.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    else
+                        await pauseCleanup.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Host shutdown cancellation interrupted paused-playback Hue cleanup.");
+                    SetCleanupWarning("Paused-playback Hue cleanup was interrupted by host shutdown cancellation.");
+                }
+            }
+
+            if (pauseCleanup == null || pauseCleanup.IsCompleted)
             {
                 lock (_syncLock)
                 {
@@ -417,83 +432,102 @@ namespace Jellyfin.Plugin.Hue.Service
                         _pauseCleanupSessionId = null;
                     }
                 }
+            }
 
-                await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
+            var lifecycleLockAcquired = false;
+            try
+            {
                 try
                 {
-                    var config = Plugin.Instance?.Configuration;
-                    var bridgeConfig = _currentBridgeConfig;
-                    var areaAlreadyDeactivated = _bridgeAreaDeactivated;
-                    var savedLightStates = _savedLightStates;
-                    await StopSyncAsync(deactivateArea: false).ConfigureAwait(false);
-                    _currentBridgeConfig = null;
-                    _currentFrameResolution = null;
-                    _currentVideoScalingMode = null;
-                    _currentVideoDeinterlaceMode = null;
-                    _currentTargetFps = null;
-                    _currentAudioSensitivityPercent = null;
-                    _currentAudioNoiseGatePercent = null;
-                    _currentAudioFrequencies = null;
-                    _currentAudioBandGains = null;
-                    _currentAudioResponseSmoothingPercent = null;
-                    _currentAudioBandSpreadPercent = null;
-                    _currentAudioBeatPulsePercent = null;
-                    _currentAudioBeatPulseDecayPercent = null;
-                    _currentAudioBeatPulseThresholdPercent = null;
-                    _currentAudioColorPalette = null;
-                    _currentAudioSpatialMode = null;
-                    _currentAudioChannelMode = null;
-                    _currentSamplingBreadthPercent = null;
-                    _currentSamplingMode = null;
-                    _currentSpatialOrientation = null;
-                    _currentColorSmoothingPercent = null;
-
-                    if (bridgeConfig != null && (!areaAlreadyDeactivated || savedLightStates != null))
-                    {
-                        await RestoreAndDeactivateAsync(
-                            config,
-                            bridgeConfig,
-                            savedLightStates,
-                            publishIdleStatus: false,
-                            sessionOutcome: "ServiceStopped").ConfigureAwait(false);
-                    }
+                    if (cancellationToken.CanBeCanceled)
+                        await _syncLifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
                     else
-                    {
-                        var sessionSummarySeed = CaptureSessionSummarySeed(bridgeConfig, "ServiceStopped");
-                        if (sessionSummarySeed != null)
-                            RecordSessionSummary(sessionSummarySeed, null);
+                        await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
+                    lifecycleLockAcquired = true;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Host shutdown cancellation interrupted the Hue lifecycle lock wait.");
+                    SetCleanupWarning("Hue lifecycle cleanup was interrupted by host shutdown cancellation.");
+                    return;
+                }
 
-                        ReleasePlaybackLifecycleLease();
-                        CurrentItemName = null;
-                        lock (_syncLock)
-                        {
-                            _currentUserId = null;
-                            _currentUserName = null;
-                            _currentDeviceId = null;
-                            _currentDeviceName = null;
-                            _currentDeviceRouteMatched = false;
-                        }
-                    }
+                var config = Plugin.Instance?.Configuration;
+                var bridgeConfig = _currentBridgeConfig;
+                var areaAlreadyDeactivated = _bridgeAreaDeactivated;
+                var savedLightStates = _savedLightStates;
+                await StopSyncAsync(
+                    deactivateArea: false,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                _currentBridgeConfig = null;
+                _currentFrameResolution = null;
+                _currentVideoScalingMode = null;
+                _currentVideoDeinterlaceMode = null;
+                _currentTargetFps = null;
+                _currentAudioSensitivityPercent = null;
+                _currentAudioNoiseGatePercent = null;
+                _currentAudioFrequencies = null;
+                _currentAudioBandGains = null;
+                _currentAudioResponseSmoothingPercent = null;
+                _currentAudioBandSpreadPercent = null;
+                _currentAudioBeatPulsePercent = null;
+                _currentAudioBeatPulseDecayPercent = null;
+                _currentAudioBeatPulseThresholdPercent = null;
+                _currentAudioColorPalette = null;
+                _currentAudioSpatialMode = null;
+                _currentAudioChannelMode = null;
+                _currentSamplingBreadthPercent = null;
+                _currentSamplingMode = null;
+                _currentSpatialOrientation = null;
+                _currentColorSmoothingPercent = null;
 
+                if (bridgeConfig != null && (!areaAlreadyDeactivated || savedLightStates != null))
+                {
+                    await RestoreAndDeactivateAsync(
+                        config,
+                        bridgeConfig,
+                        savedLightStates,
+                        publishIdleStatus: false,
+                        sessionOutcome: "ServiceStopped",
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    var sessionSummarySeed = CaptureSessionSummarySeed(bridgeConfig, "ServiceStopped");
+                    if (sessionSummarySeed != null)
+                        RecordSessionSummary(sessionSummarySeed, null);
+
+                    ReleasePlaybackLifecycleLease();
+                    CurrentItemName = null;
                     lock (_syncLock)
                     {
-                        _activeUseCinemaMode = null;
-                        _activeCinemaModeAttempted = null;
-                        _activeRestoreLightState = null;
-                        _activePauseBehavior = null;
-                        _activePauseBrightnessPercent = null;
-                        _activeColorProcessingSettings = null;
-                        _activeExecutionSettings = null;
-                        _activeChannelIds = null;
+                        _currentUserId = null;
+                        _currentUserName = null;
+                        _currentDeviceId = null;
+                        _currentDeviceName = null;
+                        _currentDeviceRouteMatched = false;
                     }
+                }
 
-                    _savedLightStates = null;
-                    _savedLightStatePlaySessionId = null;
-                }
-                finally
+                lock (_syncLock)
                 {
-                    _syncLifecycleLock.Release();
+                    _activeUseCinemaMode = null;
+                    _activeCinemaModeAttempted = null;
+                    _activeRestoreLightState = null;
+                    _activePauseBehavior = null;
+                    _activePauseBrightnessPercent = null;
+                    _activeColorProcessingSettings = null;
+                    _activeExecutionSettings = null;
+                    _activeChannelIds = null;
                 }
+
+                _savedLightStates = null;
+                _savedLightStatePlaySessionId = null;
+            }
+            finally
+            {
+                if (lifecycleLockAcquired)
+                    _syncLifecycleLock.Release();
 
                 SetRuntimeStatus("Idle", "Sync service stopped.");
             }
@@ -2209,11 +2243,21 @@ namespace Jellyfin.Plugin.Hue.Service
             // session until the predecessor has actually exited; the loop uses the
             // shared streamer/FFmpeg fields and could otherwise write stale colors into
             // the replacement playback session.
+            var syncLoopCompleted = true;
             if (syncLoopTask != null)
             {
                 try
                 {
-                    await syncLoopTask.ConfigureAwait(false);
+                    if (cancellationToken.CanBeCanceled)
+                        await syncLoopTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    else
+                        await syncLoopTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    syncLoopCompleted = false;
+                    _logger.LogWarning("Host shutdown cancellation interrupted the Hue sync loop wait.");
+                    SetCleanupWarning("Hue sync loop cleanup was interrupted by host shutdown cancellation.");
                 }
                 catch (Exception ex)
                 {
@@ -2221,7 +2265,14 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
             }
 
-            syncCts?.Dispose();
+            if (syncLoopCompleted)
+            {
+                syncCts?.Dispose();
+            }
+            else if (syncCts != null && syncLoopTask != null)
+            {
+                _ = DisposeCancellationSourceAfterTaskAsync(syncLoopTask, syncCts);
+            }
 
             if (deactivateArea && _currentBridgeConfig != null && !_bridgeAreaDeactivated)
             {
@@ -5035,10 +5086,14 @@ namespace Jellyfin.Plugin.Hue.Service
             bool publishIdleStatus = true,
             bool clearCurrentItem = true,
             string sessionOutcome = "Stopped",
-            bool recordSessionSummary = true)
+            bool recordSessionSummary = true,
+            CancellationToken cancellationToken = default)
         {
-            using var cleanupCancellation = HueCleanupBudget.CreateCancellationSource();
-            var cleanupToken = cleanupCancellation.Token;
+            using var cleanupBudget = HueCleanupBudget.CreateCancellationSource();
+            using var cleanupCancellation = cancellationToken.CanBeCanceled
+                ? CancellationTokenSource.CreateLinkedTokenSource(cleanupBudget.Token, cancellationToken)
+                : null;
+            var cleanupToken = cleanupCancellation?.Token ?? cleanupBudget.Token;
 
             var sessionSummarySeed = recordSessionSummary
                 ? CaptureSessionSummarySeed(bridgeConfig, sessionOutcome)
@@ -5407,6 +5462,28 @@ namespace Jellyfin.Plugin.Hue.Service
             task.ContinueWith(
                 t => _logger.LogError(t.Exception!.GetBaseException(), "Unobserved exception in background task"),
                 TaskContinuationOptions.OnlyOnFaulted);
+        }
+
+        /// <summary>
+        /// Defers disposal of a sync-loop cancellation source when host shutdown
+        /// cancellation stops waiting before the loop has actually exited.
+        /// </summary>
+        private async Task DisposeCancellationSourceAfterTaskAsync(
+            Task task,
+            CancellationTokenSource cancellationSource)
+        {
+            try
+            {
+                await task.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "The canceled Hue sync loop ended with an exception after host shutdown cancellation.");
+            }
+            finally
+            {
+                cancellationSource.Dispose();
+            }
         }
 
         /// <summary>

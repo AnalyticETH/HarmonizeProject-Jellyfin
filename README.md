@@ -448,7 +448,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.284 (Current)
+### Version 1.5.285 (Current)
+- **Host-cancellation-aware shutdown**: service stop propagates Jellyfin's host shutdown token through workers, paused cleanup, lifecycle acquisition, sync-loop waits, and bridge cleanup so a blocked capture or DTLS loop cannot indefinitely delay application termination; interrupted cleanup remains visible as a credential-free warning.
+
+### Version 1.5.284
 - **Side-effect-free import planning**: configuration imports now deep-clone existing mapping rows, including nested device-target credentials and profile overrides, before legacy mapping-ID normalization; invalid documents and persistence failures cannot mutate live row identities or credentials.
 
 ### Version 1.5.283

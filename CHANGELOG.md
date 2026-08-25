@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.285] - 2026-08-25
+
+### Shutdown lifecycle safety
+- **Host-cancellation-aware shutdown**: service stop now propagates Jellyfin's host shutdown token through concurrent workers, paused cleanup, lifecycle acquisition, sync-loop waits, and bridge cleanup so a blocked capture or DTLS loop cannot indefinitely delay application termination.
+- **Deferred resource disposal**: a cancellation source remains owned until an interrupted sync loop exits, preventing stale-loop writes and disposal races while reporting credential-free cleanup warnings.
+- **Regression coverage**: verify service shutdown completes promptly when the sync loop does not complete until after host cancellation.
+
 ## [1.5.284] - 2026-08-25
 
 ### Configuration portability safety
