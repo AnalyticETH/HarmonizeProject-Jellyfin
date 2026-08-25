@@ -97,6 +97,17 @@ if (!userMappingCleanupRow.includes("Stable row IDs")) {
     throw new Error("README.md user-mapping cleanup contract is missing stable row identity guidance");
 }
 
+const userMappingDuplicateResolutionRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/UserMappings/ResolveDuplicates` |"));
+if (!userMappingDuplicateResolutionRow ||
+    !userMappingDuplicateResolutionRow.includes("retainMappingId") ||
+    !userMappingDuplicateResolutionRow.includes("removeMappingIds") ||
+    !userMappingDuplicateResolutionRow.includes("report version") ||
+    !userMappingDuplicateResolutionRow.includes("enabled") ||
+    !userMappingDuplicateResolutionRow.includes("atomic") ||
+    !userMappingDuplicateResolutionRow.includes("credential-free")) {
+    throw new Error("README.md duplicate user-mapping resolution contract is missing exact-row, readiness, concurrency, or atomicity markers");
+}
+
 const userMappingDeleteRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `DELETE /HueSync/UserMappings/{userId}` |"));
 if (!userMappingDeleteRow ||
     !userMappingDeleteRow.includes("mappingId") ||
@@ -159,6 +170,21 @@ for (const marker of [
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API stale user-mapping cleanup is missing source marker: ${marker}`);
+    }
+}
+
+for (const marker of [
+    "[HttpPost(\"UserMappings/ResolveDuplicates\")]",
+    "HueUserMappingDuplicateResolutionRequest",
+    "retainMappingId",
+    "removeMappingIds",
+    "The selected rows do not represent the complete duplicate group",
+    "The retained mapping must be enabled before duplicate rows can be resolved.",
+    "Could not persist duplicate Hue user-mapping resolution",
+    "UserBridgeMappingSummary.ForSupport(retained)"
+]) {
+    if (!controller.includes(marker)) {
+        throw new Error(`Hue API duplicate user-mapping resolution is missing source marker: ${marker}`);
     }
 }
 

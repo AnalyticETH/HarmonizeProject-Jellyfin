@@ -3795,12 +3795,16 @@ public sealed class HueSceneAutomationService : BackgroundService
 
                 if (!TryResolveSingleTarget(config, new HueSceneSchedule(), selectedUserId, null, out var selectedTarget, out var selectedError))
                 {
-                    var mapping = config.UserMappings?.FirstOrDefault(candidate =>
-                        candidate != null &&
-                        PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, selectedUserId));
-                    var mappingLabel = mapping == null
+                    var matchingMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
+                        .Where(candidate => candidate != null &&
+                            PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, selectedUserId))
+                        .Cast<UserBridgeMapping>()
+                        .ToArray();
+                    var mappingLabel = matchingMappings.Length > 1
+                        ? $"ambiguous user mapping {selectedUserId}"
+                        : matchingMappings.Length == 0
                         ? selectedUserId
-                        : GetMappingLabel(mapping);
+                        : GetMappingLabel(matchingMappings[0]);
                     error = $"Target '{mappingLabel}' is not ready for selected targets: {selectedError}";
                     return false;
                 }
@@ -3932,14 +3936,23 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         if (!string.IsNullOrWhiteSpace(targetUserId))
         {
-            var mapping = config.UserMappings?.FirstOrDefault(candidate =>
-                candidate != null &&
-                PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, targetUserId));
-            if (mapping == null)
+            var matchingMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
+                .Where(candidate => candidate != null &&
+                    PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, targetUserId))
+                .Cast<UserBridgeMapping>()
+                .ToArray();
+            if (matchingMappings.Length == 0)
             {
                 error = "The selected user mapping no longer exists.";
                 return false;
             }
+            if (matchingMappings.Length > 1)
+            {
+                error = "The selected Jellyfin user has multiple mapping rows. Resolve the duplicate mappings before running scene automation.";
+                return false;
+            }
+
+            var mapping = matchingMappings[0];
 
             if (!mapping.SyncEnabled)
             {
@@ -5899,12 +5912,17 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (string.IsNullOrWhiteSpace(targetUserId))
             return "Default bridge target";
 
-        var mapping = config?.UserMappings?.FirstOrDefault(candidate =>
-            candidate != null &&
-            PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, targetUserId));
-        if (mapping == null)
+        var matchingMappings = (config?.UserMappings ?? new List<UserBridgeMapping>())
+            .Where(candidate => candidate != null &&
+                PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, targetUserId))
+            .Cast<UserBridgeMapping>()
+            .ToArray();
+        if (matchingMappings.Length == 0)
             return "Missing user mapping";
+        if (matchingMappings.Length > 1)
+            return "Ambiguous user mapping";
 
+        var mapping = matchingMappings[0];
         return string.IsNullOrWhiteSpace(mapping.UserName)
             ? $"User mapping {mapping.UserId?.Trim() ?? targetUserId}"
             : mapping.UserName.Trim();

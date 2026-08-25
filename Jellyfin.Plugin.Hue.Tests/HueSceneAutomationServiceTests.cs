@@ -4070,6 +4070,52 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TryResolveTarget_FailsClosedForDuplicateUserMappings()
+    {
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "duplicate-target",
+                    UserName = "First target",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "first-app-secret",
+                    HueClientKey = "first-client-secret",
+                    EntertainmentAreaId = "first-area"
+                },
+                new()
+                {
+                    UserId = "duplicate-target",
+                    UserName = "Second target",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "second-app-secret",
+                    HueClientKey = "second-client-secret",
+                    EntertainmentAreaId = "second-area"
+                }
+            }
+        };
+
+        var resolved = HueSceneAutomationService.TryResolveTarget(
+            config,
+            new HueSceneSchedule { TargetUserId = "duplicate-target" },
+            out _,
+            out var error);
+
+        Assert.False(resolved);
+        Assert.Contains("multiple mapping rows", error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("first-app-secret", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("second-app-secret", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TryResolveTargets_BroadcastIncludesDistinctEnabledTargetsAndDeduplicatesInheritedMappings()
     {
         var config = new PluginConfiguration

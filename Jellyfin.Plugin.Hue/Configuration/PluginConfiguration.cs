@@ -1840,19 +1840,36 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public int ColorChangeThreshold { get; set; } = 10; // Minimum color change to trigger update (0-255)
         public int NetworkRetryAttempts { get; set; } = 3; // Number of retry attempts for Hue REST and DTLS recovery
 
-        private UserBridgeMapping? FindUserMapping(Guid userId)
+        private List<UserBridgeMapping> FindUserMappings(Guid userId)
         {
             var userIdText = userId.ToString();
-            return UserMappings?.Find(mapping =>
-                mapping != null &&
-                AreSameJellyfinUserId(mapping.UserId, userIdText));
+            return (UserMappings ?? new List<UserBridgeMapping>())
+                .Where(mapping => mapping != null && AreSameJellyfinUserId(mapping.UserId, userIdText))
+                .Cast<UserBridgeMapping>()
+                .ToList();
         }
+
+        private UserBridgeMapping? FindUserMapping(Guid userId)
+        {
+            var matches = FindUserMappings(userId);
+            return matches.Count == 1 ? matches[0] : null;
+        }
+
+        /// <summary>
+        /// Reports whether persisted rows make a user's effective profile ambiguous. Runtime
+        /// playback must fail closed until an administrator explicitly retains one stable row.
+        /// </summary>
+        public bool HasAmbiguousUserMapping(Guid userId)
+            => FindUserMappings(userId).Count > 1;
 
         /// <summary>
         /// Gets the bridge configuration for a specific user, or falls back to default
         /// </summary>
         public (string BridgeIp, string AppKey, string ClientKey, string AreaId) GetBridgeConfigForUser(Guid userId)
         {
+            if (HasAmbiguousUserMapping(userId))
+                return (string.Empty, string.Empty, string.Empty, string.Empty);
+
             var mapping = FindUserMapping(userId);
             if (mapping != null && !string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
             {
@@ -1870,6 +1887,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
             Guid userId,
             string? deviceId)
         {
+            if (HasAmbiguousUserMapping(userId))
+                return (string.Empty, string.Empty, string.Empty, string.Empty);
+
             var deviceTarget = FindDeviceTargetForUser(userId, deviceId);
             if (deviceTarget != null)
             {
@@ -1896,6 +1916,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public bool IsSyncEnabledForUser(Guid userId)
         {
+            if (HasAmbiguousUserMapping(userId))
+                return false;
+
             var mapping = FindUserMapping(userId);
             return mapping?.SyncEnabled ?? true;
         }
@@ -3114,12 +3137,16 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 }
                 seenTargetUserIds.Add(selectedUserId);
 
-                var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
-                    candidate != null &&
-                    AreSameJellyfinUserId(candidate.UserId, selectedUserId));
-                if (mapping == null)
+                var matchingMappings = (configuration?.UserMappings ?? new List<UserBridgeMapping>())
+                    .Where(candidate => candidate != null &&
+                        AreSameJellyfinUserId(candidate.UserId, selectedUserId))
+                    .Cast<UserBridgeMapping>()
+                    .ToArray();
+                if (matchingMappings.Length == 0)
                     errors.Add($"{label} references a selected user mapping that does not exist: {selectedUserId}");
-                else if (!mapping.SyncEnabled)
+                else if (matchingMappings.Length > 1)
+                    errors.Add($"{label} references a user mapping with multiple rows: {selectedUserId}; resolve duplicate mappings before running scene automation");
+                else if (!matchingMappings[0].SyncEnabled)
                     errors.Add($"{label} references a disabled selected user mapping: {selectedUserId}");
             }
 
@@ -3134,12 +3161,16 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!string.IsNullOrWhiteSpace(targetUserId))
             {
-                var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
-                    candidate != null &&
-                    AreSameJellyfinUserId(candidate.UserId, targetUserId));
-                if (mapping == null)
+                var matchingMappings = (configuration?.UserMappings ?? new List<UserBridgeMapping>())
+                    .Where(candidate => candidate != null &&
+                        AreSameJellyfinUserId(candidate.UserId, targetUserId))
+                    .Cast<UserBridgeMapping>()
+                    .ToArray();
+                if (matchingMappings.Length == 0)
                     errors.Add($"{label} references a user mapping that does not exist");
-                else if (!mapping.SyncEnabled)
+                else if (matchingMappings.Length > 1)
+                    errors.Add($"{label} references a user mapping with multiple rows: {targetUserId}; resolve duplicate mappings before running scene automation");
+                else if (!matchingMappings[0].SyncEnabled)
                     errors.Add($"{label} references a disabled user mapping");
             }
 
@@ -3476,12 +3507,16 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 }
                 seenTargetUserIds.Add(selectedUserId);
 
-                var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
-                    candidate != null &&
-                    AreSameJellyfinUserId(candidate.UserId, selectedUserId));
-                if (mapping == null)
+                var matchingMappings = (configuration?.UserMappings ?? new List<UserBridgeMapping>())
+                    .Where(candidate => candidate != null &&
+                        AreSameJellyfinUserId(candidate.UserId, selectedUserId))
+                    .Cast<UserBridgeMapping>()
+                    .ToArray();
+                if (matchingMappings.Length == 0)
                     errors.Add($"{label} references a selected user mapping that does not exist: {selectedUserId}");
-                else if (!mapping.SyncEnabled)
+                else if (matchingMappings.Length > 1)
+                    errors.Add($"{label} references a user mapping with multiple rows: {selectedUserId}; resolve duplicate mappings before running scene automation");
+                else if (!matchingMappings[0].SyncEnabled)
                     errors.Add($"{label} references a disabled selected user mapping: {selectedUserId}");
             }
 
@@ -3506,18 +3541,24 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 }
                 seenTargetRoutes.Add((routeUserId, routeDeviceId));
 
-                var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
-                    candidate != null &&
-                    AreSameJellyfinUserId(candidate.UserId, routeUserId));
-                if (mapping == null)
+                var matchingMappings = (configuration?.UserMappings ?? new List<UserBridgeMapping>())
+                    .Where(candidate => candidate != null &&
+                        AreSameJellyfinUserId(candidate.UserId, routeUserId))
+                    .Cast<UserBridgeMapping>()
+                    .ToArray();
+                if (matchingMappings.Length == 0)
                 {
                     errors.Add($"{label} references a device route whose user mapping does not exist: {routeUserId}");
                 }
-                else if (!mapping.SyncEnabled)
+                else if (matchingMappings.Length > 1)
+                {
+                    errors.Add($"{label} references a device route whose user mapping has multiple rows: {routeUserId}; resolve duplicate mappings before running scene automation");
+                }
+                else if (!matchingMappings[0].SyncEnabled)
                 {
                     errors.Add($"{label} references a disabled device-route user mapping: {routeUserId}");
                 }
-                else if (mapping.DeviceTargets?.Any(target =>
+                else if (matchingMappings[0].DeviceTargets?.Any(target =>
                     target != null &&
                     string.Equals(target.DeviceId?.Trim(), routeDeviceId, StringComparison.Ordinal)) != true)
                 {
@@ -3540,12 +3581,16 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (!string.IsNullOrWhiteSpace(targetUserId))
             {
-                var mapping = configuration?.UserMappings?.FirstOrDefault(candidate =>
-                    candidate != null &&
-                    AreSameJellyfinUserId(candidate.UserId, targetUserId));
-                if (mapping == null)
+                var matchingMappings = (configuration?.UserMappings ?? new List<UserBridgeMapping>())
+                    .Where(candidate => candidate != null &&
+                        AreSameJellyfinUserId(candidate.UserId, targetUserId))
+                    .Cast<UserBridgeMapping>()
+                    .ToArray();
+                if (matchingMappings.Length == 0)
                     errors.Add($"{label} references a user mapping that does not exist");
-                else if (!mapping.SyncEnabled)
+                else if (matchingMappings.Length > 1)
+                    errors.Add($"{label} references a user mapping with multiple rows: {targetUserId}; resolve duplicate mappings before running scene automation");
+                else if (!matchingMappings[0].SyncEnabled)
                     errors.Add($"{label} references a disabled user mapping");
             }
 

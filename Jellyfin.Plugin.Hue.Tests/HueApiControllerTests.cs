@@ -154,6 +154,247 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ResolveDuplicateUserMappingsRetainsExactKeeperAndMakesRuntimeUnique()
+    {
+        var userId = Guid.Parse("56565656-5656-5656-5656-565656565656");
+        var liveUser = new Jellyfin.Data.Entities.User("Current Keeper", "auth", "reset") { Id = userId };
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(userId)).Returns(liveUser);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app",
+            HueClientKey = "global-client",
+            EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "duplicate-keeper",
+                    UserId = "{" + userId.ToString("D") + "}",
+                    UserName = "Old Keeper",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "keeper-app-secret",
+                    HueClientKey = "keeper-client-secret",
+                    EntertainmentAreaId = "keeper-area"
+                },
+                new()
+                {
+                    MappingId = "duplicate-remove",
+                    UserId = userId.ToString("N"),
+                    UserName = "Sibling Row",
+                    SyncEnabled = false,
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "sibling-app-secret",
+                    HueClientKey = "sibling-client-secret",
+                    EntertainmentAreaId = "sibling-area"
+                }
+            }
+        });
+        var controller = CreateController(userManager: userManager.Object);
+        var report = Assert.IsType<HueUserMappingReconciliationResult>(
+            Assert.IsType<OkObjectResult>(controller.GetUserMappingReconciliation().Result).Value);
+
+        var action = controller.ResolveDuplicateUserMappings(new HueUserMappingDuplicateResolutionRequest
+        {
+            RetainMappingId = "duplicate-keeper",
+            RemoveMappingIds = new List<string> { "duplicate-remove" },
+            ExpectedReportVersion = report.ReportVersion
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingDuplicateResolutionResult>(response.Value);
+        Assert.Equal(1, result.RemovedCount);
+        Assert.Equal(userId.ToString("D"), result.UserId);
+        Assert.Equal("duplicate-keeper", result.RetainedMapping!.MappingId);
+        Assert.Single(result.RemovedMappings);
+        Assert.Single(configuration.UserMappings);
+        Assert.Equal(userId.ToString("D"), configuration.UserMappings[0].UserId);
+        Assert.Equal("Current Keeper", configuration.UserMappings[0].UserName);
+        Assert.False(configuration.HasAmbiguousUserMapping(userId));
+        Assert.Equal("192.168.1.101", configuration.GetBridgeConfigForUser(userId).BridgeIp);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("keeper-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("sibling-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("keeper-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("sibling-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveDuplicateUserMappingsRejectsStaleReportWithoutMutation()
+    {
+        var userId = Guid.Parse("57575757-5757-5757-5757-575757575757");
+        var liveUser = new Jellyfin.Data.Entities.User("Viewer", "auth", "reset") { Id = userId };
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(userId)).Returns(liveUser);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "stale-keeper", UserId = userId.ToString("D"), UserName = "First", SyncEnabled = true },
+                new() { MappingId = "stale-remove", UserId = userId.ToString("D"), UserName = "Second", SyncEnabled = false }
+            }
+        });
+        var controller = CreateController(userManager: userManager.Object);
+        var report = Assert.IsType<HueUserMappingReconciliationResult>(
+            Assert.IsType<OkObjectResult>(controller.GetUserMappingReconciliation().Result).Value);
+        configuration.UserMappings[0].UserName = "Changed after report";
+
+        var action = controller.ResolveDuplicateUserMappings(new HueUserMappingDuplicateResolutionRequest
+        {
+            RetainMappingId = "stale-keeper",
+            RemoveMappingIds = new List<string> { "stale-remove" },
+            ExpectedReportVersion = report.ReportVersion
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingDuplicateResolutionResult>(response.Value);
+        Assert.Equal(0, result.RemovedCount);
+        Assert.Equal(2, configuration.UserMappings.Count);
+        Assert.Equal("Changed after report", configuration.UserMappings[0].UserName);
+        Assert.NotEqual(report.ReportVersion, result.ReportVersion);
+    }
+
+    [Fact]
+    public void ResolveDuplicateUserMappingsRejectsDisabledKeeperBeforeMutation()
+    {
+        var userId = Guid.Parse("58585858-5858-5858-5858-585858585858");
+        var liveUser = new Jellyfin.Data.Entities.User("Viewer", "auth", "reset") { Id = userId };
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(userId)).Returns(liveUser);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "disabled-keeper", UserId = userId.ToString("D"), UserName = "Disabled", SyncEnabled = false },
+                new() { MappingId = "enabled-sibling", UserId = userId.ToString("D"), UserName = "Enabled", SyncEnabled = true }
+            }
+        });
+        var controller = CreateController(userManager: userManager.Object);
+        var report = Assert.IsType<HueUserMappingReconciliationResult>(
+            Assert.IsType<OkObjectResult>(controller.GetUserMappingReconciliation().Result).Value);
+
+        var action = controller.ResolveDuplicateUserMappings(new HueUserMappingDuplicateResolutionRequest
+        {
+            RetainMappingId = "disabled-keeper",
+            RemoveMappingIds = new List<string> { "enabled-sibling" },
+            ExpectedReportVersion = report.ReportVersion
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingDuplicateResolutionResult>(response.Value);
+        Assert.Contains(result.ValidationErrors, error => error.Contains("must be enabled", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(2, configuration.UserMappings.Count);
+    }
+
+    [Fact]
+    public void ResolveDuplicateUserMappingsRejectsKeeperThatWouldBreakSavedDeviceRoute()
+    {
+        var userId = Guid.Parse("5a5a5a5a-5a5a-5a5a-5a5a-5a5a5a5a5a5a");
+        var liveUser = new Jellyfin.Data.Entities.User("Viewer", "auth", "reset") { Id = userId };
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(userId)).Returns(liveUser);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app",
+            HueClientKey = "global-client",
+            EntertainmentAreaId = "global-area",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "route-keeper", UserId = userId.ToString("D"), UserName = "Keeper", SyncEnabled = true },
+                new()
+                {
+                    MappingId = "route-remove",
+                    UserId = userId.ToString("D"),
+                    UserName = "Route sibling",
+                    SyncEnabled = false,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new() { DeviceId = "living-room", HueBridgeIp = "192.168.1.102", HueAppKey = "route-app", HueClientKey = "route-client", EntertainmentAreaId = "route-area" }
+                    }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "route-cue",
+                    Name = "Route cue",
+                    PresetName = "Evening",
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = userId.ToString("D"), DeviceId = "living-room" }
+                    }
+                }
+            }
+        });
+        var controller = CreateController(userManager: userManager.Object);
+        var report = Assert.IsType<HueUserMappingReconciliationResult>(
+            Assert.IsType<OkObjectResult>(controller.GetUserMappingReconciliation().Result).Value);
+
+        var action = controller.ResolveDuplicateUserMappings(new HueUserMappingDuplicateResolutionRequest
+        {
+            RetainMappingId = "route-keeper",
+            RemoveMappingIds = new List<string> { "route-remove" },
+            ExpectedReportVersion = report.ReportVersion
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingDuplicateResolutionResult>(response.Value);
+        Assert.Contains(result.ValidationErrors, error => error.Contains("device route", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(2, configuration.UserMappings.Count);
+        Assert.Equal("route-remove", configuration.UserMappings[1].MappingId);
+    }
+
+    [Fact]
+    public void ResolveDuplicateUserMappingsPersistenceFailureRestoresEveryRow()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("duplicate resolution persistence failed"));
+        var userId = Guid.Parse("59595959-5959-5959-5959-595959595959");
+        var liveUser = new Jellyfin.Data.Entities.User("Viewer", "auth", "reset") { Id = userId };
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(userId)).Returns(liveUser);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app",
+            HueClientKey = "global-client",
+            EntertainmentAreaId = "global-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "rollback-keeper", UserId = userId.ToString("D"), UserName = "Original Keeper", SyncEnabled = true },
+                new() { MappingId = "rollback-remove", UserId = userId.ToString("D"), UserName = "Original Sibling", SyncEnabled = false }
+            }
+        }, serializer.Object);
+        var previousMappings = configuration.UserMappings;
+        var controller = CreateController(userManager: userManager.Object);
+        var report = Assert.IsType<HueUserMappingReconciliationResult>(
+            Assert.IsType<OkObjectResult>(controller.GetUserMappingReconciliation().Result).Value);
+
+        var action = controller.ResolveDuplicateUserMappings(new HueUserMappingDuplicateResolutionRequest
+        {
+            RetainMappingId = "rollback-keeper",
+            RemoveMappingIds = new List<string> { "rollback-remove" },
+            ExpectedReportVersion = report.ReportVersion
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Same(previousMappings, configuration.UserMappings);
+        Assert.Equal(new[] { "rollback-keeper", "rollback-remove" }, configuration.UserMappings.Select(mapping => mapping.MappingId));
+        Assert.Equal("Original Keeper", configuration.UserMappings[0].UserName);
+    }
+
+    [Fact]
     public void CleanupStaleUserMappingsDeletesExactMissingAndMalformedRows()
     {
         var missingUserId = Guid.Parse("66666666-6666-6666-6666-666666666666");

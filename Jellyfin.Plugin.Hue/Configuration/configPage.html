@@ -1115,9 +1115,11 @@
                                 <button is="emby-button" type="button" class="raised" id="deleteSelectedUserMappingsBtn" disabled><span>Delete Selected</span></button>
                                 <button is="emby-button" type="button" class="raised" id="reconcileUserMappingsBtn"><span>Reconcile Jellyfin Users</span></button>
                                 <button is="emby-button" type="button" class="raised" id="cleanupStaleUserMappingsBtn"><span>Clean Stale Mappings</span></button>
+                                <button is="emby-button" type="button" class="raised" id="resolveDuplicateUserMappingsBtn"><span>Resolve Duplicate Mappings</span></button>
                             </div>
                             <div id="userMappingBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select user mappings to enable, disable, or delete them together. Scheduled-cue references block disabling and deletion; disabling also clears stored custom bridge targets.</div>
                             <div id="userMappingReconcileStatus" class="fieldDescription" role="status" aria-live="polite" style="flex: 1 1 280px;">Reconciliation checks persisted mapping IDs and names against Jellyfin users without reading or exposing Hue credentials.</div>
+                            <div id="userMappingDuplicateResolutionControls" class="fieldDescription" style="display: none; flex: 1 1 100%;"></div>
                         </div>
 
                         <fieldset class="verticalSection" style="background: rgba(255,255,255,0.05); padding: 1em; border-radius: 6px; margin-top: 1em;">
@@ -10206,6 +10208,158 @@
                     if (disableBtn) disableBtn.disabled = selectedCount === 0;
                     if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
                 },
+                clearDuplicateResolutionControls: function (page) {
+                    var container = page.querySelector('#userMappingDuplicateResolutionControls');
+                    if (!container) return;
+                    container.innerHTML = '';
+                    container.style.display = 'none';
+                },
+                renderDuplicateResolutionControls: function (page, report) {
+                    var container = page.querySelector('#userMappingDuplicateResolutionControls');
+                    if (!container) return;
+                    container.innerHTML = '';
+
+                    var readValue = function (response, pascalName, camelName, fallback) {
+                        if (!response) return fallback;
+                        return typeof response[camelName] !== 'undefined'
+                            ? response[camelName]
+                            : typeof response[pascalName] !== 'undefined'
+                                ? response[pascalName]
+                                : fallback;
+                    };
+                    var entries = readValue(report, 'Mappings', 'mappings', []);
+                    entries = Array.isArray(entries) ? entries : [];
+                    var duplicateEntries = entries.filter(function (entry) {
+                        return readValue(entry, 'Status', 'status', '') === 'DuplicateMapping' &&
+                            readValue(entry, 'MappingId', 'mappingId', '') &&
+                            readValue(entry, 'CanonicalUserId', 'canonicalUserId', '');
+                    });
+                    var groups = {};
+                    duplicateEntries.forEach(function (entry) {
+                        var userId = readValue(entry, 'CanonicalUserId', 'canonicalUserId', '');
+                        groups[userId] = groups[userId] || [];
+                        groups[userId].push(entry);
+                    });
+                    var groupIds = Object.keys(groups);
+                    if (!groupIds.length) {
+                        container.style.display = 'none';
+                        return;
+                    }
+
+                    var title = document.createElement('strong');
+                    title.textContent = 'Duplicate mapping resolution';
+                    container.appendChild(title);
+                    var help = document.createElement('div');
+                    help.textContent = 'Choose one keeper for a user; every sibling row is removed atomically after a fresh report-version check.';
+                    container.appendChild(help);
+
+                    var groupLabel = document.createElement('label');
+                    groupLabel.textContent = 'Duplicate user group';
+                    groupLabel.style.display = 'block';
+                    groupLabel.style.marginTop = '0.5em';
+                    var groupSelect = document.createElement('select');
+                    groupSelect.setAttribute('is', 'emby-select');
+                    groupSelect.style.minWidth = '280px';
+                    groupIds.forEach(function (userId) {
+                        var group = groups[userId];
+                        var option = document.createElement('option');
+                        option.value = userId;
+                        var names = group.map(function (entry) {
+                            return readValue(entry, 'PersistedUserName', 'persistedUserName', '') ||
+                                readValue(entry, 'MappingId', 'mappingId', 'row');
+                        });
+                        option.textContent = userId + ' (' + group.length + ' rows): ' + names.join(', ');
+                        groupSelect.appendChild(option);
+                    });
+                    groupLabel.appendChild(groupSelect);
+                    container.appendChild(groupLabel);
+
+                    var keeperLabel = document.createElement('label');
+                    keeperLabel.textContent = 'Keep this row';
+                    keeperLabel.style.display = 'block';
+                    keeperLabel.style.marginTop = '0.5em';
+                    var keeperSelect = document.createElement('select');
+                    keeperSelect.setAttribute('is', 'emby-select');
+                    keeperSelect.style.minWidth = '280px';
+                    keeperLabel.appendChild(keeperSelect);
+                    container.appendChild(keeperLabel);
+
+                    var resolveButton = document.createElement('button');
+                    resolveButton.setAttribute('is', 'emby-button');
+                    resolveButton.type = 'button';
+                    resolveButton.className = 'raised';
+                    resolveButton.textContent = 'Keep Selected Row and Remove Siblings';
+                    resolveButton.style.marginTop = '0.5em';
+                    container.appendChild(resolveButton);
+
+                    var updateKeepers = function () {
+                        keeperSelect.innerHTML = '';
+                        var group = groups[groupSelect.value] || [];
+                        group.forEach(function (entry) {
+                            var option = document.createElement('option');
+                            option.value = readValue(entry, 'MappingId', 'mappingId', '');
+                            option.textContent = (readValue(entry, 'PersistedUserName', 'persistedUserName', '') || 'Unnamed row') +
+                                ' · ' + option.value;
+                            keeperSelect.appendChild(option);
+                        });
+                        keeperSelect.selectedIndex = 0;
+                    };
+                    groupSelect.addEventListener('change', updateKeepers);
+                    updateKeepers();
+
+                    resolveButton.addEventListener('click', function () {
+                        var group = groups[groupSelect.value] || [];
+                        var retainMappingId = keeperSelect.value;
+                        var removeMappingIds = group
+                            .map(function (entry) { return readValue(entry, 'MappingId', 'mappingId', ''); })
+                            .filter(function (mappingId) { return mappingId && mappingId !== retainMappingId; });
+                        if (!retainMappingId || !removeMappingIds.length) {
+                            Dashboard.alert('Select a duplicate group and one keeper row first.');
+                            return;
+                        }
+
+                        var retainedLabel = keeperSelect.options[keeperSelect.selectedIndex].textContent;
+                        Dashboard.confirm(
+                            'Retain ' + retainedLabel + ' and remove ' + removeMappingIds.length + ' sibling row(s)? Saved scenes and schedules will continue using this user after the atomic cleanup.',
+                            'Resolve Duplicate Mappings',
+                            function (confirmed) {
+                                if (!confirmed) return;
+                                resolveButton.disabled = true;
+                                var statusEl = page.querySelector('#userMappingReconcileStatus');
+                                if (statusEl) {
+                                    statusEl.textContent = 'Resolving the selected duplicate mapping group atomically...';
+                                    statusEl.style.color = '';
+                                }
+                                ApiClient.ajax({
+                                    type: 'POST',
+                                    url: ApiClient.getUrl('HueSync/UserMappings/ResolveDuplicates'),
+                                    data: JSON.stringify({
+                                        retainMappingId: retainMappingId,
+                                        removeMappingIds: removeMappingIds,
+                                        expectedReportVersion: readValue(report, 'ReportVersion', 'reportVersion', '')
+                                    }),
+                                    contentType: 'application/json',
+                                    dataType: 'json'
+                                }).then(function (result) {
+                                    var removed = readValue(result, 'RemovedCount', 'removedCount', 0);
+                                    if (statusEl) {
+                                        statusEl.textContent = 'Duplicate mapping resolved. Removed ' + removed + ' sibling row(s); runtime and scene automation now have one deterministic mapping.';
+                                        statusEl.style.color = '#8bc34a';
+                                    }
+                                    HueConfigurationPage.loadUserMappings(page);
+                                    HueConfigurationPage.reconcileUserMappings(page);
+                                }).catch(function (err) {
+                                    console.error('Failed to resolve duplicate user mappings:', err);
+                                    if (statusEl) {
+                                        statusEl.textContent = 'No duplicate mapping changed. Refresh reconciliation; the keeper, report version, validation, or persistence gate blocked the atomic operation.';
+                                        statusEl.style.color = '#d9534f';
+                                    }
+                                    resolveButton.disabled = false;
+                                });
+                            });
+                    });
+                    container.style.display = 'block';
+                },
                 reconcileUserMappings: function (page) {
                     var button = page.querySelector('#reconcileUserMappingsBtn');
                     var statusEl = page.querySelector('#userMappingReconcileStatus');
@@ -10239,6 +10393,7 @@
 
                     ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings/Reconcile"))
                         .then(function (report) {
+                            HueConfigurationPage.renderDuplicateResolutionControls(page, report);
                             var renamed = readValue(report, 'RenamedCount', 'renamedCount', 0);
                             if (!renamed) {
                                 if (statusEl) {
@@ -12260,6 +12415,10 @@
 
             document.querySelector('#cleanupStaleUserMappingsBtn').addEventListener('click', function () {
                 HueConfigurationPage.cleanupStaleUserMappings(this.closest('.page'));
+            });
+
+            document.querySelector('#resolveDuplicateUserMappingsBtn').addEventListener('click', function () {
+                HueConfigurationPage.reconcileUserMappings(this.closest('.page'));
             });
 
             document.querySelector('#cancelMappingEditBtn').addEventListener('click', function () {

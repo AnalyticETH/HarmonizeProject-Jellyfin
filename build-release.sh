@@ -37,14 +37,23 @@ dotnet build --configuration Release --no-restore
 echo "🧪 Running tests..."
 dotnet test --configuration Release --no-build --verbosity minimal
 
+# Publish the plugin so managed package dependencies are copied beside the assembly.
+# CopyLocalLockFileAssemblies is intentionally disabled for ordinary builds; the
+# publish directory is therefore the authoritative source for the release archive.
+echo "📤 Publishing plugin dependencies..."
+dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj \
+    --configuration Release \
+    --no-build \
+    --output ./publish
+
 # Create release package directory
 echo "📦 Creating release package..."
 mkdir -p release-package
 
 # Copy only the required files
-cp Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll release-package/
-cp Jellyfin.Plugin.Hue/bin/Release/net8.0/BouncyCastle.Cryptography.dll release-package/
-cp meta.json release-package/
+cp publish/Jellyfin.Plugin.Hue.dll release-package/
+cp publish/BouncyCastle.Cryptography.dll release-package/
+cp publish/meta.json release-package/
 
 # Extract and validate the release version from both sources of truth.
 VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' meta.json | head -n 1)
@@ -54,11 +63,11 @@ if [ -z "$VERSION" ] || [ "$VERSION" != "$PROJECT_VERSION" ]; then
     exit 1
 fi
 
-if [ ! -f Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll ]; then
+if [ ! -f publish/Jellyfin.Plugin.Hue.dll ]; then
     echo "❌ Release DLL was not produced." >&2
     exit 1
 fi
-if [ ! -f Jellyfin.Plugin.Hue/bin/Release/net8.0/BouncyCastle.Cryptography.dll ]; then
+if [ ! -f publish/BouncyCastle.Cryptography.dll ]; then
     echo "❌ Managed DTLS dependency was not produced." >&2
     exit 1
 fi

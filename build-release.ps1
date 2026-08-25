@@ -36,14 +36,21 @@ Write-Host "🧪 Running tests..." -ForegroundColor Yellow
 dotnet test --configuration Release --no-build --verbosity minimal
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Publish the plugin so managed package dependencies are copied beside the assembly.
+# CopyLocalLockFileAssemblies is intentionally disabled for ordinary builds; the
+# publish directory is therefore the authoritative source for the release archive.
+Write-Host "📤 Publishing plugin dependencies..." -ForegroundColor Yellow
+dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj --configuration Release --no-build --output ./publish
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # Create release package directory
 Write-Host "📦 Creating release package..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path "./release-package" | Out-Null
 
 # Copy only the required files
-Copy-Item "Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll" "release-package/"
-Copy-Item "Jellyfin.Plugin.Hue/bin/Release/net8.0/BouncyCastle.Cryptography.dll" "release-package/"
-Copy-Item "meta.json" "release-package/"
+Copy-Item "publish/Jellyfin.Plugin.Hue.dll" "release-package/"
+Copy-Item "publish/BouncyCastle.Cryptography.dll" "release-package/"
+Copy-Item "publish/meta.json" "release-package/"
 
 # Extract version from meta.json
 $metaContent = Get-Content "meta.json" -Raw
@@ -54,9 +61,12 @@ if ([string]::IsNullOrWhiteSpace($version) -or $version -ne $projectVersion) {
     throw "Version mismatch: meta.json=$version project=$projectVersion"
 }
 
-$dllPath = "Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll"
+$dllPath = "publish/Jellyfin.Plugin.Hue.dll"
 if (-not (Test-Path $dllPath)) {
     throw "Release DLL was not produced."
+}
+if (-not (Test-Path "publish/BouncyCastle.Cryptography.dll")) {
+    throw "Managed DTLS dependency was not produced."
 }
 
 Write-Host ""

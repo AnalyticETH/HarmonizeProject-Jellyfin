@@ -2,6 +2,8 @@ import fs from "node:fs";
 
 const readme = fs.readFileSync("README.md", "utf8");
 const workflow = fs.readFileSync(".github/workflows/dotnet-ci.yml", "utf8");
+const releaseShell = fs.readFileSync("build-release.sh", "utf8");
+const releasePowerShell = fs.readFileSync("build-release.ps1", "utf8");
 const meta = JSON.parse(fs.readFileSync("meta.json", "utf8"));
 
 const requiredReadmeMarkers = [
@@ -48,6 +50,14 @@ const requiredWorkflowMarkers = [
 for (const marker of requiredWorkflowMarkers) {
   if (!workflow.includes(marker)) {
     throw new Error(`Release workflow is missing package-integrity marker: ${marker}`);
+  }
+}
+
+for (const [name, script] of [["build-release.sh", releaseShell], ["build-release.ps1", releasePowerShell]]) {
+  for (const marker of ["dotnet publish", "publish/Jellyfin.Plugin.Hue.dll", "publish/BouncyCastle.Cryptography.dll"]) {
+    if (!script.includes(marker)) {
+      throw new Error(`${name} is missing publish-authoritative dependency marker: ${marker}`);
+    }
   }
 }
 

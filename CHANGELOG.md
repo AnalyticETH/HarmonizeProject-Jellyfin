@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.280] - 2026-08-25
+
+### User-mapping lifecycle
+- **Deterministic duplicate resolution**: add an atomic administrator workflow to retain one exact stable mapping row and remove every sibling from a duplicate Jellyfin-user group using an optimistic reconciliation report version.
+- **Runtime fail-closed behavior**: playback, credential resolution, scene validation, and scheduled-target resolution no longer choose an arbitrary duplicate mapping; unresolved duplicates are blocked until an enabled, valid keeper is selected.
+- **Regression coverage**: verify keeper selection, canonical identity repair, stale-report and invalid-keeper rejection, persistence rollback, runtime ambiguity protection, and credential-free responses.
+
+### Packaging
+- **Publish-authoritative release scripts**: Linux and PowerShell release helpers now publish before copying the managed Bouncy Castle DTLS dependency, matching the self-hosted CI package contract.
+
 ## [1.5.279] - 2026-08-25
 
 ### User-mapping lifecycle

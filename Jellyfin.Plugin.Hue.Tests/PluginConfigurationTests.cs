@@ -3570,6 +3570,33 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void AmbiguousUserMappingsFailClosedForRuntimeResolution()
+    {
+        var userId = Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "10.0.0.1",
+            HueAppKey = "default-key",
+            HueClientKey = "default-client",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString("D"), SyncEnabled = true, HueBridgeIp = "192.168.1.10", HueAppKey = "first", HueClientKey = "first-client", EntertainmentAreaId = "first-area" },
+                new() { UserId = "{" + userId.ToString("D") + "}", SyncEnabled = false, HueBridgeIp = "192.168.1.11", HueAppKey = "second", HueClientKey = "second-client", EntertainmentAreaId = "second-area" }
+            }
+        };
+
+        Assert.True(config.HasAmbiguousUserMapping(userId));
+        Assert.False(config.IsSyncEnabledForUser(userId));
+        var bridge = config.GetBridgeConfigForUser(userId);
+        Assert.Equal(string.Empty, bridge.BridgeIp);
+        Assert.Equal(string.Empty, bridge.AppKey);
+        var playback = config.GetBridgeConfigForPlayback(userId, "living-room");
+        Assert.Equal(string.Empty, playback.BridgeIp);
+        Assert.Equal(string.Empty, playback.AppKey);
+    }
+
+    [Fact]
     public void GetBridgeConfigForPlayback_UsesExactTrimmedDeviceTarget()
     {
         var userId = System.Guid.NewGuid();
