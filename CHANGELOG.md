@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.281] - 2026-08-25
+
+### Diagnostics safety
+- **Fail-closed current-light capture**: direct, selected-device-route, and all-target capture now rejects ambiguous duplicate Jellyfin-user mappings before credential resolution or bridge activity, matching playback and scene-automation safety.
+- **Regression coverage**: cover enabled/disabled duplicates, multiple enabled rows, exact device routes, all-target capture, and zero bridge requests on rejection.
+
 ## [1.5.280] - 2026-08-25
 
 ### User-mapping lifecycle

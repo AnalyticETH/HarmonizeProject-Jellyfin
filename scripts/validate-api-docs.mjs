@@ -69,6 +69,22 @@ for (const endpoint of previewEndpoints) {
     }
 }
 
+const captureCurrentColorRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Preview/CaptureCurrentColor` |"));
+if (!captureCurrentColorRow ||
+    !captureCurrentColorRow.includes("credential-free") ||
+    !captureCurrentColorRow.includes("ambiguous duplicate user mappings") ||
+    !captureCurrentColorRow.includes("before bridge contact")) {
+    throw new Error("README.md single current-light capture contract is missing credential-free duplicate fail-closed guidance");
+}
+
+const captureCurrentColorsRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Preview/CaptureCurrentColors` |"));
+if (!captureCurrentColorsRow ||
+    !captureCurrentColorsRow.includes("credential-free") ||
+    !captureCurrentColorsRow.includes("all-target capture") ||
+    !captureCurrentColorsRow.includes("ambiguous duplicate user mappings")) {
+    throw new Error("README.md batch current-light capture contract is missing duplicate fail-closed guidance");
+}
+
 const userMappingsRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET/POST /HueSync/UserMappings` |"));
 if (!userMappingsRow || !userMappingsRow.includes("valid Jellyfin user GUID") || !userMappingsRow.includes("before configuration mutation")) {
     throw new Error("README.md user-mapping contract is missing GUID validation and fail-before-mutation markers");
@@ -185,6 +201,16 @@ for (const marker of [
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API duplicate user-mapping resolution is missing source marker: ${marker}`);
+    }
+}
+
+for (const marker of [
+    "HasAmbiguousCaptureUserMapping",
+    "GetAmbiguousCaptureUserMappingIds",
+    "All-target current-light capture is blocked while Jellyfin user mapping(s) are ambiguous"
+]) {
+    if (!controller.includes(marker)) {
+        throw new Error(`Hue API current-light capture duplicate protection is missing source marker: ${marker}`);
     }
 }
 

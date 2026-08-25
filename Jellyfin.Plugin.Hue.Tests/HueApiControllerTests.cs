@@ -1366,6 +1366,176 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task CaptureCurrentColor_RejectsEnabledAndDisabledDuplicateBeforeBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "ambiguous-user",
+                    UserName = "Enabled row",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.111",
+                    HueAppKey = "enabled-app-secret",
+                    EntertainmentAreaId = "area-enabled"
+                },
+                new()
+                {
+                    UserId = "ambiguous-user",
+                    UserName = "Disabled row",
+                    SyncEnabled = false
+                }
+            }
+        });
+
+        var action = await CreateController().CaptureCurrentColor(new HueCurrentLightColorRequest
+        {
+            TargetUserId = "ambiguous-user"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Contains("multiple mapping rows", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task CaptureCurrentColor_RejectsTwoEnabledDuplicateMappingsBeforeBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "ambiguous-user",
+                    UserName = "First room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.111",
+                    HueAppKey = "first-app-secret",
+                    EntertainmentAreaId = "area-first"
+                },
+                new()
+                {
+                    UserId = "ambiguous-user",
+                    UserName = "Second room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.112",
+                    HueAppKey = "second-app-secret",
+                    EntertainmentAreaId = "area-second"
+                }
+            }
+        });
+
+        var action = await CreateController().CaptureCurrentColor(new HueCurrentLightColorRequest
+        {
+            TargetUserId = "ambiguous-user"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Contains("multiple mapping rows", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task CaptureCurrentColors_RejectsAmbiguousDeviceRouteBeforeBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "ambiguous-user",
+                    UserName = "First room",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "device-tv",
+                            HueBridgeIp = "192.168.1.111",
+                            HueAppKey = "first-device-secret",
+                            EntertainmentAreaId = "area-first"
+                        }
+                    }
+                },
+                new()
+                {
+                    UserId = "ambiguous-user",
+                    UserName = "Second room",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "device-tv",
+                            HueBridgeIp = "192.168.1.112",
+                            HueAppKey = "second-device-secret",
+                            EntertainmentAreaId = "area-second"
+                        }
+                    }
+                }
+            }
+        });
+
+        var action = await CreateController().CaptureCurrentColors(new HueCurrentLightColorBatchRequest
+        {
+            TargetRoutes = new List<HueCurrentLightColorTargetRoute>
+            {
+                new() { UserId = "ambiguous-user", DeviceId = "device-tv" }
+            }
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Contains("ambiguous", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task CaptureCurrentColors_AllTargetsRejectsDuplicateMappingsBeforeBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "ambiguous-user",
+                    UserName = "First room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.111",
+                    HueAppKey = "first-app-secret",
+                    EntertainmentAreaId = "area-first"
+                },
+                new()
+                {
+                    UserId = "ambiguous-user",
+                    UserName = "Second room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.112",
+                    HueAppKey = "second-app-secret",
+                    EntertainmentAreaId = "area-second"
+                }
+            }
+        });
+
+        var action = await CreateController().CaptureCurrentColors(new HueCurrentLightColorBatchRequest
+        {
+            TargetAllEnabledMappings = true
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Contains("ambiguous", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task CaptureCurrentColor_ResolvesExplicitDeviceRouteWithoutBaseMapping()
     {
         InstallConfiguration(new PluginConfiguration
