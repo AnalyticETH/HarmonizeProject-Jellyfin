@@ -1113,8 +1113,10 @@
                                 <button is="emby-button" type="button" class="raised" id="enableSelectedUserMappingsBtn" disabled><span>Enable Selected</span></button>
                                 <button is="emby-button" type="button" class="raised" id="disableSelectedUserMappingsBtn" disabled><span>Disable Selected</span></button>
                                 <button is="emby-button" type="button" class="raised" id="deleteSelectedUserMappingsBtn" disabled><span>Delete Selected</span></button>
+                                <button is="emby-button" type="button" class="raised" id="reconcileUserMappingsBtn"><span>Reconcile Jellyfin Users</span></button>
                             </div>
                             <div id="userMappingBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select user mappings to enable, disable, or delete them together. Scheduled-cue references block disabling and deletion; disabling also clears stored custom bridge targets.</div>
+                            <div id="userMappingReconcileStatus" class="fieldDescription" role="status" aria-live="polite" style="flex: 1 1 280px;">Reconciliation checks persisted mapping IDs and names against Jellyfin users without reading or exposing Hue credentials.</div>
                         </div>
 
                         <fieldset class="verticalSection" style="background: rgba(255,255,255,0.05); padding: 1em; border-radius: 6px; margin-top: 1em;">
@@ -10194,6 +10196,88 @@
                     if (disableBtn) disableBtn.disabled = selectedCount === 0;
                     if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
                 },
+                reconcileUserMappings: function (page) {
+                    var button = page.querySelector('#reconcileUserMappingsBtn');
+                    var statusEl = page.querySelector('#userMappingReconcileStatus');
+                    if (button) button.disabled = true;
+                    if (statusEl) {
+                        statusEl.textContent = "Checking persisted mapping IDs and names against Jellyfin users...";
+                        statusEl.style.color = "";
+                    }
+
+                    var readValue = function (response, pascalName, camelName, fallback) {
+                        if (!response) return fallback;
+                        return typeof response[camelName] !== 'undefined'
+                            ? response[camelName]
+                            : typeof response[pascalName] !== 'undefined'
+                                ? response[pascalName]
+                                : fallback;
+                    };
+                    var formatReport = function (response, prefix) {
+                        var healthy = readValue(response, 'HealthyCount', 'healthyCount', 0);
+                        var renamed = readValue(response, 'RenamedCount', 'renamedCount', 0);
+                        var missing = readValue(response, 'MissingCount', 'missingCount', 0);
+                        var invalid = readValue(response, 'InvalidCount', 'invalidCount', 0);
+                        var duplicate = readValue(response, 'DuplicateCount', 'duplicateCount', 0);
+                        var updated = readValue(response, 'UpdatedCount', 'updatedCount', 0);
+                        var message = readValue(response, 'Message', 'message', '');
+                        var details = prefix + " Healthy: " + healthy + ", identity drift: " + renamed + ", missing: " + missing + ", malformed: " + invalid + ", duplicate: " + duplicate + ".";
+                        if (updated) details += " Updated: " + updated + ".";
+                        if (message) details += " " + message;
+                        return details;
+                    };
+
+                    ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings/Reconcile"))
+                        .then(function (report) {
+                            var renamed = readValue(report, 'RenamedCount', 'renamedCount', 0);
+                            if (!renamed) {
+                                if (statusEl) {
+                                    statusEl.textContent = formatReport(report, "User mapping reconciliation complete.");
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                                return;
+                            }
+
+                            if (statusEl) statusEl.textContent = formatReport(report, "Reviewing safe identity repairs.");
+                            Dashboard.confirm(
+                                "Refresh " + renamed + " existing user mapping name/ID value(s) from Jellyfin? Missing, malformed, and duplicate mappings will remain unchanged.",
+                                "Reconcile User Mappings",
+                                function (confirmed) {
+                                    if (!confirmed) {
+                                        if (statusEl) statusEl.textContent = "Reconciliation report reviewed; no mapping was changed.";
+                                        return;
+                                    }
+                                    if (statusEl) statusEl.textContent = "Applying safe identity repairs atomically...";
+                                    ApiClient.ajax({
+                                        type: "POST",
+                                        url: ApiClient.getUrl("HueSync/UserMappings/Reconcile"),
+                                        dataType: "json"
+                                    }).then(function (applied) {
+                                        if (statusEl) {
+                                            statusEl.textContent = formatReport(applied, "User mapping reconciliation applied.");
+                                            statusEl.style.color = "#8bc34a";
+                                        }
+                                        HueConfigurationPage.loadUserMappings(page);
+                                    }).catch(function (err) {
+                                        console.error("Failed to apply user mapping reconciliation:", err);
+                                        if (statusEl) {
+                                            statusEl.textContent = "No mapping identity changed. Reconciliation was not persisted.";
+                                            statusEl.style.color = "#d9534f";
+                                        }
+                                    });
+                                });
+                        })
+                        .catch(function (err) {
+                            console.error("Failed to reconcile user mappings:", err);
+                            if (statusEl) {
+                                statusEl.textContent = "Unable to reconcile user mappings. Jellyfin's user directory may be unavailable.";
+                                statusEl.style.color = "#d9534f";
+                            }
+                        })
+                        .finally(function () {
+                            if (button) button.disabled = false;
+                        });
+                },
                 selectAllUserMappings: function (page) {
                     var bulkSelect = page.querySelector('#userMappingBulkSelect');
                     if (!bulkSelect) return;
@@ -12056,6 +12140,10 @@
 
             document.querySelector('#deleteSelectedUserMappingsBtn').addEventListener('click', function () {
                 HueConfigurationPage.deleteUserMappingsBulk(this.closest('.page'));
+            });
+
+            document.querySelector('#reconcileUserMappingsBtn').addEventListener('click', function () {
+                HueConfigurationPage.reconcileUserMappings(this.closest('.page'));
             });
 
             document.querySelector('#cancelMappingEditBtn').addEventListener('click', function () {

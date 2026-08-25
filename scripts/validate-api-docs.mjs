@@ -74,6 +74,15 @@ if (!userMappingsRow || !userMappingsRow.includes("valid Jellyfin user GUID") ||
     throw new Error("README.md user-mapping contract is missing GUID validation and fail-before-mutation markers");
 }
 
+const userMappingReconcileRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET/POST /HueSync/UserMappings/Reconcile` |"));
+if (!userMappingReconcileRow ||
+    !userMappingReconcileRow.includes("missing") ||
+    !userMappingReconcileRow.includes("duplicate") ||
+    !userMappingReconcileRow.includes("credential-free") ||
+    !userMappingReconcileRow.includes("atomic")) {
+    throw new Error("README.md user-mapping reconciliation contract is missing lifecycle and atomicity markers");
+}
+
 const configurationImportRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Configuration/Import` |"));
 if (!configurationImportRow ||
     !configurationImportRow.includes("valid Jellyfin user GUIDs") ||
@@ -100,6 +109,19 @@ if (!controller.includes("Guid.TryParse(mapping.UserId?.Trim(), out var parsedUs
     !controller.includes("mapping.UserId = parsedUserId.ToString(\"D\")") ||
     !controller.includes("userId must be a valid Jellyfin user ID.")) {
     throw new Error("Hue API user-mapping endpoint is missing Jellyfin GUID validation or canonicalization");
+}
+
+for (const marker of [
+    "[HttpGet(\"UserMappings/Reconcile\")]",
+    "[HttpPost(\"UserMappings/Reconcile\")]",
+    "Jellyfin's user directory is not available.",
+    "MissingUser",
+    "DuplicateMapping",
+    "Could not persist reconciled Hue user mappings"
+]) {
+    if (!controller.includes(marker)) {
+        throw new Error(`Hue API user-mapping reconciliation is missing source marker: ${marker}`);
+    }
 }
 
 for (const marker of [

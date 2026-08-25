@@ -8,6 +8,7 @@ using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Service;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
@@ -69,6 +70,87 @@ public sealed class HueApiControllerTests : IDisposable
         var exportResponse = Assert.IsType<OkObjectResult>(exportAction.Result);
         var export = Assert.IsType<HueConfigurationExportDocument>(exportResponse.Value);
         Assert.Collection(export.UserMappings, mapping => Assert.Equal("valid-user", mapping.UserId));
+    }
+
+    [Fact]
+    public void GetUserMappingReconciliationReportsLiveIdentityDriftWithoutCredentials()
+    {
+        var healthyUserId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var renamedUserId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var missingUserId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var duplicateUserId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var liveHealthyUser = new Jellyfin.Data.Entities.User("Healthy Viewer", "auth", "reset") { Id = healthyUserId };
+        var liveRenamedUser = new Jellyfin.Data.Entities.User("Renamed Viewer", "auth", "reset") { Id = renamedUserId };
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(healthyUserId)).Returns(liveHealthyUser);
+        userManager.Setup(manager => manager.GetUserById(renamedUserId)).Returns(liveRenamedUser);
+        userManager.Setup(manager => manager.GetUserById(missingUserId)).Returns((Jellyfin.Data.Entities.User?)null);
+        userManager.Setup(manager => manager.GetUserById(duplicateUserId)).Returns(liveHealthyUser);
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = healthyUserId.ToString("D"), UserName = "Healthy Viewer", HueAppKey = "secret-app", HueClientKey = "secret-client" },
+                new() { UserId = renamedUserId.ToString("D"), UserName = "Old Viewer" },
+                new() { UserId = missingUserId.ToString("D"), UserName = "Deleted Viewer" },
+                new() { UserId = "not-a-guid", UserName = "Malformed Viewer" },
+                new() { UserId = duplicateUserId.ToString("D"), UserName = "Duplicate One" },
+                new() { UserId = "{" + duplicateUserId.ToString("D") + "}", UserName = "Duplicate Two" }
+            }
+        });
+
+        var action = CreateController(userManager: userManager.Object).GetUserMappingReconciliation();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingReconciliationResult>(response.Value);
+        Assert.True(result.UserDirectoryAvailable);
+        Assert.Equal(6, result.MappingCount);
+        Assert.Equal(1, result.HealthyCount);
+        Assert.Equal(1, result.RenamedCount);
+        Assert.Equal(1, result.MissingCount);
+        Assert.Equal(1, result.InvalidCount);
+        Assert.Equal(2, result.DuplicateCount);
+        Assert.Contains(result.Mappings, mapping =>
+            mapping.Status == HueUserMappingReconciliationStatus.RenamedUser &&
+            mapping.CurrentUserName == "Renamed Viewer" &&
+            mapping.NeedsRepair);
+        Assert.DoesNotContain("secret-app", JsonSerializer.Serialize(result), StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-client", JsonSerializer.Serialize(result), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApplyUserMappingReconciliationCanonicalizesAndRefreshesExistingUsers()
+    {
+        var userId = Guid.Parse("55555555-5555-5555-5555-555555555555");
+        var liveUser = new Jellyfin.Data.Entities.User("Current Viewer", "auth", "reset") { Id = userId };
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(userId)).Returns(liveUser);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "{" + userId.ToString("D") + "}",
+                    UserName = "Stale Viewer",
+                    SyncEnabled = false,
+                    HueAppKey = "preserve-app",
+                    HueClientKey = "preserve-client"
+                }
+            }
+        });
+
+        var action = CreateController(userManager: userManager.Object).ApplyUserMappingReconciliation();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingReconciliationResult>(response.Value);
+        Assert.True(result.Applied);
+        Assert.Equal(1, result.UpdatedCount);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Equal(userId.ToString("D"), mapping.UserId);
+        Assert.Equal("Current Viewer", mapping.UserName);
+        Assert.Equal("preserve-app", mapping.HueAppKey);
+        Assert.Equal("preserve-client", mapping.HueClientKey);
     }
 
     [Fact]
@@ -12861,7 +12943,8 @@ public sealed class HueApiControllerTests : IDisposable
         IHueEnvironmentProbe? environmentProbe = null,
         HueDiagnosticsCancellationGate? diagnosticsCancellationGate = null,
         IEnumerable<IHostedService>? hostedServices = null,
-        ISessionManager? sessionManager = null)
+        ISessionManager? sessionManager = null,
+        IUserManager? userManager = null)
     {
         var client = new HueClient(_httpClient, _loggerMock.Object);
         return new HueApiController(
@@ -12871,7 +12954,8 @@ public sealed class HueApiControllerTests : IDisposable
             bridgeLifecycleGate,
             environmentProbe,
             diagnosticsCancellationGate,
-            sessionManager);
+            sessionManager,
+            userManager: userManager);
     }
 
     private static void SetPrivateField(object target, string fieldName, object? value)

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.275] - 2026-08-25
+
+### User-mapping lifecycle
+- **Credential-free reconciliation**: compare persisted mapping IDs and names with Jellyfin's live user directory, refresh existing unique users atomically, and leave missing, malformed, and duplicate mappings unchanged for deliberate administrator cleanup.
+- **End-to-end administration**: add reconciliation API/UI contracts, documentation guards, and lifecycle regression coverage without exposing Hue credentials.
+
 ## [1.5.274] - 2026-08-25
 
 ### Runtime telemetry

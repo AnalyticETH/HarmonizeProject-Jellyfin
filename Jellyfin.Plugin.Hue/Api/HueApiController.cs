@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Service;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
 using Microsoft.AspNetCore.Authorization;
@@ -38,6 +39,7 @@ namespace Jellyfin.Plugin.Hue.Api
         private readonly IHueEnvironmentProbe _environmentProbe;
         private readonly ILogger<HueApiController>? _logger;
         private readonly ISessionManager? _sessionManager;
+        private readonly IUserManager? _userManager;
 
         private const int PlaybackDeviceActivityWindowSeconds = 86400;
         private const int MaxPlaybackDeviceResults = 256;
@@ -56,7 +58,8 @@ namespace Jellyfin.Plugin.Hue.Api
             IHueEnvironmentProbe? environmentProbe = null,
             HueDiagnosticsCancellationGate? diagnosticsCancellationGate = null,
             ISessionManager? sessionManager = null,
-            ILogger<HueApiController>? logger = null)
+            ILogger<HueApiController>? logger = null,
+            IUserManager? userManager = null)
         {
             _hueClient = hueClient;
             _syncService = hostedServices.OfType<Service.HueSyncService>().FirstOrDefault();
@@ -67,6 +70,7 @@ namespace Jellyfin.Plugin.Hue.Api
             _environmentProbe = environmentProbe ?? new HueEnvironmentProbe();
             _logger = logger;
             _sessionManager = sessionManager;
+            _userManager = userManager;
         }
 
         /// <summary>
@@ -8377,6 +8381,212 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Compares persisted mapping IDs and display names with Jellyfin's live user
+        /// directory. The report is credential-free and never changes configuration; missing
+        /// or malformed users remain visible so an administrator can decide whether to delete
+        /// or replace those mappings.
+        /// </summary>
+        [HttpGet("UserMappings/Reconcile")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public ActionResult<HueUserMappingReconciliationResult> GetUserMappingReconciliation()
+        {
+            var result = BuildUserMappingReconciliationResult();
+            return result.UserDirectoryAvailable
+                ? Ok(result)
+                : StatusCode(StatusCodes.Status503ServiceUnavailable, result);
+        }
+
+        /// <summary>
+        /// Repairs only safe identity drift for mappings whose Jellyfin user still exists:
+        /// canonicalizes valid IDs and refreshes persisted display names. Missing, malformed,
+        /// and duplicate mappings are reported but left untouched. The entire identity update
+        /// is persisted atomically; a save failure restores every prior ID and name.
+        /// </summary>
+        [HttpPost("UserMappings/Reconcile")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public ActionResult<HueUserMappingReconciliationResult> ApplyUserMappingReconciliation()
+        {
+            var initial = BuildUserMappingReconciliationResult();
+            if (!initial.UserDirectoryAvailable)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, initial);
+
+            var config = Plugin.Instance?.Configuration;
+            var mappings = config?.UserMappings;
+            if (config == null || mappings == null)
+            {
+                initial.Message = "Plugin configuration is not available.";
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, initial);
+            }
+
+            var repairableIds = new HashSet<string>(
+                initial.Mappings
+                    .Where(mapping => mapping.NeedsRepair)
+                    .Select(mapping => mapping.CanonicalUserId),
+                StringComparer.OrdinalIgnoreCase);
+            if (repairableIds.Count == 0)
+            {
+                initial.Applied = true;
+                initial.Message = "User mappings are already reconciled. Missing, malformed, and duplicate mappings were left unchanged.";
+                return Ok(initial);
+            }
+
+            var changedMappings = new List<(UserBridgeMapping Mapping, string UserId, string UserName)>();
+            try
+            {
+                foreach (var mapping in mappings.Where(mapping => mapping != null))
+                {
+                    var normalizedUserId = PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId);
+                    if (!repairableIds.Contains(normalizedUserId) ||
+                        !Guid.TryParse(normalizedUserId, out var parsedUserId) ||
+                        parsedUserId == Guid.Empty)
+                    {
+                        continue;
+                    }
+
+                    var user = _userManager?.GetUserById(parsedUserId);
+                    if (user == null)
+                        continue;
+
+                    changedMappings.Add((mapping, mapping.UserId, mapping.UserName));
+                    mapping.UserId = user.Id.ToString("D");
+                    mapping.UserName = user.Username?.Trim() ?? string.Empty;
+                }
+            }
+            catch (Exception ex)
+            {
+                foreach (var changed in changedMappings)
+                {
+                    changed.Mapping.UserId = changed.UserId;
+                    changed.Mapping.UserName = changed.UserName;
+                }
+
+                _logger?.LogError(ex, "Could not apply reconciled Hue user mappings");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Jellyfin's user directory could not be queried.");
+            }
+
+            if (changedMappings.Count == 0)
+            {
+                initial.Applied = true;
+                initial.Message = "No safe identity changes were available. Missing, malformed, and duplicate mappings were left unchanged.";
+                return Ok(initial);
+            }
+
+            try
+            {
+                Plugin.Instance!.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                foreach (var changed in changedMappings)
+                {
+                    changed.Mapping.UserId = changed.UserId;
+                    changed.Mapping.UserName = changed.UserName;
+                }
+
+                _logger?.LogError(ex, "Could not persist reconciled Hue user mappings");
+                return StatusCode(StatusCodes.Status500InternalServerError, "User mapping reconciliation could not be saved.");
+            }
+
+            var applied = BuildUserMappingReconciliationResult();
+            applied.Applied = true;
+            applied.UpdatedCount = changedMappings.Count;
+            applied.Message = $"Reconciled {changedMappings.Count} user mapping(s). Missing, malformed, and duplicate mappings were left unchanged.";
+            return Ok(applied);
+        }
+
+        private HueUserMappingReconciliationResult BuildUserMappingReconciliationResult()
+        {
+            var result = new HueUserMappingReconciliationResult
+            {
+                CheckedAtUtc = DateTime.UtcNow
+            };
+            if (_userManager == null)
+            {
+                result.UserDirectoryAvailable = false;
+                result.Message = "Jellyfin's user directory is not available.";
+                return result;
+            }
+
+            var mappings = Plugin.Instance?.Configuration?.UserMappings ?? new List<UserBridgeMapping>();
+            var normalizedIdCounts = mappings
+                .Where(mapping => mapping != null)
+                .Select(mapping => PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId))
+                .Where(userId => !string.IsNullOrWhiteSpace(userId))
+                .GroupBy(userId => userId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+            var entries = new List<HueUserMappingReconciliationEntry>();
+
+            try
+            {
+                foreach (var mapping in mappings.Where(mapping => mapping != null))
+                {
+                    var persistedUserId = mapping.UserId?.Trim() ?? string.Empty;
+                    var normalizedUserId = PluginConfiguration.NormalizeJellyfinUserId(persistedUserId);
+                    var entry = new HueUserMappingReconciliationEntry
+                    {
+                        UserId = persistedUserId,
+                        CanonicalUserId = normalizedUserId,
+                        PersistedUserName = mapping.UserName?.Trim() ?? string.Empty,
+                        SyncEnabled = mapping.SyncEnabled,
+                        Status = HueUserMappingReconciliationStatus.InvalidUserId
+                    };
+
+                    if (!Guid.TryParse(normalizedUserId, out var parsedUserId) || parsedUserId == Guid.Empty)
+                    {
+                        entries.Add(entry);
+                        continue;
+                    }
+
+                    if (normalizedIdCounts.TryGetValue(normalizedUserId, out var duplicateCount) && duplicateCount > 1)
+                    {
+                        entry.Status = HueUserMappingReconciliationStatus.DuplicateMapping;
+                        entries.Add(entry);
+                        continue;
+                    }
+
+                    var user = _userManager.GetUserById(parsedUserId);
+                    if (user == null)
+                    {
+                        entry.Status = HueUserMappingReconciliationStatus.MissingUser;
+                        entries.Add(entry);
+                        continue;
+                    }
+
+                    entry.CurrentUserName = user.Username?.Trim() ?? string.Empty;
+                    entry.NeedsRepair = !string.Equals(persistedUserId, user.Id.ToString("D"), StringComparison.Ordinal) ||
+                        !string.Equals(entry.PersistedUserName, entry.CurrentUserName, StringComparison.Ordinal);
+                    entry.Status = entry.NeedsRepair
+                        ? HueUserMappingReconciliationStatus.RenamedUser
+                        : HueUserMappingReconciliationStatus.Healthy;
+                    entries.Add(entry);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Could not reconcile Hue user mappings against Jellyfin's user directory");
+                result.UserDirectoryAvailable = false;
+                result.Message = "Jellyfin's user directory could not be queried.";
+                return result;
+            }
+
+            result.Mappings = entries;
+            result.MappingCount = entries.Count;
+            result.HealthyCount = entries.Count(entry => entry.Status == HueUserMappingReconciliationStatus.Healthy);
+            result.RenamedCount = entries.Count(entry => entry.Status == HueUserMappingReconciliationStatus.RenamedUser);
+            result.MissingCount = entries.Count(entry => entry.Status == HueUserMappingReconciliationStatus.MissingUser);
+            result.InvalidCount = entries.Count(entry => entry.Status == HueUserMappingReconciliationStatus.InvalidUserId);
+            result.DuplicateCount = entries.Count(entry => entry.Status == HueUserMappingReconciliationStatus.DuplicateMapping);
+            result.UserDirectoryAvailable = true;
+            result.Message = result.RenamedCount == 0 && result.MissingCount == 0 && result.InvalidCount == 0 && result.DuplicateCount == 0
+                ? "All persisted user mappings match Jellyfin's current user directory."
+                : "Review the mapping statuses before applying safe identity repairs.";
+            return result;
+        }
+
+        /// <summary>
         /// Inspects scheduled-cue references to one user mapping without returning bridge
         /// credentials or target details. The result lets an administrator understand why
         /// disabling or deleting a mapping may be blocked before changing it.
@@ -9595,6 +9805,89 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("scenePlaylists")]
         public IReadOnlyList<HueUserMappingPlaylistDependencyResult> ScenePlaylists { get; init; } =
             Array.Empty<HueUserMappingPlaylistDependencyResult>();
+    }
+
+    /// <summary>
+    /// Credential-free report describing how persisted user mappings compare with
+    /// Jellyfin's current user directory.
+    /// </summary>
+    public sealed class HueUserMappingReconciliationResult
+    {
+        [JsonPropertyName("checkedAtUtc")]
+        public DateTime CheckedAtUtc { get; set; }
+
+        [JsonPropertyName("userDirectoryAvailable")]
+        public bool UserDirectoryAvailable { get; set; }
+
+        [JsonPropertyName("applied")]
+        public bool Applied { get; set; }
+
+        [JsonPropertyName("updatedCount")]
+        public int UpdatedCount { get; set; }
+
+        [JsonPropertyName("mappingCount")]
+        public int MappingCount { get; set; }
+
+        [JsonPropertyName("healthyCount")]
+        public int HealthyCount { get; set; }
+
+        [JsonPropertyName("renamedCount")]
+        public int RenamedCount { get; set; }
+
+        [JsonPropertyName("missingCount")]
+        public int MissingCount { get; set; }
+
+        [JsonPropertyName("invalidCount")]
+        public int InvalidCount { get; set; }
+
+        [JsonPropertyName("duplicateCount")]
+        public int DuplicateCount { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("mappings")]
+        public IReadOnlyList<HueUserMappingReconciliationEntry> Mappings { get; set; } =
+            Array.Empty<HueUserMappingReconciliationEntry>();
+    }
+
+    /// <summary>
+    /// One credential-free persisted-to-live user identity comparison. NeedsRepair is true
+    /// only when an existing, unique Jellyfin user can safely receive a canonical ID/name
+    /// update; missing, malformed, and duplicate mappings are deliberately excluded.
+    /// </summary>
+    public sealed class HueUserMappingReconciliationEntry
+    {
+        [JsonPropertyName("userId")]
+        public string UserId { get; set; } = string.Empty;
+
+        [JsonPropertyName("canonicalUserId")]
+        public string CanonicalUserId { get; set; } = string.Empty;
+
+        [JsonPropertyName("persistedUserName")]
+        public string PersistedUserName { get; set; } = string.Empty;
+
+        [JsonPropertyName("currentUserName")]
+        public string CurrentUserName { get; set; } = string.Empty;
+
+        [JsonPropertyName("syncEnabled")]
+        public bool SyncEnabled { get; set; }
+
+        [JsonPropertyName("status")]
+        public string Status { get; set; } = HueUserMappingReconciliationStatus.InvalidUserId;
+
+        [JsonPropertyName("needsRepair")]
+        public bool NeedsRepair { get; set; }
+    }
+
+    /// <summary>Stable status values returned by user-mapping reconciliation.</summary>
+    public static class HueUserMappingReconciliationStatus
+    {
+        public const string Healthy = "Healthy";
+        public const string RenamedUser = "RenamedUser";
+        public const string MissingUser = "MissingUser";
+        public const string InvalidUserId = "InvalidUserId";
+        public const string DuplicateMapping = "DuplicateMapping";
     }
 
     /// <summary>
