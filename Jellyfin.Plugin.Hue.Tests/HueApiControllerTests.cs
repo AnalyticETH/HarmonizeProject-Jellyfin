@@ -11352,7 +11352,14 @@ public sealed class HueApiControllerTests : IDisposable
     public void ImportConfiguration_AcceptsExplicitReplacementCredentialsForMigration()
     {
         const string importedUserId = "77777777-7777-7777-7777-777777777777";
-        var configuration = InstallConfiguration(new PluginConfiguration());
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.99",
+            HueAppKey = "old-global-app-secret",
+            HueClientKey = "old-global-client-secret",
+            EntertainmentAreaId = "old-global-area"
+        });
 
         var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
         {
@@ -11454,6 +11461,38 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Empty(configuration.UserMappings);
         Assert.Equal("default-app-secret", configuration.HueAppKey);
         Assert.Equal("default-client-secret", configuration.HueClientKey);
+    }
+
+    [Fact]
+    public void ImportConfiguration_RejectsChangedGlobalTargetWhenCredentialsAreOmittedWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-global-app",
+            HueClientKey = "stored-global-client",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        {
+            Configuration = new HuePluginConfigurationSettings
+            {
+                SyncEnabled = false,
+                HueBridgeIp = "192.168.1.101",
+                EntertainmentAreaId = "area-2"
+            }
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("changes the global bridge target", JsonSerializer.Serialize(response.Value), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("App Key", JsonSerializer.Serialize(response.Value), StringComparison.Ordinal);
+        Assert.Contains("Client Key", JsonSerializer.Serialize(response.Value), StringComparison.Ordinal);
+        Assert.Equal("192.168.1.100", configuration.HueBridgeIp);
+        Assert.Equal("stored-global-app", configuration.HueAppKey);
+        Assert.Equal("stored-global-client", configuration.HueClientKey);
+        Assert.Equal("area-1", configuration.EntertainmentAreaId);
     }
 
     [Fact]
@@ -11830,6 +11869,63 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveConfiguration_RejectsChangedGlobalTargetWhenCredentialsAreOmittedWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-global-app",
+            HueClientKey = "stored-global-client",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            SyncEnabled = false,
+            HueBridgeIp = "192.168.1.101",
+            EntertainmentAreaId = "area-2"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("changes the global bridge target", JsonSerializer.Serialize(response.Value), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("App Key", JsonSerializer.Serialize(response.Value), StringComparison.Ordinal);
+        Assert.Contains("Client Key", JsonSerializer.Serialize(response.Value), StringComparison.Ordinal);
+        Assert.Equal("192.168.1.100", configuration.HueBridgeIp);
+        Assert.Equal("stored-global-app", configuration.HueAppKey);
+        Assert.Equal("stored-global-client", configuration.HueClientKey);
+        Assert.Equal("area-1", configuration.EntertainmentAreaId);
+    }
+
+    [Fact]
+    public void SaveConfiguration_AcceptsChangedGlobalTargetWithReplacementCredentials()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-global-app",
+            HueClientKey = "stored-global-client",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var action = CreateController().SaveConfiguration(new HuePluginConfigurationSettings
+        {
+            SyncEnabled = false,
+            HueBridgeIp = "192.168.1.101",
+            HueAppKey = "replacement-global-app",
+            HueClientKey = "replacement-global-client",
+            EntertainmentAreaId = "area-2"
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Equal("192.168.1.101", configuration.HueBridgeIp);
+        Assert.Equal("replacement-global-app", configuration.HueAppKey);
+        Assert.Equal("replacement-global-client", configuration.HueClientKey);
+        Assert.Equal("area-2", configuration.EntertainmentAreaId);
+    }
+
+    [Fact]
     public void SaveConfiguration_InvalidGlobalChannelProfileReturnsBadRequestWithoutSaving()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -11951,6 +12047,8 @@ public sealed class HueApiControllerTests : IDisposable
         {
             SyncEnabled = false,
             HueBridgeIp = "192.168.1.101",
+            HueAppKey = "replacement-app-key",
+            HueClientKey = "replacement-client-key",
             PersistSessionHistory = false,
             PersistSceneScheduleHistory = false,
             SceneAutomationCatchUpMinutes = 18

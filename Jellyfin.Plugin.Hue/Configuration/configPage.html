@@ -2970,6 +2970,7 @@
                             HueConfigurationPage.loadUserMappings(page);
                             HueConfigurationPage.loadColorPresets(page);
                             HueConfigurationPage.loadScenePlaylists(page);
+                            HueConfigurationPage.loadSceneSchedules(page);
                         }).catch(function (err) {
                             HueConfigurationPage.invalidateConfigurationImport(page);
                             console.error("Failed to import Hue configuration:", err);

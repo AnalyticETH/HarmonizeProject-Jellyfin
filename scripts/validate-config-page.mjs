@@ -582,7 +582,8 @@ for (const contract of [
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
     if (!functionBody.includes("if (!page._hueImportValidated)") ||
         !functionBody.includes("Validate Import successfully before importing.") ||
-        !functionBody.includes("HueConfigurationPage.applyConfigurationImportCredentials(page)")) {
+        !functionBody.includes("HueConfigurationPage.applyConfigurationImportCredentials(page)") ||
+        !functionBody.includes("HueConfigurationPage.loadSceneSchedules(page)")) {
         throw new Error(`${file} ${functionName} must fail closed until import preflight succeeds`);
     }
 }

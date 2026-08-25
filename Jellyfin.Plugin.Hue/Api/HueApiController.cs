@@ -122,6 +122,35 @@ namespace Jellyfin.Plugin.Hue.Api
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        private static List<string> ValidateGlobalCredentialTransition(
+            PluginConfiguration existingConfiguration,
+            HuePluginConfigurationSettings incomingSettings,
+            string operation)
+        {
+            var errors = new List<string>();
+            if (IsSameBridgeTarget(existingConfiguration.HueBridgeIp, incomingSettings.HueBridgeIp) ||
+                incomingSettings.ClearStoredCredentials)
+            {
+                return errors;
+            }
+
+            if (string.IsNullOrWhiteSpace(incomingSettings.HueAppKey) &&
+                !string.IsNullOrWhiteSpace(existingConfiguration.HueAppKey))
+            {
+                errors.Add(
+                    $"{operation} changes the global bridge target but omits the stored Hue App Key. Provide a replacement App Key or set ClearStoredCredentials=true.");
+            }
+
+            if (string.IsNullOrWhiteSpace(incomingSettings.HueClientKey) &&
+                !string.IsNullOrWhiteSpace(existingConfiguration.HueClientKey))
+            {
+                errors.Add(
+                    $"{operation} changes the global bridge target but omits the stored Hue Client Key. Provide a replacement Client Key or set ClearStoredCredentials=true.");
+            }
+
+            return errors;
+        }
+
         /// <summary>
         /// Resolves credentials omitted by the administrator page from the selected
         /// user mapping or, when no custom mapping owns the target, from the global
@@ -7531,6 +7560,10 @@ namespace Jellyfin.Plugin.Hue.Api
             var importedPlaylists = request.ScenePlaylists ?? new List<HueScenePlaylistRequest>();
             var importedSchedules = request.SceneSchedules ?? new List<HueSceneScheduleRequest>();
             var validationErrors = new List<string>();
+            validationErrors.AddRange(ValidateGlobalCredentialTransition(
+                config,
+                request.Configuration!,
+                "Configuration import"));
             var seenUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var mappingCredentialPairsPreserved = 0;
 
@@ -8272,6 +8305,19 @@ namespace Jellyfin.Plugin.Hue.Api
             if (plugin == null || config == null)
             {
                 return NotFound("Plugin configuration not available.");
+            }
+
+            var credentialTransitionErrors = ValidateGlobalCredentialTransition(
+                config,
+                settings,
+                "Configuration save");
+            if (credentialTransitionErrors.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = "Configuration is invalid.",
+                    errors = credentialTransitionErrors
+                });
             }
 
             var previousSettings = HuePluginConfigurationSettings.From(config);

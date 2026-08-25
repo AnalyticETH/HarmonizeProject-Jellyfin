@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.268] - 2026-08-24
+
+### Security
+- **Global credential target binding**: normal configuration saves and backup imports now preserve omitted global App/Client keys only for the same bridge target; changing targets requires replacement credentials or an explicit clear operation and fails closed before mutation otherwise.
+
+### UI
+- **Import refresh parity**: successful configuration imports now reload scheduled cues along with settings, mappings, saved scenes, and playlists.
+
 ## [1.5.267] - 2026-08-24
 
 ### API hardening
