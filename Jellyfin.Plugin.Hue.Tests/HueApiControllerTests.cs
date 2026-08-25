@@ -8928,6 +8928,10 @@ public sealed class HueApiControllerTests : IDisposable
         SetPrivateField(service, "_currentPlaybackIsPaused", true);
         var playbackObservedAtUtc = DateTime.UtcNow.AddSeconds(-2);
         SetPrivateField(service, "_currentPlaybackObservedAtUtc", playbackObservedAtUtc);
+        using var syncCts = new CancellationTokenSource();
+        var syncStartedAtUtc = DateTime.UtcNow.AddMinutes(-3);
+        SetPrivateField(service, "_syncCts", syncCts);
+        SetPrivateField(service, "_syncStartTime", syncStartedAtUtc);
         var environmentProbe = new Mock<IHueEnvironmentProbe>();
         environmentProbe
             .Setup(probe => probe.CheckAsync(It.IsAny<CancellationToken>()))
@@ -8951,6 +8955,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(15, status.PlaybackProgressPercent);
         Assert.True(status.PlaybackIsPaused);
         Assert.Equal(playbackObservedAtUtc, status.PlaybackObservedAtUtc);
+        Assert.Equal(syncStartedAtUtc, status.SyncStartedAtUtc);
 
         var bundleAction = await controller.ExportSupportBundle();
         var bundleResponse = Assert.IsType<OkObjectResult>(bundleAction.Result);
@@ -8962,10 +8967,12 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(15, bundle.Runtime.PlaybackProgressPercent);
         Assert.True(bundle.Runtime.PlaybackIsPaused);
         Assert.Equal(playbackObservedAtUtc, bundle.Runtime.PlaybackObservedAtUtc);
+        Assert.Equal(syncStartedAtUtc, bundle.Runtime.SyncStartedAtUtc);
         var serialized = JsonSerializer.Serialize(bundle);
         Assert.Contains("\"ActivePauseBehavior\":\"DimToCinemaLevel\"", serialized, StringComparison.Ordinal);
         Assert.Contains("\"ActivePauseBrightnessPercent\":25", serialized, StringComparison.Ordinal);
         Assert.Contains("\"PlaybackObservedAtUtc\"", serialized, StringComparison.Ordinal);
+        Assert.Contains("\"SyncStartedAtUtc\"", serialized, StringComparison.Ordinal);
     }
 
     [Fact]

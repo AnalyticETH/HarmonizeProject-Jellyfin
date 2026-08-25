@@ -248,7 +248,7 @@ credential-safe migration.
 | `GET /HueSync/SceneSchedules/History/Export?limit=100&scheduleId=...&outcome=...` | Download the same credential-free scheduled-cue history document used by the administrator Export JSON action, including the selected cue and outcome filters. |
 | `GET /HueSync/SceneSchedules/History/ExportCsv?limit=100&scheduleId=...&outcome=...` | Download the same filtered scheduled-cue history as one credential-free UTF-8 CSV row per run, including effective direct-scene brightness, outcome, recovery and restored-after-restart state, run count, `targetAllEnabledMappings`, exact selected `targetUserIds`, nested `targetRoutes` (`userId`/`deviceId`) JSON, `includeDefaultTarget`, bounded nested-result counts, messages, and cleanup warnings. |
 | `DELETE /HueSync/SceneSchedules/History` | Clear retained scheduled-cue run summaries and reset last-run pointers without stopping an active cue. |
-| `GET /HueSync/Status` | Read sanitized runtime state, active Jellyfin user and target, active performance/color/execution/channel/restoration profile including effective audio sensitivity, band centers, band spread, beat-pulse response, release, onset threshold, and visualizer palette, effective pause behavior and pause dim level, credential-free playback position/duration/progress/pause telemetry plus the latest `playbackObservedAtUtc` timestamp, frame count, effective FPS, stream packet counters, reconnect attempts, seek-recovery restart count and last seek position, FFmpeg/DTLS health, cleanup warnings, the credential-free `lastSession` summary, whether the current sync can be stopped safely, and a `sessions` array for concurrent playback workers. |
+| `GET /HueSync/Status` | Read sanitized runtime state, active Jellyfin user and target, active performance/color/execution/channel/restoration profile including effective audio sensitivity, band centers, band spread, beat-pulse response, release, onset threshold, and visualizer palette, effective pause behavior and pause dim level, credential-free playback position/duration/progress/pause telemetry plus the latest `playbackObservedAtUtc` timestamp, the current sync `syncStartedAtUtc` timestamp, frame count, effective FPS, stream packet counters, reconnect attempts, seek-recovery restart count and last seek position, FFmpeg/DTLS health, cleanup warnings, the credential-free `lastSession` summary, whether the current sync can be stopped safely, and a `sessions` array for concurrent playback workers. |
 | `GET /HueSync/History?limit=20&outcome=Error` | Read the newest completed Hue session summaries (up to 25), optionally filtered by outcome, including target labels and aggregate playback quality/cleanup telemetry. Results are bounded in memory and never include bridge credentials or playback tokens. |
 | `GET /HueSync/History/Export?limit=25&outcome=Error` | Download the same sanitized session-history document used by the administrator Export JSON action for troubleshooting; bridge credentials and playback tokens are omitted. |
 | `GET /HueSync/History/ExportCsv?limit=25&outcome=Error` | Download the same filtered completed-session history as credential-free UTF-8 CSV with playback quality counters, timestamps, target metadata, errors, and cleanup warnings. |
@@ -455,7 +455,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.291 (Current)
+### Version 1.5.292 (Current)
+- **Runtime observability**: Live Sync Status now shows the localized sync start timestamp alongside playback freshness and duration.
+- **Administrator accessibility**: runtime errors announce through live regions, and device-route/import credential controls now expose explicit accessible names.
+
+### Version 1.5.291
 - **Fail-closed runtime status**: failed or superseded status requests now clear stale playback, target, health, and session telemetry; hidden-page polling is invalidated and aborted when supported.
 - **API contract parity**: the documented `GET /HueSync/Status` contract now names `playbackObservedAtUtc`, matching the live API and administrator panel.
 

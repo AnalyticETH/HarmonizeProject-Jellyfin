@@ -39,6 +39,7 @@
                             <div><strong>Frames processed:</strong> <span id="runtimeFrames">0</span></div>
                             <div><strong>Stream quality:</strong> <span id="runtimeQuality">—</span></div>
                             <div><strong>Seek recovery:</strong> <span id="runtimeSeekRecovery">—</span></div>
+                            <div><strong>Sync started:</strong> <span id="runtimeSyncStartedAt">—</span></div>
                             <div><strong>Duration:</strong> <span id="runtimeDuration">—</span></div>
                             <div><strong>Playback progress:</strong> <span id="runtimePlaybackProgress">—</span></div>
                             <div><strong>Playback observed:</strong> <span id="runtimePlaybackObservedAt">—</span></div>
@@ -52,8 +53,8 @@
                             <span>Stop Current Sync</span>
                         </button>
                     </div>
-                    <div id="runtimeStatusMessage" class="fieldDescription" style="margin-top: 0.5em;">Loading runtime status...</div>
-                    <div id="runtimeStatusError" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
+                    <div id="runtimeStatusMessage" class="fieldDescription" role="status" aria-live="polite" style="margin-top: 0.5em;">Loading runtime status...</div>
+                    <div id="runtimeStatusError" role="alert" aria-live="assertive" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
                     <div id="runtimeCleanupWarning" style="display: none; color: #ffd27f; margin-top: 0.5em;"></div>
                     <div class="fieldDescription" style="margin-top: 0.75em;">Updates automatically while this page is open. Stop Current Sync restores the lights and leaves playback running; bridge credentials are never included in status responses.</div>
                 </fieldset>
@@ -1598,21 +1599,21 @@
                                 <div id="mappingDeviceRouteEditor" class="inputContainer" style="margin-top: .75em; padding: .75em; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;">
                                     <div class="fieldDescription" style="margin-bottom: .75em;">Configure the selected route without hand-editing JSON. Stored route keys stay server-side; leave the key fields blank when editing an existing route to preserve them.</div>
                                     <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
-                                        <input id="mappingDeviceRouteId" type="text" is="emby-input" placeholder="Device ID (case-sensitive)" style="flex: 1 1 220px;" />
-                                        <input id="mappingDeviceRouteName" type="text" is="emby-input" placeholder="Device name (optional)" style="flex: 1 1 220px;" />
+                                        <input id="mappingDeviceRouteId" type="text" is="emby-input" aria-label="Device ID (case-sensitive)" placeholder="Device ID (case-sensitive)" style="flex: 1 1 220px;" />
+                                        <input id="mappingDeviceRouteName" type="text" is="emby-input" aria-label="Device name (optional)" placeholder="Device name (optional)" style="flex: 1 1 220px;" />
                                     </div>
                                     <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: .5em;">
-                                        <input id="mappingDeviceRouteBridge" type="text" is="emby-input" placeholder="Route bridge address" style="flex: 1 1 220px;" />
-                                        <input id="mappingDeviceRouteAppKey" type="password" is="emby-input" autocomplete="new-password" placeholder="Route App Key (new/replacement only)" style="flex: 1 1 220px;" />
-                                        <input id="mappingDeviceRouteClientKey" type="password" is="emby-input" autocomplete="new-password" placeholder="Route Client Key (new/replacement only)" style="flex: 1 1 220px;" />
+                                        <input id="mappingDeviceRouteBridge" type="text" is="emby-input" aria-label="Route bridge address" placeholder="Route bridge address" style="flex: 1 1 220px;" />
+                                        <input id="mappingDeviceRouteAppKey" type="password" is="emby-input" aria-label="Route App Key (new/replacement only)" autocomplete="new-password" placeholder="Route App Key (new/replacement only)" style="flex: 1 1 220px;" />
+                                        <input id="mappingDeviceRouteClientKey" type="password" is="emby-input" aria-label="Route Client Key (new/replacement only)" autocomplete="new-password" placeholder="Route Client Key (new/replacement only)" style="flex: 1 1 220px;" />
                                     </div>
                                     <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: .5em;">
-                                        <select id="mappingDeviceRouteAreaSelect" is="emby-select" style="flex: 1 1 220px;">
+                                        <select id="mappingDeviceRouteAreaSelect" is="emby-select" aria-label="Route entertainment area" style="flex: 1 1 220px;">
                                             <option value="">Load route areas or enter an ID</option>
                                         </select>
-                                        <input id="mappingDeviceRouteAreaId" type="text" is="emby-input" placeholder="Entertainment area ID" style="flex: 1 1 220px;" />
-                                        <input id="mappingDeviceRouteAreaName" type="text" is="emby-input" placeholder="Entertainment area name (optional)" style="flex: 1 1 220px;" />
-                                        <input id="mappingDeviceRouteChannels" type="text" is="emby-input" placeholder="Channel IDs (optional, e.g. 1,2)" style="flex: 1 1 220px;" />
+                                        <input id="mappingDeviceRouteAreaId" type="text" is="emby-input" aria-label="Entertainment area ID" placeholder="Entertainment area ID" style="flex: 1 1 220px;" />
+                                        <input id="mappingDeviceRouteAreaName" type="text" is="emby-input" aria-label="Entertainment area name (optional)" placeholder="Entertainment area name (optional)" style="flex: 1 1 220px;" />
+                                        <input id="mappingDeviceRouteChannels" type="text" is="emby-input" aria-label="Channel IDs (optional, comma separated)" placeholder="Channel IDs (optional, e.g. 1,2)" style="flex: 1 1 220px;" />
                                     </div>
                                     <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: .75em;">
                                         <button is="emby-button" type="button" class="raised" id="mappingLoadDeviceRouteAreasBtn"><span>Load Route Areas</span></button>
@@ -2751,8 +2752,8 @@
                         html += '<div style="border-top: 1px solid rgba(255,255,255,.15); padding-top: .75em; margin-top: .5em;">';
                         html += '<div><strong>Global target</strong>' + (globalBridgeIp ? ' — ' + escapeHtml(globalBridgeIp) : '') + '</div>';
                         html += '<div class="inputContainer" style="display: flex; gap: 1em; flex-wrap: wrap;">';
-                        html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement App Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="global" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
-                        html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Client Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="global" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
+                        html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement App Key</label><input type="password" is="emby-input" aria-label="Replacement App Key for global target" autocomplete="new-password" data-hue-import-scope="global" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
+                        html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Client Key</label><input type="password" is="emby-input" aria-label="Replacement Client Key for global target" autocomplete="new-password" data-hue-import-scope="global" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
                         html += '</div></div>';
                     }
 
@@ -2773,8 +2774,8 @@
                             html += '<div style="border-top: 1px solid rgba(255,255,255,.15); padding-top: .75em; margin-top: .75em;">';
                             html += '<div><strong>' + escapeHtml(label) + '</strong>' + (bridgeIp ? ' — ' + escapeHtml(bridgeIp) : ' — inherited/default bridge') + '</div>';
                             html += '<div class="inputContainer" style="display: flex; gap: 1em; flex-wrap: wrap;">';
-                            html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement App Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="mapping" data-hue-import-index="' + index + '" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
-                            html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Client Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="mapping" data-hue-import-index="' + index + '" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
+                            html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement App Key</label><input type="password" is="emby-input" aria-label="Replacement App Key for mapping ' + (index + 1) + '" autocomplete="new-password" data-hue-import-scope="mapping" data-hue-import-index="' + index + '" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
+                            html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Client Key</label><input type="password" is="emby-input" aria-label="Replacement Client Key for mapping ' + (index + 1) + '" autocomplete="new-password" data-hue-import-scope="mapping" data-hue-import-index="' + index + '" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
                             html += '</div></div>';
                         }
 
@@ -2790,8 +2791,8 @@
                                 html += '<div style="margin-top: .75em; padding: .6em; border: 1px solid rgba(255,255,255,.1);">';
                                 html += '<div><strong>' + escapeHtml(deviceLabel) + '</strong>' + (deviceId && deviceName ? ' (' + escapeHtml(deviceId) + ')' : '') + (deviceBridgeIp ? ' — ' + escapeHtml(deviceBridgeIp) : '') + '</div>';
                                 html += '<div class="inputContainer" style="display: flex; gap: 1em; flex-wrap: wrap;">';
-                                html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Device App Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="device" data-hue-import-index="' + index + '" data-hue-import-device-index="' + deviceIndex + '" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
-                                html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Device Client Key</label><input type="password" is="emby-input" autocomplete="new-password" data-hue-import-scope="device" data-hue-import-index="' + index + '" data-hue-import-device-index="' + deviceIndex + '" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
+                                html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Device App Key</label><input type="password" is="emby-input" aria-label="Replacement Device App Key for mapping ' + (index + 1) + ', device route ' + (deviceIndex + 1) + '" autocomplete="new-password" data-hue-import-scope="device" data-hue-import-index="' + index + '" data-hue-import-device-index="' + deviceIndex + '" data-hue-import-key="app" placeholder="Leave blank to preserve a matching key" /></div>';
+                                html += '<div style="flex: 1 1 260px;"><label class="inputLabel inputLabelUnfocused">Replacement Device Client Key</label><input type="password" is="emby-input" aria-label="Replacement Device Client Key for mapping ' + (index + 1) + ', device route ' + (deviceIndex + 1) + '" autocomplete="new-password" data-hue-import-scope="device" data-hue-import-index="' + index + '" data-hue-import-device-index="' + deviceIndex + '" data-hue-import-key="client" placeholder="Leave blank to preserve a matching key" /></div>';
                                 html += '</div></div>';
                             });
                             html += '</div>';
@@ -9072,6 +9073,7 @@
                         "runtimeFrames",
                         "runtimeQuality",
                         "runtimeSeekRecovery",
+                        "runtimeSyncStartedAt",
                         "runtimeDuration",
                         "runtimePlaybackProgress",
                         "runtimePlaybackObservedAt",
@@ -9202,6 +9204,7 @@
                         var message = HueConfigurationPage.readStatusField(status, "StatusMessage", "");
                         var lastError = HueConfigurationPage.readStatusField(status, "LastError", "");
                         var cleanupWarning = HueConfigurationPage.readStatusField(status, "CleanupWarning", "");
+                        var syncStartedAtUtc = HueConfigurationPage.readStatusField(status, "SyncStartedAtUtc", null);
 
                         if (!serviceAvailable) {
                             state = "Unavailable";
@@ -9267,6 +9270,7 @@
                             ? String(seekRestartCount || 0) + " capture restart" + (Number(seekRestartCount || 0) === 1 ? "" : "s") +
                                 (lastSeekPosition == null ? "" : " · last at " + Number(lastSeekPosition).toFixed(1) + "s")
                             : "—";
+                        page.querySelector('#runtimeSyncStartedAt').textContent = HueConfigurationPage.formatRuntimeTimestamp(syncStartedAtUtc);
                         page.querySelector('#runtimeDuration').textContent = HueConfigurationPage.formatRuntimeDuration(duration);
                         var playbackProgressText = playbackPosition == null && playbackDuration == null
                             ? "—"

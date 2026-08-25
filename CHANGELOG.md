@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.292] - 2026-08-25
+
+### Administrator observability
+- **Sync start telemetry**: Live Sync Status now renders the localized `syncStartedAtUtc` timestamp alongside duration and playback freshness, matching the API and support bundle.
+
+### Administrator accessibility
+- **Live status announcements**: runtime status and errors now expose polite/assertive live regions.
+- **Accessible controls**: device-route editor fields and dynamically generated migration credential inputs now have explicit accessible names.
+
 ## [1.5.291] - 2026-08-25
 
 ### Administrator runtime safety
