@@ -65,7 +65,12 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
   if (name === "build-release.sh") {
     markers.push("rm -rf ./publish", "sha256sum --check --strict");
   } else {
-    markers.push("Remove-Item -Recurse -Force \"./publish\"", "Get-FileHash -Algorithm SHA256");
+    markers.push(
+      "Remove-Item -Recurse -Force \"./publish\"",
+      "Get-FileHash -Algorithm SHA256",
+      "Get-Content -LiteralPath $checksumFile -Raw",
+      "Checksum sidecar is malformed or names the wrong archive",
+      "$checksumParts[0].ToLowerInvariant() -ne $verifiedHash");
   }
   for (const marker of markers) {
     if (!script.includes(marker)) {

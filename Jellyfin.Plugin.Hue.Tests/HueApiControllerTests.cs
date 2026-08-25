@@ -10208,6 +10208,44 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task TargetDiagnostics_ReturnsConflictWhilePlaybackOwnsBridgeLifecycle()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "diagnostic-app-secret",
+            HueClientKey = "diagnostic-client-secret",
+            EntertainmentAreaId = "area-1"
+        });
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        using var playbackLease = lifecycleGate.TryEnterPlayback("192.168.1.100|area-1");
+        Assert.NotNull(playbackLease);
+
+        var action = await CreateController(bridgeLifecycleGate: lifecycleGate).GetTargetDiagnostics();
+
+        var conflict = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+        Assert.Contains("playback", Assert.IsType<string>(conflict.Value), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task ExportSupportBundle_ReturnsConflictWhileDiagnosticOwnsBridgeLifecycle()
+    {
+        InstallConfiguration(new PluginConfiguration());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        using var diagnosticLease = lifecycleGate.TryEnterDiagnostic("192.168.1.100|area-1");
+        Assert.NotNull(diagnosticLease);
+
+        var action = await CreateController(bridgeLifecycleGate: lifecycleGate).ExportSupportBundle();
+
+        var conflict = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+        Assert.Contains("diagnostic", Assert.IsType<string>(conflict.Value), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task StopSync_WithoutHostedServiceReturnsServiceUnavailable()
     {
         var controller = CreateController();

@@ -6450,17 +6450,31 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("TargetDiagnostics")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<ActionResult<HueTargetDiagnosticsResult>> GetTargetDiagnostics(
             CancellationToken cancellationToken = default)
         {
-            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
-            var diagnosticsCancellationToken = diagnosticsOperation.Token;
             var config = Plugin.Instance?.Configuration;
             if (config == null)
             {
                 return NotFound("Plugin configuration not available.");
             }
 
+            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
+            var diagnosticsCancellationToken = diagnosticsOperation.Token;
+            using var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
+            if (lifecycleLease == null)
+            {
+                return Conflict("Another Hue playback or diagnostic operation is already running.");
+            }
+
+            return Ok(await BuildTargetDiagnosticsAsync(config, diagnosticsCancellationToken).ConfigureAwait(false));
+        }
+
+        private async Task<HueTargetDiagnosticsResult> BuildTargetDiagnosticsAsync(
+            PluginConfiguration config,
+            CancellationToken cancellationToken)
+        {
             PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
             var duplicateMappingGroups = BuildTargetDiagnosticsDuplicateMappingGroups(config);
             var targets = EnumerateConfiguredTargets(config).ToArray();
@@ -6470,18 +6484,18 @@ namespace Jellyfin.Plugin.Hue.Api
 
             foreach (var target in targets)
             {
-                diagnosticsCancellationToken.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
                 results.Add(HasAmbiguousCaptureUserMapping(config, target.UserId)
                     ? BuildAmbiguousTargetDiagnostic(target)
                     : await ValidateTargetAsync(
                         target,
                         areaRequests,
                         configurationRequests,
-                        diagnosticsCancellationToken).ConfigureAwait(false));
+                        cancellationToken).ConfigureAwait(false));
             }
 
             var readyCount = results.Count(result => result.Ready);
-            return Ok(new HueTargetDiagnosticsResult
+            return new HueTargetDiagnosticsResult
             {
                 HasConfiguredTargets = results.Count > 0 || duplicateMappingGroups.Count > 0,
                 AllTargetsReady = duplicateMappingGroups.Count == 0 && results.Count > 0 && readyCount == results.Count,
@@ -6490,7 +6504,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Targets = results,
                 DuplicateMappingGroups = duplicateMappingGroups,
                 CheckedAtUtc = DateTime.UtcNow
-            });
+            };
         }
 
         /// <summary>
@@ -6504,6 +6518,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("Diagnostics/SupportBundle")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<ActionResult<HueSupportBundle>> ExportSupportBundle(
             CancellationToken cancellationToken = default)
         {
@@ -6513,7 +6528,15 @@ namespace Jellyfin.Plugin.Hue.Api
                 return NotFound("Plugin configuration not available.");
             }
 
-            var diagnosticsAction = await GetDiagnostics(cancellationToken).ConfigureAwait(false);
+            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
+            var diagnosticsCancellationToken = diagnosticsOperation.Token;
+            using var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
+            if (lifecycleLease == null)
+            {
+                return Conflict("Another Hue playback or diagnostic operation is already running.");
+            }
+
+            var diagnosticsAction = await GetDiagnostics(diagnosticsCancellationToken).ConfigureAwait(false);
             var diagnostics = ReadActionValue(diagnosticsAction) ?? new HueDiagnosticsResult
             {
                 PluginVersion = typeof(Plugin).Assembly.GetName().Version?.ToString(),
@@ -6522,12 +6545,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 CheckedAtUtc = DateTime.UtcNow
             };
 
-            cancellationToken.ThrowIfCancellationRequested();
-            var targetDiagnosticsAction = await GetTargetDiagnostics(cancellationToken).ConfigureAwait(false);
-            var targetDiagnostics = ReadActionValue(targetDiagnosticsAction) ?? new HueTargetDiagnosticsResult
-            {
-                CheckedAtUtc = DateTime.UtcNow
-            };
+            diagnosticsCancellationToken.ThrowIfCancellationRequested();
+            var targetDiagnostics = await BuildTargetDiagnosticsAsync(config, diagnosticsCancellationToken).ConfigureAwait(false);
 
             var generatedAtUtc = DateTime.UtcNow;
             var sessionHistory = BuildSessionHistoryResult(HueSyncService.MaxSessionHistoryCount, null);

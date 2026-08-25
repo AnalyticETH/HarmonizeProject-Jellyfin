@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.293] - 2026-08-25
+
+### Diagnostic lifecycle safety
+- **Serialized live validation**: target diagnostics and support-bundle target validation now hold the shared bridge diagnostic lease for the complete snapshot, preventing playback/diagnostic overlap and returning `409 Conflict` when the bridge is already owned.
+
+### Release integrity
+- **PowerShell checksum verification**: the Windows release helper now parses and independently verifies the generated SHA-256 sidecar filename and digest.
+
 ## [1.5.292] - 2026-08-25
 
 ### Administrator observability

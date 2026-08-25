@@ -110,8 +110,16 @@ if (($archiveEntries -join ' ') -ne 'BouncyCastle.Cryptography.dll Jellyfin.Plug
 $checksumFile = $zipFile + ".sha256"
 $archiveHash = (Get-FileHash -Algorithm SHA256 -Path $zipFile).Hash.ToLowerInvariant()
 ($archiveHash + "  " + [System.IO.Path]::GetFileName($zipFile)) | Set-Content -Path $checksumFile -Encoding ascii
+$checksumParts = (Get-Content -LiteralPath $checksumFile -Raw).Trim() -split '\s+', 2
+$expectedArchiveName = [System.IO.Path]::GetFileName($zipFile)
+if ($checksumParts.Count -ne 2 -or
+    $checksumParts[0] -notmatch '^[0-9a-fA-F]{64}$' -or
+    $checksumParts[1] -ne $expectedArchiveName) {
+    throw "Checksum sidecar is malformed or names the wrong archive: $checksumFile"
+}
+
 $verifiedHash = (Get-FileHash -Algorithm SHA256 -Path $zipFile).Hash.ToLowerInvariant()
-if ($archiveHash -ne $verifiedHash) {
+if ($checksumParts[0].ToLowerInvariant() -ne $verifiedHash) {
     throw "Checksum verification failed for $zipFile"
 }
 

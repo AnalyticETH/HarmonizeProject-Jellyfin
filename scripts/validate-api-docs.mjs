@@ -90,8 +90,17 @@ if (!targetDiagnosticsRow ||
     !targetDiagnosticsRow.includes("duplicateMappingGroups") ||
     !targetDiagnosticsRow.includes("stable row IDs") ||
     !targetDiagnosticsRow.includes("AllTargetsReady") ||
-    !targetDiagnosticsRow.includes("before bridge contact")) {
+    !targetDiagnosticsRow.includes("before bridge contact") ||
+    !targetDiagnosticsRow.includes("shared diagnostic lifecycle lease") ||
+    !targetDiagnosticsRow.includes("409 Conflict")) {
     throw new Error("README.md target-diagnostics contract is missing duplicate-group readiness and bridge-safety guidance");
+}
+
+const supportBundleRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/Diagnostics/SupportBundle` |"));
+if (!supportBundleRow ||
+    !supportBundleRow.includes("one shared diagnostic lease") ||
+    !supportBundleRow.includes("409 Conflict")) {
+    throw new Error("README.md support-bundle contract is missing lifecycle serialization and conflict guidance");
 }
 
 const statusRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/Status` |"));
@@ -231,7 +240,11 @@ for (const marker of [
 for (const marker of [
     "BuildTargetDiagnosticsDuplicateMappingGroups",
     "DuplicateMappingGroups = duplicateMappingGroups",
-    "The Jellyfin user has multiple mapping rows; resolve duplicate mappings before bridge validation."
+    "The Jellyfin user has multiple mapping rows; resolve duplicate mappings before bridge validation.",
+    "[ProducesResponseType(StatusCodes.Status409Conflict)]",
+    "using var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();",
+    "BuildTargetDiagnosticsAsync(config, diagnosticsCancellationToken)",
+    "Another Hue playback or diagnostic operation is already running."
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API target-diagnostics duplicate protection is missing source marker: ${marker}`);
