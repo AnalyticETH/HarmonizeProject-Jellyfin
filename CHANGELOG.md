@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.278] - 2026-08-25
+
+### User-mapping lifecycle
+- **Exact-row deletion**: carry stable mapping IDs through single-row, bulk, and dependency actions so deleting one duplicate row cannot remove its siblings.
+- **Fail-closed legacy deletes**: user-ID-only deletion now returns `409 Conflict` when duplicate rows make the selection ambiguous; exact mapping-ID requests retain dependency checks and transactional rollback.
+- **Regression coverage**: verify exact single/bulk deletion, duplicate rejection, dependency selection, sibling preservation, and credential-free responses.
+
 ## [1.5.277] - 2026-08-25
 
 ### User-mapping lifecycle

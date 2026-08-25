@@ -97,6 +97,23 @@ if (!userMappingCleanupRow.includes("Stable row IDs")) {
     throw new Error("README.md user-mapping cleanup contract is missing stable row identity guidance");
 }
 
+const userMappingDeleteRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `DELETE /HueSync/UserMappings/{userId}` |"));
+if (!userMappingDeleteRow ||
+    !userMappingDeleteRow.includes("mappingId") ||
+    !userMappingDeleteRow.includes("multiple") ||
+    !userMappingDeleteRow.includes("credential-free")) {
+    throw new Error("README.md user-mapping delete contract is missing exact-row and duplicate safety guidance");
+}
+
+const userMappingBulkDeleteRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/UserMappings/BulkDelete` |"));
+if (!userMappingBulkDeleteRow ||
+    !userMappingBulkDeleteRow.includes("mappingIds") ||
+    !userMappingBulkDeleteRow.includes("userIds") ||
+    !userMappingBulkDeleteRow.includes("ambiguous") ||
+    !userMappingBulkDeleteRow.includes("exact")) {
+    throw new Error("README.md bulk user-mapping delete contract is missing exact-row and legacy duplicate safety guidance");
+}
+
 const configurationImportRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Configuration/Import` |"));
 if (!configurationImportRow ||
     !configurationImportRow.includes("valid Jellyfin user GUIDs") ||

@@ -10046,6 +10046,7 @@
                             if (bulkSelect && userId) {
                                 var bulkOption = document.createElement('option');
                                 bulkOption.value = userId;
+                                bulkOption.dataset.mappingid = mapping.MappingId || mapping.mappingId || '';
                                 bulkOption.textContent = (mapping.UserName || mapping.userName || userId) + (syncEnabled ? '' : ' (disabled)');
                                 bulkSelect.appendChild(bulkOption);
                             }
@@ -10157,8 +10158,8 @@
                             html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">Edit</button> ';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid)">View References</button> ';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid)">Delete</button>';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">View References</button> ';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">Delete</button>';
                             html += '</td></tr>';
                         });
 
@@ -10182,6 +10183,13 @@
                     return Array.prototype.slice.call(bulkSelect.options)
                         .filter(function (option) { return option.selected && option.value; })
                         .map(function (option) { return option.value; });
+                },
+                getSelectedUserMappingBulkMappingIds: function (page) {
+                    var bulkSelect = page.querySelector('#userMappingBulkSelect');
+                    if (!bulkSelect) return [];
+                    return Array.prototype.slice.call(bulkSelect.options)
+                        .filter(function (option) { return option.selected && option.value && option.dataset.mappingid; })
+                        .map(function (option) { return option.dataset.mappingid; });
                 },
                 updateUserMappingBulkButtons: function (page) {
                     var bulkSelect = page.querySelector('#userMappingBulkSelect');
@@ -10422,6 +10430,7 @@
                 },
                 deleteUserMappingsBulk: function (page) {
                     var userIds = HueConfigurationPage.getSelectedUserMappingBulkIds(page);
+                    var mappingIds = HueConfigurationPage.getSelectedUserMappingBulkMappingIds(page);
                     var statusEl = page.querySelector('#userMappingBulkStatus');
                     if (!userIds.length) {
                         Dashboard.alert("Select at least one user mapping first.");
@@ -10439,7 +10448,9 @@
                         ApiClient.ajax({
                             type: "POST",
                             url: ApiClient.getUrl("HueSync/UserMappings/BulkDelete"),
-                            data: JSON.stringify({ userIds: userIds }),
+                            data: JSON.stringify(mappingIds.length === userIds.length
+                                ? { mappingIds: mappingIds }
+                                : { userIds: userIds }),
                             contentType: "application/json",
                             dataType: "json"
                         }).then(function (response) {
@@ -11603,14 +11614,16 @@
                     HueConfigurationPage.resetMappingForm(page);
                 },
 
-                inspectUserMappingDependencies: function (page, userId) {
+                inspectUserMappingDependencies: function (page, userId, mappingId) {
                     if (!userId) {
                         Dashboard.alert("Choose a user mapping first.");
                         return;
                     }
 
                     Dashboard.showLoadingMsg();
-                    ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings/" + encodeURIComponent(userId) + "/Dependencies"))
+                    var dependencyUrl = "HueSync/UserMappings/" + encodeURIComponent(userId) + "/Dependencies";
+                    if (mappingId) dependencyUrl += "?mappingId=" + encodeURIComponent(mappingId);
+                    ApiClient.getJSON(ApiClient.getUrl(dependencyUrl))
                         .then(function (response) {
                             var userName = response && (response.userName || response.UserName) || userId;
                             var canDelete = response && (response.canDelete !== undefined ? response.canDelete : response.CanDelete);
@@ -11650,16 +11663,18 @@
                         });
                 },
 
-                deleteUserMapping: function (page, userId) {
+                deleteUserMapping: function (page, userId, mappingId) {
                     Dashboard.confirm("Are you sure you want to delete this user mapping?", "Delete Mapping", function (result) {
                         if (result) {
                             ApiClient.ajax({
                                 type: "DELETE",
-                                url: ApiClient.getUrl("HueSync/UserMappings/" + encodeURIComponent(userId))
+                                url: ApiClient.getUrl("HueSync/UserMappings/" + encodeURIComponent(userId) +
+                                    (mappingId ? "?mappingId=" + encodeURIComponent(mappingId) : ""))
                             }).then(function () {
                                 Dashboard.alert("User mapping deleted.");
                                 HueConfigurationPage.loadUserMappings(page);
-                                if (HueConfigurationPage.areSameJellyfinUserId(HueConfigurationPage.mappingEditingUserId, userId)) {
+                                if ((mappingId && String(HueConfigurationPage.mappingEditingMappingId || '').toLowerCase() === String(mappingId).toLowerCase()) ||
+                                    (!mappingId && HueConfigurationPage.areSameJellyfinUserId(HueConfigurationPage.mappingEditingUserId, userId))) {
                                     HueConfigurationPage.resetMappingForm(page);
                                 }
                             }).catch(function (err) {

@@ -12964,6 +12964,137 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void DeleteUserMapping_WithStableRowIdDeletesOnlySelectedDuplicate()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "mapping-delete-a",
+                    UserId = "user-duplicate",
+                    UserName = "First",
+                    SyncEnabled = false,
+                    HueAppKey = "delete-a-app-secret",
+                    HueClientKey = "delete-a-client-secret"
+                },
+                new()
+                {
+                    MappingId = "mapping-delete-b",
+                    UserId = "user-duplicate",
+                    UserName = "Second",
+                    SyncEnabled = false,
+                    HueAppKey = "delete-b-app-secret",
+                    HueClientKey = "delete-b-client-secret"
+                }
+            }
+        });
+
+        var action = CreateController().DeleteUserMapping("user-duplicate", "mapping-delete-a");
+
+        Assert.IsType<OkObjectResult>(action);
+        var remaining = Assert.Single(configuration.UserMappings);
+        Assert.Equal("mapping-delete-b", remaining.MappingId);
+        Assert.Equal("Second", remaining.UserName);
+        Assert.Equal("delete-b-app-secret", remaining.HueAppKey);
+        Assert.Equal("delete-b-client-secret", remaining.HueClientKey);
+    }
+
+    [Fact]
+    public void DeleteUserMapping_RejectsAmbiguousLegacyUserIdWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "mapping-delete-a", UserId = "user-duplicate", UserName = "First", SyncEnabled = false, HueAppKey = "delete-a-app-secret" },
+                new() { MappingId = "mapping-delete-b", UserId = "user-duplicate", UserName = "Second", SyncEnabled = false, HueAppKey = "delete-b-app-secret" }
+            }
+        });
+
+        var action = CreateController().DeleteUserMapping("user-duplicate");
+
+        var response = Assert.IsType<ConflictObjectResult>(action);
+        Assert.Contains("mappingId", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(new[] { "mapping-delete-a", "mapping-delete-b" }, configuration.UserMappings.Select(mapping => mapping.MappingId));
+        Assert.Equal(new[] { "delete-a-app-secret", "delete-b-app-secret" }, configuration.UserMappings.Select(mapping => mapping.HueAppKey));
+    }
+
+    [Fact]
+    public void UserMappings_BulkDeleteWithStableRowIdsPreservesSiblingDuplicate()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "mapping-bulk-a", UserId = "user-bulk-duplicate", UserName = "First", SyncEnabled = false, HueAppKey = "bulk-a-app-secret" },
+                new() { MappingId = "mapping-bulk-b", UserId = "user-bulk-duplicate", UserName = "Second", SyncEnabled = false, HueAppKey = "bulk-b-app-secret" },
+                new() { MappingId = "mapping-bulk-keep", UserId = "user-bulk-keep", UserName = "Keep", SyncEnabled = false }
+            }
+        });
+
+        var action = CreateController().DeleteUserMappingsBulk(new HueUserMappingBulkDeleteRequest
+        {
+            MappingIds = new List<string> { "mapping-bulk-a" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingBulkDeleteResult>(response.Value);
+        Assert.Equal(1, result.RequestedCount);
+        Assert.Equal(1, result.DeletedCount);
+        Assert.Equal(new[] { "mapping-bulk-a" }, result.Mappings.Select(mapping => mapping.MappingId));
+        Assert.Equal(new[] { "mapping-bulk-b", "mapping-bulk-keep" }, configuration.UserMappings.Select(mapping => mapping.MappingId));
+        Assert.Equal("bulk-b-app-secret", configuration.UserMappings[0].HueAppKey);
+    }
+
+    [Fact]
+    public void UserMappings_BulkDeleteRejectsAmbiguousLegacyUserIdWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "mapping-bulk-a", UserId = "user-bulk-duplicate", UserName = "First", SyncEnabled = false },
+                new() { MappingId = "mapping-bulk-b", UserId = "user-bulk-duplicate", UserName = "Second", SyncEnabled = false }
+            }
+        });
+
+        var action = CreateController().DeleteUserMappingsBulk(new HueUserMappingBulkDeleteRequest
+        {
+            UserIds = new List<string> { "user-bulk-duplicate" }
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingBulkDeleteResult>(response.Value);
+        Assert.Equal(new[] { "user-bulk-duplicate" }, result.AmbiguousUserIds);
+        Assert.Equal(new[] { "mapping-bulk-a", "mapping-bulk-b" }, configuration.UserMappings.Select(mapping => mapping.MappingId));
+    }
+
+    [Fact]
+    public void UserMappingDependencies_WithStableRowIdSelectsExactDuplicate()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "mapping-dependency-a", UserId = "user-dependency-duplicate", UserName = "First", SyncEnabled = false },
+                new() { MappingId = "mapping-dependency-b", UserId = "user-dependency-duplicate", UserName = "Second", SyncEnabled = false }
+            }
+        });
+
+        var action = CreateController().GetUserMappingDependencies("user-dependency-duplicate", "mapping-dependency-b");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingDependenciesResult>(response.Value);
+        Assert.Equal("mapping-dependency-b", result.MappingId);
+        Assert.Equal("Second", result.UserName);
+        Assert.Equal(0, result.ScheduledCueCount);
+        Assert.True(result.CanDelete);
+        Assert.Equal(2, configuration.UserMappings.Count);
+    }
+
+    [Fact]
     public void DeleteUserMapping_RemovesLegacyBraceGuidWhenCalledWithCanonicalId()
     {
         const string canonicalUserId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
