@@ -54,7 +54,7 @@ for (const marker of requiredWorkflowMarkers) {
 }
 
 for (const [name, script] of [["build-release.sh", releaseShell], ["build-release.ps1", releasePowerShell]]) {
-  for (const marker of ["dotnet publish", "publish/Jellyfin.Plugin.Hue.dll", "publish/BouncyCastle.Cryptography.dll"]) {
+  for (const marker of ["dotnet restore --locked-mode", "dotnet publish", "publish/Jellyfin.Plugin.Hue.dll", "publish/BouncyCastle.Cryptography.dll"]) {
     if (!script.includes(marker)) {
       throw new Error(`${name} is missing publish-authoritative dependency marker: ${marker}`);
     }

@@ -27,7 +27,7 @@ rm -f jellyfin-plugin-hue-*.zip
 
 # Restore dependencies
 echo "📥 Restoring dependencies..."
-dotnet restore
+dotnet restore --locked-mode
 
 # Build in Release mode
 echo "🏗️  Building project..."

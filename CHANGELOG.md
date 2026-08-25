@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.287] - 2026-08-25
+
+### Reproducible release tooling
+- **Locked local restores**: Linux and PowerShell release helpers now use `dotnet restore --locked-mode`, matching CI and failing closed when the committed NuGet dependency graph drifts.
+- **Release contract coverage**: documentation validation now protects the locked-restore requirement alongside publish-authoritative package contents.
+
 ## [1.5.286] - 2026-08-25
 
 ### Scheduled-cue observability

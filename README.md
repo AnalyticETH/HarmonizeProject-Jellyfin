@@ -306,6 +306,9 @@ These scripts will:
 - Create a release package with proper versioning
 - Generate a zip file ready for distribution
 
+Both helpers restore from the committed, content-hashed NuGet dependency graph with
+`dotnet restore --locked-mode`; dependency drift stops the release before build or packaging.
+
 #### Manual Build
 
 ```bash
@@ -448,7 +451,10 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.286 (Current)
+### Version 1.5.287 (Current)
+- **Reproducible release tooling**: Linux and PowerShell release helpers now enforce locked NuGet restores, matching CI and failing closed on dependency-graph drift; the release-documentation validator protects that contract.
+
+### Version 1.5.286
 - **Per-target scheduled-cue observability**: administrator scheduler status and retained history now render each credential-free target's label, success/skip/failure state, message, channel counts, and cleanup warning, so partial multi-room outcomes remain visible beside the aggregate result.
 
 ### Version 1.5.285

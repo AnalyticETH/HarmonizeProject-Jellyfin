@@ -23,7 +23,7 @@ Get-ChildItem -Filter "jellyfin-plugin-hue-*.zip" | Remove-Item -Force
 
 # Restore dependencies
 Write-Host "📥 Restoring dependencies..." -ForegroundColor Yellow
-dotnet restore
+dotnet restore --locked-mode
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Build in Release mode
