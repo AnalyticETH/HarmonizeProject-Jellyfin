@@ -6394,10 +6394,10 @@ namespace Jellyfin.Plugin.Hue.Api
                         : "Idle",
                 CanRunDiagnostics = serviceAvailable && configurationValid &&
                     (hasDefaultTarget || hasCustomUserTarget) &&
-                    environment.OpenSsl.Available && !playbackActive && !diagnosticActive,
+                    !playbackActive && !diagnosticActive,
                 CanStartPlayback = serviceAvailable && configurationValid && (config?.SyncEnabled ?? false) &&
                     (hasDefaultTarget || hasCustomUserTarget) &&
-                    environment.Ffmpeg.Available && environment.OpenSsl.Available &&
+                    environment.Ffmpeg.Available &&
                     (!audioCaptureRequired || environment.AudioCapture.Available) &&
                     !diagnosticActive,
                 RuntimeState = runtime?.State ?? "Unavailable",
@@ -6411,7 +6411,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Validates every saved playback target without mutating the bridge. This is
         /// intentionally separate from the local prerequisite report above: a server can
-        /// have working FFmpeg/OpenSSL binaries while one of several mapped bridges has
+        /// have working FFmpeg and managed DTLS support while one of several mapped bridges has
         /// stale credentials, a missing area, or no controllable channels.
         /// </summary>
         [HttpGet("TargetDiagnostics")]

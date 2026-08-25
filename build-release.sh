@@ -43,6 +43,7 @@ mkdir -p release-package
 
 # Copy only the required files
 cp Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll release-package/
+cp Jellyfin.Plugin.Hue/bin/Release/net8.0/BouncyCastle.Cryptography.dll release-package/
 cp meta.json release-package/
 
 # Extract and validate the release version from both sources of truth.
@@ -55,6 +56,10 @@ fi
 
 if [ ! -f Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll ]; then
     echo "❌ Release DLL was not produced." >&2
+    exit 1
+fi
+if [ ! -f Jellyfin.Plugin.Hue/bin/Release/net8.0/BouncyCastle.Cryptography.dll ]; then
+    echo "❌ Managed DTLS dependency was not produced." >&2
     exit 1
 fi
 echo ""
@@ -72,7 +77,7 @@ zip -r ../$ZIPFILE .
 cd ..
 
 ARCHIVE_FILES=$(unzip -Z1 "$ZIPFILE" | sort | tr '\n' ' ')
-if [ "$ARCHIVE_FILES" != "Jellyfin.Plugin.Hue.dll meta.json " ]; then
+if [ "$ARCHIVE_FILES" != "BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json " ]; then
     echo "❌ Unexpected release archive contents: $ARCHIVE_FILES" >&2
     exit 1
 fi

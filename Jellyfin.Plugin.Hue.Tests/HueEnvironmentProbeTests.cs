@@ -45,9 +45,9 @@ public sealed class HueEnvironmentProbeTests
 
         Assert.False(result.Ffmpeg.Available);
         Assert.False(result.AudioCapture.Available);
-        Assert.False(result.OpenSsl.Available);
+        Assert.True(result.OpenSsl.Available);
         Assert.Contains("PATH", result.Ffmpeg.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("PATH", result.OpenSsl.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("managed", result.OpenSsl.Version, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public sealed class HueEnvironmentProbeTests
         Assert.False(result.AudioCapture.Available);
         Assert.Contains("audio capture", result.AudioCapture.Message, StringComparison.OrdinalIgnoreCase);
         Assert.True(result.OpenSsl.Available);
-        Assert.False(string.IsNullOrWhiteSpace(result.OpenSsl.Version));
+        Assert.Contains("BouncyCastle", result.OpenSsl.Version, StringComparison.Ordinal);
     }
 
     [Fact]

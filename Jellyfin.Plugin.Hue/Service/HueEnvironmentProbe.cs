@@ -17,8 +17,8 @@ public interface IHueEnvironmentProbe
 }
 
 /// <summary>
-/// Probes the executables required by playback. The commands are injectable so the
-/// probe remains deterministic in tests and can be reused by hosted environments.
+/// Probes the local executable required by playback. DTLS is implemented by the
+/// managed Bouncy Castle transport and therefore has no external OpenSSL prerequisite.
 /// </summary>
 public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
 {
@@ -34,7 +34,6 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
     private const string AudioProbeDuration = "0.15";
 
     private readonly string _ffmpegCommand;
-    private readonly string _openSslCommand;
     private readonly string _versionArgument;
 
     public HueEnvironmentProbe(
@@ -49,7 +48,9 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         _ffmpegCommand = !string.IsNullOrWhiteSpace(mediaEncoder?.EncoderPath)
             ? mediaEncoder.EncoderPath.Trim()
             : (string.IsNullOrWhiteSpace(ffmpegCommand) ? "ffmpeg" : ffmpegCommand.Trim());
-        _openSslCommand = string.IsNullOrWhiteSpace(openSslCommand) ? "openssl" : openSslCommand.Trim();
+        // Keep the legacy constructor parameter for source compatibility with hosted
+        // callers; managed DTLS no longer launches or probes an OpenSSL process.
+        _ = openSslCommand;
         _versionArgument = string.IsNullOrWhiteSpace(versionArgument) ? "-version" : versionArgument.Trim();
     }
 
@@ -57,12 +58,19 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
     {
         var ffmpeg = await ProbeToolAsync(_ffmpegCommand, _versionArgument, cancellationToken).ConfigureAwait(false);
         var audioCapture = await ProbeAudioCaptureAsync(ffmpeg, cancellationToken).ConfigureAwait(false);
-        var openSsl = await ProbeToolAsync(_openSslCommand, _versionArgument, cancellationToken).ConfigureAwait(false);
+        var managedDtls = new HueToolStatus
+        {
+            Available = true,
+            Version = "Managed DTLS (BouncyCastle.Cryptography 2.7.0)",
+            Message = "Hue streaming uses the managed DTLS transport; no OpenSSL process is required."
+        };
         return new HueEnvironmentProbeResult
         {
             Ffmpeg = ffmpeg,
             AudioCapture = audioCapture,
-            OpenSsl = openSsl
+            // OpenSsl remains as a compatibility-shaped response field for existing
+            // administrators and clients, but now reports the managed transport.
+            OpenSsl = managedDtls
         };
     }
 

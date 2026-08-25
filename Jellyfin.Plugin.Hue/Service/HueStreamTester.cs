@@ -198,7 +198,7 @@ public sealed class HuePlaylistStreamProbeResult
 /// <summary>
 /// Testable DTLS surface used only by continuous playlist previews. Production wraps
 /// <see cref="HueStreamer"/>; keeping this small avoids changing playback's public stream
-/// contract while allowing lifecycle-count regression tests without launching OpenSSL.
+/// contract while allowing lifecycle-count regression tests without opening a bridge stream.
 /// </summary>
 internal interface IHuePreviewStream
 {
@@ -462,7 +462,7 @@ public sealed class HueStreamTester :
                 await streamer.StartStreamAsync(bridgeIp, appKey, clientKey, cancellationToken).ConfigureAwait(false);
                 if (!streamer.IsHealthy())
                 {
-                    probeResult = Failure("The DTLS stream did not become healthy. Check the client key and OpenSSL installation.");
+                    probeResult = Failure("The DTLS stream did not become healthy. Check the client key and managed DTLS transport.");
                 }
                 else
                 {
@@ -486,7 +486,7 @@ public sealed class HueStreamTester :
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Hue DTLS stream probe failed for entertainment area {0}", areaId);
-                probeResult = Failure("The DTLS stream probe failed. Check the client key and OpenSSL diagnostics.");
+                probeResult = Failure("The DTLS stream probe failed. Check the client key and managed DTLS diagnostics.");
             }
             finally
             {
@@ -942,7 +942,7 @@ public sealed class HueStreamTester :
                 await streamer.StartStreamAsync(bridgeIp, appKey, clientKey, cancellationToken).ConfigureAwait(false);
                 if (!streamer.IsHealthy())
                 {
-                    previewResult = Failure("The DTLS stream did not become healthy. Check the client key and OpenSSL installation.");
+                    previewResult = Failure("The DTLS stream did not become healthy. Check the client key and managed DTLS transport.");
                 }
                 else
                 {
@@ -1147,7 +1147,7 @@ public sealed class HueStreamTester :
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Hue {0} preview failed for entertainment area {1}", effect, areaId);
-                previewResult = Failure($"The {effect} preview failed. Check the client key and OpenSSL diagnostics.");
+                previewResult = Failure($"The {effect} preview failed. Check the client key and managed DTLS diagnostics.");
             }
             finally
             {
@@ -1282,7 +1282,7 @@ public sealed class HueStreamTester :
             if (!stream.IsHealthy())
             {
                 playlistResult = PlaylistFailure(
-                    "The DTLS stream did not become healthy. Check the client key and OpenSSL installation.");
+                    "The DTLS stream did not become healthy. Check the client key and managed DTLS transport.");
             }
             else
             {
@@ -1347,7 +1347,7 @@ public sealed class HueStreamTester :
             }
 
             playlistResult = PlaylistFailure(
-                "The continuous playlist preview failed. Check the client key and OpenSSL diagnostics.",
+                "The continuous playlist preview failed. Check the client key and managed DTLS diagnostics.",
                 completedSteps);
         }
         finally

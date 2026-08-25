@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -24,14 +23,13 @@ namespace Jellyfin.Plugin.Hue.Hue
     ///   Per channel: type(1) + id_hi(1) + id_lo(1) + r_hi(1) + r_lo(1) + g_hi(1) + g_lo(1) + b_hi(1) + b_lo(1)
     ///     type: 0x00 = light device
     ///
-    /// The area UUID does NOT go in the packet — it is established when OpenSSL connects.
+    /// The area UUID does NOT go in the packet — it is established when the managed DTLS session connects.
     /// The bridge knows which area is active because we PUT action=start before connecting.
     /// </summary>
     public class HueStreamer
     {
         private readonly ILogger<HueStreamer> _logger;
-        private Process? _opensslProcess;
-        private Stream? _stdin;
+        private IHueDtlsConnection? _dtlsConnection;
         private readonly object _lock = new object();
         private PluginConfiguration? _lastConfig;
         private (string bridgeIp, string appKey, string clientKey)? _lastBridgeConfig;
@@ -51,7 +49,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         // source is replaced for the next stream so a later playback can reconnect normally.
         private CancellationTokenSource _streamLifecycleCts = new CancellationTokenSource();
 
-        // How long to wait after spawning OpenSSL before attempting to write
+        // How long to wait after establishing DTLS before attempting to write
         // The DTLS handshake typically takes 100-400ms on a local network
         private const int DtlsHandshakeWaitMs = 600;
         private const int EntertainmentAreaActivationDelayMs = 200;
@@ -165,19 +163,12 @@ namespace Jellyfin.Plugin.Hue.Hue
         {
             lock (_lock)
             {
-                try
-                {
-                    return _opensslProcess != null && !_opensslProcess.HasExited && _stdin != null;
-                }
-                catch (InvalidOperationException)
-                {
-                    return false;
-                }
+                return _dtlsConnection?.IsHealthy == true;
             }
         }
 
         /// <summary>
-        /// Starts a DTLS streaming connection to the Hue Bridge using OpenSSL
+        /// Starts a managed DTLS streaming connection to the Hue Bridge
         /// </summary>
         /// <param name="config">Plugin configuration containing bridge IP and credentials</param>
         public async Task StartStreamAsync(PluginConfiguration config)
@@ -187,10 +178,10 @@ namespace Jellyfin.Plugin.Hue.Hue
         }
 
         /// <summary>
-        /// Starts a DTLS streaming connection to the Hue Bridge using OpenSSL with explicit parameters.
+        /// Starts a managed DTLS streaming connection to the Hue Bridge with explicit parameters.
         ///
         /// Uses DTLS 1.2 with PSK. The ClientKey from Hue must be provided as hex.
-        /// OpenSSL 3.x accepts the PSK suite through the standard -cipher option.
+        /// The bridge requires the plain PSK-AES128-GCM-SHA256 cipher suite.
         ///
         /// IMPORTANT: This method awaits DtlsHandshakeWaitMs to allow the DTLS handshake to complete
         /// before the caller starts writing packets.
@@ -241,7 +232,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
 
             // A reconnect already owns the current lifecycle token. Do not cancel that
-            // token when it replaces the failed process; an external StopStream still can.
+            // token when it replaces the failed connection; an external StopStream still can.
             StopStream(cancelPendingReconnect);
             _lastBridgeConfig = (bridgeIp, appKey, clientKey);
             _lastSentColors = null;
@@ -263,99 +254,44 @@ namespace Jellyfin.Plugin.Hue.Hue
 
             try
             {
-                // The standard -cipher flag selects the TLS 1.2 cipher suite.
-                // When -psk is provided, OpenSSL 3.x accepts PSK cipher suites via -cipher.
-                // Note: -pskcipher and -security_level are NOT valid s_client flags —
-                // they cause immediate exit with "unknown option".
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = "openssl",
-                    RedirectStandardInput = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                startInfo.ArgumentList.Add("s_client");
-                startInfo.ArgumentList.Add("-dtls1_2");
-                startInfo.ArgumentList.Add("-cipher");
-                startInfo.ArgumentList.Add("PSK-AES128-GCM-SHA256");
-                startInfo.ArgumentList.Add("-psk_identity");
-                startInfo.ArgumentList.Add(appKey);
-                startInfo.ArgumentList.Add("-psk");
-                startInfo.ArgumentList.Add(clientKey);
-                startInfo.ArgumentList.Add("-connect");
-                startInfo.ArgumentList.Add(FormatBridgeEndpoint(bridgeIp));
+                // Use a managed DTLS PSK session so the App Key and Client Key remain in
+                // this process's memory instead of being exposed through /proc or ps.
+                _logger.LogInformation("Starting managed DTLS tunnel to {0}:2100", bridgeIp);
 
-                _logger.LogInformation("Starting OpenSSL DTLS tunnel to {0}:2100", bridgeIp);
+                var dtlsConnection = await HueDtlsConnection.ConnectAsync(
+                    bridgeIp,
+                    appKey,
+                    clientKey,
+                    startupToken).ConfigureAwait(false);
 
-                var process = new Process { StartInfo = startInfo };
-                process.Start();
-                lock (_lock)
+                if (startupToken.IsCancellationRequested)
                 {
-                    _opensslProcess = process;
-                    _stdin = process.StandardInput.BaseStream;
+                    dtlsConnection.Close();
+                    startupToken.ThrowIfCancellationRequested();
                 }
 
-                // OpenSSL writes handshake and application output to stdout. Drain it
-                // continuously so the redirected pipe cannot fill and block the tunnel.
-                _ = Task.Run(async () =>
+                lock (_lock)
                 {
-                    try
-                    {
-                        await process.StandardOutput.BaseStream.CopyToAsync(Stream.Null).ConfigureAwait(false);
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                    }
-                    catch (IOException)
-                    {
-                    }
-                    catch (InvalidOperationException)
-                    {
-                    }
-                });
+                    _dtlsConnection = dtlsConnection;
+                }
 
-                // Log stderr asynchronously for diagnostics
-                _ = Task.Run(() =>
-                {
-                    try
-                    {
-                        using var reader = process.StandardError;
-                        while (!reader.EndOfStream)
-                        {
-                            var line = reader.ReadLine();
-                            if (!string.IsNullOrEmpty(line))
-                                _logger.LogDebug("OpenSSL: {0}", line);
-                        }
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                    }
-                    catch (IOException)
-                    {
-                    }
-                });
-
-                // Wait for DTLS handshake to complete before returning.
-                // Without this wait, the first SendColors call will fail because
-                // the UDP channel isn't established yet.
-                // during the wait rather than blocking it.
+                // Keep the existing short bridge-settle delay so the first packet is
+                // sent only after the entertainment area has switched to streaming mode.
                 await Task.Delay(DtlsHandshakeWaitMs, startupToken).ConfigureAwait(false);
 
-                if (process.HasExited)
+                if (!dtlsConnection.IsHealthy)
                 {
-                    _logger.LogError("OpenSSL process exited immediately — check bridge IP, ClientKey hex, and that the entertainment area was activated (action=start) first.");
+                    _logger.LogError("Managed DTLS tunnel closed immediately — check bridge IP, Client Key, and that the entertainment area was activated (action=start) first.");
                     StopStream();
                     return;
                 }
 
                 _reconnectAttempts = 0;
-                _logger.LogInformation("OpenSSL DTLS tunnel started to {0}:2100", bridgeIp);
+                _logger.LogInformation("Managed DTLS tunnel started to {0}:2100", bridgeIp);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to start OpenSSL process. Ensure openssl is installed.");
+                _logger.LogError(ex, "Failed to start the managed Hue DTLS connection.");
                 StopStream();
                 throw;
             }
@@ -480,18 +416,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                         _streamLifecycleCts = new CancellationTokenSource();
                     }
 
-                    _stdin?.Close();
-                    if (_opensslProcess != null && !_opensslProcess.HasExited)
-                    {
-                        _opensslProcess.Kill();
-                        if (!_opensslProcess.WaitForExit(1000))
-                        {
-                            _logger.LogWarning("OpenSSL process did not exit within 1 second after Kill()");
-                        }
-                    }
-                    _opensslProcess?.Dispose();
-                    _opensslProcess = null;
-                    _stdin = null;
+                    _dtlsConnection?.Close();
+                    _dtlsConnection = null;
                     _lastSentColors = null;
                     if (cancelPendingReconnect)
                     {
@@ -625,22 +551,22 @@ namespace Jellyfin.Plugin.Hue.Hue
                 return true;
             }
 
-            Stream? stdinCopy;
+            IHueDtlsConnection? dtlsConnection;
             lock (_lock)
             {
-                if (_stdin == null)
+                if (_dtlsConnection == null)
                 {
                     _logger.LogWarning("Cannot send colors: DTLS stream not initialized");
                     return RecordPacketSendFailure(cancellationToken);
                 }
-                stdinCopy = _stdin;
+                dtlsConnection = _dtlsConnection;
             }
 
             try
             {
                 var packet = BuildHueStreamPacket(channelColors);
-                await stdinCopy.WriteAsync(packet, 0, packet.Length, cancellationToken).ConfigureAwait(false);
-                await stdinCopy.FlushAsync(cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                dtlsConnection.Send(packet, 0, packet.Length);
 
                 // Store last sent colors for change detection
                 _lastSentColors = new Dictionary<int, byte[]>();

@@ -7,6 +7,7 @@ const requiredReadmeMarkers = [
   "jellyfin-plugin-hue-release.zip",
   "jellyfin-plugin-hue-release.zip.sha256",
   "sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256",
+  "BouncyCastle.Cryptography.dll",
   "Jellyfin.Plugin.Hue.dll",
   "meta.json",
   "HueSync",
@@ -31,7 +32,7 @@ const requiredWorkflowMarkers = [
   "jellyfin-plugin-hue-release.zip",
   "jellyfin-plugin-hue-release.zip.sha256",
   "sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256",
-  '"Jellyfin.Plugin.Hue.dll meta.json "',
+  '"BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "',
 ];
 
 for (const marker of requiredWorkflowMarkers) {

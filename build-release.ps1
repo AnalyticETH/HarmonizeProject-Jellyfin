@@ -42,6 +42,7 @@ New-Item -ItemType Directory -Force -Path "./release-package" | Out-Null
 
 # Copy only the required files
 Copy-Item "Jellyfin.Plugin.Hue/bin/Release/net8.0/Jellyfin.Plugin.Hue.dll" "release-package/"
+Copy-Item "Jellyfin.Plugin.Hue/bin/Release/net8.0/BouncyCastle.Cryptography.dll" "release-package/"
 Copy-Item "meta.json" "release-package/"
 
 # Extract version from meta.json
@@ -86,7 +87,7 @@ if ([System.IO.Compression.ZipFile]) {
 $zipSize = [math]::Round((Get-Item $zipFile).Length/1KB, 2)
 
 $archiveEntries = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipFile)).Entries.FullName | Sort-Object
-if (($archiveEntries -join ' ') -ne 'Jellyfin.Plugin.Hue.dll meta.json') {
+if (($archiveEntries -join ' ') -ne 'BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json') {
     throw "Unexpected release archive contents: $($archiveEntries -join ', ')"
 }
 

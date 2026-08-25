@@ -196,14 +196,16 @@ jobs:
     - name: Create plugin package
       run: |
         mkdir -p release-package
-        # Only include the DLL and meta.json (Jellyfin requirements)
+        # Include the plugin assembly, its managed DTLS dependency, and meta.json.
         cp tested-publish/Jellyfin.Plugin.Hue.dll release-package/
+        cp tested-publish/BouncyCastle.Cryptography.dll release-package/
         cp tested-publish/meta.json release-package/
         META_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' tested-publish/meta.json | head -n 1)
         SOURCE_META_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' meta.json | head -n 1)
         PROJECT_VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj | head -n 1)
         test -n "$META_VERSION" && test "$META_VERSION" = "$SOURCE_META_VERSION" && test "$META_VERSION" = "$PROJECT_VERSION"
         test -f release-package/Jellyfin.Plugin.Hue.dll
+        test -f release-package/BouncyCastle.Cryptography.dll
         test -f release-package/meta.json
 
     - name: Create zip archive
@@ -211,7 +213,7 @@ jobs:
         cd release-package
         zip -q -r ../jellyfin-plugin-hue-release.zip .
         cd ..
-        test "$(unzip -Z1 jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "Jellyfin.Plugin.Hue.dll meta.json "
+        test "$(unzip -Z1 jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "
         sha256sum jellyfin-plugin-hue-release.zip > jellyfin-plugin-hue-release.zip.sha256
 
     - name: Upload release package
@@ -372,6 +374,7 @@ jobs:
 
           ### What's Included
           - `Jellyfin.Plugin.Hue.dll` - Main plugin assembly
+          - `BouncyCastle.Cryptography.dll` - Managed DTLS transport dependency
           - `meta.json` - Plugin metadata (required by Jellyfin)
         files: |
           jellyfin-plugin-hue-release.zip

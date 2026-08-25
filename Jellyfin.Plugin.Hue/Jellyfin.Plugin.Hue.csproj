@@ -10,9 +10,9 @@
     <!-- Plugin metadata -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>CS1591</NoWarn>
-    <AssemblyVersion>1.5.271.0</AssemblyVersion>
-    <FileVersion>1.5.271.0</FileVersion>
-    <Version>1.5.271.0</Version>
+    <AssemblyVersion>1.5.272.0</AssemblyVersion>
+    <FileVersion>1.5.272.0</FileVersion>
+    <Version>1.5.272.0</Version>
     <Authors>MCP Capital LLC</Authors>
     <Company>MCP Capital LLC</Company>
     <Description>Synchronize Philips Hue lights with your media playback in real-time.</Description>
@@ -29,6 +29,8 @@
       <PrivateAssets>all</PrivateAssets>
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
+    <!-- Managed DTLS keeps Hue credentials out of an OpenSSL process command line. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <!-- Keep the JSON assembly on the .NET 8 servicing line; the plugin package does not
          ship framework assemblies, so a .NET 9 assembly would not load on Jellyfin .NET 8. -->
     <PackageReference Include="System.Text.Json" Version="8.0.6" />

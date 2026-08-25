@@ -28,7 +28,7 @@ Unlike simple "cinema mode" automations that just dim the lights, this plugin ac
 *   **Hue Lights**: Color-capable Hue lights added to an **Entertainment Area** in the Hue App.
 *   **Server Dependencies**: 
     *   `ffmpeg` (Usually bundled with Jellyfin, or system installed)
-    *   `openssl` (Required for the secure tunnel to the Bridge)
+    *   Managed Bouncy Castle DTLS transport (included in the release package; no OpenSSL process is required)
 
 ## Installation
 
@@ -43,7 +43,7 @@ Unlike simple "cinema mode" automations that just dim the lights, this plugin ac
     *   **Windows**: `%ProgramData%\Jellyfin\Server\plugins`
     *   **Docker**: `/config/plugins`
 4.  Create a folder named `HueSync` and extract `jellyfin-plugin-hue-release.zip` into it.
-5.  Confirm that both `Jellyfin.Plugin.Hue.dll` and `meta.json` are directly inside the `HueSync` folder.
+5.  Confirm that `BouncyCastle.Cryptography.dll`, `Jellyfin.Plugin.Hue.dll`, and `meta.json` are directly inside the `HueSync` folder.
 6.  Restart Jellyfin.
 
 ## Configuration
@@ -55,7 +55,7 @@ Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 | **Discover Bridge** | Return every private bridge found by the Hue discovery service and bounded local mDNS (`_hue._tcp.local`); the address field offers all candidates so multi-room mappings can choose the correct bridge. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. While a probe is running, the page exposes **Cancel Active Diagnostic**; disconnecting, canceling, or leaving the page stops the diagnostic lifecycle safely. |
-| **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg/OpenSSL availability and versions, a bounded PCM audio-capture probe, active bridge lifecycle contention, and playback/diagnostic readiness. Audio capture is required only when the active global or per-user playback scope can start audio. **Validate Saved Targets** additionally checks every enabled default/inherited/custom bridge mapping for reachability, selected-area presence, controllable channels, and stale IDs in the effective global/per-user channel profile without opening a DTLS stream. **Export Support Bundle** collects these results, credential-free configuration metadata, runtime telemetry, bounded playback/scheduler history, and scheduler status into one reviewable JSON document. **Cancel Active Diagnostics** safely stops either long-running check or support-bundle target validation, and leaving the page requests the same cancellation. |
+| **System Diagnostics** | Run a non-mutating local health check for saved configuration validity, FFmpeg availability/version, managed DTLS readiness, a bounded PCM audio-capture probe, active bridge lifecycle contention, and playback/diagnostic readiness. Audio capture is required only when the active global or per-user playback scope can start audio. **Validate Saved Targets** additionally checks every enabled default/inherited/custom bridge mapping for reachability, selected-area presence, controllable channels, and stale IDs in the effective global/per-user channel profile without opening a DTLS stream. **Export Support Bundle** collects these results, credential-free configuration metadata, runtime telemetry, bounded playback/scheduler history, and scheduler status into one reviewable JSON document. **Cancel Active Diagnostics** safely stops either long-running check or support-bundle target validation, and leaving the page requests the same cancellation. |
 | **Backup and Restore** | Export global settings, per-user profiles, saved scene effects, saved scene playlists with repeat passes and `Sequential`/`Shuffle` playback order, scheduled scene cues, and history-retention preferences—including Solid/Pulse/Rainbow/Candle/Temperature/Aurora/Fire/Ocean/Lightning/Starlight metadata, bounded 25-400% rates, optional per-step effect-speed/fade-in/fade-out transitions and fade curves, one-time dates, optional per-cue hold durations, priorities, recurring date windows, and portable Fixed/SolarNoon/Sunrise/Sunset/CivilDawn/CivilDusk/NauticalDawn/NauticalDusk/AstronomicalDawn/AstronomicalDusk timing with bounded offsets and decimal coordinates—as a credential-safe JSON document. **Validate Import** runs the same normalization, dependency, and full-configuration preflight without changing the server, including planned totals, active-playback readiness, and a credential-safe added/removed/changed/unchanged diff for every imported object collection. Import is atomic, preserves matching stored keys only when the global bridge target is unchanged, and requires replacement keys or an explicit clear operation before accepting a changed target; the in-page password-field wizard supplies migration keys without echoing them. |
 | **Live Sync Status** | Show the active Jellyfin user, effective playback media scope, selected bridge/area, captured profiles including effective audio sensitivity, noise gate, low/mid/high band centers and gains, response smoothing, audio-band spread, beat-pulse response, release, and onset threshold, visualizer palette, spatial routing, and Mono/Stereo/Left/Right source-channel mode, effective FPS, sent/skipped/failed stream updates, reconnect attempts, seek-recovery restarts, frame health, cleanup warnings, and safe per-session stop controls while playback is running. Distinct mapped bridges/areas can be streamed concurrently. |
 | **Recent Hue Sessions** | Review and filter the configured 1-25 most recent completed sync sessions, including outcome, target, duration, quality counters, and cleanup/error warnings. Export a credential-free JSON troubleshooting document, clear history without stopping playback, or optionally retain the sanitized window across Jellyfin restarts. The administrator can reduce the retained window without changing active playback. |
@@ -253,7 +253,7 @@ credential-safe migration.
 | `GET /HueSync/History/Export?limit=25&outcome=Error` | Download the same sanitized session-history document used by the administrator Export JSON action for troubleshooting; bridge credentials and playback tokens are omitted. |
 | `GET /HueSync/History/ExportCsv?limit=25&outcome=Error` | Download the same filtered completed-session history as credential-free UTF-8 CSV with playback quality counters, timestamps, target metadata, errors, and cleanup warnings. |
 | `DELETE /HueSync/History` | Clear retained completed-session summaries and the status API's last-session pointer without stopping active playback. |
-| `GET /HueSync/Diagnostics` | Run a non-mutating, cancellation-aware local prerequisite check for configuration validity, FFmpeg/OpenSSL versions, bounded PCM audio capture, bridge lifecycle contention, and playback/diagnostic readiness. The credential-safe result includes `AudioCapture` and `AudioCaptureRequired`; no bridge credentials or raw process output are returned. |
+| `GET /HueSync/Diagnostics` | Run a non-mutating, cancellation-aware local prerequisite check for configuration validity, FFmpeg version, managed DTLS readiness, bounded PCM audio capture, bridge lifecycle contention, and playback/diagnostic readiness. The credential-safe result includes the compatibility-shaped managed `OpenSsl` status, `AudioCapture`, and `AudioCaptureRequired`; no bridge credentials or raw process output are returned. |
 | `GET /HueSync/TargetDiagnostics` | Validate every saved default, inherited, and enabled custom bridge target without mutating bridge state; reports reachability, selected-area presence, available and selected channel counts, stale channel-profile IDs, credential presence, and sanitized readiness messages. |
 | `GET /HueSync/Diagnostics/SupportBundle` | Collect a consolidated credential-safe support document containing local diagnostics, saved-target validation, runtime status, bounded playback and scheduled-cue history, scheduler status, and a support-specific redacted configuration export. Bridge keys, playback tokens, and custom FFmpeg flag values are omitted; private labels and media metadata may remain. The operation is cancellation-aware while target validation is running. |
 | `POST /HueSync/Diagnostics/Cancel` | Request cancellation of active non-mutating System Diagnostics or saved-target validation checks. The bounded response reports whether any operation was found; the canceled request still owns its normal process/network cleanup. |
@@ -320,6 +320,7 @@ The plugin DLL will be generated at:
 
 The local release scripts produce `jellyfin-plugin-hue-v<version>.zip`, while the GitHub release workflow publishes the canonical `jellyfin-plugin-hue-release.zip` and its `jellyfin-plugin-hue-release.zip.sha256` checksum sidecar. Each archive contains exactly:
 
+* `BouncyCastle.Cryptography.dll` — the managed DTLS transport dependency
 * `Jellyfin.Plugin.Hue.dll` — the plugin assembly, including the embedded configuration page
 * `meta.json` — the Jellyfin plugin manifest and release version
 
@@ -395,7 +396,7 @@ Full CI runs locked restores, build/tests, formatting, dependency auditing, Gitl
   IP or `.local` host name manually.
 * **No areas are listed:** verify the bridge IP and App Key, then click **Refresh
   Entertainment Areas**. The selected area must contain color-capable lights.
-* **Lights stop updating:** run **System Diagnostics** first to confirm that `ffmpeg` and `openssl` are available to the Jellyfin
+* **Lights stop updating:** run **System Diagnostics** first to confirm that `ffmpeg` and the managed DTLS transport are ready for the Jellyfin
   service account and inspect the Jellyfin server log for `Hue Sync` and `FFmpeg` entries. If a
   frame stream ends or fails, or startup cannot complete, the plugin now rolls back immediately,
   restores saved lights—including color-temperature/mirek mode where applicable—and deactivates the area automatically. If repeated DTLS writes and
@@ -444,6 +445,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
+### Version 1.5.272 (Current)
+- **Credential-safe DTLS**: replace the OpenSSL child process with managed Bouncy Castle DTLS 1.2 PSK, keeping Hue App/Client Keys out of process arguments and `/proc` command-line inspection.
+- **Dependency-complete packaging**: release archives include `BouncyCastle.Cryptography.dll`; managed DTLS startup is cancellation-bounded and no longer depends on an OpenSSL executable.
+- **Regression coverage**: verify the Hue cipher contract, connected UDP transport, and nonresponsive-handshake cancellation cleanup.
+
 ### Version 1.5.271 (Current)
 - **Bounded cancellation cleanup**: diagnostic, preview, pause, startup rollback, and playback restoration use an independent 30-second budget that survives page/request cancellation while preventing an unreachable bridge from holding the lifecycle lease indefinitely.
 - **Partial restoration telemetry**: timed-out cleanup retains credential-free attempted/restored/failed counts and surfaces the existing cleanup warning instead of claiming success.
@@ -486,7 +492,7 @@ Benchmarks measure:
 - **Route-aware API and security coverage**: area, channel, and connection diagnostics accept an explicit device ID and fail closed on wrong-case, wrong-user, or wrong-bridge routes; bounded discovery returns identity/activity metadata only.
 
 ### Version 1.5.261
-- **Health checks before threshold suppression**: static scenes now verify DTLS stream health and attempt reconnection before color-change threshold skips, preventing a dead OpenSSL process from remaining broken indefinitely.
+- **Health checks before threshold suppression**: static scenes now verify DTLS stream health and attempt reconnection before color-change threshold skips, preventing a dead managed DTLS session from remaining broken indefinitely.
 - **Static-scene recovery coverage**: verifies an unhealthy stream is not reported as a successful threshold skip.
 
 ### Version 1.5.260
@@ -958,7 +964,7 @@ Benchmarks measure:
 ### Version 1.5.153
 - **Safe FFmpeg process arguments**: playback uses tokenized process arguments so media paths containing spaces or quotes remain reliable across platforms
 - **Custom FFmpeg flag parsing**: quoted values and escaped quotes/backslashes are preserved without shell interpretation; malformed quotes fail clearly before startup
-- **Cross-platform playback parity**: FFmpeg now follows the safe process-launch model already used by OpenSSL and environment diagnostics
+- **Cross-platform playback parity**: FFmpeg follows the safe process-launch model used by environment diagnostics while Hue streaming uses the managed DTLS transport
 
 ### Version 1.5.152
 - **Service-level target override normalization**: empty or whitespace-only target lists preserve each playlist's saved target mode across direct service execution and API calls
@@ -1367,7 +1373,7 @@ Benchmarks measure:
 - **Credential-safe administrator UI**: The browser keeps global App/Client Keys blank while still loading areas, channels, connection tests, and previews through the protected server-side fallback
 
 ### Version 1.5.54
-- **Cancellation-safe DTLS lifecycle**: Playback and diagnostics cancel OpenSSL startup, color writes, delayed reconnects, and area reactivation; stopped streams cannot resurrect a background tunnel
+- **Cancellation-safe DTLS lifecycle**: Playback and diagnostics cancel managed DTLS startup, color writes, delayed reconnects, and area reactivation; stopped streams cannot resurrect a background tunnel
 
 ### Version 1.5.53
 - **Local bridge discovery**: Discover Bridge now falls back to bounded mDNS/DNS-SD (`_hue._tcp.local`) when cloud discovery is unavailable or incomplete
@@ -1383,7 +1389,7 @@ Benchmarks measure:
 - **Activation cleanup safety**: If cancellation arrives while the bridge activation request is in flight, the diagnostic still deactivates the area and restores the captured light state before releasing the lifecycle lease
 
 ### Version 1.5.49
-- **System Diagnostics**: Add a non-mutating setup and runtime report for configuration validity, FFmpeg/OpenSSL availability and versions, lifecycle contention, and playback/diagnostic readiness
+- **System Diagnostics**: Add a non-mutating setup and runtime report for configuration validity, FFmpeg availability/version, managed DTLS readiness, lifecycle contention, and playback/diagnostic readiness
 - **Actionable setup feedback**: Add a configuration-page diagnostics panel that explains missing prerequisites without exposing bridge credentials
 
 ### Version 1.5.48
@@ -1566,7 +1572,7 @@ Benchmarks measure:
 ### Version 1.2.0
 - Cinema mode with configurable dim levels
 - Automatic DTLS reconnection with exponential backoff
-- Health monitoring for FFmpeg and OpenSSL processes
+- Health monitoring for FFmpeg and the managed DTLS transport
 - Configuration validation with helpful error messages
 
 ### Version 1.1.0

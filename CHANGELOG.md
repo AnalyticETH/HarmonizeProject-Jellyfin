@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.272] - 2026-08-25
+
+### Security
+- **Managed DTLS transport**: replace the OpenSSL child process with Bouncy Castle DTLS 1.2 PSK so Hue App and Client Keys never appear in process arguments or `/proc` command-line inspection.
+- **No external tunnel prerequisite**: system diagnostics and playback readiness no longer require an OpenSSL executable; the managed transport is packaged with the plugin.
+
+### Packaging and tests
+- **Dependency-complete release archive**: ship `BouncyCastle.Cryptography.dll` beside the plugin assembly and verify it in local and self-hosted release contracts.
+- **DTLS regression coverage**: cover the Hue cipher-suite contract, connected UDP adapter, and cancellation-bounded handshake cleanup.
+
 ## [1.5.271] - 2026-08-25
 
 ### Reliability

@@ -1,9 +1,15 @@
+using System;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Hue;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Org.BouncyCastle.Security;
+using Org.BouncyCastle.Tls;
 using Xunit;
 
 namespace Jellyfin.Plugin.Hue.Tests;
@@ -49,17 +55,35 @@ public class HueStreamerTests
     }
 
     [Fact]
-    public async Task StartStreamAsync_WhenCanceledBeforeStartupDoesNotLaunchProcess()
+    public async Task StartStreamAsync_WhenCanceledBeforeStartupDoesNotOpenTransport()
     {
         using var cancellationSource = new CancellationTokenSource();
         cancellationSource.Cancel();
 
-        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             _streamer.StartStreamAsync(
                 "192.168.1.100",
                 "app-key",
                 "00112233445566778899aabbccddeeff",
                 cancellationSource.Token));
+    }
+
+    [Fact]
+    public async Task StartStreamAsync_WhenHandshakeIsCanceledDoesNotLeaveABackgroundTask()
+    {
+        using var cancellationSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var stopwatch = Stopwatch.StartNew();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _streamer.StartStreamAsync(
+                "127.0.0.1",
+                "app-key",
+                "00112233445566778899aabbccddeeff",
+                cancellationSource.Token));
+
+        stopwatch.Stop();
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2));
+        Assert.False(_streamer.IsHealthy());
     }
 
     [Fact]
@@ -79,10 +103,8 @@ public class HueStreamerTests
     [Fact]
     public async Task SendColors_ReportsPacketTelemetryAndThresholdSkips()
     {
-        // Use the current test process only as a healthy-process sentinel; no process
-        // lifecycle is changed by this test because the stream input is an in-memory pipe.
-        SetPrivateField(_streamer, "_opensslProcess", System.Diagnostics.Process.GetCurrentProcess());
-        SetPrivateField(_streamer, "_stdin", new MemoryStream());
+        var connection = new TestDtlsConnection();
+        SetPrivateField(_streamer, "_dtlsConnection", connection);
         var colors = new Dictionary<int, byte[]>
         {
             [1] = new byte[] { 10, 10, 20, 20, 30, 30 }
@@ -105,11 +127,9 @@ public class HueStreamerTests
             [1] = new byte[] { 10, 10, 20, 20, 30, 30 }
         };
 
-        // A default Process has no started process and therefore reports unhealthy.
         // Keep the prior colors identical so the threshold would suppress the send if
         // health were checked after threshold filtering.
-        SetPrivateField(_streamer, "_opensslProcess", new System.Diagnostics.Process());
-        SetPrivateField(_streamer, "_stdin", new MemoryStream());
+        SetPrivateField(_streamer, "_dtlsConnection", new TestDtlsConnection { IsHealthy = false });
         SetPrivateField(_streamer, "_lastSentColors", new Dictionary<int, byte[]>
         {
             [1] = (byte[])colors[1].Clone()
@@ -120,6 +140,42 @@ public class HueStreamerTests
         Assert.False(sent);
         Assert.Equal(0, _streamer.PacketsSkippedByThreshold);
         Assert.Equal(1, _streamer.PacketSendFailures);
+    }
+
+    [Fact]
+    public void HuePskTlsClient_UsesHueDtls12PskContract()
+    {
+        var client = new HuePskTlsClient(
+            new Org.BouncyCastle.Tls.Crypto.Impl.BC.BcTlsCrypto(new SecureRandom()),
+            "app-key",
+            new byte[16],
+            handshakeTimeoutMilliseconds: 5000);
+
+        Assert.Equal(ProtocolVersion.DTLSv12, Assert.Single(HuePskTlsClient.HueProtocolVersions()));
+        Assert.Equal(CipherSuite.TLS_PSK_WITH_AES_128_GCM_SHA256, HuePskTlsClient.HueCipherSuite);
+        Assert.Equal(5000, client.GetHandshakeTimeoutMillis());
+    }
+
+    [Fact]
+    public void HueDatagramTransport_RoundTripsConnectedUdpDatagrams()
+    {
+        using var receiver = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        receiver.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        using var sender = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        sender.Connect((IPEndPoint)receiver.LocalEndPoint!);
+        using var transport = new HueDatagramTransport(sender);
+
+        var payload = "Hue DTLS test"u8.ToArray();
+        receiver.SendTo(payload, sender.LocalEndPoint!);
+
+        var buffer = new byte[64];
+        var received = transport.Receive(buffer, 0, buffer.Length, 1000);
+
+        Assert.Equal(payload.Length, received);
+        Assert.Equal(payload, buffer[..received]);
+        Assert.True(transport.IsOpen);
+        transport.Close();
+        Assert.False(transport.IsOpen);
     }
 
     #region Color Encoding Tests
@@ -192,6 +248,21 @@ public class HueStreamerTests
     {
         target.GetType().GetField(fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(target, value);
     }
+
+    private sealed class TestDtlsConnection : IHueDtlsConnection
+    {
+        public bool IsHealthy { get; set; } = true;
+
+        public void Send(byte[] buffer, int offset, int count)
+        {
+        }
+
+        public void Close()
+        {
+            IsHealthy = false;
+        }
+    }
+
 
     #region Color Change Detection Tests
 
