@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 const readme = fs.readFileSync("README.md", "utf8");
 const workflow = fs.readFileSync(".github/workflows/dotnet-ci.yml", "utf8");
+const meta = JSON.parse(fs.readFileSync("meta.json", "utf8"));
 
 const requiredReadmeMarkers = [
   "jellyfin-plugin-hue-release.zip",
@@ -26,6 +27,15 @@ for (const staleInstruction of [
   if (readme.includes(staleInstruction)) {
     throw new Error(`README.md still contains stale package guidance: ${staleInstruction}`);
   }
+}
+
+const currentVersion = String(meta.version || "").replace(/\.0$/, "");
+const currentHeadings = [...readme.matchAll(/^### Version ([^\n]+) \(Current\)$/gm)]
+  .map(match => match[1].trim());
+if (currentHeadings.length !== 1 || currentHeadings[0] !== currentVersion) {
+  throw new Error(
+    `README.md must have exactly one current release heading matching meta.json (${currentVersion}); found: ${currentHeadings.join(", ") || "none"}`
+  );
 }
 
 const requiredWorkflowMarkers = [

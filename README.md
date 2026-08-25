@@ -248,7 +248,7 @@ credential-safe migration.
 | `GET /HueSync/SceneSchedules/History/Export?limit=100&scheduleId=...&outcome=...` | Download the same credential-free scheduled-cue history document used by the administrator Export JSON action, including the selected cue and outcome filters. |
 | `GET /HueSync/SceneSchedules/History/ExportCsv?limit=100&scheduleId=...&outcome=...` | Download the same filtered scheduled-cue history as one credential-free UTF-8 CSV row per run, including effective direct-scene brightness, outcome, recovery and restored-after-restart state, run count, `targetAllEnabledMappings`, exact selected `targetUserIds`, nested `targetRoutes` (`userId`/`deviceId`) JSON, `includeDefaultTarget`, bounded nested-result counts, messages, and cleanup warnings. |
 | `DELETE /HueSync/SceneSchedules/History` | Clear retained scheduled-cue run summaries and reset last-run pointers without stopping an active cue. |
-| `GET /HueSync/Status` | Read sanitized runtime state, active Jellyfin user and target, active performance/color/execution/channel/restoration profile including effective audio sensitivity, band centers, band spread, beat-pulse response, release, onset threshold, and visualizer palette, effective pause behavior and pause dim level, frame count, effective FPS, stream packet counters, reconnect attempts, seek-recovery restart count and last seek position, FFmpeg/DTLS health, cleanup warnings, the credential-free `lastSession` summary, whether the current sync can be stopped safely, and a `sessions` array for concurrent playback workers. |
+| `GET /HueSync/Status` | Read sanitized runtime state, active Jellyfin user and target, active performance/color/execution/channel/restoration profile including effective audio sensitivity, band centers, band spread, beat-pulse response, release, onset threshold, and visualizer palette, effective pause behavior and pause dim level, credential-free playback position/duration/progress/pause telemetry, frame count, effective FPS, stream packet counters, reconnect attempts, seek-recovery restart count and last seek position, FFmpeg/DTLS health, cleanup warnings, the credential-free `lastSession` summary, whether the current sync can be stopped safely, and a `sessions` array for concurrent playback workers. |
 | `GET /HueSync/History?limit=20&outcome=Error` | Read the newest completed Hue session summaries (up to 25), optionally filtered by outcome, including target labels and aggregate playback quality/cleanup telemetry. Results are bounded in memory and never include bridge credentials or playback tokens. |
 | `GET /HueSync/History/Export?limit=25&outcome=Error` | Download the same sanitized session-history document used by the administrator Export JSON action for troubleshooting; bridge credentials and playback tokens are omitted. |
 | `GET /HueSync/History/ExportCsv?limit=25&outcome=Error` | Download the same filtered completed-session history as credential-free UTF-8 CSV with playback quality counters, timestamps, target metadata, errors, and cleanup warnings. |
@@ -445,7 +445,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.273 (Current)
+### Version 1.5.274 (Current)
+- **Credential-free playback progress**: Live Sync Status, `GET /HueSync/Status`, and support bundles now show active media position, duration, bounded progress percentage, pause state, and observation time without exposing playback tokens or bridge credentials.
+- **Release-documentation guard**: validation now requires exactly one current release heading matching `meta.json`.
+
+### Version 1.5.273
 - **Accurate release requirements**: release instructions now state that only FFmpeg is an external prerequisite; the managed Hue DTLS transport is included in the package and OpenSSL is not required.
 
 ### Version 1.5.272
@@ -453,7 +457,7 @@ Benchmarks measure:
 - **Dependency-complete packaging**: release archives include `BouncyCastle.Cryptography.dll`; managed DTLS startup is cancellation-bounded and no longer depends on an OpenSSL executable.
 - **Regression coverage**: verify the Hue cipher contract, connected UDP transport, and nonresponsive-handshake cancellation cleanup.
 
-### Version 1.5.271 (Current)
+### Version 1.5.271
 - **Bounded cancellation cleanup**: diagnostic, preview, pause, startup rollback, and playback restoration use an independent 30-second budget that survives page/request cancellation while preventing an unreachable bridge from holding the lifecycle lease indefinitely.
 - **Partial restoration telemetry**: timed-out cleanup retains credential-free attempted/restored/failed counts and surfaces the existing cleanup warning instead of claiming success.
 

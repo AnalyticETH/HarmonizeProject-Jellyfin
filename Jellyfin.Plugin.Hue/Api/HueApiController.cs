@@ -6166,6 +6166,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 ReconnectAttempts = runtime?.ReconnectAttempts ?? 0,
                 SeekRestartCount = runtime?.SeekRestartCount ?? 0,
                 LastSeekPositionSeconds = runtime?.LastSeekPositionSeconds,
+                PlaybackPositionSeconds = runtime?.PlaybackPositionSeconds,
+                PlaybackDurationSeconds = runtime?.PlaybackDurationSeconds,
+                PlaybackProgressPercent = runtime?.PlaybackProgressPercent,
+                PlaybackIsPaused = runtime?.PlaybackIsPaused,
+                PlaybackObservedAtUtc = runtime?.PlaybackObservedAtUtc,
                 CanStopSync = runtime?.CanStopSync ?? false,
                 IsFfmpegHealthy = runtime?.IsFfmpegHealthy ?? false,
                 IsDtlsHealthy = runtime?.IsDtlsHealthy ?? false,
@@ -12141,6 +12146,11 @@ namespace Jellyfin.Plugin.Hue.Api
         public int ReconnectAttempts { get; set; }
         public int SeekRestartCount { get; set; }
         public double? LastSeekPositionSeconds { get; set; }
+        public double? PlaybackPositionSeconds { get; set; }
+        public double? PlaybackDurationSeconds { get; set; }
+        public double? PlaybackProgressPercent { get; set; }
+        public bool? PlaybackIsPaused { get; set; }
+        public DateTime? PlaybackObservedAtUtc { get; set; }
         public bool CanStopSync { get; set; }
         public bool IsFfmpegHealthy { get; set; }
         public bool IsDtlsHealthy { get; set; }

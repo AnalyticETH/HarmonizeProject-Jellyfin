@@ -102,6 +102,12 @@ public sealed class HueSyncServiceLifecycleTests
         SetPrivateField(service, "_lastSeekPositionSeconds", 142.5);
         SetPrivateField(service, "_runtimeState", "Syncing");
         SetPrivateField(service, "_runtimeMessage", "Streaming video colors to Hue.");
+        SetPrivateField(service, "_currentPlaySessionId", "timeline-session");
+        SetPrivateField(service, "_currentPlaybackPositionTicks", TimeSpan.FromSeconds(142.5).Ticks);
+        SetPrivateField(service, "_currentPlaybackDurationTicks", TimeSpan.FromMinutes(120).Ticks);
+        SetPrivateField(service, "_currentPlaybackIsPaused", true);
+        var playbackObservedAtUtc = DateTime.UtcNow.AddSeconds(-1);
+        SetPrivateField(service, "_currentPlaybackObservedAtUtc", playbackObservedAtUtc);
         var hueStreamer = Assert.IsType<HueStreamer>(GetPrivateField(service, "_hueStreamer"));
         SetPrivateField(hueStreamer, "_packetsSent", 42L);
         SetPrivateField(hueStreamer, "_packetsSkippedByThreshold", 7L);
@@ -158,6 +164,11 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Equal(1, status.ReconnectAttempts);
         Assert.Equal(2, status.SeekRestartCount);
         Assert.Equal(142.5, status.LastSeekPositionSeconds);
+        Assert.Equal(142.5, status.PlaybackPositionSeconds);
+        Assert.Equal(7200, status.PlaybackDurationSeconds);
+        Assert.True(Math.Abs((status.PlaybackProgressPercent ?? 0) - 1.9791666666666667) < 0.0001);
+        Assert.True(status.PlaybackIsPaused);
+        Assert.Equal(playbackObservedAtUtc, status.PlaybackObservedAtUtc);
         Assert.True(status.SyncDurationSeconds >= 2);
         Assert.DoesNotContain("secret-app-key", status.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-client-key", status.Message, StringComparison.Ordinal);
@@ -174,6 +185,11 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Null(stoppedStatus.ActivePlaybackMediaFilter);
         Assert.Equal(0, stoppedStatus.SeekRestartCount);
         Assert.Null(stoppedStatus.LastSeekPositionSeconds);
+        Assert.Null(stoppedStatus.PlaybackPositionSeconds);
+        Assert.Null(stoppedStatus.PlaybackDurationSeconds);
+        Assert.Null(stoppedStatus.PlaybackProgressPercent);
+        Assert.Null(stoppedStatus.PlaybackIsPaused);
+        Assert.Null(stoppedStatus.PlaybackObservedAtUtc);
     }
 
     [Fact]

@@ -91,6 +91,10 @@ namespace Jellyfin.Plugin.Hue.Service
         private long? _lastPlaybackPositionTicks;
         private DateTime _lastPlaybackPositionObservedUtc;
         private bool _lastPlaybackProgressWasPaused;
+        private long? _currentPlaybackPositionTicks;
+        private long? _currentPlaybackDurationTicks;
+        private bool _currentPlaybackIsPaused;
+        private DateTime? _currentPlaybackObservedAtUtc;
         private bool _seekRestartInFlight;
         private int _seekRestartCount;
         private double? _lastSeekPositionSeconds;
@@ -631,6 +635,10 @@ namespace Jellyfin.Plugin.Hue.Service
             bool canStopSync;
             int seekRestartCount;
             double? lastSeekPositionSeconds;
+            long? playbackPositionTicks;
+            long? playbackDurationTicks;
+            bool playbackIsPaused;
+            DateTime? playbackObservedAtUtc;
             HueSessionSummary? lastSessionSummary;
             string? playSessionId;
             string? currentDeviceId;
@@ -681,6 +689,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 canStopSync = CanStopSync;
                 seekRestartCount = _seekRestartCount;
                 lastSeekPositionSeconds = _lastSeekPositionSeconds;
+                playbackPositionTicks = _currentPlaybackPositionTicks;
+                playbackDurationTicks = _currentPlaybackDurationTicks;
+                playbackIsPaused = _currentPlaybackIsPaused;
+                playbackObservedAtUtc = _currentPlaybackObservedAtUtc;
                 lastSessionSummary = _lastSessionSummary;
                 playSessionId = _currentPlaySessionId;
             }
@@ -694,6 +706,16 @@ namespace Jellyfin.Plugin.Hue.Service
             var framesProcessed = ffmpeg?.FramesProcessed ?? 0;
             var effectiveFps = isSyncing && syncDuration > 0 && framesProcessed > 0
                 ? framesProcessed / syncDuration.Value
+                : (double?)null;
+            var hasPlaybackTimeline = playSessionId != null || currentItem != null;
+            var playbackPositionSeconds = hasPlaybackTimeline && playbackPositionTicks is >= 0
+                ? TimeSpan.FromTicks(playbackPositionTicks.Value).TotalSeconds
+                : (double?)null;
+            var playbackDurationSeconds = hasPlaybackTimeline && playbackDurationTicks is > 0
+                ? TimeSpan.FromTicks(playbackDurationTicks.Value).TotalSeconds
+                : (double?)null;
+            var playbackProgressPercent = playbackPositionSeconds.HasValue && playbackDurationSeconds is > 0
+                ? Math.Clamp(playbackPositionSeconds.Value * 100 / playbackDurationSeconds.Value, 0, 100)
                 : (double?)null;
 
             return new HueRuntimeStatus
@@ -771,6 +793,11 @@ namespace Jellyfin.Plugin.Hue.Service
                 ReconnectAttempts = isSyncing ? hueStreamer?.ReconnectAttempts ?? 0 : 0,
                 SeekRestartCount = isSyncing ? seekRestartCount : 0,
                 LastSeekPositionSeconds = isSyncing ? lastSeekPositionSeconds : null,
+                PlaybackPositionSeconds = playbackPositionSeconds,
+                PlaybackDurationSeconds = playbackDurationSeconds,
+                PlaybackProgressPercent = playbackProgressPercent,
+                PlaybackIsPaused = hasPlaybackTimeline ? playbackIsPaused : null,
+                PlaybackObservedAtUtc = hasPlaybackTimeline ? playbackObservedAtUtc : null,
                 IsFfmpegHealthy = isSyncing && ffmpeg?.IsHealthy(
                     activeExecutionSettings?.FfmpegStallTimeoutSeconds
                         ?? Plugin.Instance?.Configuration?.FfmpegStallTimeoutSeconds
@@ -1183,9 +1210,25 @@ namespace Jellyfin.Plugin.Hue.Service
             _lastPlaybackPositionTicks = null;
             _lastPlaybackPositionObservedUtc = default;
             _lastPlaybackProgressWasPaused = false;
+            _currentPlaybackPositionTicks = null;
+            _currentPlaybackDurationTicks = null;
+            _currentPlaybackIsPaused = false;
+            _currentPlaybackObservedAtUtc = null;
             _seekRestartInFlight = false;
             _seekRestartCount = 0;
             _lastSeekPositionSeconds = null;
+        }
+
+        private void UpdatePlaybackTimelineLocked(PlaybackProgressEventArgs e, DateTime observedAtUtc)
+        {
+            if (e.PlaybackPositionTicks is >= 0)
+                _currentPlaybackPositionTicks = e.PlaybackPositionTicks;
+
+            if (e.Item?.RunTimeTicks is > 0)
+                _currentPlaybackDurationTicks = e.Item.RunTimeTicks;
+
+            _currentPlaybackIsPaused = e.IsPaused;
+            _currentPlaybackObservedAtUtc = observedAtUtc;
         }
 
         private void ClearTransientRuntimeWarning()
@@ -1510,8 +1553,10 @@ namespace Jellyfin.Plugin.Hue.Service
                     ? null
                     : e.Session!.UserName.Trim();
                 _lastPlaybackPositionTicks = e.PlaybackPositionTicks;
-                _lastPlaybackPositionObservedUtc = DateTime.UtcNow;
+                var observedAtUtc = DateTime.UtcNow;
+                _lastPlaybackPositionObservedUtc = observedAtUtc;
                 _lastPlaybackProgressWasPaused = e.IsPaused;
+                UpdatePlaybackTimelineLocked(e, observedAtUtc);
                 _externalPlaybackStartPending = true;
                 _externalPlaybackStopRequested = false;
                 return true;
@@ -1623,8 +1668,10 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 _lastPlaybackPositionTicks = e.PlaybackPositionTicks;
-                _lastPlaybackPositionObservedUtc = DateTime.UtcNow;
+                var observedAtUtc = DateTime.UtcNow;
+                _lastPlaybackPositionObservedUtc = observedAtUtc;
                 _lastPlaybackProgressWasPaused = e.IsPaused;
+                UpdatePlaybackTimelineLocked(e, observedAtUtc);
             }
 
             ObserveTask(StartSyncForItem(e));
@@ -1702,6 +1749,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         _currentPlaySessionId = null;
                         _recoveredSessionId = null;
                         _currentItemName = null;
+                        ResetPlaybackProgressTrackingLocked();
                     }
                 }
             }
@@ -1871,6 +1919,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     }
 
                     _lastPlaybackProgressWasPaused = e.IsPaused;
+                    UpdatePlaybackTimelineLocked(e, observedAtUtc);
                     if (shouldRestartForSeek)
                     {
                         _seekRestartInFlight = true;
@@ -2147,6 +2196,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     _currentPlaySessionId = null;
                     _recoveredSessionId = null;
+                    ResetPlaybackProgressTrackingLocked();
                 }
             }
 
@@ -4606,6 +4656,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _bridgeAreaDeactivated = false;
                     _syncStartTime = preservedSyncStartTime ?? DateTime.UtcNow;
                     _currentItemName = e.Item?.Name;
+                    UpdatePlaybackTimelineLocked(e, DateTime.UtcNow);
                     _currentFrameResolution = isAudioPlayback ? null : frameResolution;
                     _currentVideoScalingMode = isAudioPlayback ? null : videoScalingMode;
                     _currentVideoDeinterlaceMode = isAudioPlayback ? null : videoDeinterlaceMode;
@@ -5058,7 +5109,13 @@ namespace Jellyfin.Plugin.Hue.Service
             finally
             {
                 if (clearCurrentItem)
+                {
                     CurrentItemName = null;
+                    lock (_syncLock)
+                    {
+                        ResetPlaybackProgressTrackingLocked();
+                    }
+                }
                 lock (_syncLock)
                 {
                     _currentUserId = null;
@@ -5542,6 +5599,16 @@ namespace Jellyfin.Plugin.Hue.Service
         public int ReconnectAttempts { get; init; }
         public int SeekRestartCount { get; init; }
         public double? LastSeekPositionSeconds { get; init; }
+        /// <summary>
+        /// Credential-free media timeline telemetry from Jellyfin playback progress events.
+        /// These values remain available while the stream is paused, but are cleared when
+        /// the playback lifecycle ends.
+        /// </summary>
+        public double? PlaybackPositionSeconds { get; init; }
+        public double? PlaybackDurationSeconds { get; init; }
+        public double? PlaybackProgressPercent { get; init; }
+        public bool? PlaybackIsPaused { get; init; }
+        public DateTime? PlaybackObservedAtUtc { get; init; }
         public bool IsFfmpegHealthy { get; init; }
         public bool IsDtlsHealthy { get; init; }
         public double? SyncDurationSeconds { get; init; }

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.274] - 2026-08-25
+
+### Runtime telemetry
+- **Credential-free playback progress**: expose active media position, duration, bounded progress percentage, pause state, and observation time through runtime status and support bundles while clearing the timeline when playback ends.
+- **Administrator visibility**: show the playback timeline alongside existing live Hue stream quality and seek-recovery telemetry.
+
+### Documentation and tests
+- **Status contract parity**: document playback timeline fields and enforce exactly one current release heading in the release documentation validator.
+- **Regression coverage**: verify active and paused timeline snapshots, API/support-bundle projection, lifecycle cleanup, and credential omission.
+
 ## [1.5.273] - 2026-08-25
 
 ### Documentation

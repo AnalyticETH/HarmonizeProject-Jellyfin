@@ -8289,6 +8289,11 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(0, status.ReconnectAttempts);
         Assert.Equal(0, status.SeekRestartCount);
         Assert.Null(status.LastSeekPositionSeconds);
+        Assert.Null(status.PlaybackPositionSeconds);
+        Assert.Null(status.PlaybackDurationSeconds);
+        Assert.Null(status.PlaybackProgressPercent);
+        Assert.Null(status.PlaybackIsPaused);
+        Assert.Null(status.PlaybackObservedAtUtc);
         Assert.Null(status.LastError);
         Assert.Null(status.CleanupWarning);
         Assert.Null(status.LastSession);
@@ -8311,6 +8316,11 @@ public sealed class HueApiControllerTests : IDisposable
             Mock.Of<IMediaEncoder>());
         SetPrivateField(service, "_activePauseBehavior", PluginConfiguration.PauseBehaviorDimToCinemaLevel);
         SetPrivateField(service, "_activePauseBrightnessPercent", 25);
+        SetPrivateField(service, "_currentPlaySessionId", "timeline-session");
+        SetPrivateField(service, "_currentItemName", "Feature film");
+        SetPrivateField(service, "_currentPlaybackPositionTicks", TimeSpan.FromSeconds(90).Ticks);
+        SetPrivateField(service, "_currentPlaybackDurationTicks", TimeSpan.FromMinutes(10).Ticks);
+        SetPrivateField(service, "_currentPlaybackIsPaused", true);
         var environmentProbe = new Mock<IHueEnvironmentProbe>();
         environmentProbe
             .Setup(probe => probe.CheckAsync(It.IsAny<CancellationToken>()))
@@ -8329,12 +8339,20 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(status.ServiceAvailable);
         Assert.Equal(PluginConfiguration.PauseBehaviorDimToCinemaLevel, status.ActivePauseBehavior);
         Assert.Equal(25, status.ActivePauseBrightnessPercent);
+        Assert.Equal(90, status.PlaybackPositionSeconds);
+        Assert.Equal(600, status.PlaybackDurationSeconds);
+        Assert.Equal(15, status.PlaybackProgressPercent);
+        Assert.True(status.PlaybackIsPaused);
 
         var bundleAction = await controller.ExportSupportBundle();
         var bundleResponse = Assert.IsType<OkObjectResult>(bundleAction.Result);
         var bundle = Assert.IsType<HueSupportBundle>(bundleResponse.Value);
         Assert.Equal(PluginConfiguration.PauseBehaviorDimToCinemaLevel, bundle.Runtime.ActivePauseBehavior);
         Assert.Equal(25, bundle.Runtime.ActivePauseBrightnessPercent);
+        Assert.Equal(90, bundle.Runtime.PlaybackPositionSeconds);
+        Assert.Equal(600, bundle.Runtime.PlaybackDurationSeconds);
+        Assert.Equal(15, bundle.Runtime.PlaybackProgressPercent);
+        Assert.True(bundle.Runtime.PlaybackIsPaused);
         var serialized = JsonSerializer.Serialize(bundle);
         Assert.Contains("\"ActivePauseBehavior\":\"DimToCinemaLevel\"", serialized, StringComparison.Ordinal);
         Assert.Contains("\"ActivePauseBrightnessPercent\":25", serialized, StringComparison.Ordinal);
