@@ -461,12 +461,14 @@ const requiredScript = [
     "sceneScheduleConflictsExport",
     "exportSceneScheduleOccurrences: function",
     "sceneScheduleOccurrencesExport",
+    "exportSceneScheduleCalendar: function",
+    "sceneScheduleCalendarExport",
     "url += \"&scheduleId=\"",
     "days=\" + String(horizonDays)",
     "occurrenceQuery.horizonDays",
     "calendarUrl += \"&scheduleId=\"",
     "historyUrl += \"&scheduleId=\"",
-    "exportUrl += \"&scheduleId=\"",
+    "currentExportUrl += \"&scheduleId=\"",
     "setSceneSchedulesEnabledBulk: function",
     "HueSync/SceneSchedules/BulkEnabled",
     "setSceneSchedulesSkipNextBulk: function",
@@ -575,6 +577,9 @@ const requiredScript = [
     "exportSceneScheduleOccurrencesCsv: function",
     "exportSceneScheduleHistoryCsv: function",
     "exportSessionHistoryCsv: function",
+    "exportSceneScheduleHistory: function",
+    "exportSessionHistory: function",
+    "exportConfiguration: function",
     "SceneSchedules/Conflicts/ExportCsv",
     "SceneSchedules/Occurrences/ExportCsv",
     "SceneSchedules/History/ExportCsv",
@@ -778,6 +783,133 @@ for (const [functionName, requestKey, loadingProperty, queryMarker] of [
 }
 
 {
+    const start = scriptMatch[1].indexOf("downloadCsvFromApi: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "downloadCsvFromApi: function (page, pageGeneration, requestKey, url, fileName, queryGuard)",
+        "getPageLifecycleRequest",
+        "{ dataType: \"text\" }",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, request)",
+        "(!queryGuard || queryGuard())",
+        "if (!isCurrent()) return;",
+        "HueConfigurationPage.downloadCsvDocument(csv, fileName)",
+        "trackedRequest._huePageRequestRecord = request._huePageRequestRecord"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} downloadCsvFromApi is missing lifecycle-aware CSV handling: ${marker}`);
+        }
+    }
+}
+
+for (const [functionName, requestKey, routeMarker, queryMarker, downloadMarker] of [
+    ["exportSceneScheduleHistory", "sceneScheduleHistoryExport", "SceneSchedules/History/Export", "getExportUrl() === exportUrl", "JSON.stringify(historyDocument, null, 2)"],
+    ["exportSessionHistory", "sessionHistoryExport", "getSessionHistoryUrl(page, \"History/Export\", 25)", "getSessionHistoryUrl(page, \"History/Export\", 25) === exportUrl", "JSON.stringify(historyDocument, null, 2)"]
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration",
+        `cancelPageLifecycleRequest(page, '${requestKey}')`,
+        `pageGeneration,\n                        '${requestKey}'`,
+        "getPageLifecycleRequest",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, request)",
+        queryMarker,
+        routeMarker,
+        "if (!isCurrent()) return;",
+        "download",
+        downloadMarker
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing JSON export lifecycle/query protection: ${marker}`);
+        }
+    }
+    const staleGuards = functionBody.match(/if \(!isCurrent\(\)/g) || [];
+    if (staleGuards.length < 3) {
+        throw new Error(`${file} ${functionName} must guard success, catch, and finally callbacks`);
+    }
+}
+
+{
+    const functionName = "exportConfiguration";
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration",
+        "cancelPageLifecycleRequest(page, 'configurationExport')",
+        "pageGeneration,\n                        'configurationExport'",
+        "HueSync/Configuration/Export",
+        "getPageLifecycleRequest",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, request)",
+        "if (!isCurrent()) return;",
+        "JSON.stringify(exportDocument, null, 2)"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing configuration export lifecycle protection: ${marker}`);
+        }
+    }
+    if (!functionBody.includes("if (isCurrent())") ||
+        !functionBody.includes("page._hueConfigurationExporting = false")) {
+        throw new Error(`${file} ${functionName} must guard terminal cleanup against stale page lifecycle state`);
+    }
+}
+
+for (const [functionName, requestKey, queryMarker] of [
+    ["exportSceneScheduleConflictsCsv", "sceneScheduleConflictsCsvExport", "getSceneScheduleConflictQuery(page).url === scheduleQuery.url"],
+    ["exportSceneScheduleOccurrencesCsv", "sceneScheduleOccurrencesCsvExport", "getSceneScheduleOccurrenceQuery(page).url === scheduleQuery.url"],
+    ["exportSceneScheduleHistoryCsv", "sceneScheduleHistoryCsvExport", "getExportUrl() === exportUrl"],
+    ["exportSessionHistoryCsv", "sessionHistoryCsvExport", "getSessionHistoryUrl(page, \"History/ExportCsv\", 25) === csvUrl"]
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration",
+        `cancelPageLifecycleRequest(page, '${requestKey}')`,
+        `pageGeneration,\n                        '${requestKey}'`,
+        "downloadCsvFromApi",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, request)",
+        queryMarker,
+        "if (!isCurrent()) return;"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing CSV lifecycle/query protection: ${marker}`);
+        }
+    }
+    const staleGuards = functionBody.match(/if \(!isCurrent\(\)/g) || [];
+    if (staleGuards.length < 3) {
+        throw new Error(`${file} ${functionName} must guard success, catch, and finally callbacks`);
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("exportSceneScheduleCalendar: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration",
+        "cancelPageLifecycleRequest(page, 'sceneScheduleCalendarExport')",
+        "getSceneScheduleOccurrenceQuery(page)",
+        "getPageLifecycleRequest",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, request)",
+        "currentQuery.url === occurrenceQuery.url",
+        "if (!isCurrent()) return;",
+        "new Blob([String(calendar || \"\")], { type: \"text/calendar;charset=utf-8\" })",
+        "if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} exportSceneScheduleCalendar is missing query-scoped lifecycle protection: ${marker}`);
+        }
+    }
+    const staleGuards = functionBody.match(/if \(!isCurrent\(\)/g) || [];
+    if (staleGuards.length < 3) {
+        throw new Error(`${file} exportSceneScheduleCalendar must guard success, catch, and finally callbacks`);
+    }
+}
+
+{
     const start = scriptMatch[1].indexOf("invalidatePageLifecycle: function");
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
@@ -790,9 +922,17 @@ for (const [functionName, requestKey, loadingProperty, queryMarker] of [
         "page._hueSceneScheduleRuntimeStatusLoading = false",
         "page._hueSceneScheduleConflictsLoading = false",
         "page._hueSceneScheduleConflictsExporting = false",
+        "page._hueSceneScheduleConflictsCsvExporting = false",
         "page._hueSceneScheduleOccurrencesLoading = false",
         "page._hueSceneScheduleOccurrencesExporting = false",
+        "page._hueSceneScheduleOccurrencesCsvExporting = false",
+        "page._hueSceneScheduleCalendarExporting = false",
         "page._hueSceneScheduleHistoryLoading = false",
+        "page._hueSceneScheduleHistoryExporting = false",
+        "page._hueSceneScheduleHistoryCsvExporting = false",
+        "page._hueSessionHistoryExporting = false",
+        "page._hueSessionHistoryCsvExporting = false",
+        "page._hueConfigurationExporting = false",
         "page._hueDiagnosticsLoading = false",
         "page._hueTargetDiagnosticsLoading = false",
         "page._hueDiagnosticsRequest = null",
@@ -1156,6 +1296,51 @@ for (const [functionName, markers] of [
     for (const marker of markers) {
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} ${functionName} is missing scheduled device-route contract: ${marker}`);
+        }
+    }
+}
+
+for (const [selector, keys] of [
+    ["#sceneScheduleConflictFilter", [
+        "sceneScheduleConflictsExport",
+        "sceneScheduleConflictsCsvExport"
+    ]],
+    ["#sceneScheduleReportHorizon", [
+        "sceneScheduleConflictsExport",
+        "sceneScheduleConflictsCsvExport",
+        "sceneScheduleOccurrencesExport",
+        "sceneScheduleOccurrencesCsvExport",
+        "sceneScheduleCalendarExport",
+        "sceneScheduleHistoryExport",
+        "sceneScheduleHistoryCsvExport"
+    ]],
+    ["#sceneScheduleOccurrenceFilter", [
+        "sceneScheduleOccurrencesExport",
+        "sceneScheduleOccurrencesCsvExport",
+        "sceneScheduleCalendarExport"
+    ]],
+    ["#sceneScheduleHistoryOutcome", [
+        "sceneScheduleHistoryExport",
+        "sceneScheduleHistoryCsvExport"
+    ]],
+    ["#sceneScheduleHistoryCueFilter", [
+        "sceneScheduleHistoryExport",
+        "sceneScheduleHistoryCsvExport"
+    ]],
+    ["#sessionHistoryOutcome", [
+        "sessionHistoryExport",
+        "sessionHistoryCsvExport"
+    ]]
+]) {
+    const start = scriptMatch[1].indexOf(`document.querySelector('${selector}').addEventListener('change'`);
+    const end = scriptMatch[1].indexOf("\n            });", start);
+    const handlerBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!handlerBody.includes("var page = this.closest('.page');")) {
+        throw new Error(`${file} ${selector} filter handler must resolve its page before cancelling exports`);
+    }
+    for (const key of keys) {
+        if (!handlerBody.includes(`cancelPageLifecycleRequest(page, '${key}')`)) {
+            throw new Error(`${file} ${selector} filter handler must cancel ${key}`);
         }
     }
 }

@@ -455,7 +455,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.300 (Current)
+### Version 1.5.301 (Current)
+- **Lifecycle-safe exports**: configuration, scheduled-cue JSON/CSV/iCalendar, and session-history exports are bound to the active page and query scope; stale work is cancelled or ignored and controls recover after filter changes or navigation.
+- **Export regression contracts**: validator coverage protects request records, filter/horizon cancellation, credential-free downloads, and teardown cleanup.
+
+### Version 1.5.300
 - **Run/cancel lifecycle safety**: bulk scheduled-cue Run and Cancel actions no longer contend with the configuration-writer lease, so active runs execute and remain cancellable.
 - **Stale-safe occurrence exports**: occurrence JSON exports cancel superseded requests and ignore stale filter or page responses, including safe teardown reset.
 - **Dependabot and PR gate**: untrusted changes run read-only build, test, format, vulnerability, Gitleaks, and Semgrep checks on ephemeral `ubuntu-24.04`; trusted main packaging and release remain on the named self-hosted runners.

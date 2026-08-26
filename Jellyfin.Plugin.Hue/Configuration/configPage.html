@@ -2362,6 +2362,23 @@
                     if (!record) return;
                     delete requests[key];
                     HueConfigurationPage.abortPageLifecycleRequest(record);
+                    var exportStates = {
+                        sceneScheduleConflictsExport: { property: '_hueSceneScheduleConflictsExporting', selector: '#exportSceneScheduleConflictsBtn' },
+                        sceneScheduleConflictsCsvExport: { property: '_hueSceneScheduleConflictsCsvExporting', selector: '#exportSceneScheduleConflictsCsvBtn' },
+                        sceneScheduleOccurrencesExport: { property: '_hueSceneScheduleOccurrencesExporting', selector: '#exportSceneScheduleOccurrencesBtn' },
+                        sceneScheduleOccurrencesCsvExport: { property: '_hueSceneScheduleOccurrencesCsvExporting', selector: '#exportSceneScheduleOccurrencesCsvBtn' },
+                        sceneScheduleCalendarExport: { property: '_hueSceneScheduleCalendarExporting', selector: '#exportSceneScheduleCalendarBtn' },
+                        sceneScheduleHistoryExport: { property: '_hueSceneScheduleHistoryExporting', selector: '#exportSceneScheduleHistoryBtn' },
+                        sceneScheduleHistoryCsvExport: { property: '_hueSceneScheduleHistoryCsvExporting', selector: '#exportSceneScheduleHistoryCsvBtn' },
+                        sessionHistoryExport: { property: '_hueSessionHistoryExporting', selector: '#exportSessionHistoryBtn' },
+                        sessionHistoryCsvExport: { property: '_hueSessionHistoryCsvExporting', selector: '#exportSessionHistoryCsvBtn' },
+                        configurationExport: { property: '_hueConfigurationExporting', selector: '#exportConfigurationBtn' }
+                    }[key];
+                    if (exportStates) {
+                        page[exportStates.property] = false;
+                        var exportButton = page.querySelector && page.querySelector(exportStates.selector);
+                        if (exportButton) exportButton.disabled = false;
+                    }
                 },
                 invalidatePageLifecycle: function (page) {
                     if (!page) return;
@@ -2377,9 +2394,17 @@
                     page._hueSceneScheduleRuntimeStatusLoading = false;
                     page._hueSceneScheduleConflictsLoading = false;
                     page._hueSceneScheduleConflictsExporting = false;
+                    page._hueSceneScheduleConflictsCsvExporting = false;
                     page._hueSceneScheduleOccurrencesLoading = false;
                     page._hueSceneScheduleOccurrencesExporting = false;
+                    page._hueSceneScheduleOccurrencesCsvExporting = false;
+                    page._hueSceneScheduleCalendarExporting = false;
                     page._hueSceneScheduleHistoryLoading = false;
+                    page._hueSceneScheduleHistoryExporting = false;
+                    page._hueSceneScheduleHistoryCsvExporting = false;
+                    page._hueSessionHistoryExporting = false;
+                    page._hueSessionHistoryCsvExporting = false;
+                    page._hueConfigurationExporting = false;
                     page._hueDiagnosticsLoading = false;
                     page._hueTargetDiagnosticsLoading = false;
                     page._hueDiagnosticsRequest = null;
@@ -2893,11 +2918,25 @@
                     });
                 },
                 exportConfiguration: function (page) {
+                    if (!page || page._hueConfigurationExporting) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'configurationExport');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
+                    page._hueConfigurationExporting = true;
                     var button = page && page.querySelector('#exportConfigurationBtn');
                     var status = page && page.querySelector('#configurationPortabilityStatus');
                     if (button) button.disabled = true;
                     Dashboard.showLoadingMsg();
-                    ApiClient.getJSON(ApiClient.getUrl("HueSync/Configuration/Export")).then(function (exportDocument) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'configurationExport',
+                        ApiClient.getUrl("HueSync/Configuration/Export"));
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (exportDocument) {
+                        if (!isCurrent()) return;
                         var blob = new Blob([JSON.stringify(exportDocument, null, 2)], { type: "application/json" });
                         var url = URL.createObjectURL(blob);
                         var link = window.document.createElement('a');
@@ -2912,13 +2951,17 @@
                             status.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to export Hue configuration:", err);
                         if (status) {
                             status.textContent = "Unable to export configuration. Check the server log.";
                             status.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        if (button) button.disabled = false;
+                        if (isCurrent()) {
+                            page._hueConfigurationExporting = false;
+                            if (button) button.disabled = false;
+                        }
                         Dashboard.hideLoadingMsg();
                     });
                 },
@@ -7491,14 +7534,23 @@
                     window.document.body.removeChild(link);
                     window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
                 },
-                downloadCsvFromApi: function (url, fileName) {
-                    return ApiClient.ajax({
-                        type: "GET",
-                        url: ApiClient.getUrl(url),
-                        dataType: "text"
-                    }).then(function (csv) {
+                downloadCsvFromApi: function (page, pageGeneration, requestKey, url, fileName, queryGuard) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        requestKey,
+                        ApiClient.getUrl(url),
+                        { dataType: "text" });
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request) &&
+                            (!queryGuard || queryGuard());
+                    };
+                    var trackedRequest = request.then(function (csv) {
+                        if (!isCurrent()) return;
                         HueConfigurationPage.downloadCsvDocument(csv, fileName);
                     });
+                    trackedRequest._huePageRequestRecord = request._huePageRequestRecord;
+                    return trackedRequest;
                 },
                 loadSceneScheduleConflicts: function (page) {
                     if (!page) return Promise.resolve();
@@ -7665,6 +7717,9 @@
                 },
                 exportSceneScheduleConflictsCsv: function (page) {
                     if (!page || page._hueSceneScheduleConflictsCsvExporting) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleConflictsCsvExport');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleConflictsCsvExporting = true;
                     var button = page.querySelector('#exportSceneScheduleConflictsCsvBtn');
                     var summary = page.querySelector('#sceneScheduleConflictsSummary');
@@ -7674,20 +7729,41 @@
                         "SceneSchedules/Conflicts?",
                         "SceneSchedules/Conflicts/ExportCsv?");
                     var scopeText = scheduleQuery.label ? " for " + scheduleQuery.label : "";
-                    return HueConfigurationPage.downloadCsvFromApi(
+                    var isQueryCurrent = function () {
+                        return HueConfigurationPage.getSceneScheduleConflictQuery(page).url === scheduleQuery.url;
+                    };
+                    var request = HueConfigurationPage.downloadCsvFromApi(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleConflictsCsvExport',
                         csvUrl,
-                        "jellyfin-hue-scene-schedule-conflicts.csv").then(function () {
+                        "jellyfin-hue-scene-schedule-conflicts.csv",
+                        isQueryCurrent);
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request) &&
+                            isQueryCurrent();
+                    };
+                    return request.then(function () {
+                        if (!isCurrent()) return;
                         if (summary) {
                             summary.textContent = "Conflict CSV exported" + scopeText + " for the next " + String(scheduleQuery.horizonDays) + " days. Credential values were omitted.";
                             summary.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to export scheduled cue conflicts as CSV:", err);
                         if (summary) {
                             summary.textContent = "Unable to export the conflict CSV. Check the server log.";
                             summary.style.color = "#d9534f";
                         }
                     }).finally(function () {
+                        if (!isCurrent()) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
+                            page._hueSceneScheduleConflictsCsvExporting = false;
+                            if (button) button.disabled = false;
+                            HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleConflictsCsvExport');
+                            return;
+                        }
                         page._hueSceneScheduleConflictsCsvExporting = false;
                         if (button) button.disabled = false;
                     });
@@ -7915,6 +7991,9 @@
                 },
                 exportSceneScheduleOccurrencesCsv: function (page) {
                     if (!page || page._hueSceneScheduleOccurrencesCsvExporting) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleOccurrencesCsvExport');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleOccurrencesCsvExporting = true;
                     var button = page.querySelector('#exportSceneScheduleOccurrencesCsvBtn');
                     var summary = page.querySelector('#sceneScheduleOccurrencesSummary');
@@ -7924,26 +8003,50 @@
                         "SceneSchedules/Occurrences?",
                         "SceneSchedules/Occurrences/ExportCsv?");
                     var scopeText = scheduleQuery.label ? " for " + scheduleQuery.label : "";
-                    return HueConfigurationPage.downloadCsvFromApi(
+                    var isQueryCurrent = function () {
+                        return HueConfigurationPage.getSceneScheduleOccurrenceQuery(page).url === scheduleQuery.url;
+                    };
+                    var request = HueConfigurationPage.downloadCsvFromApi(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleOccurrencesCsvExport',
                         csvUrl,
-                        "jellyfin-hue-scene-schedule-occurrences.csv").then(function () {
+                        "jellyfin-hue-scene-schedule-occurrences.csv",
+                        isQueryCurrent);
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request) &&
+                            isQueryCurrent();
+                    };
+                    return request.then(function () {
+                        if (!isCurrent()) return;
                         if (summary) {
                             summary.textContent = "Occurrence CSV exported" + scopeText + " for the next " + String(scheduleQuery.horizonDays) + " days. Credential values were omitted.";
                             summary.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to export scheduled cue occurrences as CSV:", err);
                         if (summary) {
                             summary.textContent = "Unable to export the occurrence CSV. Check the server log.";
                             summary.style.color = "#d9534f";
                         }
                     }).finally(function () {
+                        if (!isCurrent()) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
+                            page._hueSceneScheduleOccurrencesCsvExporting = false;
+                            if (button) button.disabled = false;
+                            HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleOccurrencesCsvExport');
+                            return;
+                        }
                         page._hueSceneScheduleOccurrencesCsvExporting = false;
                         if (button) button.disabled = false;
                     });
                 },
                 exportSceneScheduleCalendar: function (page) {
                     if (!page || page._hueSceneScheduleCalendarExporting) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleCalendarExport');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleCalendarExporting = true;
                     var button = page.querySelector('#exportSceneScheduleCalendarBtn');
                     var summary = page.querySelector('#sceneScheduleOccurrencesSummary');
@@ -7955,11 +8058,20 @@
                     }
                     var selectedScheduleLabel = occurrenceQuery.label;
                     var scopeText = selectedScheduleLabel ? " for " + selectedScheduleLabel : "";
-                    return ApiClient.ajax({
-                        type: "GET",
-                        url: ApiClient.getUrl(calendarUrl),
-                        dataType: "text"
-                    }).then(function (calendar) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleCalendarExport',
+                        ApiClient.getUrl(calendarUrl),
+                        { dataType: "text" },
+                        occurrenceQuery.url);
+                    var isCurrent = function () {
+                        var currentQuery = HueConfigurationPage.getSceneScheduleOccurrenceQuery(page);
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request) &&
+                            currentQuery.url === occurrenceQuery.url;
+                    };
+                    return request.then(function (calendar) {
+                        if (!isCurrent()) return;
                         var blob = new Blob([String(calendar || "")], { type: "text/calendar;charset=utf-8" });
                         var url = URL.createObjectURL(blob);
                         var link = window.document.createElement('a');
@@ -7974,12 +8086,20 @@
                             summary.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to export scheduled cue calendar:", err);
                         if (summary) {
                             summary.textContent = "Unable to export the cue calendar. Check the server log.";
                             summary.style.color = "#d9534f";
                         }
                     }).finally(function () {
+                        if (!isCurrent()) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
+                            page._hueSceneScheduleCalendarExporting = false;
+                            if (button) button.disabled = false;
+                            HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleCalendarExport');
+                            return;
+                        }
                         page._hueSceneScheduleCalendarExporting = false;
                         if (button) button.disabled = false;
                     });
@@ -8178,26 +8298,44 @@
                 },
                 exportSceneScheduleHistory: function (page) {
                     if (!page || page._hueSceneScheduleHistoryExporting) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistoryExport');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleHistoryExporting = true;
                     var button = page.querySelector('#exportSceneScheduleHistoryBtn');
                     var status = page.querySelector('#sceneScheduleHistoryStatus');
                     if (button) button.disabled = true;
-                    var outcomeFilter = page.querySelector('#sceneScheduleHistoryOutcome');
                     var cueFilter = page.querySelector('#sceneScheduleHistoryCueFilter');
-                    var selectedOutcome = outcomeFilter ? String(outcomeFilter.value || '').trim() : '';
-                    var selectedScheduleId = cueFilter ? String(cueFilter.value || '').trim() : '';
-                    var exportUrl = "HueSync/SceneSchedules/History/Export?limit=100";
-                    if (selectedScheduleId) {
-                        exportUrl += "&scheduleId=" + encodeURIComponent(selectedScheduleId);
-                    }
-                    if (selectedOutcome) {
-                        exportUrl += "&outcome=" + encodeURIComponent(selectedOutcome);
-                    }
+                    var getExportUrl = function () {
+                        var currentOutcomeFilter = page.querySelector('#sceneScheduleHistoryOutcome');
+                        var currentCueFilter = page.querySelector('#sceneScheduleHistoryCueFilter');
+                        var currentOutcome = currentOutcomeFilter ? String(currentOutcomeFilter.value || '').trim() : '';
+                        var currentScheduleId = currentCueFilter ? String(currentCueFilter.value || '').trim() : '';
+                        var currentExportUrl = "HueSync/SceneSchedules/History/Export?limit=100";
+                        if (currentScheduleId) {
+                            currentExportUrl += "&scheduleId=" + encodeURIComponent(currentScheduleId);
+                        }
+                        if (currentOutcome) {
+                            currentExportUrl += "&outcome=" + encodeURIComponent(currentOutcome);
+                        }
+                        return currentExportUrl;
+                    };
+                    var exportUrl = getExportUrl();
                     var selectedScheduleLabel = cueFilter && cueFilter.selectedIndex > 0
                         ? cueFilter.options[cueFilter.selectedIndex].textContent
                         : '';
                     var scopeText = selectedScheduleLabel ? " for " + selectedScheduleLabel : '';
-                    return ApiClient.getJSON(ApiClient.getUrl(exportUrl)).then(function (historyDocument) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleHistoryExport',
+                        ApiClient.getUrl(exportUrl));
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request) &&
+                            getExportUrl() === exportUrl;
+                    };
+                    return request.then(function (historyDocument) {
+                        if (!isCurrent()) return;
                         var blob = new Blob([JSON.stringify(historyDocument, null, 2)], { type: "application/json" });
                         var url = URL.createObjectURL(blob);
                         var link = window.document.createElement('a');
@@ -8212,18 +8350,29 @@
                             status.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to export scheduled-cue history:", err);
                         if (status) {
                             status.textContent = "Unable to export cue history. Check the server log.";
                             status.style.color = "#d9534f";
                         }
                     }).finally(function () {
+                        if (!isCurrent()) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
+                            page._hueSceneScheduleHistoryExporting = false;
+                            if (button) button.disabled = false;
+                            HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistoryExport');
+                            return;
+                        }
                         page._hueSceneScheduleHistoryExporting = false;
                         if (button) button.disabled = false;
                     });
                 },
                 exportSceneScheduleHistoryCsv: function (page) {
                     if (!page || page._hueSceneScheduleHistoryCsvExporting) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistoryCsvExport');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleHistoryCsvExporting = true;
                     var button = page.querySelector('#exportSceneScheduleHistoryCsvBtn');
                     var status = page.querySelector('#sceneScheduleHistoryStatus');
@@ -8232,31 +8381,60 @@
                     var cueFilter = page.querySelector('#sceneScheduleHistoryCueFilter');
                     var selectedOutcome = outcomeFilter ? String(outcomeFilter.value || '').trim() : '';
                     var selectedScheduleId = cueFilter ? String(cueFilter.value || '').trim() : '';
-                    var exportUrl = "HueSync/SceneSchedules/History/ExportCsv?limit=100";
-                    if (selectedScheduleId) {
-                        exportUrl += "&scheduleId=" + encodeURIComponent(selectedScheduleId);
-                    }
-                    if (selectedOutcome) {
-                        exportUrl += "&outcome=" + encodeURIComponent(selectedOutcome);
-                    }
+                    var getExportUrl = function () {
+                        var currentOutcomeFilter = page.querySelector('#sceneScheduleHistoryOutcome');
+                        var currentCueFilter = page.querySelector('#sceneScheduleHistoryCueFilter');
+                        var currentOutcome = currentOutcomeFilter ? String(currentOutcomeFilter.value || '').trim() : '';
+                        var currentScheduleId = currentCueFilter ? String(currentCueFilter.value || '').trim() : '';
+                        var currentExportUrl = "HueSync/SceneSchedules/History/ExportCsv?limit=100";
+                        if (currentScheduleId) {
+                            currentExportUrl += "&scheduleId=" + encodeURIComponent(currentScheduleId);
+                        }
+                        if (currentOutcome) {
+                            currentExportUrl += "&outcome=" + encodeURIComponent(currentOutcome);
+                        }
+                        return currentExportUrl;
+                    };
+                    var exportUrl = getExportUrl();
                     var selectedScheduleLabel = cueFilter && cueFilter.selectedIndex > 0
                         ? cueFilter.options[cueFilter.selectedIndex].textContent
                         : '';
                     var scopeText = selectedScheduleLabel ? " for " + selectedScheduleLabel : '';
-                    return HueConfigurationPage.downloadCsvFromApi(
+                    var isQueryCurrent = function () {
+                        return getExportUrl() === exportUrl;
+                    };
+                    var request = HueConfigurationPage.downloadCsvFromApi(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleHistoryCsvExport',
                         exportUrl,
-                        "jellyfin-hue-scene-schedule-history.csv").then(function () {
+                        "jellyfin-hue-scene-schedule-history.csv",
+                        isQueryCurrent);
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request) &&
+                            isQueryCurrent();
+                    };
+                    return request.then(function () {
+                        if (!isCurrent()) return;
                         if (status) {
                             status.textContent = "Cue history CSV exported" + scopeText + (selectedOutcome ? " · " + selectedOutcome : "") + ". Credential values were omitted.";
                             status.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to export scheduled-cue history as CSV:", err);
                         if (status) {
                             status.textContent = "Unable to export cue history CSV. Check the server log.";
                             status.style.color = "#d9534f";
                         }
                     }).finally(function () {
+                        if (!isCurrent()) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
+                            page._hueSceneScheduleHistoryCsvExporting = false;
+                            if (button) button.disabled = false;
+                            HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistoryCsvExport');
+                            return;
+                        }
                         page._hueSceneScheduleHistoryCsvExporting = false;
                         if (button) button.disabled = false;
                     });
@@ -9849,12 +10027,29 @@
                 },
                 exportSessionHistory: function (page) {
                     if (!page || page._hueSessionHistoryExporting) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sessionHistoryExport');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSessionHistoryExporting = true;
                     var button = page.querySelector('#exportSessionHistoryBtn');
                     var statusElement = page.querySelector('#sessionHistoryStatus');
                     if (button) button.disabled = true;
 
-                    return ApiClient.getJSON(HueConfigurationPage.getSessionHistoryUrl(page, "History/Export", 25)).then(function (historyDocument) {
+                    var exportUrl = HueConfigurationPage.getSessionHistoryUrl(page, "History/Export", 25);
+                    var isQueryCurrent = function () {
+                        return HueConfigurationPage.getSessionHistoryUrl(page, "History/Export", 25) === exportUrl;
+                    };
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'sessionHistoryExport',
+                        exportUrl);
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request) &&
+                            isQueryCurrent();
+                    };
+                    return request.then(function (historyDocument) {
+                        if (!isCurrent()) return;
                         var blob = new Blob([JSON.stringify(historyDocument, null, 2)], { type: "application/json" });
                         var url = URL.createObjectURL(blob);
                         var link = window.document.createElement('a');
@@ -9869,37 +10064,69 @@
                             statusElement.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to export Hue session history:", err);
                         if (statusElement) {
                             statusElement.textContent = "Unable to export session history. Check the server log.";
                             statusElement.style.color = "#d9534f";
                         }
                     }).finally(function () {
+                        if (!isCurrent()) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
+                            page._hueSessionHistoryExporting = false;
+                            if (button) button.disabled = false;
+                            HueConfigurationPage.cancelPageLifecycleRequest(page, 'sessionHistoryExport');
+                            return;
+                        }
                         page._hueSessionHistoryExporting = false;
                         if (button) button.disabled = false;
                     });
                 },
                 exportSessionHistoryCsv: function (page) {
                     if (!page || page._hueSessionHistoryCsvExporting) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sessionHistoryCsvExport');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSessionHistoryCsvExporting = true;
                     var button = page.querySelector('#exportSessionHistoryCsvBtn');
                     var statusElement = page.querySelector('#sessionHistoryStatus');
                     if (button) button.disabled = true;
                     var csvUrl = HueConfigurationPage.getSessionHistoryUrl(page, "History/ExportCsv", 25);
-                    return HueConfigurationPage.downloadCsvFromApi(
+                    var isQueryCurrent = function () {
+                        return HueConfigurationPage.getSessionHistoryUrl(page, "History/ExportCsv", 25) === csvUrl;
+                    };
+                    var request = HueConfigurationPage.downloadCsvFromApi(
+                        page,
+                        pageGeneration,
+                        'sessionHistoryCsvExport',
                         csvUrl,
-                        "jellyfin-hue-session-history.csv").then(function () {
+                        "jellyfin-hue-session-history.csv",
+                        isQueryCurrent);
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request) &&
+                            isQueryCurrent();
+                    };
+                    return request.then(function () {
+                        if (!isCurrent()) return;
                         if (statusElement) {
                             statusElement.textContent = "Session history CSV exported. Credential values were omitted.";
                             statusElement.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to export Hue session history as CSV:", err);
                         if (statusElement) {
                             statusElement.textContent = "Unable to export session history CSV. Check the server log.";
                             statusElement.style.color = "#d9534f";
                         }
                     }).finally(function () {
+                        if (!isCurrent()) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
+                            page._hueSessionHistoryCsvExporting = false;
+                            if (button) button.disabled = false;
+                            HueConfigurationPage.cancelPageLifecycleRequest(page, 'sessionHistoryCsvExport');
+                            return;
+                        }
                         page._hueSessionHistoryCsvExporting = false;
                         if (button) button.disabled = false;
                     });
@@ -12862,11 +13089,21 @@
             });
 
             document.querySelector('#sceneScheduleConflictFilter').addEventListener('change', function () {
-                HueConfigurationPage.loadSceneScheduleConflicts(this.closest('.page'));
+                var page = this.closest('.page');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleConflictsExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleConflictsCsvExport');
+                HueConfigurationPage.loadSceneScheduleConflicts(page);
             });
 
             document.querySelector('#sceneScheduleReportHorizon').addEventListener('change', function () {
                 var page = this.closest('.page');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleConflictsExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleConflictsCsvExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleOccurrencesExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleOccurrencesCsvExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleCalendarExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistoryExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistoryCsvExport');
                 HueConfigurationPage.loadSceneScheduleConflicts(page);
                 HueConfigurationPage.loadSceneScheduleOccurrences(page);
             });
@@ -12884,7 +13121,11 @@
             });
 
             document.querySelector('#sceneScheduleOccurrenceFilter').addEventListener('change', function () {
-                HueConfigurationPage.loadSceneScheduleOccurrences(this.closest('.page'));
+                var page = this.closest('.page');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleOccurrencesExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleOccurrencesCsvExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleCalendarExport');
+                HueConfigurationPage.loadSceneScheduleOccurrences(page);
             });
 
             document.querySelector('#exportSceneScheduleCalendarBtn').addEventListener('click', function () {
@@ -12908,11 +13149,17 @@
             });
 
             document.querySelector('#sceneScheduleHistoryOutcome').addEventListener('change', function () {
-                HueConfigurationPage.loadSceneScheduleHistory(this.closest('.page'));
+                var page = this.closest('.page');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistoryExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistoryCsvExport');
+                HueConfigurationPage.loadSceneScheduleHistory(page);
             });
 
             document.querySelector('#sceneScheduleHistoryCueFilter').addEventListener('change', function () {
-                HueConfigurationPage.loadSceneScheduleHistory(this.closest('.page'));
+                var page = this.closest('.page');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistoryExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleHistoryCsvExport');
+                HueConfigurationPage.loadSceneScheduleHistory(page);
             });
 
             document.querySelector('#refreshRuntimeStatusBtn').addEventListener('click', function () {
@@ -12924,7 +13171,10 @@
             });
 
             document.querySelector('#sessionHistoryOutcome').addEventListener('change', function () {
-                HueConfigurationPage.loadSessionHistory(this.closest('.page'));
+                var page = this.closest('.page');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sessionHistoryExport');
+                HueConfigurationPage.cancelPageLifecycleRequest(page, 'sessionHistoryCsvExport');
+                HueConfigurationPage.loadSessionHistory(page);
             });
 
             document.querySelector('#exportSessionHistoryBtn').addEventListener('click', function () {

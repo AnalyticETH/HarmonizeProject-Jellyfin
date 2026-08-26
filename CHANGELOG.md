@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.301] - 2026-08-26
+
+### Export lifecycle reliability
+- **Credential-safe export guards**: configuration, scheduled-cue JSON/CSV/iCalendar, and session-history exports now cancel or ignore stale page, filter, and horizon requests while restoring controls after teardown.
+- **Regression contracts**: lifecycle request propagation, query scope checks, cleanup flags, and filter-cancellation handlers are validated by the configuration-page contract.
+
 ## [1.5.300] - 2026-08-25
 
 ### Concurrency, report, and dependency-gate safety
