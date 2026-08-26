@@ -3176,6 +3176,54 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_RejectsConfigurationMutationBeforeResolvingCredentials()
+    {
+        InstallConfiguration(new PluginConfiguration());
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":1}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<System.Text.Json.JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>(),
+                0,
+                0,
+                PluginConfiguration.ColorPresetEffectSolid,
+                PluginConfiguration.DefaultColorPresetEffectSpeedPercent))
+            .ReturnsAsync(new HueStreamProbeResult { Succeeded = true, Message = "Preview sent." });
+
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+
+        var action = await CreateController(
+            streamTester.Object,
+            bridgeLifecycleGate: gate).Preview(new HuePreviewRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "request-app-key",
+            ClientKey = "request-client-key",
+            EntertainmentAreaId = "area-1",
+            DurationSeconds = 2
+        });
+
+        AssertConflict(action.Result!);
+        _httpHandlerMock.VerifyNoOtherCalls();
+        streamTester.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Preview_BlankRedactedCredentialsUsesStoredCustomMappingKeys()
     {
         InstallConfiguration(new PluginConfiguration

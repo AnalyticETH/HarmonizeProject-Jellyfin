@@ -1391,20 +1391,31 @@ namespace Jellyfin.Plugin.Hue.Api
             var bridgeIp = string.Empty;
             var appKey = string.Empty;
             var clientKey = string.Empty;
-            if (!multiTarget &&
-                (!TryResolveCredentials(
-                    request.IpAddress,
-                    request.AppKey,
-                    request.ClientKey,
-                    request.UserId,
-                    request.DeviceId,
-                    allowStoredClientKey: true,
-                    out bridgeIp,
-                    out appKey,
-                    out clientKey)
-                 || string.IsNullOrWhiteSpace(clientKey)))
+            if (!multiTarget)
             {
-                return BadRequest("A valid bridge address, app key, client key, and entertainment area ID are required.");
+                // Stored credentials for a redacted request are configuration data. Take
+                // only a synchronous snapshot here; the lease must be released before the
+                // bridge probe below so a writer is never blocked by network I/O.
+                using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+                if (configurationReadLease == null)
+                {
+                    return Conflict("Configuration is changing; retry the Hue preview after the active mutation completes.");
+                }
+
+                if (!TryResolveCredentials(
+                        request.IpAddress,
+                        request.AppKey,
+                        request.ClientKey,
+                        request.UserId,
+                        request.DeviceId,
+                        allowStoredClientKey: true,
+                        out bridgeIp,
+                        out appKey,
+                        out clientKey)
+                    || string.IsNullOrWhiteSpace(clientKey))
+                {
+                    return BadRequest("A valid bridge address, app key, client key, and entertainment area ID are required.");
+                }
             }
 
             if (request.Red < 0 || request.Red > 255 ||
