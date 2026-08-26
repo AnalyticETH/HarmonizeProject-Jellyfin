@@ -704,6 +704,110 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public async Task TargetScopedDiagnostics_CancelActiveDiagnosticCancelsAllOperationsAndReleasesLeases()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        var requestsStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requestCount = 0;
+        handler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.Is<HttpRequestMessage>(request =>
+                    request.Method == HttpMethod.Get &&
+                    request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal)),
+                ItExpr.IsAny<CancellationToken>())
+            .Returns<HttpRequestMessage, CancellationToken>((_, cancellationToken) =>
+            {
+                if (Interlocked.Increment(ref requestCount) == 2)
+                    requestsStarted.TrySetResult(true);
+
+                return new TaskCompletionSource<HttpResponseMessage>(
+                    TaskCreationOptions.RunContinuationsAsynchronously).Task.WaitAsync(cancellationToken);
+            });
+
+        using var httpClient = new HttpClient(handler.Object);
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
+        {
+            RetryAttempts = 0
+        };
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var tester = new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>(),
+            lifecycleGate);
+        using var document = JsonDocument.Parse(
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+        using var requestCancellation = new CancellationTokenSource();
+
+        var firstPreview = tester.PreviewAsyncForTarget(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-one",
+            document.RootElement,
+            null,
+            255,
+            255,
+            255,
+            100,
+            2,
+            cancellationToken: requestCancellation.Token);
+        var secondPreview = tester.PreviewAsyncForTarget(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-two",
+            document.RootElement,
+            null,
+            255,
+            255,
+            255,
+            100,
+            2,
+            cancellationToken: requestCancellation.Token);
+
+        try
+        {
+            await requestsStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.True(tester.CancelActiveDiagnostic());
+            var results = await Task.WhenAll(firstPreview, secondPreview).WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.All(results, result =>
+            {
+                Assert.False(result.Succeeded);
+                Assert.Contains("canceled", result.Message, StringComparison.OrdinalIgnoreCase);
+            });
+            Assert.False(tester.CancelActiveDiagnostic());
+            Assert.False(lifecycleGate.IsDiagnosticActive);
+
+            using var firstLease = lifecycleGate.TryEnterDiagnostic("192.168.1.100|area-one");
+            using var secondLease = lifecycleGate.TryEnterDiagnostic("192.168.1.100|area-two");
+            Assert.NotNull(firstLease);
+            Assert.NotNull(secondLease);
+        }
+        finally
+        {
+            // Ensure a failed assertion or timeout cannot leave a blocked fake request
+            // alive after the test has finished.
+            requestCancellation.Cancel();
+            try
+            {
+                await Task.WhenAll(firstPreview, secondPreview).WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch
+            {
+                // Preserve the original assertion/timeout while allowing both operations
+                // to observe the fallback cancellation and unwind their lifecycle leases.
+            }
+        }
+    }
+
+    [Fact]
     public async Task TestAsync_WhenCanceledDuringActivationStillRestoresBridgeState()
     {
         var handler = new Mock<HttpMessageHandler>();

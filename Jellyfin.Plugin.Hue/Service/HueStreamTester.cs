@@ -307,7 +307,7 @@ public sealed class HueStreamTester :
     private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
     private readonly IHuePreviewStreamFactory _previewStreamFactory;
     private readonly object _activeOperationLock = new();
-    private CancellationTokenSource? _activeOperationCancellation;
+    private readonly HashSet<CancellationTokenSource> _activeOperationCancellations = new();
 
     public HueStreamTester(
         HueClient hueClient,
@@ -1851,7 +1851,7 @@ public sealed class HueStreamTester :
         using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
         lock (_activeOperationLock)
         {
-            _activeOperationCancellation = operationCancellation;
+            _activeOperationCancellations.Add(operationCancellation);
         }
 
         try
@@ -1862,8 +1862,7 @@ public sealed class HueStreamTester :
         {
             lock (_activeOperationLock)
             {
-                if (ReferenceEquals(_activeOperationCancellation, operationCancellation))
-                    _activeOperationCancellation = null;
+                _activeOperationCancellations.Remove(operationCancellation);
             }
 
             lifecycleLease.Dispose();
@@ -1904,14 +1903,39 @@ public sealed class HueStreamTester :
 
     public bool CancelActiveDiagnostic()
     {
+        CancellationTokenSource[] activeOperations;
         lock (_activeOperationLock)
         {
-            if (_activeOperationCancellation == null)
+            if (_activeOperationCancellations.Count == 0)
                 return false;
 
-            _activeOperationCancellation.Cancel();
-            return true;
+            // Snapshot under the lock, but invoke cancellation callbacks outside it. A
+            // callback may synchronously finish the operation and attempt to unregister
+            // its source from the same set.
+            activeOperations = _activeOperationCancellations.ToArray();
         }
+
+        foreach (var operation in activeOperations)
+        {
+            try
+            {
+                operation.Cancel(throwOnFirstException: false);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The operation completed between the snapshot and cancellation. Its
+                // finally block already released the source and lifecycle lease.
+            }
+            catch (Exception ex)
+            {
+                // CancellationTokenSource.Cancel(false) still reports callback failures
+                // after invoking every callback. Keep canceling the remaining operations
+                // so one misbehaving callback cannot leave another target running.
+                _logger.LogWarning(ex, "A Hue diagnostic cancellation callback failed");
+            }
+        }
+
+        return true;
     }
 
     private async Task<HueStreamProbeResult> RunSerializedAsync(
@@ -1926,7 +1950,7 @@ public sealed class HueStreamTester :
         using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
         lock (_activeOperationLock)
         {
-            _activeOperationCancellation = operationCancellation;
+            _activeOperationCancellations.Add(operationCancellation);
         }
 
         try
@@ -1937,8 +1961,7 @@ public sealed class HueStreamTester :
         {
             lock (_activeOperationLock)
             {
-                if (ReferenceEquals(_activeOperationCancellation, operationCancellation))
-                    _activeOperationCancellation = null;
+                _activeOperationCancellations.Remove(operationCancellation);
             }
 
             lifecycleLease.Dispose();
