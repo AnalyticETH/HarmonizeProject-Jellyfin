@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.317] - 2026-08-26
+
+### Credential-resolution lifecycle isolation
+- **Fail-closed bridge probes**: entertainment-area, entertainment-channel, and connection-test routes now reserve the shared configuration read lease while resolving persisted bridge credentials, returning a retryable 409 during administrator mutations.
+- **Consistent bridge requests**: resolved bridge and App Key snapshots are passed into network I/O after the short lease is released, preventing mixed or changing mapping credentials without blocking configuration saves on bridge latency.
+- **Regression coverage**: API tests verify all three routes reject an active mutation before making any bridge call.
+
 ## [1.5.316] - 2026-08-26
 
 ### Raw preview credential isolation

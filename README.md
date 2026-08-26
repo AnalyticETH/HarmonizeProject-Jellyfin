@@ -457,7 +457,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.316 (Current)
+### Version 1.5.317 (Current)
+- **Credential-resolution lifecycle isolation**: bridge-area, channel, and connection-test routes take a short shared configuration read lease while resolving persisted credentials, fail closed during configuration mutation, and release it before network I/O.
+- **Regression coverage**: API tests verify mutation contention produces no bridge calls across all three routes.
+
+### Version 1.5.316
 - **Raw preview credential isolation**: direct single-target previews take a short shared configuration read lease while resolving stored bridge credentials, fail closed with a retryable conflict during configuration mutation, and release the lease before bridge I/O.
 - **Regression coverage**: API tests verify mutation contention produces no bridge or stream calls.
 
