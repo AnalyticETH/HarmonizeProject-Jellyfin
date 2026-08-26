@@ -742,6 +742,7 @@
                                     <option value="__all_enabled_targets__">All enabled targets</option>
                                 </select>
                                 <div class="fieldDescription">Choose one or more mappings or nested device routes for a selected-target cue. You may include the default bridge; All enabled targets is exclusive. Device routes carry only user and device IDs; credentials remain server-side.</div>
+                                <div id="sceneScheduleDuplicateTargetStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="display: none; color: #f0ad4e;">Resolve duplicate user mappings before selecting affected scheduled-cue targets or all enabled targets.</div>
                             </div>
                             <label style="display: flex; align-items: center; gap: 0.5em; padding-bottom: 0.45em;">
                                 <input is="emby-checkbox" type="checkbox" id="sceneScheduleEnabled" checked />
@@ -1819,6 +1820,149 @@
                     return HueConfigurationPage.normalizeJellyfinUserId(left).toLowerCase() ===
                         HueConfigurationPage.normalizeJellyfinUserId(right).toLowerCase();
                 },
+                getTargetMappingDuplicateKey: function (value) {
+                    return HueConfigurationPage.normalizeJellyfinUserId(value).toLowerCase();
+                },
+                getTargetMappingDuplicateState: function (mappings) {
+                    var groups = Object.create(null);
+                    var read = function (source, camel, pascal) {
+                        return source[camel] !== undefined ? source[camel] : source[pascal];
+                    };
+                    (Array.isArray(mappings) ? mappings : []).forEach(function (mapping) {
+                        if (!mapping || typeof mapping !== 'object') return;
+                        var userId = String(read(mapping, 'userId', 'UserId') || '').trim();
+                        if (!userId) return;
+                        var key = HueConfigurationPage.getTargetMappingDuplicateKey(userId);
+                        if (!key) return;
+                        if (!groups[key]) {
+                            groups[key] = {
+                                userId: HueConfigurationPage.normalizeJellyfinUserId(userId),
+                                count: 0,
+                                enabledCount: 0,
+                                labels: []
+                            };
+                        }
+                        var group = groups[key];
+                        var userName = String(read(mapping, 'userName', 'UserName') || '').trim();
+                        var enabled = read(mapping, 'syncEnabled', 'SyncEnabled') !== false;
+                        group.count++;
+                        if (enabled) group.enabledCount++;
+                        if (userName && group.labels.indexOf(userName) < 0) group.labels.push(userName);
+                    });
+
+                    var duplicateUserIds = Object.create(null);
+                    var enabledDuplicateUserIds = Object.create(null);
+                    var duplicateGroups = [];
+                    Object.keys(groups).forEach(function (key) {
+                        var group = groups[key];
+                        if (group.count < 2) return;
+                        duplicateUserIds[key] = true;
+                        if (group.enabledCount > 0) enabledDuplicateUserIds[key] = true;
+                        duplicateGroups.push(group);
+                    });
+                    return {
+                        groups: groups,
+                        duplicateUserIds: duplicateUserIds,
+                        enabledDuplicateUserIds: enabledDuplicateUserIds,
+                        duplicateGroups: duplicateGroups,
+                        hasEnabledDuplicates: duplicateGroups.some(function (group) { return group.enabledCount > 0; })
+                    };
+                },
+                setTargetMappingDuplicateMetadata: function (page, mappings) {
+                    if (!page) return HueConfigurationPage.getTargetMappingDuplicateState(mappings);
+                    page._hueTargetMappingDuplicateState = HueConfigurationPage.getTargetMappingDuplicateState(mappings);
+                    HueConfigurationPage.applyDuplicateTargetRestrictions(page);
+                    return page._hueTargetMappingDuplicateState;
+                },
+                hasEnabledDuplicateTargetMappings: function (page) {
+                    return !!(page && page._hueTargetMappingDuplicateState &&
+                        page._hueTargetMappingDuplicateState.hasEnabledDuplicates === true);
+                },
+                getDuplicateTargetMessage: function (page) {
+                    if (!HueConfigurationPage.hasEnabledDuplicateTargetMappings(page)) return '';
+                    var state = page._hueTargetMappingDuplicateState;
+                    var labels = state.duplicateGroups.map(function (group) {
+                        return group.labels.length ? group.labels.join(' / ') : group.userId;
+                    });
+                    var affected = labels.length ? ' Affected users: ' + labels.join(', ') + '.' : '';
+                    return 'Duplicate enabled Jellyfin user mappings are configured.' + affected +
+                        ' Open Per-User Mappings and choose Resolve Duplicate Mappings before selecting affected targets or broadcasting to all enabled targets.';
+                },
+                annotateTargetOptions: function (select, state) {
+                    if (!select) return;
+                    state = state || { duplicateUserIds: Object.create(null), hasEnabledDuplicates: false };
+                    var duplicateMessage = state.hasEnabledDuplicates
+                        ? 'Duplicate enabled Jellyfin user mappings are configured. Open Per-User Mappings and choose Resolve Duplicate Mappings before targeting this user.'
+                        : '';
+                    Array.prototype.forEach.call(select.options || [], function (option) {
+                        if (!option) return;
+                        if (option.value === '__all_enabled_targets__') {
+                            option.disabled = !!state.hasEnabledDuplicates;
+                            if (state.hasEnabledDuplicates) {
+                                option.textContent = 'All enabled targets (resolve duplicate mappings first)';
+                                option.title = duplicateMessage;
+                            }
+                            return;
+                        }
+                        if (option.value === '__default_target__' || option.value === '__saved_target__') return;
+                        var route = HueConfigurationPage.parseCurrentLightDeviceTarget(option.value);
+                        var userId = route ? route.userId : option.value;
+                        var key = HueConfigurationPage.getTargetMappingDuplicateKey(userId);
+                        if (!state.duplicateUserIds[key]) return;
+                        if (String(option.textContent || '').indexOf('duplicate mapping') < 0) {
+                            option.textContent = String(option.textContent || '') + ' (duplicate mapping; resolve mappings)';
+                        }
+                        option.disabled = true;
+                        option.title = duplicateMessage || 'This mapping has duplicate Jellyfin user IDs. Open Per-User Mappings and choose Resolve Duplicate Mappings.';
+                    });
+                },
+                applyDuplicateTargetRestrictions: function (page) {
+                    if (!page) return;
+                    var state = page._hueTargetMappingDuplicateState;
+                    var selectors = page.querySelectorAll('#scenePlaylistTarget, #previewSavedPresetTarget, #previewColorTarget, #captureColorTarget, #scenePlaylistPreviewTarget, #scenePlaylistBulkPreviewTarget, #sceneScheduleTarget');
+                    Array.prototype.forEach.call(selectors, function (select) {
+                        HueConfigurationPage.annotateTargetOptions(select, state);
+                    });
+                    var message = HueConfigurationPage.getDuplicateTargetMessage(page);
+                    var broadcastButtons = page.querySelectorAll('#previewAllTargetsBtn, #previewSavedPresetAllBtn, #previewSelectedPreviewPresetsAllBtn, #previewScenePlaylistAllBtn, #previewSelectedScenePlaylistsAllBtn');
+                    Array.prototype.forEach.call(broadcastButtons, function (button) {
+                        if (!button) return;
+                        if (message) {
+                            button.disabled = true;
+                            button.title = message;
+                        } else if (button.title && button.title.indexOf('Duplicate enabled Jellyfin user mappings') >= 0) {
+                            button.title = '';
+                        }
+                    });
+                },
+                blockDuplicateTargetBroadcast: function (page, statusElement) {
+                    var message = HueConfigurationPage.getDuplicateTargetMessage(page);
+                    if (!message) return false;
+                    var status = typeof statusElement === 'string'
+                        ? page && page.querySelector(statusElement)
+                        : statusElement;
+                    if (status) {
+                        status.textContent = message;
+                        status.style.color = '#f0ad4e';
+                        status.style.display = '';
+                    }
+                    Dashboard.alert(message);
+                    return true;
+                },
+                refreshTargetMetadata: function (page) {
+                    if (!page) return Promise.resolve();
+                    var presetSelect = page.querySelector('#previewPresetSelect');
+                    var playlistSelect = page.querySelector('#scenePlaylistSelect');
+                    var scheduleSelect = page.querySelector('#sceneScheduleSelect');
+                    var presetName = presetSelect ? presetSelect.value : '';
+                    var playlistName = playlistSelect ? playlistSelect.value : '';
+                    var scheduleId = scheduleSelect ? scheduleSelect.value : '';
+                    return HueConfigurationPage.loadColorPresets(page, presetName).then(function () {
+                        return HueConfigurationPage.loadScenePlaylists(page, playlistName);
+                    }).then(function () {
+                        return HueConfigurationPage.loadSceneSchedules(page, scheduleId);
+                    });
+                },
                 getBridgeDiscoveryAddresses: function (response) {
                     response = response || {};
                     var values = response.ipAddresses || response.IpAddresses || response.addresses || response.Addresses;
@@ -2475,6 +2619,7 @@
                 },
                 initializePreviewTargetMetadata: function (page) {
                     if (!page) return;
+                    page._hueTargetMappingDuplicateState = null;
                     page._huePreviewTargetMetadataState = {
                         colorPresets: false,
                         scenePlaylists: false
@@ -2500,7 +2645,7 @@
                     state[source] = !!ready;
                     if (message) page._huePreviewTargetMetadataMessage = message;
                     page._huePreviewTargetMetadataReady = !!(state.colorPresets && state.scenePlaylists);
-                    if (page._huePreviewTargetMetadataReady) {
+                    if (page._huePreviewTargetMetadataReady && !HueConfigurationPage.getDuplicateTargetMessage(page)) {
                         page._huePreviewTargetMetadataMessage = "";
                     }
                     HueConfigurationPage.updatePreviewTargetMetadataControls(page);
@@ -2550,13 +2695,15 @@
                         HueConfigurationPage.updateScenePlaylistButtons(page);
                         HueConfigurationPage.updateScenePlaylistBulkButtons(page);
                     }
+                    HueConfigurationPage.applyDuplicateTargetRestrictions(page);
                     var status = page.querySelector('#previewTargetMetadataStatus');
                     if (status) {
+                        var duplicateMessage = HueConfigurationPage.getDuplicateTargetMessage(page);
                         status.textContent = ready
-                            ? ""
+                            ? duplicateMessage
                             : (page._huePreviewTargetMetadataMessage || "Preview targets are unavailable. Reload this page before starting a preview.");
-                        status.style.color = ready ? "" : "#d9534f";
-                        status.style.display = ready ? "none" : "";
+                        status.style.color = ready ? (duplicateMessage ? "#f0ad4e" : "") : "#d9534f";
+                        status.style.display = ready && !duplicateMessage ? "none" : "";
                     }
                 },
                 requirePreviewTargetMetadata: function (page) {
@@ -2711,6 +2858,14 @@
                         status.textContent = page._hueSceneScheduleMetadataMessage || "Scheduled-cue targets are unavailable. Reload this page before saving a cue.";
                         status.style.color = "#d9534f";
                     }
+                    var duplicateStatus = page.querySelector('#sceneScheduleDuplicateTargetStatus');
+                    if (duplicateStatus) {
+                        var duplicateMessage = ready ? HueConfigurationPage.getDuplicateTargetMessage(page) : '';
+                        duplicateStatus.textContent = duplicateMessage;
+                        duplicateStatus.style.color = duplicateMessage ? '#f0ad4e' : '';
+                        duplicateStatus.style.display = duplicateMessage ? '' : 'none';
+                    }
+                    HueConfigurationPage.applyDuplicateTargetRestrictions(page);
                 },
                 requireSceneScheduleMetadata: function (page) {
                     if (HueConfigurationPage.hasSceneScheduleMetadata(page)) return true;
@@ -3636,6 +3791,7 @@
                     };
                 },
                 setPreviewBusy: function (page, busy) {
+                    var duplicateTargetsBlocked = HueConfigurationPage.hasEnabledDuplicateTargetMappings(page);
                     var cancelButton = page && page.querySelector('#cancelPreviewBtn');
                     var defaultButton = page && page.querySelector('#previewColorBtn');
                     var allTargetsButton = page && page.querySelector('#previewAllTargetsBtn');
@@ -3655,20 +3811,20 @@
                     var bulkPlaylistTargetSelect = page && page.querySelector('#scenePlaylistBulkPreviewTarget');
                     var mappingButton = page && page.querySelector('#mappingPreviewColorBtn');
                     if (defaultButton) defaultButton.disabled = busy;
-                    if (allTargetsButton) allTargetsButton.disabled = busy;
+                    if (allTargetsButton) allTargetsButton.disabled = busy || duplicateTargetsBlocked;
                     if (captureButton) captureButton.disabled = busy;
                     if (colorTargetSelect) colorTargetSelect.disabled = busy;
                     if (captureTargetSelect) captureTargetSelect.disabled = busy;
                     if (savedButton) savedButton.disabled = busy;
-                    if (savedAllTargetsButton) savedAllTargetsButton.disabled = busy;
+                    if (savedAllTargetsButton) savedAllTargetsButton.disabled = busy || duplicateTargetsBlocked;
                     if (savedTargetSelect) savedTargetSelect.disabled = busy;
                     if (playlistButton) playlistButton.disabled = busy;
-                    if (playlistAllTargetsButton) playlistAllTargetsButton.disabled = busy;
+                    if (playlistAllTargetsButton) playlistAllTargetsButton.disabled = busy || duplicateTargetsBlocked;
                     if (playlistTargetSelect) playlistTargetSelect.disabled = busy;
                     if (bulkPresetButton) bulkPresetButton.disabled = busy;
-                    if (bulkPresetAllTargetsButton) bulkPresetAllTargetsButton.disabled = busy;
+                    if (bulkPresetAllTargetsButton) bulkPresetAllTargetsButton.disabled = busy || duplicateTargetsBlocked;
                     if (bulkPlaylistButton) bulkPlaylistButton.disabled = busy;
-                    if (bulkPlaylistAllTargetsButton) bulkPlaylistAllTargetsButton.disabled = busy;
+                    if (bulkPlaylistAllTargetsButton) bulkPlaylistAllTargetsButton.disabled = busy || duplicateTargetsBlocked;
                     if (bulkPlaylistTargetSelect) bulkPlaylistTargetSelect.disabled = busy;
                     if (mappingButton) mappingButton.disabled = busy;
                     if (cancelButton) {
@@ -3767,6 +3923,8 @@
                     var targetSelection = HueConfigurationPage.getColorPreviewTargetSelection(page);
                     var usesMultiTargetSelection = targetSelection.targetAllEnabledMappings ||
                         targetSelection.includeDefaultTarget || targetSelection.targetUserIds.length > 0 || targetSelection.targetRoutes.length > 0;
+                    if (targetSelection.targetAllEnabledMappings &&
+                        HueConfigurationPage.blockDuplicateTargetBroadcast(page, statusEl)) return;
 
                     var canUseStoredCredentials = HueConfigurationPage.canUseStoredGlobalCredentials(page, bridgeIp, true);
                     if (!usesMultiTargetSelection && (!bridgeIp || (!appKey && !canUseStoredCredentials) || (!clientKey && !canUseStoredCredentials) || !areaId)) {
@@ -3842,6 +4000,7 @@
 
                     var button = page.querySelector('#previewAllTargetsBtn');
                     var statusEl = page.querySelector('#previewColorStatus');
+                    if (HueConfigurationPage.blockDuplicateTargetBroadcast(page, statusEl)) return;
                     var values;
                     try {
                         values = HueConfigurationPage.getPreviewValues(page);
@@ -3904,12 +4063,14 @@
                     }
 
                     var targetSelection = HueConfigurationPage.getCurrentLightCaptureTargetSelection(page);
+                    var statusEl = page.querySelector('#previewColorStatus');
+                    if (targetSelection.targetAllEnabledMappings &&
+                        HueConfigurationPage.blockDuplicateTargetBroadcast(page, statusEl)) return;
                     var isBatch = targetSelection.targetAllEnabledMappings ||
                         (targetSelection.includeDefaultTarget && targetSelection.targetUserIds.length > 0) ||
                         (targetSelection.includeDefaultTarget && targetSelection.targetRoutes.length > 0) ||
                         targetSelection.targetUserIds.length + targetSelection.targetRoutes.length > 1;
                     var button = page.querySelector('#captureCurrentColorBtn');
-                    var statusEl = page.querySelector('#previewColorStatus');
                     if (button) button.disabled = true;
                     page._huePreviewStatusElement = statusEl;
                     if (statusEl) {
@@ -4193,6 +4354,8 @@
                     var targetSelection = allTargets
                         ? { targetAllEnabledMappings: true, targetUserIds: [], targetRoutes: [], includeDefaultTarget: false, targetUserId: '' }
                         : HueConfigurationPage.getSavedPresetTargetSelection(page);
+                    if ((allTargets || targetSelection.targetAllEnabledMappings) &&
+                        HueConfigurationPage.blockDuplicateTargetBroadcast(page, statusEl)) return;
                     if (button) button.disabled = true;
                     page._huePreviewStatusElement = statusEl;
                     statusEl.textContent = allTargets
@@ -4278,6 +4441,7 @@
                                 !HueConfigurationPage.isSceneScheduleMappingMetadataValid(mappings)) {
                                 throw new Error("Malformed preview target metadata response");
                             }
+                            var duplicateTargetState = HueConfigurationPage.setTargetMappingDuplicateMetadata(page, mappings);
                             selectEl.innerHTML = '<option value="">Choose a saved scene...</option>';
                             if (bulkSelect) bulkSelect.innerHTML = '';
                             presets.forEach(function (preset) {
@@ -4347,6 +4511,7 @@
                                         });
                                     }
                                 });
+                                HueConfigurationPage.annotateTargetOptions(previewTargetSelect, duplicateTargetState);
                                 var restoredValues = targetDefinition.previousValues.filter(function (value) {
                                     return Array.prototype.some.call(previewTargetSelect.options, function (option) { return option.value === value && !option.disabled; });
                                 });
@@ -4382,10 +4547,12 @@
                 },
                 updatePresetButtons: function (page) {
                     var selectEl = page.querySelector('#previewPresetSelect');
+                    var duplicateTargetsBlocked = HueConfigurationPage.hasEnabledDuplicateTargetMappings(page);
                     var deleteBtn = page.querySelector('#deletePreviewPresetBtn');
                     var duplicateBtn = page.querySelector('#duplicatePreviewPresetBtn');
                     var renameBtn = page.querySelector('#renamePreviewPresetBtn');
                     var inspectBtn = page.querySelector('#inspectPreviewPresetBtn');
+                    var previewAllBtn = page.querySelector('#previewSavedPresetAllBtn');
                     if (deleteBtn) {
                         deleteBtn.disabled = !selectEl || !selectEl.value;
                     }
@@ -4397,6 +4564,9 @@
                     }
                     if (inspectBtn) {
                         inspectBtn.disabled = !selectEl || !selectEl.value;
+                    }
+                    if (previewAllBtn) {
+                        previewAllBtn.disabled = !selectEl || !selectEl.value || duplicateTargetsBlocked;
                     }
                 },
                 getSelectedColorPresetBulkNames: function (page) {
@@ -4415,12 +4585,13 @@
                     var clearBtn = page.querySelector('#clearSelectedPreviewPresetsBtn');
                     var previewBtn = page.querySelector('#previewSelectedPreviewPresetsBtn');
                     var previewAllBtn = page.querySelector('#previewSelectedPreviewPresetsAllBtn');
+                    var duplicateTargetsBlocked = HueConfigurationPage.hasEnabledDuplicateTargetMappings(page);
                     var duplicateBtn = page.querySelector('#duplicateSelectedPreviewPresetsBtn');
                     var deleteBtn = page.querySelector('#deleteSelectedPreviewPresetsBtn');
                     if (selectAllBtn) selectAllBtn.disabled = !hasOptions || selectedCount === bulkSelect.options.length;
                     if (clearBtn) clearBtn.disabled = selectedCount === 0;
                     if (previewBtn) previewBtn.disabled = selectedCount === 0 || !targetMetadataReady;
-                    if (previewAllBtn) previewAllBtn.disabled = selectedCount === 0 || !targetMetadataReady;
+                    if (previewAllBtn) previewAllBtn.disabled = selectedCount === 0 || !targetMetadataReady || duplicateTargetsBlocked;
                     if (duplicateBtn) duplicateBtn.disabled = selectedCount === 0;
                     if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
                 },
@@ -4452,6 +4623,8 @@
                     var targetSelection = allTargets
                         ? { targetAllEnabledMappings: true, targetUserIds: [], targetRoutes: [], includeDefaultTarget: false, targetUserId: '' }
                         : HueConfigurationPage.getSavedPresetTargetSelection(page);
+                    if ((allTargets || targetSelection.targetAllEnabledMappings) &&
+                        HueConfigurationPage.blockDuplicateTargetBroadcast(page, statusEl)) return;
                     var targetSummary = allTargets || targetSelection.targetAllEnabledMappings
                         ? "on every enabled target"
                         : targetSelection.targetUserIds.length || targetSelection.targetRoutes.length || targetSelection.includeDefaultTarget
@@ -4962,6 +5135,7 @@
                             !HueConfigurationPage.isSceneScheduleMappingMetadataValid(mappings)) {
                             throw new Error("Malformed preview target metadata response");
                         }
+                        var duplicateTargetState = HueConfigurationPage.setTargetMappingDuplicateMetadata(page, mappings);
                         page._hueScenePlaylists = playlists;
                         page._hueScenePlaylistPresets = presets;
                         playlistSelect.innerHTML = '<option value="">Choose a saved playlist...</option>';
@@ -5067,6 +5241,7 @@
                                     });
                                 }
                             });
+                            HueConfigurationPage.annotateTargetOptions(select, duplicateTargetState);
                             if (targetDefinition.previousValues.length) {
                                 Array.prototype.forEach.call(select.options || [], function (option) {
                                     option.selected = !option.disabled && targetDefinition.previousValues.indexOf(option.value) >= 0;
@@ -5491,6 +5666,7 @@
                     var items = Array.isArray(page && page._hueScenePlaylistItems) ? page._hueScenePlaylistItems : [];
                     var preview = page && page.querySelector('#previewScenePlaylistBtn');
                     var previewAll = page && page.querySelector('#previewScenePlaylistAllBtn');
+                    var duplicateTargetsBlocked = HueConfigurationPage.hasEnabledDuplicateTargetMappings(page);
                     var previewTargetSelect = page && page.querySelector('#scenePlaylistPreviewTarget');
                     var duplicate = page && page.querySelector('#duplicateScenePlaylistBtn');
                     var rename = page && page.querySelector('#renameScenePlaylistBtn');
@@ -5498,7 +5674,7 @@
                     var deleteButton = page && page.querySelector('#deleteScenePlaylistBtn');
                     var add = page && page.querySelector('#addScenePlaylistStepBtn');
                     if (preview) preview.disabled = !hasSelection || !targetMetadataReady;
-                    if (previewAll) previewAll.disabled = !hasSelection || !targetMetadataReady;
+                    if (previewAll) previewAll.disabled = !hasSelection || !targetMetadataReady || duplicateTargetsBlocked;
                     if (previewTargetSelect) previewTargetSelect.disabled = !hasSelection || !targetMetadataReady;
                     if (duplicate) duplicate.disabled = !hasSelection;
                     if (rename) rename.disabled = !hasSelection;
@@ -5522,13 +5698,14 @@
                     var clear = page && page.querySelector('#clearSelectedScenePlaylistsBtn');
                     var previewButton = page && page.querySelector('#previewSelectedScenePlaylistsBtn');
                     var previewAllButton = page && page.querySelector('#previewSelectedScenePlaylistsAllBtn');
+                    var duplicateTargetsBlocked = HueConfigurationPage.hasEnabledDuplicateTargetMappings(page);
                     var previewTargetSelect = page && page.querySelector('#scenePlaylistBulkPreviewTarget');
                     var duplicateButton = page && page.querySelector('#duplicateSelectedScenePlaylistsBtn');
                     var deleteButton = page && page.querySelector('#deleteSelectedScenePlaylistsBtn');
                     if (selectAll) selectAll.disabled = !hasPlaylists;
                     if (clear) clear.disabled = !hasSelection;
                     if (previewButton) previewButton.disabled = !hasSelection || !targetMetadataReady;
-                    if (previewAllButton) previewAllButton.disabled = !hasSelection || !targetMetadataReady;
+                    if (previewAllButton) previewAllButton.disabled = !hasSelection || !targetMetadataReady || duplicateTargetsBlocked;
                     if (previewTargetSelect) previewTargetSelect.disabled = !hasPlaylists || !targetMetadataReady;
                     if (duplicateButton) duplicateButton.disabled = !hasSelection;
                     if (deleteButton) deleteButton.disabled = !hasSelection;
@@ -6180,6 +6357,8 @@
                     var targetSelection = allTargets
                         ? { preserveSavedTarget: false, targetAllEnabledMappings: true, targetUserIds: null, targetRoutes: [], includeDefaultTarget: false, targetUserId: '' }
                         : HueConfigurationPage.getScenePlaylistPreviewTargetSelection(page);
+                    if ((allTargets || targetSelection.targetAllEnabledMappings) &&
+                        HueConfigurationPage.blockDuplicateTargetBroadcast(page, status)) return;
                     var includeTargetDetails = allTargets || targetSelection.targetAllEnabledMappings ||
                         (Array.isArray(targetSelection.targetUserIds) && targetSelection.targetUserIds.length > 0) ||
                         (Array.isArray(targetSelection.targetRoutes) && targetSelection.targetRoutes.length > 0) ||
@@ -6233,6 +6412,8 @@
                     var targetSelection = allTargets
                         ? { preserveSavedTarget: false, targetAllEnabledMappings: true, targetUserIds: null, targetRoutes: [], includeDefaultTarget: false, targetUserId: '' }
                         : HueConfigurationPage.getScenePlaylistBulkPreviewTargetSelection(page);
+                    if ((allTargets || targetSelection.targetAllEnabledMappings) &&
+                        HueConfigurationPage.blockDuplicateTargetBroadcast(page, status)) return;
                     var targetSummary = allTargets || targetSelection.targetAllEnabledMappings
                         ? "on every enabled target"
                         : targetSelection.preserveSavedTarget
@@ -7084,6 +7265,7 @@
                         var playlists = responses[2];
                         var mappings = responses[3];
                         var timeZones = Array.isArray(responses[4]) ? responses[4] : [];
+                        var duplicateTargetState = HueConfigurationPage.setTargetMappingDuplicateMetadata(page, mappings);
                         page._hueSceneSchedules = schedules;
                         page._hueSceneScheduleMappings = mappings;
                         page._hueSceneScheduleUnavailableTargetRoutes = [];
@@ -7155,6 +7337,7 @@
                                     targetSelect.appendChild(deviceOption);
                                 });
                             });
+                            HueConfigurationPage.annotateTargetOptions(targetSelect, duplicateTargetState);
                         }
 
                         var timeZoneSelect = page.querySelector('#sceneScheduleTimeZone');
@@ -11257,6 +11440,9 @@
                                     }
                                     HueConfigurationPage.loadUserMappings(page);
                                     HueConfigurationPage.reconcileUserMappings(page);
+                                    HueConfigurationPage.refreshTargetMetadata(page).catch(function (refreshError) {
+                                        console.error('Failed to refresh target metadata after duplicate resolution:', refreshError);
+                                    });
                                 }).catch(function (err) {
                                     console.error('Failed to resolve duplicate user mappings:', err);
                                     if (statusEl) {

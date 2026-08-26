@@ -665,6 +665,53 @@ async function testConfigurationSaveDuplicateSubmitIsBounded() {
     assert.equal(page.querySelector('#saveConfigurationBtn').disabled, false, "duplicate configuration submit re-enables the button");
 }
 
+async function testDuplicateTargetNormalizationAndGuard() {
+    const harness = makeHarness();
+    const { page, api, dashboard } = harness;
+    const duplicateUserId = "12345678-1234-1234-1234-1234567890ab";
+    const duplicateState = api.getTargetMappingDuplicateState([
+        { UserId: "{" + duplicateUserId.toUpperCase() + "}", UserName: "Upper row", SyncEnabled: true },
+        { userId: "123456781234123412341234567890ab", userName: "Compact row", syncEnabled: false },
+        { userId: "disabled-user", userName: "Disabled one", syncEnabled: false },
+        { userId: "DISABLED-USER", userName: "Disabled two", syncEnabled: false }
+    ]);
+    const normalizedKey = duplicateUserId.toLowerCase();
+    assert.equal(duplicateState.duplicateUserIds[normalizedKey], true, "duplicate state normalizes wrapped and compact Jellyfin IDs");
+    assert.equal(duplicateState.enabledDuplicateUserIds[normalizedKey], true, "one enabled row keeps a normalized duplicate group blocked");
+    assert.equal(duplicateState.hasEnabledDuplicates, true, "enabled duplicate groups are detected");
+    assert.equal(duplicateState.enabledDuplicateUserIds["disabled-user"], undefined, "all-disabled duplicate groups do not block broadcasts");
+
+    const duplicateRouteValue = api.encodeCurrentLightDeviceTarget(duplicateUserId, "device-1");
+    const targetOptions = [
+        { value: "__all_enabled_targets__", textContent: "All enabled targets", disabled: false, title: "" },
+        { value: duplicateUserId, textContent: "Upper row", disabled: false, title: "" },
+        { value: duplicateRouteValue, textContent: "↳ Living room", disabled: false, title: "" }
+    ];
+    api.annotateTargetOptions({ options: targetOptions }, duplicateState);
+    assert.equal(targetOptions[0].disabled, true, "enabled duplicates disable the all-target option");
+    assert.equal(targetOptions[1].disabled, true, "enabled duplicates disable the affected mapping option");
+    assert.equal(targetOptions[2].disabled, true, "enabled duplicates disable nested device routes");
+    assert.match(targetOptions[1].textContent, /duplicate mapping/, "affected mapping options are annotated");
+
+    const disabledOnlyState = api.getTargetMappingDuplicateState([
+        { userId: "disabled-user", userName: "Disabled one", syncEnabled: false },
+        { userId: "DISABLED-USER", userName: "Disabled two", syncEnabled: false }
+    ]);
+    const disabledOnlyOptions = [
+        { value: "__all_enabled_targets__", textContent: "All enabled targets", disabled: false, title: "" },
+        { value: "disabled-user", textContent: "Disabled one", disabled: false, title: "" }
+    ];
+    api.annotateTargetOptions({ options: disabledOnlyOptions }, disabledOnlyState);
+    assert.equal(disabledOnlyOptions[0].disabled, false, "all-disabled duplicate groups do not disable broadcasts");
+    assert.equal(disabledOnlyOptions[1].disabled, true, "all-disabled duplicate mapping rows remain unselectable");
+
+    page._hueTargetMappingDuplicateState = duplicateState;
+    const status = page.querySelector("#previewColorStatus");
+    assert.equal(api.blockDuplicateTargetBroadcast(page, status), true, "enabled duplicates block broadcast actions");
+    assert.match(status.textContent, /Resolve Duplicate Mappings/, "broadcast guard gives an actionable resolution path");
+    assert.equal(dashboard.alerts.length, 1, "broadcast guard announces the duplicate mapping block");
+}
+
 for (const testCase of exportCases) {
     await testSuccessfulExport(testCase);
     await testStaleQuerySuppressesExport(testCase);
@@ -679,5 +726,6 @@ await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
+await testDuplicateTargetNormalizationAndGuard();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, import, and save stale-scope/pagehide paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, import, save stale-scope/pagehide, and duplicate-target paths)`);
