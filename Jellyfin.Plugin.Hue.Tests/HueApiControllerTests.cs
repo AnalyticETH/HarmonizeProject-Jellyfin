@@ -2273,6 +2273,23 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task CaptureCurrentColorAndBatch_RejectConfigurationMutationBeforeTargetResolution()
+    {
+        InstallConfiguration(new PluginConfiguration());
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+
+        var controller = CreateController(bridgeLifecycleGate: gate);
+        var single = await controller.CaptureCurrentColor(new HueCurrentLightColorRequest());
+        var batch = await controller.CaptureCurrentColors(new HueCurrentLightColorBatchRequest());
+
+        AssertConflict(single.Result!);
+        AssertConflict(batch.Result!);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task TestConnection_BlankRedactedCredentialsUsesStoredGlobalKeys()
     {
         InstallConfiguration(new PluginConfiguration

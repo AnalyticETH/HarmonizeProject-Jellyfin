@@ -1221,6 +1221,15 @@ namespace Jellyfin.Plugin.Hue.Api
             [FromBody] HueCurrentLightColorRequest? request,
             CancellationToken cancellationToken = default)
         {
+            // Reserve the diagnostic lifecycle before resolving any persisted target.
+            // Configuration writers are blocked by this lease, so target credentials,
+            // profiles, and the subsequent bridge capture all use one consistent view.
+            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
+            var diagnosticsCancellationToken = diagnosticsOperation.Token;
+            using var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
+            if (lifecycleLease == null)
+                return Conflict("Another Hue playback or diagnostic operation is already running.");
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 return BadRequest("Plugin configuration is unavailable.");
@@ -1243,12 +1252,6 @@ namespace Jellyfin.Plugin.Hue.Api
                     : "The selected user target is not configured or enabled.");
             }
 
-            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
-            var diagnosticsCancellationToken = diagnosticsOperation.Token;
-            using var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
-            if (lifecycleLease == null)
-                return Conflict("Another Hue playback or diagnostic operation is already running.");
-
             var attempt = await CaptureCurrentColorAsync(target, diagnosticsCancellationToken).ConfigureAwait(false);
             if (attempt.FailureStatusCode is { } statusCode)
                 return StatusCode(statusCode, attempt.FailureResponse ?? attempt.FailureMessage);
@@ -1270,18 +1273,21 @@ namespace Jellyfin.Plugin.Hue.Api
             [FromBody] HueCurrentLightColorBatchRequest? request,
             CancellationToken cancellationToken = default)
         {
+            // Target resolution reads nested mapping/device collections and credentials.
+            // Acquire the same lifecycle lease used by bridge capture before that read,
+            // preventing a configuration write from changing the target mid-request.
+            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
+            var diagnosticsCancellationToken = diagnosticsOperation.Token;
+            using var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
+            if (lifecycleLease == null)
+                return Conflict("Another Hue playback or diagnostic operation is already running.");
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 return BadRequest("Plugin configuration is unavailable.");
 
             if (!TryResolveCaptureTargets(config, request, out var targets, out var selectionError))
                 return BadRequest(selectionError);
-
-            using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
-            var diagnosticsCancellationToken = diagnosticsOperation.Token;
-            using var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic();
-            if (lifecycleLease == null)
-                return Conflict("Another Hue playback or diagnostic operation is already running.");
 
             var captures = new List<HueCurrentLightColorResult>(targets.Count);
             foreach (var target in targets)
