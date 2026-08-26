@@ -3532,7 +3532,7 @@ namespace Jellyfin.Plugin.Hue.Api
                             ? string.Empty
                             : playlist.TargetUserId?.Trim() ?? string.Empty,
                         TargetUserIds = selectedTargetOverride
-                            ? targetUserIds ?? new List<string>()
+                            ? targetUserIds?.ToList() ?? new List<string>()
                             : playlist.TargetUserIds?.ToList() ?? new List<string>(),
                         IncludeDefaultTarget = selectedTargetOverride
                             ? includeDefaultTarget
