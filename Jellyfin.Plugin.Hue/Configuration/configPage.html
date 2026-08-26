@@ -12469,9 +12469,23 @@
                 },
 
                 editUserMapping: function (page, userId, mappingId) {
+                    page = page || document.querySelector('.pluginConfigurationPage');
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'editUserMapping');
                     Dashboard.showLoadingMsg();
 
-                    ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings")).then(function (mappings) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'editUserMapping',
+                        ApiClient.getUrl("HueSync/UserMappings"),
+                        {
+                            type: 'GET',
+                            dataType: 'json'
+                        });
+                    return request.then(function (mappings) {
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                         mappings = Array.isArray(mappings) ? mappings : [];
                         var mapping = null;
                         mappings.forEach(function (candidate) {
@@ -12676,10 +12690,13 @@
                             HueConfigurationPage.toggleMappingManualArea(false);
                         }
                     }).catch(function (err) {
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                         console.error("Failed to load user mapping:", err);
                         Dashboard.alert("Unable to edit mapping: " + (err.message || err));
                     }).finally(function () {
-                        Dashboard.hideLoadingMsg();
+                        if (HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) {
+                            Dashboard.hideLoadingMsg();
+                        }
                     });
                 },
 

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.305] - 2026-08-26
+
+### Mapping and schedule lifecycle hardening
+- **Stale mapping-edit protection**: administrator mapping edits now cancel superseded requests and ignore late success, failure, and cleanup callbacks after navigation or pagehide.
+- **Fail-closed schedule routes**: malformed null target routes remain visible to validation and are rejected before configuration mutation during direct saves and imports.
+- **Partial schedule state preservation**: omitted `Enabled` and `SkipNextOccurrence` fields retain existing values during partial imports and direct updates, while explicit values still override them.
+- **Regression coverage**: API and configuration-page contracts cover stale lifecycle responses, malformed routes, and omitted-versus-explicit schedule state.
+
 ## [1.5.304] - 2026-08-26
 
 ### Credential and scheduling hardening

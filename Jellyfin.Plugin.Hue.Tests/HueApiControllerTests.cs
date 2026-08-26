@@ -14646,6 +14646,155 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Empty(configuration.UserMappings);
     }
 
+    [Fact]
+    public void SaveSceneSchedule_RejectsNullTargetRouteWithoutMutation()
+    {
+        var existingSchedule = new HueSceneSchedule
+        {
+            Id = "existing-schedule",
+            Name = "Existing cue",
+            PresetName = "Evening"
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule> { existingSchedule }
+        });
+
+        var action = CreateController().SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = existingSchedule.Id,
+            Name = "Updated cue",
+            PresetName = "Evening",
+            TargetRoutes = new List<HueSceneScheduleTargetRoute> { null! }
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains(
+            "Scene schedule 1 selected device route 1 requires both a user mapping ID and device ID",
+            JsonSerializer.Serialize(response.Value),
+            StringComparison.Ordinal);
+        Assert.Same(existingSchedule, Assert.Single(configuration.SceneSchedules));
+        Assert.Equal("Existing cue", configuration.SceneSchedules[0].Name);
+    }
+
+    [Fact]
+    public void ConfigurationImport_RejectsNullScheduleTargetRouteWithoutMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } }
+        });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.SceneSchedules = new List<HueSceneScheduleRequest>
+        {
+            new()
+            {
+                Id = "imported-schedule",
+                Name = "Imported cue",
+                PresetName = "Evening",
+                TargetRoutes = new List<HueSceneScheduleTargetRoute> { null! }
+            }
+        };
+
+        var controller = CreateController();
+        var validation = controller.ValidateConfigurationImport(request);
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        Assert.False(validationResult.Valid);
+        Assert.Contains(
+            "Scene schedule 1 selected device route 1 requires both a user mapping ID and device ID",
+            validationResult.ValidationErrors);
+
+        var import = controller.ImportConfiguration(request);
+        var importResponse = Assert.IsType<BadRequestObjectResult>(import.Result);
+        Assert.Contains(
+            "Scene schedule 1 selected device route 1 requires both a user mapping ID and device ID",
+            JsonSerializer.Serialize(importResponse.Value),
+            StringComparison.Ordinal);
+        Assert.Empty(configuration.SceneSchedules);
+    }
+
+    [Fact]
+    public void ConfigurationImport_PartialScheduleMergePreservesEnabledAndSkipStateWhenOmitted()
+    {
+        var existingSchedule = new HueSceneSchedule
+        {
+            Id = "partial-state-schedule",
+            Name = "Paused cue",
+            PresetName = "Evening",
+            Enabled = false,
+            SkipNextOccurrence = true
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule> { existingSchedule }
+        });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ReplaceSceneSchedules = false;
+        request.ReplaceColorPresets = false;
+        request.SceneSchedules = new List<HueSceneScheduleRequest>
+        {
+            new()
+            {
+                Id = existingSchedule.Id,
+                Name = "Renamed paused cue",
+                PresetName = "Evening"
+            }
+        };
+
+        var action = CreateController().ImportConfiguration(request);
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        var imported = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal("Renamed paused cue", imported.Name);
+        Assert.False(imported.Enabled);
+        Assert.True(imported.SkipNextOccurrence);
+    }
+
+    [Fact]
+    public void ConfigurationImport_PartialScheduleMergeAllowsExplicitEnabledAndSkipStateOverrides()
+    {
+        var existingSchedule = new HueSceneSchedule
+        {
+            Id = "explicit-state-schedule",
+            Name = "Paused cue",
+            PresetName = "Evening",
+            Enabled = false,
+            SkipNextOccurrence = true
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            SceneSchedules = new List<HueSceneSchedule> { existingSchedule }
+        });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ReplaceSceneSchedules = false;
+        request.ReplaceColorPresets = false;
+        request.SceneSchedules = new List<HueSceneScheduleRequest>
+        {
+            new()
+            {
+                Id = existingSchedule.Id,
+                Name = "Resumed cue",
+                PresetName = "Evening",
+                Enabled = true,
+                SkipNextOccurrence = false
+            }
+        };
+
+        var action = CreateController().ImportConfiguration(request);
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        var imported = Assert.Single(configuration.SceneSchedules);
+        Assert.True(imported.Enabled);
+        Assert.False(imported.SkipNextOccurrence);
+    }
+
     private sealed class NestedCancellationPlaylistStreamTester : IHueStreamTester, IHuePlaylistStreamTester
     {
         public int PlaylistCallCount { get; private set; }

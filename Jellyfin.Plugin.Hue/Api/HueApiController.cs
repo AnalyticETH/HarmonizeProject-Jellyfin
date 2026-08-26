@@ -4748,6 +4748,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.BrightnessPercent = candidateSchedules[existingIndex].BrightnessPercent;
                 if (!request.DurationSpecified)
                     schedule.DurationSeconds = candidateSchedules[existingIndex].DurationSeconds;
+                if (!request.EnabledSpecified)
+                    schedule.Enabled = candidateSchedules[existingIndex].Enabled;
                 if (!request.TargetAllEnabledMappings.HasValue)
                     schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
                 if (request.TargetUserIds == null)
@@ -8188,6 +8190,10 @@ namespace Jellyfin.Plugin.Hue.Api
                         schedule.BrightnessPercent = candidateSchedules[existingIndex].BrightnessPercent;
                     if (scheduleRequest != null && !scheduleRequest.DurationSpecified)
                         schedule.DurationSeconds = candidateSchedules[existingIndex].DurationSeconds;
+                    if (scheduleRequest != null && !scheduleRequest.EnabledSpecified)
+                        schedule.Enabled = candidateSchedules[existingIndex].Enabled;
+                    if (scheduleRequest != null && !scheduleRequest.SkipNextOccurrence.HasValue)
+                        schedule.SkipNextOccurrence = candidateSchedules[existingIndex].SkipNextOccurrence;
                     if (scheduleRequest != null && !scheduleRequest.TargetAllEnabledMappings.HasValue)
                         schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
                     if (scheduleRequest?.TargetUserIds == null)
@@ -13024,8 +13030,22 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("daysOfWeekMask")]
         public int DaysOfWeekMask { get; set; } = PluginConfiguration.AllSceneScheduleDaysMask;
 
+        private bool _enabled = true;
+        private bool _enabledSpecified;
+
         [JsonPropertyName("enabled")]
-        public bool Enabled { get; set; } = true;
+        public bool Enabled
+        {
+            get => _enabled;
+            set
+            {
+                _enabledSpecified = true;
+                _enabled = value;
+            }
+        }
+
+        [JsonIgnore]
+        public bool EnabledSpecified => _enabledSpecified;
 
         [JsonPropertyName("skipNextOccurrence")]
         public bool? SkipNextOccurrence { get; set; }
@@ -13047,12 +13067,16 @@ namespace Jellyfin.Plugin.Hue.Api
                     .Select(PluginConfiguration.NormalizeJellyfinUserId)
                     .ToList(),
                 TargetRoutes = (TargetRoutes ?? new List<HueSceneScheduleTargetRoute>())
-                    .Where(route => route != null)
-                    .Select(route => new HueSceneScheduleTargetRoute
-                    {
-                        UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
-                        DeviceId = route.DeviceId?.Trim() ?? string.Empty
-                    })
+                    // Keep null entries until schedule validation. Dropping a malformed
+                    // route would make the API accept a request while silently changing
+                    // the requested target set.
+                    .Select(route => route == null
+                        ? null!
+                        : new HueSceneScheduleTargetRoute
+                        {
+                            UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
+                            DeviceId = route.DeviceId?.Trim() ?? string.Empty
+                        })
                     .ToList(),
                 IncludeDefaultTarget = IncludeDefaultTarget ?? false,
                 TargetAllEnabledMappings = TargetAllEnabledMappings ?? false,

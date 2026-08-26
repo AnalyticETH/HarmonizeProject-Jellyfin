@@ -131,6 +131,7 @@ function makeElement(tagName = "div") {
         textContent: "",
         selectedIndex: 0,
         options: [],
+        dataset: {},
         style: {},
         children: [],
         listeners: {},
@@ -152,6 +153,9 @@ function makeElement(tagName = "div") {
             return child;
         },
         click() {},
+        querySelector() {
+            return makeElement();
+        },
         closest() {
             return null;
         }
@@ -248,7 +252,8 @@ function makeHarness() {
         Dashboard: {
             hideLoadingMsg() {},
             showLoadingMsg() {},
-            confirm() {}
+            confirm() {},
+            alert() {}
         },
         URL: url,
         console: {
@@ -420,6 +425,68 @@ async function testDuplicateClickIsBounded(testCase) {
     await first;
 }
 
+async function testEditMappingLifecycleGuards() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    for (const method of [
+        "toggleMappingSyncFields",
+        "toggleMappingManualArea",
+        "refreshMappingDeviceRoutes",
+        "loadMappingAreas",
+        "showStoredMappingArea"
+    ]) {
+        api[method] = () => {};
+    }
+
+    const first = api.editUserMapping(page, "user-one", "mapping-one");
+    assert.equal(requests.length, 1, "first mapping edit starts one request");
+    const second = api.editUserMapping(page, "user-two", "mapping-two");
+    assert.equal(requests.length, 2, "second mapping edit starts one request");
+    assert.equal(requests[0].promise.aborted, true, "second mapping edit aborts the superseded request");
+
+    page.querySelector("#mappingFormLegend").textContent = "unchanged while stale";
+    requests[0].resolve([{
+        MappingId: "mapping-one",
+        UserId: "user-one",
+        UserName: "User One",
+        SyncEnabled: false
+    }]);
+    await first;
+    assert.equal(
+        page.querySelector("#mappingFormLegend").textContent,
+        "unchanged while stale",
+        "superseded mapping edit cannot overwrite the form");
+
+    requests[1].resolve([{
+        MappingId: "mapping-two",
+        UserId: "user-two",
+        UserName: "User Two",
+        SyncEnabled: false
+    }]);
+    await second;
+    assert.equal(
+        page.querySelector("#mappingFormLegend").textContent,
+        "Edit User Mapping",
+        "current mapping edit populates the form");
+
+    page.querySelector("#mappingFormLegend").textContent = "unchanged after pagehide";
+    const afterPagehide = api.editUserMapping(page, "user-three", "mapping-three");
+    assert.equal(requests.length, 3, "pagehide mapping edit starts one request");
+    api.invalidatePageLifecycle(page);
+    assert.equal(requests[2].promise.aborted, true, "pagehide aborts the mapping edit request");
+    requests[2].resolve([{
+        MappingId: "mapping-three",
+        UserId: "user-three",
+        UserName: "User Three",
+        SyncEnabled: false
+    }]);
+    await afterPagehide;
+    assert.equal(
+        page.querySelector("#mappingFormLegend").textContent,
+        "unchanged after pagehide",
+        "invalidated mapping edit cannot overwrite the hidden page");
+}
+
 for (const testCase of exportCases) {
     await testSuccessfulExport(testCase);
     await testStaleQuerySuppressesExport(testCase);
@@ -428,4 +495,6 @@ for (const testCase of exportCases) {
     await testDuplicateClickIsBounded(testCase);
 }
 
-console.log(`Configuration export lifecycle contracts passed (${exportCases.length} exports; success, stale-scope, invalidation, failure, and duplicate-click paths)`);
+await testEditMappingLifecycleGuards();
+
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit stale-scope and pagehide paths)`);

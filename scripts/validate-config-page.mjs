@@ -604,6 +604,12 @@ for (const marker of requiredScript) {
 }
 
 for (const [functionName, markers] of [
+    ["editUserMapping", [
+        "var pageGeneration",
+        "cancelPageLifecycleRequest(page, 'editUserMapping')",
+        "getPageLifecycleRequest",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, request)"
+    ]],
     ["loadMappingAreas", [
         "var page",
         "var pageGeneration",

@@ -455,7 +455,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.304 (Current)
+### Version 1.5.305 (Current)
+- **Stale mapping-edit protection**: administrator mapping edits cancel superseded requests and ignore late success, failure, and cleanup callbacks after navigation or pagehide.
+- **Fail-closed schedule routes**: malformed null target routes are rejected before direct-save or import mutation.
+- **Partial schedule state preservation**: omitted `Enabled` and `SkipNextOccurrence` fields retain existing values during partial updates, while explicit values override them.
+- **Lifecycle and import regression coverage**: API and configuration-page contracts cover stale responses, malformed routes, and omitted-versus-explicit schedule state.
+
+### Version 1.5.304
 - **Credential entry protection**: global and per-user Hue keys are masked password fields with `new-password` autocomplete hints.
 - **Ambiguous mapping rejection**: direct mapping writes fail closed on case-variant duplicate properties recursively, before nested targets or credential fields are materialized.
 - **DST fall-back scheduling**: due checks now match the resolved UTC occurrence minute, avoiding early or duplicate runs for ambiguous local times.
