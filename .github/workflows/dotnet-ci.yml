@@ -85,6 +85,9 @@ jobs:
     - name: Validate release documentation and package contract
       run: node scripts/validate-release-docs.mjs
 
+    - name: Validate pull-request workflow boundary
+      run: node scripts/validate-pull-request-workflow.mjs
+
     - name: Validate deterministic release package
       run: node scripts/validate-release-package.mjs
 

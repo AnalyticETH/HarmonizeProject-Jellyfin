@@ -1,0 +1,53 @@
+import fs from "node:fs";
+
+const file = ".github/workflows/pull-request-validation.yml";
+const workflow = fs.readFileSync(file, "utf8");
+
+for (const marker of [
+  "pull_request:",
+  "types: [opened, synchronize, reopened, ready_for_review]",
+  "permissions:\n  contents: read",
+  "runs-on: ubuntu-24.04",
+  "github.event.pull_request.number",
+  "dotnet restore --locked-mode",
+  "dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore",
+  "dotnet test --configuration ${{ env.BUILD_CONFIGURATION }} --no-build",
+  "dotnet format --verify-no-changes --no-restore",
+  "dotnet list Jellyfin.Plugin.Hue.sln package",
+  "--vulnerable",
+  "gitleaks",
+  "semgrep",
+  "--require-hashes",
+  "node scripts/validate-config-page.mjs",
+  "node scripts/validate-api-docs.mjs"
+]) {
+  if (!workflow.includes(marker)) {
+    throw new Error(`${file} is missing PR validation marker: ${marker}`);
+  }
+}
+
+for (const forbidden of [
+  "pull_request_target:",
+  "workflow_dispatch:",
+  "contents: write"
+]) {
+  if (workflow.includes(forbidden)) {
+    throw new Error(`${file} contains a forbidden PR validation capability: ${forbidden}`);
+  }
+}
+if (/\$\{\{[^}]*\bsecrets\./.test(workflow)) {
+  throw new Error(`${file} must not access repository secrets`);
+}
+
+const runnerLines = [...workflow.matchAll(/^\s*runs-on:\s*(.+)$/gm)].map(match => match[1].trim());
+if (runnerLines.length === 0 || runnerLines.some(runner => runner !== "ubuntu-24.04")) {
+  throw new Error(`${file} must run every PR job on ubuntu-24.04, never a persistent runner`);
+}
+
+for (const match of workflow.matchAll(/^\s*uses:\s*([^\s#]+)$/gm)) {
+  if (!/@[0-9a-f]{40}$/.test(match[1])) {
+    throw new Error(`${file} uses an action without an immutable commit SHA: ${match[1]}`);
+  }
+}
+
+console.log("Pull-request workflow boundary contract passed");

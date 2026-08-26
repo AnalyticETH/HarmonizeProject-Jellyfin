@@ -455,7 +455,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.299 (Current)
+### Version 1.5.300 (Current)
+- **Run/cancel lifecycle safety**: bulk scheduled-cue Run and Cancel actions no longer contend with the configuration-writer lease, so active runs execute and remain cancellable.
+- **Stale-safe occurrence exports**: occurrence JSON exports cancel superseded requests and ignore stale filter or page responses, including safe teardown reset.
+- **Dependabot and PR gate**: untrusted changes run read-only build, test, format, vulnerability, Gitleaks, and Semgrep checks on ephemeral `ubuntu-24.04`; trusted main packaging and release remain on the named self-hosted runners.
+
+### Version 1.5.299
 - **Bounded mapping saves**: public user-mapping saves reject a new 101st row before assignment or persistence while exact-limit edits remain supported.
 - **Scheduled-cue lifecycle safety**: runtime status, conflicts, occurrences, history, and conflict-report export requests cancel superseded work and ignore stale responses or filter scopes.
 - **Regression contracts**: mapping capacity and administrator report lifecycle checks preserve no-mutation and credential-free behavior.

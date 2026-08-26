@@ -79,6 +79,12 @@ public sealed class HueConfigurationMutationFilter : IAsyncActionFilter
 
         if (route.StartsWith("/HueSync/SceneSchedules", StringComparison.OrdinalIgnoreCase))
         {
+            if (route.Equals("/HueSync/SceneSchedules/BulkRun", StringComparison.OrdinalIgnoreCase) ||
+                route.Equals("/HueSync/SceneSchedules/BulkCancel", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
             return !route.Contains("/Run", StringComparison.OrdinalIgnoreCase) &&
                 !route.Contains("/Cancel", StringComparison.OrdinalIgnoreCase);
         }

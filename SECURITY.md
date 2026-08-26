@@ -32,4 +32,11 @@ an unintended host or retained in Jellyfin logs.
 
 The repository-controlled weekly default-branch security workflow reruns the blocking Gitleaks and Semgrep gates. Both scanner jobs carry the same `refs/heads/main` guard, so pull-request and non-main code never reach the persistent runner.
 
+Pull requests, including Dependabot updates, use the separate
+`.github/workflows/pull-request-validation.yml` workflow on an ephemeral GitHub-hosted
+`ubuntu-24.04` runner. It grants only `contents: read`, does not expose repository
+secrets, and performs no release, tag, or write operation. This preserves the persistent
+self-hosted runner boundary: untrusted pull-request code never executes under either
+`harmonize-runner` or `harmonize-release-runner`.
+
 The identity split, host confinement, daily upstream-version monitor, and manual verified-update procedure are documented in [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md).

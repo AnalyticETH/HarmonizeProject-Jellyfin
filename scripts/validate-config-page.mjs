@@ -460,6 +460,7 @@ const requiredScript = [
     "exportSceneScheduleConflicts: function",
     "sceneScheduleConflictsExport",
     "exportSceneScheduleOccurrences: function",
+    "sceneScheduleOccurrencesExport",
     "url += \"&scheduleId=\"",
     "days=\" + String(horizonDays)",
     "occurrenceQuery.horizonDays",
@@ -752,6 +753,31 @@ for (const [functionName, requestKey, loadingProperty, queryMarker] of [
 }
 
 {
+    const start = scriptMatch[1].indexOf("exportSceneScheduleOccurrences: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration",
+        "cancelPageLifecycleRequest(page, 'sceneScheduleOccurrencesExport')",
+        "getSceneScheduleOccurrenceQuery(page)",
+        "getPageLifecycleRequest",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, request)",
+        "currentQuery.url === scheduleQuery.url",
+        "if (!isCurrent()) return;",
+        "downloadJsonDocument(report, \"jellyfin-hue-scene-schedule-occurrences.json\")",
+        "if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} exportSceneScheduleOccurrences is missing query-scoped lifecycle protection: ${marker}`);
+        }
+    }
+    const staleGuards = functionBody.match(/if \(!isCurrent\(\)/g) || [];
+    if (staleGuards.length < 3) {
+        throw new Error(`${file} exportSceneScheduleOccurrences must guard success, catch, and finally callbacks`);
+    }
+}
+
+{
     const start = scriptMatch[1].indexOf("invalidatePageLifecycle: function");
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
@@ -765,6 +791,7 @@ for (const [functionName, requestKey, loadingProperty, queryMarker] of [
         "page._hueSceneScheduleConflictsLoading = false",
         "page._hueSceneScheduleConflictsExporting = false",
         "page._hueSceneScheduleOccurrencesLoading = false",
+        "page._hueSceneScheduleOccurrencesExporting = false",
         "page._hueSceneScheduleHistoryLoading = false",
         "page._hueDiagnosticsLoading = false",
         "page._hueTargetDiagnosticsLoading = false",
@@ -952,7 +979,7 @@ for (const functionName of ["exportSceneScheduleOccurrences"]) {
     const start = scriptMatch[1].indexOf(`${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
-    if (!functionBody.includes("ApiClient.getJSON") ||
+    if (!functionBody.includes("getPageLifecycleRequest") ||
         !functionBody.includes("downloadJsonDocument") ||
         !functionBody.includes("scheduleQuery")) {
         throw new Error(`${file} ${functionName} is missing credential-free schedule report export wiring`);

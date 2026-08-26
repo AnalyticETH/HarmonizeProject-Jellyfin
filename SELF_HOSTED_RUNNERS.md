@@ -17,13 +17,20 @@ credentials are `0440` and work/home/cache directories are `0700`. The services 
 namespace and SUID/SGID restrictions, an empty capability set, and bounded resources.
 
 Persistent runners accept only repository-controlled trusted `main` pushes and scheduled
-default-branch security scans. Neither workflow exposes `workflow_dispatch`, pull-request,
-or non-main push triggers, and every self-hosted job has a
-`github.ref == 'refs/heads/main'` guard as defense in depth. Pull-request and non-main code
+default-branch security scans. The trusted main and scheduled security workflows expose
+neither `workflow_dispatch`, pull-request, nor non-main push triggers, and every self-hosted
+job has a `github.ref == 'refs/heads/main'` guard as defense in depth. Pull-request and non-main code
 must not be routed to either identity. The release label is reserved for the single
 `contents:write` job. Every job also has a bounded `timeout-minutes` budget (20 minutes for
 build/test, 15 minutes for quality, security, and packaging, and 10 minutes for release
 publication) so a stalled network operation or tool cannot hold a persistent runner forever.
+
+Untrusted pull requests, including Dependabot update branches, are validated by
+`.github/workflows/pull-request-validation.yml` on the ephemeral GitHub-hosted
+`ubuntu-24.04` runner. That workflow has only `contents: read`, does not receive secrets,
+and never publishes packages, creates tags, or invokes either persistent identity. Do not
+add a pull-request trigger to the trusted main workflow or route pull-request code to the
+`harmonizeproject-jellyfin` or `harmonizeproject-jellyfin-release` labels.
 
 ## Version maintenance
 

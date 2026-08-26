@@ -2378,6 +2378,7 @@
                     page._hueSceneScheduleConflictsLoading = false;
                     page._hueSceneScheduleConflictsExporting = false;
                     page._hueSceneScheduleOccurrencesLoading = false;
+                    page._hueSceneScheduleOccurrencesExporting = false;
                     page._hueSceneScheduleHistoryLoading = false;
                     page._hueDiagnosticsLoading = false;
                     page._hueTargetDiagnosticsLoading = false;
@@ -7865,25 +7866,49 @@
                 },
                 exportSceneScheduleOccurrences: function (page) {
                     if (!page || page._hueSceneScheduleOccurrencesExporting) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleOccurrencesExport');
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleOccurrencesExporting = true;
                     var button = page.querySelector('#exportSceneScheduleOccurrencesBtn');
                     var summary = page.querySelector('#sceneScheduleOccurrencesSummary');
                     if (button) button.disabled = true;
                     var scheduleQuery = HueConfigurationPage.getSceneScheduleOccurrenceQuery(page);
                     var scopeText = scheduleQuery.label ? " for " + scheduleQuery.label : "";
-                    return ApiClient.getJSON(ApiClient.getUrl(scheduleQuery.url)).then(function (report) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleOccurrencesExport',
+                        ApiClient.getUrl(scheduleQuery.url),
+                        null,
+                        scheduleQuery.url);
+                    var isCurrent = function () {
+                        var currentQuery = HueConfigurationPage.getSceneScheduleOccurrenceQuery(page);
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request) &&
+                            currentQuery.url === scheduleQuery.url;
+                    };
+                    return request.then(function (report) {
+                        if (!isCurrent()) return;
                         HueConfigurationPage.downloadJsonDocument(report, "jellyfin-hue-scene-schedule-occurrences.json");
                         if (summary) {
                             summary.textContent = "Occurrence report exported" + scopeText + " for the next " + String(scheduleQuery.horizonDays) + " days. Credential values were omitted.";
                             summary.style.color = "#4caf50";
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to export scheduled cue occurrences:", err);
                         if (summary) {
                             summary.textContent = "Unable to export the occurrence report. Check the server log.";
                             summary.style.color = "#d9534f";
                         }
                     }).finally(function () {
+                        if (!isCurrent()) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
+                            page._hueSceneScheduleOccurrencesExporting = false;
+                            if (button) button.disabled = false;
+                            HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleOccurrencesExport');
+                            return;
+                        }
                         page._hueSceneScheduleOccurrencesExporting = false;
                         if (button) button.disabled = false;
                     });

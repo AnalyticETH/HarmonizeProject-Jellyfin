@@ -1,0 +1,193 @@
+name: Pull Request Validation
+
+# PR code is untrusted. Keep this workflow on an ephemeral GitHub-hosted runner
+# with no secrets or write permissions; the persistent self-hosted identities are
+# reserved for trusted main pushes and the default-branch scheduled scan.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jellyfin-hue-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: '8.0.424'
+  BUILD_CONFIGURATION: 'Release'
+  GITLEAKS_VERSION: '8.30.1'
+  GITLEAKS_CHECKSUMS_SHA256: '061476c21adaf5441516f96f185c1a4706a83cd6329b9b38762271b3d4a52fae'
+  SEMGREP_VERSION: '1.174.0'
+
+jobs:
+  build-test-and-contracts:
+    name: Build, test, format, and contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout PR merge ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-pr-${{ github.event.pull_request.number }}-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-pr-${{ github.event.pull_request.number }}-
+
+      - name: Restore dependencies
+        run: dotnet restore --locked-mode
+
+      - name: Build solution
+        run: dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+      - name: Run tests
+        run: dotnet test --configuration ${{ env.BUILD_CONFIGURATION }} --no-build --verbosity normal
+
+      - name: Run dotnet format check
+        run: dotnet format --verify-no-changes --no-restore --verbosity diagnostic
+
+      - name: Validate administrator configuration page
+        run: node scripts/validate-config-page.mjs
+
+      - name: Validate release documentation and package contract
+        run: node scripts/validate-release-docs.mjs
+
+      - name: Validate pull-request workflow boundary
+        run: node scripts/validate-pull-request-workflow.mjs
+
+      - name: Validate deterministic release package
+        run: node scripts/validate-release-package.mjs
+
+      - name: Validate preview API documentation and route contract
+        run: node scripts/validate-api-docs.mjs
+
+      - name: Check NuGet vulnerabilities
+        run: |
+          set -euo pipefail
+          dotnet list Jellyfin.Plugin.Hue.sln package \
+            --vulnerable \
+            --include-transitive \
+            --format json \
+            --output-version 1 > vulnerable-packages.json
+          test -s vulnerable-packages.json
+          jq -e 'type == "object" and .version == 1 and (.projects | type == "array" and length > 0)' \
+            vulnerable-packages.json >/dev/null
+          vulnerable_count=$(jq '[.projects[]?.frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | select((.vulnerabilities // []) | length > 0)] | length' vulnerable-packages.json)
+          echo "NuGet vulnerable package entries: $vulnerable_count"
+          if [ "$vulnerable_count" -ne 0 ]; then
+            echo "Vulnerable packages detected; refusing PR validation." >&2
+            exit 1
+          fi
+
+  security-analysis:
+    name: Secret and static security scans
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SEMGREP_SEND_METRICS: 'off'
+
+    steps:
+      - name: Checkout PR merge ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          archive_name="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          checksums_name="gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          archive_path="$RUNNER_TEMP/$archive_name"
+          checksums_path="$RUNNER_TEMP/$checksums_name"
+          release_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+
+          curl -sSfL --retry 3 --retry-all-errors \
+            -o "$archive_path" "$release_url/$archive_name"
+          curl -sSfL --retry 3 --retry-all-errors \
+            -o "$checksums_path" "$release_url/$checksums_name"
+
+          printf '%s  %s\n' "$GITLEAKS_CHECKSUMS_SHA256" "$checksums_path" \
+            | sha256sum --check --strict -
+          checksum_entry=$(awk -v name="$archive_name" '$2 == name { print $1 "  " $2 }' "$checksums_path")
+          test -n "$checksum_entry"
+          printf '%s\n' "$checksum_entry" \
+            | (cd "$RUNNER_TEMP" && sha256sum --check --strict -)
+
+          tar -xzf "$archive_path" -C "$RUNNER_TEMP" gitleaks
+          chmod 0755 "$RUNNER_TEMP/gitleaks"
+          test "$("$RUNNER_TEMP/gitleaks" version)" = "$GITLEAKS_VERSION"
+
+      - name: Scan git history with gitleaks
+        run: |
+          set -euo pipefail
+          set +e
+          "$RUNNER_TEMP/gitleaks" detect --source . --redact --exit-code 1 \
+            --report-format json --report-path "$RUNNER_TEMP/gitleaks.json"
+          scan_status=$?
+          set -e
+          test -f "$RUNNER_TEMP/gitleaks.json"
+          count=$(jq 'length' "$RUNNER_TEMP/gitleaks.json")
+          echo "Gitleaks findings: $count"
+          if [ "$scan_status" -ne 0 ]; then
+            echo "Gitleaks failed or found potential secrets." >&2
+            exit "$scan_status"
+          fi
+
+      - name: Validate Semgrep lock
+        run: |
+          set -euo pipefail
+          grep -Fx "semgrep==$SEMGREP_VERSION" .github/semgrep/requirements.in
+          node scripts/validate-semgrep-lock.mjs .github/semgrep/requirements.txt "$SEMGREP_VERSION"
+
+      - name: Install Semgrep from hash-locked requirements
+        run: |
+          set -euo pipefail
+          semgrep_venv="$RUNNER_TEMP/semgrep-venv"
+          python3 -c 'import sys; sys.exit("Semgrep lock requires Python 3.12") if sys.version_info[:2] != (3, 12) else None'
+          python3 -m venv "$semgrep_venv"
+          "$semgrep_venv/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --no-cache-dir \
+            --only-binary=:all: \
+            --require-hashes \
+            --index-url https://pypi.org/simple \
+            --requirement .github/semgrep/requirements.txt
+          "$semgrep_venv/bin/python" -m pip check
+          test "$($semgrep_venv/bin/semgrep --version)" = "$SEMGREP_VERSION"
+
+      - name: Scan source with Semgrep
+        run: |
+          set -euo pipefail
+          set +e
+          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
+            --config p/default --metrics off --timeout 120 \
+            --json --output "$RUNNER_TEMP/semgrep.json" .
+          scan_status=$?
+          set -e
+          test -f "$RUNNER_TEMP/semgrep.json"
+          count=$(jq '.results | length' "$RUNNER_TEMP/semgrep.json")
+          errors=$(jq '.errors | length' "$RUNNER_TEMP/semgrep.json")
+          echo "Semgrep findings: $count; scanner errors: $errors"
+          if [ "$scan_status" -ne 0 ]; then
+            echo "Semgrep failed." >&2
+            exit "$scan_status"
+          fi
+          if [ "$count" -gt 0 ] || [ "$errors" -gt 0 ]; then
+            echo "Semgrep found security findings or scanner errors." >&2
+            exit 1
+          fi

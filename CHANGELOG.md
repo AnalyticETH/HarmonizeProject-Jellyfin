@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.300] - 2026-08-25
+
+### Concurrency, report, and dependency-gate safety
+- **Run/cancel lifecycle correctness**: bulk scheduled-cue Run and Cancel actions now bypass the configuration-writer lease so long-running runs can execute and active runs remain cancellable.
+- **Stale-safe occurrence exports**: JSON occurrence reports are bound to the active page generation and filter query, with teardown cleanup that permits a reopened page to export again.
+- **Untrusted-change gate**: Dependabot and pull-request changes now receive read-only build, test, format, vulnerability, Gitleaks, and Semgrep validation on an ephemeral GitHub-hosted runner; persistent self-hosted identities remain trusted-main-only.
+- **Regression contracts**: mutation-filter, report-lifecycle, and PR workflow boundary tests protect the new paths.
+
 ## [1.5.299] - 2026-08-25
 
 ### Capacity and report lifecycle safety
