@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.303] - 2026-08-26
+
+### Mapping input security
+- **Ambiguous JSON rejection**: direct user-mapping writes now reject duplicate property names that differ only by case before materializing nested device targets.
+- **Regression coverage**: the API test proves an oversized case-variant payload is rejected without mutating persisted configuration.
+
 ## [1.5.302] - 2026-08-26
 
 ### Export and backend hardening

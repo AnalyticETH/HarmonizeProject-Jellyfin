@@ -455,7 +455,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.302 (Current)
+### Version 1.5.303 (Current)
+- **Ambiguous mapping input rejection**: direct user-mapping writes fail closed on duplicate property names that differ only by case, preventing inconsistent JSON binding before nested targets are materialized.
+- **Security regression coverage**: oversized case-variant device-target input is rejected without changing persisted mappings.
+
+### Version 1.5.302
 - **Export teardown recovery**: tracked administrator export cancellation restores button state after navigation, pagehide, or bfcache restore and prevents stale downloads.
 - **Export lifecycle harness**: CI gates execute deterministic VM coverage for all JSON, CSV, and iCalendar administrator exports.
 - **Bounded backend inputs and retries**: nested device-target imports and direct mapping payloads are rejected before materialization when oversized, and Hue retry values are clamped to a finite 0-10 range.
