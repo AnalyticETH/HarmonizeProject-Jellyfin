@@ -194,6 +194,42 @@ public class HueStreamerTests
     }
 
     [Fact]
+    public async Task SendColors_WhenTransportIsDisposed_TriggersReconnect()
+    {
+        var firstConnection = new TestDtlsConnection { ThrowObjectDisposedOnSend = true };
+        var reconnectStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connectionNumber = 0;
+        var streamer = new HueStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) =>
+            {
+                var number = Interlocked.Increment(ref connectionNumber);
+                if (number == 1)
+                    return Task.FromResult<IHueDtlsConnection>(firstConnection);
+
+                reconnectStarted.TrySetResult(true);
+                return Task.FromResult<IHueDtlsConnection>(new TestDtlsConnection());
+            });
+
+        await streamer.StartStreamAsync(
+            "192.168.1.100",
+            "app-key",
+            "00112233445566778899aabbccddeeff");
+
+        var colors = new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } };
+        Assert.False(await streamer.SendColors("area-id", colors));
+
+        await reconnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // The next frame joins the in-flight bounded reconnect and proves that a
+        // transport disposal cannot leave the stream permanently wedged.
+        Assert.True(await streamer.SendColors("area-id", colors));
+        Assert.Equal(2, connectionNumber);
+        Assert.Equal(1, streamer.ReconnectAttempts);
+
+        streamer.StopStream();
+    }
+
+    [Fact]
     public async Task SendColors_WhenCanceledBeforeWriteReturnsFalse()
     {
         using var cancellationSource = new CancellationTokenSource();
@@ -362,8 +398,13 @@ public class HueStreamerTests
 
         public bool ThrowOnSend { get; set; }
 
+        public bool ThrowObjectDisposedOnSend { get; set; }
+
         public void Send(byte[] buffer, int offset, int count)
         {
+            if (ThrowObjectDisposedOnSend)
+                throw new ObjectDisposedException("synthetic DTLS transport");
+
             if (ThrowOnSend)
             {
                 IsHealthy = false;

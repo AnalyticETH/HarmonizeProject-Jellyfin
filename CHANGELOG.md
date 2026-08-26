@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.308] - 2026-08-26
+
+### Bridge target safety, stream recovery, and accessible telemetry
+- **Area-target correctness**: entertainment configuration responses now select the requested resource by ID and fail closed when identified responses describe a different area, while preserving legacy responses without resource IDs.
+- **Transport recovery**: disposed and I/O-failed DTLS connections are invalidated only when still active and enter the existing serialized, bounded reconnect flow without closing a replacement stream.
+- **Accessible diagnostics**: administrator action results expose atomic live status/alert regions while high-frequency scheduler telemetry remains quiet for screen readers.
+- **Regression coverage**: Hue client, streaming lifecycle, and configuration-page contracts cover target selection, transport disposal, stale-connection races, and live-region semantics.
+
 ## [1.5.307] - 2026-08-26
 
 ### Bridge reliability and administrator telemetry

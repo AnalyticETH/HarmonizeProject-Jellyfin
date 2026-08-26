@@ -455,7 +455,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.307 (Current)
+### Version 1.5.308 (Current)
+- **Area-target correctness**: entertainment configuration responses now select the requested resource by ID and fail closed when identified responses describe a different area, while preserving legacy responses without resource IDs.
+- **Transport recovery**: disposed and I/O-failed DTLS connections are invalidated only when still active and enter the existing serialized, bounded reconnect flow without closing a replacement stream.
+- **Accessible diagnostics**: administrator action results expose atomic live status/alert regions while high-frequency scheduler telemetry remains quiet for screen readers.
+- **Regression coverage**: Hue client, streaming lifecycle, and configuration-page contracts cover target selection, transport disposal, stale-connection races, and live-region semantics.
+
+### Version 1.5.307
 - **Fail-closed channel validation**: connection diagnostics ignore malformed, non-numeric, negative, and out-of-range entertainment channel IDs and skip DTLS probing when no controllable channels remain.
 - **Reconnect resilience**: failed internal DTLS startup attempts retain the active target and lifecycle state so later frames can consume the remaining bounded retry budget; public stops still clear stale reconnect state.
 - **Playlist duration visibility**: saved playlist selectors and schedule status, upcoming-occurrence, and history tables render bounded total durations alongside their step and pass metadata.

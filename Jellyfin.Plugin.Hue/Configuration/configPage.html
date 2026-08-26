@@ -53,9 +53,9 @@
                             <span>Stop Current Sync</span>
                         </button>
                     </div>
-                    <div id="runtimeStatusMessage" class="fieldDescription" role="status" aria-live="polite" style="margin-top: 0.5em;">Loading runtime status...</div>
-                    <div id="runtimeStatusError" role="alert" aria-live="assertive" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
-                    <div id="runtimeCleanupWarning" style="display: none; color: #ffd27f; margin-top: 0.5em;"></div>
+                    <div id="runtimeStatusMessage" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;">Loading runtime status...</div>
+                    <div id="runtimeStatusError" role="alert" aria-live="assertive" aria-atomic="true" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
+                    <div id="runtimeCleanupWarning" role="status" aria-live="polite" aria-atomic="true" style="display: none; color: #ffd27f; margin-top: 0.5em;"></div>
                     <div class="fieldDescription" style="margin-top: 0.75em;">Updates automatically while this page is open. Stop Current Sync restores the lights and leaves playback running; bridge credentials are never included in status responses.</div>
                 </fieldset>
                 <fieldset class="verticalSection" id="sessionHistorySection">
@@ -97,7 +97,7 @@
                         <input id="sessionHistoryRetentionCount" type="number" min="1" max="25" value="25" is="emby-input" />
                         <div class="fieldDescription">Keep 1-25 newest completed sessions in memory and, when retention is enabled, across restarts. The default is 25; reducing this trims older entries when you save.</div>
                     </div>
-                    <div id="sessionHistoryStatus" class="fieldDescription" style="margin-top: 0.75em;">Loading recent sessions...</div>
+                    <div id="sessionHistoryStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.75em;">Loading recent sessions...</div>
                     <div id="runtimeSessionHistory" style="margin-top: 0.5em; overflow-x: auto;"></div>
                 </fieldset>
                 <fieldset class="verticalSection" id="environmentDiagnosticsSection">
@@ -130,10 +130,10 @@
                             <span>Cancel Active Diagnostics</span>
                         </button>
                     </div>
-                    <div id="diagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Run diagnostics to verify FFmpeg, PCM audio capture, managed DTLS, and saved configuration.</div>
-                    <div id="diagnosticsErrors" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
-                    <div id="targetDiagnosticsMessage" class="fieldDescription" style="margin-top: 0.75em;">Validate saved default and per-user bridge targets to confirm that each selected area still has controllable channels and that saved channel profiles contain only IDs available in that area.</div>
-                    <div id="targetDiagnosticsDuplicateMappings" class="fieldDescription" role="status" aria-live="polite" style="display: none; color: #f0ad4e; margin-top: 0.5em;"></div>
+                    <div id="diagnosticsMessage" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.75em;">Run diagnostics to verify FFmpeg, PCM audio capture, managed DTLS, and saved configuration.</div>
+                    <div id="diagnosticsErrors" role="alert" aria-live="assertive" aria-atomic="true" style="display: none; color: #ffb3b3; margin-top: 0.5em;"></div>
+                    <div id="targetDiagnosticsMessage" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.75em;">Validate saved default and per-user bridge targets to confirm that each selected area still has controllable channels and that saved channel profiles contain only IDs available in that area.</div>
+                    <div id="targetDiagnosticsDuplicateMappings" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="display: none; color: #f0ad4e; margin-top: 0.5em;"></div>
                     <div id="targetDiagnosticsTable" style="margin-top: 0.5em; overflow-x: auto;"></div>
                 </fieldset>
                 <fieldset class="verticalSection" id="configurationPortabilitySection">
@@ -148,7 +148,7 @@
                         </button>
                         <input id="importConfigurationFile" type="file" accept="application/json,.json" style="display: none;" />
                     </div>
-                    <div id="configurationPortabilityStatus" class="fieldDescription" style="margin-top: 0.75em;">Imports are atomic and are rejected while playback is active.</div>
+                    <div id="configurationPortabilityStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.75em;">Imports are atomic and are rejected while playback is active.</div>
                     <div id="configurationImportDiff" class="fieldDescription" style="display: none; margin-top: 0.75em; white-space: pre-wrap;"></div>
                     <div id="configurationImportCredentials" style="display: none; margin-top: 1em;">
                         <div class="fieldDescription" style="margin-bottom: 0.75em;"><strong>Migration credentials (optional)</strong><br />Leave fields blank when importing back to the same server; matching stored keys are preserved automatically. For a new server, enter the replacement App Key and Client Key for each target that needs them. Values are not added to the downloaded file or saved in the browser.</div>
@@ -193,7 +193,7 @@
                                 style="display: none; margin-bottom: 20px; background: #8a3d3d;">
                                 <span>Cancel Active Diagnostic</span>
                             </button>
-                            <div id="bridgeStatus" style="flex: 1 1 200px; color: #fff; padding: 6px 10px; border-radius: 6px; background: #3f51b5;">
+                            <div id="bridgeStatus" role="status" aria-live="polite" aria-atomic="true" style="flex: 1 1 200px; color: #fff; padding: 6px 10px; border-radius: 6px; background: #3f51b5;">
                                 Enter bridge address and keys, then refresh to test.
                             </div>
                         </div>
@@ -227,7 +227,7 @@
                                     <option value="">Load bridge data first</option>
                                     <option value="manual">Enter ID manually</option>
                                 </select>
-                                <span id="entertainmentAreaStatus" style="flex: 1 1 auto;"></span>
+                                <span id="entertainmentAreaStatus" role="status" aria-live="polite" aria-atomic="true" style="flex: 1 1 auto;"></span>
                             </div>
                             <div class="inputContainer" id="manualAreaContainer" style="display: none; margin-top: 0.75em;">
                                 <label class="inputLabel inputLabelUnfocused" for="entertainmentAreaManual">Manual entertainment area ID</label>
@@ -252,7 +252,7 @@
                                 </button>
                             </div>
                             <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535). Load Channel IDs after selecting an area; the stored global App Key is used when the secret field is blank. Edit the list to choose a subset. Test Connection validates this global selection.</div>
-                            <div id="channelIdsStatus" class="fieldDescription" style="margin-top: 0.5em;"></div>
+                            <div id="channelIdsStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;"></div>
                         </div>
                     </fieldset>
 
@@ -336,8 +336,8 @@
                                 <span>Cancel Active Preview</span>
                             </button>
                         </div>
-                        <div id="previewColorStatus" class="fieldDescription" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override. Nested ↳ device rows send only credential-free user/device route identifiers, so an individual mapped device can be previewed without changing bridge credentials or saved mappings. Current-light capture has its own target selector and reports per-target results without changing bridge state.</div>
-                        <div id="previewTargetMetadataStatus" class="fieldDescription" role="status" aria-live="polite" style="margin-top: 0.5em;"></div>
+                        <div id="previewColorStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.75em;">Uses the selected preview target profile above. The default button uses the target selection; Preview All Enabled Targets is an explicit broadcast override. Nested ↳ device rows send only credential-free user/device route identifiers, so an individual mapped device can be previewed without changing bridge credentials or saved mappings. Current-light capture has its own target selector and reports per-target results without changing bridge state.</div>
+                        <div id="previewTargetMetadataStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;"></div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 1em;">
                             <div style="flex: 1 1 220px;">
                                 <label class="inputLabel inputLabelUnfocused" for="previewPresetSelect">Saved Scene</label>
@@ -394,9 +394,9 @@
                                 <button is="emby-button" type="button" class="raised" id="duplicateSelectedPreviewPresetsBtn" disabled><span>Duplicate Selected</span></button>
                                 <button is="emby-button" type="button" class="raised" id="deleteSelectedPreviewPresetsBtn" disabled><span>Delete Selected</span></button>
                             </div>
-                            <div id="previewPresetBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select saved scenes to preview sequentially with restorative state cleanup. The Saved Scene Preview Targets selection above applies to bulk previews; the All Targets button is an explicit broadcast override. Duplicate independent copies or delete selected scenes together. Any playlist or scheduled-cue reference blocks deletion.</div>
+                            <div id="previewPresetBulkStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="flex: 1 1 280px;">Select saved scenes to preview sequentially with restorative state cleanup. The Saved Scene Preview Targets selection above applies to bulk previews; the All Targets button is an explicit broadcast override. Duplicate independent copies or delete selected scenes together. Any playlist or scheduled-cue reference blocks deletion.</div>
                         </div>
-                        <div id="previewPresetStatus" class="fieldDescription" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Choose the default bridge, all enabled targets, a mapped user, or a nested ↳ device route in Saved Scene Preview Targets; route requests carry only the user and device identifiers. Preview Saved Scene uses that selection; Preview Saved Scene on All Targets is an explicit broadcast override. Use Duplicate Scene to create a safe editable variant, enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically, or use View References before changing/deleting a scene. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
+                            <div id="previewPresetStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Choose the default bridge, all enabled targets, a mapped user, or a nested ↳ device route in Saved Scene Preview Targets; route requests carry only the user and device identifiers. Preview Saved Scene uses that selection; Preview Saved Scene on All Targets is an explicit broadcast override. Use Duplicate Scene to create a safe editable variant, enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically, or use View References before changing/deleting a scene. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -445,7 +445,7 @@
                                 <button is="emby-button" type="button" class="raised" id="duplicateSelectedScenePlaylistsBtn" disabled><span>Duplicate Selected</span></button>
                                 <button is="emby-button" type="button" class="raised" id="deleteSelectedScenePlaylistsBtn" disabled><span>Delete Selected</span></button>
                             </div>
-                            <div id="scenePlaylistBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select playlists to preview with their saved order or stable daily shuffle and restorative state cleanup. Preview Selected uses each playlist's saved target unless Bulk preview targets is changed; the All Targets button remains an explicit broadcast override. Duplicate independent copies or delete them together. Any playlist referenced by a scheduled cue blocks deletion.</div>
+                            <div id="scenePlaylistBulkStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="flex: 1 1 280px;">Select playlists to preview with their saved order or stable daily shuffle and restorative state cleanup. Preview Selected uses each playlist's saved target unless Bulk preview targets is changed; the All Targets button remains an explicit broadcast override. Duplicate independent copies or delete them together. Any playlist referenced by a scheduled cue blocks deletion.</div>
                         </div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-start; flex-wrap: wrap; margin-top: 0.75em;">
                             <div style="flex: 1 1 220px;">
@@ -481,7 +481,7 @@
                             <button is="emby-button" type="button" class="raised" id="renameScenePlaylistBtn" disabled><span>Rename Playlist</span></button>
                         </div>
                         <div id="scenePlaylistItems" style="margin-top: 0.75em;"></div>
-                        <div id="scenePlaylistStatus" class="fieldDescription" style="margin-top: 0.5em;">Select saved scenes, set optional per-step RGB channel, effect, brightness, effect speed, fade-in, fade-out, fade curve, and hold overrides (blank fields and Inherited scene values preserve the scene; 0 seconds inherits each scene's duration), choose Saved order or Stable daily shuffle, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge. Use Rename Playlist to migrate every scheduled-cue reference atomically before continuing to edit the renamed playlist.</div>
+                            <div id="scenePlaylistStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;">Select saved scenes, set optional per-step RGB channel, effect, brightness, effect speed, fade-in, fade-out, fade curve, and hold overrides (blank fields and Inherited scene values preserve the scene; 0 seconds inherits each scene's duration), choose Saved order or Stable daily shuffle, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge. Use Rename Playlist to migrate every scheduled-cue reference atomically before continuing to edit the renamed playlist.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection">
@@ -522,7 +522,7 @@
                             <button is="emby-button" type="button" class="raised" id="deleteSelectedSceneSchedulesBtn" disabled><span>Delete Selected</span></button>
                             <button is="emby-button" type="button" class="raised" id="selectAllSceneSchedulesBtn" disabled><span>Select All</span></button>
                             <button is="emby-button" type="button" class="raised" id="clearSelectedSceneSchedulesBtn" disabled><span>Clear Selection</span></button>
-                            <div id="sceneScheduleBulkStatus" class="fieldDescription" style="flex: 1 1 260px;">Select scheduled cues to run them sequentially, request cancellation, duplicate disabled copies, or apply a bulk enabled-state, skipped-occurrence, counter-reset, or deletion action.</div>
+                            <div id="sceneScheduleBulkStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="flex: 1 1 260px;">Select scheduled cues to run them sequentially, request cancellation, duplicate disabled copies, or apply a bulk enabled-state, skipped-occurrence, counter-reset, or deletion action.</div>
                         </div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap; margin-top: 0.75em;">
                             <div style="flex: 1 1 220px;">
@@ -744,7 +744,7 @@
                             <div class="fieldDescription">Daily cues run on every calendar date; weekly cues choose one or more weekdays; monthly-day cues use the Day of month field; monthly-weekday cues use the ordinal weekday selector; yearly cues use the month and Day of month fields. The Every value multiplies the selected recurrence unit (days, weeks, months, or years); intervals above 1 use Start date as the stable anchor. Setting a one-time date disables recurring date rules and recurrence controls. The scheduler checks every few seconds and runs each cue at most once per selected-time-zone minute. Blank time zone keeps the server-local default. Dates are calendar dates in the selected cue time zone and include both endpoints. Enter excluded dates as comma-separated <code>yyyy-MM-dd</code> values to skip holidays or blackout days.</div>
                         </div>
                         <button is="emby-button" type="button" class="raised button-submit" id="saveSceneScheduleBtn" style="margin-top: 0.5em;"><span>Save Scheduled Cue</span></button>
-                        <div id="sceneScheduleStatus" class="fieldDescription" style="margin-top: 0.5em;">Cues contain only scene names, schedule timing/date rules, and target mapping/device-route IDs; bridge credentials remain server-side.</div>
+                        <div id="sceneScheduleStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;">Cues contain only scene names, schedule timing/date rules, and target mapping/device-route IDs; bridge credentials remain server-side.</div>
                         <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top: 0.75em;">
                             <label>
                                 <input is="emby-checkbox" type="checkbox" id="sceneAutomationEnabled" checked />
@@ -792,7 +792,7 @@
                         </div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleStatusBtn"><span>Refresh Cue Status</span></button>
-                            <div id="sceneScheduleRuntimeStatusSummary" class="fieldDescription">Loading scheduler status...</div>
+                            <div id="sceneScheduleRuntimeStatusSummary" class="fieldDescription" role="status" aria-live="off" aria-atomic="true">Loading scheduler status...</div>
                         </div>
                         <div id="sceneScheduleRuntimeStatus" style="margin-top: 0.5em; overflow-x: auto;"></div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
@@ -810,7 +810,7 @@
                             <select id="sceneScheduleConflictFilter" is="emby-select" style="min-width: 220px;">
                                 <option value="">All enabled cues</option>
                             </select>
-                            <div id="sceneScheduleConflictsSummary" class="fieldDescription">Loading schedule conflict diagnostics...</div>
+                            <div id="sceneScheduleConflictsSummary" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true">Loading schedule conflict diagnostics...</div>
                         </div>
                         <div id="sceneScheduleConflicts" style="margin-top: 0.5em; overflow-x: auto;"></div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
@@ -822,7 +822,7 @@
                             <select id="sceneScheduleOccurrenceFilter" is="emby-select" style="min-width: 220px;">
                                 <option value="">All configured cues</option>
                             </select>
-                            <div id="sceneScheduleOccurrencesSummary" class="fieldDescription">Loading upcoming cue occurrences...</div>
+                            <div id="sceneScheduleOccurrencesSummary" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true">Loading upcoming cue occurrences...</div>
                         </div>
                         <div id="sceneScheduleOccurrences" style="margin-top: 0.5em; overflow-x: auto;"></div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
@@ -843,7 +843,7 @@
                             <select id="sceneScheduleHistoryCueFilter" is="emby-select" style="min-width: 220px;">
                                 <option value="">All cues</option>
                             </select>
-                            <div id="sceneScheduleHistoryStatus" class="fieldDescription" role="status" aria-live="polite">Loading cue history...</div>
+                            <div id="sceneScheduleHistoryStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true">Loading cue history...</div>
                         </div>
                         <div id="sceneScheduleHistory" style="margin-top: 0.5em; overflow-x: auto;"></div>
                     </fieldset>
@@ -1122,8 +1122,8 @@
                                 <button is="emby-button" type="button" class="raised" id="cleanupStaleUserMappingsBtn"><span>Clean Stale Mappings</span></button>
                                 <button is="emby-button" type="button" class="raised" id="resolveDuplicateUserMappingsBtn"><span>Resolve Duplicate Mappings</span></button>
                             </div>
-                            <div id="userMappingBulkStatus" class="fieldDescription" style="flex: 1 1 280px;">Select user mappings to enable, disable, or delete them together. Scheduled-cue references block disabling and deletion; disabling also clears stored custom bridge targets.</div>
-                            <div id="userMappingReconcileStatus" class="fieldDescription" role="status" aria-live="polite" style="flex: 1 1 280px;">Reconciliation checks persisted mapping IDs and names against Jellyfin users without reading or exposing Hue credentials.</div>
+                            <div id="userMappingBulkStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="flex: 1 1 280px;">Select user mappings to enable, disable, or delete them together. Scheduled-cue references block disabling and deletion; disabling also clears stored custom bridge targets.</div>
+                            <div id="userMappingReconcileStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="flex: 1 1 280px;">Reconciliation checks persisted mapping IDs and names against Jellyfin users without reading or exposing Hue credentials.</div>
                             <div id="userMappingDuplicateResolutionControls" class="fieldDescription" style="display: none; flex: 1 1 100%;"></div>
                         </div>
 
@@ -1524,7 +1524,7 @@
                                         </button>
                                     </div>
                                     <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535). Only these channels are captured, dimmed, streamed, and restored for this user. Load Channel IDs after selecting an area; blank mapping credentials inherit the stored global target. Edit the list to choose a subset. Leave blank to inherit the global channel profile. Test Connection validates this selection and probes only the chosen channels.</div>
-                                    <div id="mappingChannelIdsStatus" class="fieldDescription" style="margin-top: 0.5em;"></div>
+                                    <div id="mappingChannelIdsStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;"></div>
                                 </div>
                             </fieldset>
 
@@ -1551,7 +1551,7 @@
                                 <button is="emby-button" type="button" class="raised" id="mappingLinkBridgeBtn" style="margin-bottom: 20px;">
                                     <span>Link Bridge</span>
                                 </button>
-                                <div id="mappingBridgeStatus" style="flex: 1 1 200px; color: #fff; padding: 6px 10px; border-radius: 6px; background: #3f51b5;">
+                                <div id="mappingBridgeStatus" role="status" aria-live="polite" aria-atomic="true" style="flex: 1 1 200px; color: #fff; padding: 6px 10px; border-radius: 6px; background: #3f51b5;">
                                     Leave target fields blank to inherit global settings, or enter a bridge address, then link.
                                 </div>
                             </div>
@@ -1598,7 +1598,7 @@
                                     <select id="mappingDeviceRouteSelect" is="emby-select" aria-label="Playback device route" style="min-width: 260px; flex: 1 1 260px;">
                                         <option value="">Use this user's bridge (no device route selected)</option>
                                     </select>
-                                    <div id="mappingDeviceDiscoveryStatus" class="fieldDescription" style="flex: 1 1 280px; margin: 0;">Discover recent Jellyfin playback devices to avoid typing opaque, case-sensitive device IDs.</div>
+                                    <div id="mappingDeviceDiscoveryStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="flex: 1 1 280px; margin: 0;">Discover recent Jellyfin playback devices to avoid typing opaque, case-sensitive device IDs.</div>
                                 </div>
                                 <div id="mappingDeviceRouteEditor" class="inputContainer" style="margin-top: .75em; padding: .75em; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;">
                                     <div class="fieldDescription" style="margin-bottom: .75em;">Configure the selected route without hand-editing JSON. Stored route keys stay server-side; leave the key fields blank when editing an existing route to preserve them.</div>
@@ -1625,7 +1625,7 @@
                                         <button is="emby-button" type="button" class="raised" id="mappingRemoveDeviceRouteBtn"><span>Remove Route</span></button>
                                         <button is="emby-button" type="button" class="raised" id="mappingClearDeviceRouteBtn"><span>Clear Route Editor</span></button>
                                     </div>
-                                    <div id="mappingDeviceRouteEditorStatus" class="fieldDescription" role="status" aria-live="polite" style="margin-top: .5em;"></div>
+                                    <div id="mappingDeviceRouteEditorStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: .5em;"></div>
                                 </div>
                             </div>
 

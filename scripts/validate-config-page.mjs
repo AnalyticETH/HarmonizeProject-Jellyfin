@@ -183,6 +183,70 @@ for (const marker of requiredMarkup) {
     }
 }
 
+// Action results must be exposed to assistive technology as complete, atomic
+// announcements. Keep frequently refreshed scheduler telemetry quiet so it can
+// still be inspected on demand without interrupting a screen-reader user.
+const requiredLiveRegions = {
+    status: [
+        "runtimeStatusMessage",
+        "runtimeCleanupWarning",
+        "sessionHistoryStatus",
+        "diagnosticsMessage",
+        "targetDiagnosticsMessage",
+        "targetDiagnosticsDuplicateMappings",
+        "configurationPortabilityStatus",
+        "bridgeStatus",
+        "entertainmentAreaStatus",
+        "channelIdsStatus",
+        "previewColorStatus",
+        "previewTargetMetadataStatus",
+        "previewPresetBulkStatus",
+        "previewPresetStatus",
+        "scenePlaylistBulkStatus",
+        "scenePlaylistStatus",
+        "sceneScheduleBulkStatus",
+        "sceneScheduleStatus",
+        "sceneScheduleConflictsSummary",
+        "sceneScheduleOccurrencesSummary",
+        "sceneScheduleHistoryStatus",
+        "userMappingBulkStatus",
+        "userMappingReconcileStatus",
+        "mappingChannelIdsStatus",
+        "mappingBridgeStatus",
+        "mappingDeviceDiscoveryStatus",
+        "mappingDeviceRouteEditorStatus"
+    ],
+    alert: [
+        "runtimeStatusError",
+        "diagnosticsErrors"
+    ]
+};
+
+for (const [role, ids] of Object.entries(requiredLiveRegions)) {
+    for (const id of ids) {
+        const openingTagMatch = html.match(new RegExp(`<[^>]*\\bid="${id}"[^>]*>`));
+        if (!openingTagMatch) {
+            throw new Error(`${file} is missing a live-region element: ${id}`);
+        }
+        const openingTag = openingTagMatch[0];
+        for (const attribute of [`role="${role}"`, `aria-live="${role === "alert" ? "assertive" : "polite"}"`, 'aria-atomic="true"']) {
+            if (!openingTag.includes(attribute)) {
+                throw new Error(`${file} ${id} must include ${attribute}`);
+            }
+        }
+    }
+}
+
+{
+    const openingTagMatch = html.match(/<[^>]*\bid="sceneScheduleRuntimeStatusSummary"[^>]*>/);
+    if (!openingTagMatch ||
+        !openingTagMatch[0].includes('role="status"') ||
+        !openingTagMatch[0].includes('aria-live="off"') ||
+        !openingTagMatch[0].includes('aria-atomic="true"')) {
+        throw new Error(`${file} scheduler telemetry summary must remain a quiet atomic status region`);
+    }
+}
+
 const requiredScript = [
     "function escapeAttribute(str)",
     "normalizeJellyfinUserId: function",

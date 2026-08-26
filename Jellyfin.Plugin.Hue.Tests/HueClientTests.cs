@@ -353,6 +353,45 @@ public class HueClientTests : IDisposable
         Assert.Equal(2, channels.GetArrayLength());
     }
 
+    [Fact]
+    public async Task GetEntertainmentConfiguration_MismatchedResourceId_ReturnsNull()
+    {
+        // A bridge response for a different area must never be used for the requested target.
+        var responseJson = @"{
+            ""data"": [{
+                ""id"": ""different-area"",
+                ""channels"": [{""channel_id"": 0}]
+            }]
+        }";
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetEntertainmentConfiguration_SelectsRequestedResourceWhenNotFirst()
+    {
+        var responseJson = @"{
+            ""data"": [
+                {""id"": ""different-area"", ""channels"": [{""channel_id"": 99}]},
+                {""id"": ""area-1"", ""channels"": [{""channel_id"": 1}]}
+            ]
+        }";
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.NotNull(result);
+        Assert.Equal("area-1", result.Value.GetProperty("id").GetString());
+        Assert.Equal(1, result.Value.GetProperty("channels")[0].GetProperty("channel_id").GetInt32());
+    }
+
     [Theory]
     [InlineData(@"{}")]
     [InlineData(@"{""data"":[]}")]

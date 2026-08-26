@@ -365,7 +365,12 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                     var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                     using var doc = JsonDocument.Parse(json);
-                    // Expected: { "data": [ { "channels": [ ... ] } ] }
+                    // Expected: { "data": [ { "id": "...", "channels": [ ... ] } ] }.
+                    // Older bridge responses may omit the resource id, so preserve the
+                    // existing first-entry fallback only when no returned entry identifies
+                    // itself. If ids are present, select the requested resource explicitly;
+                    // using a different area's channel layout could route playback to the
+                    // wrong target while still appearing to start successfully.
                     if (!doc.RootElement.TryGetProperty("data", out var data) ||
                         data.ValueKind != JsonValueKind.Array ||
                         data.GetArrayLength() == 0)
@@ -374,7 +379,33 @@ namespace Jellyfin.Plugin.Hue.Hue
                         return (JsonElement?)null;
                     }
 
-                    // Clone the element so the JsonDocument can be safely disposed
+                    var hasResourceIds = false;
+                    foreach (var candidate in data.EnumerateArray())
+                    {
+                        if (!candidate.TryGetProperty("id", out var idProperty) ||
+                            idProperty.ValueKind != JsonValueKind.String)
+                        {
+                            continue;
+                        }
+
+                        hasResourceIds = true;
+                        if (string.Equals(
+                            idProperty.GetString()?.Trim(),
+                            areaId.Trim(),
+                            StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Clone the element so the JsonDocument can be safely disposed.
+                            return (JsonElement?)candidate.Clone();
+                        }
+                    }
+
+                    if (hasResourceIds)
+                    {
+                        _logger.LogWarning("Entertainment configuration response did not contain requested area {0}", areaId);
+                        return (JsonElement?)null;
+                    }
+
+                    // Clone the legacy response so the JsonDocument can be safely disposed.
                     return (JsonElement?)data[0].Clone();
                 }, cancellationToken: cancellationToken).ConfigureAwait(false);
             }

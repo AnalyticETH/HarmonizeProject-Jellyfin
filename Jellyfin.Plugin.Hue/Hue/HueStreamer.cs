@@ -619,7 +619,9 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
             catch (ObjectDisposedException)
             {
-                _logger.LogDebug("Stream disposed while sending colors");
+                _logger.LogWarning("DTLS stream was disposed while sending colors, attempting reconnect");
+                InvalidateConnection(dtlsConnection);
+                ScheduleReconnect(cancellationToken);
                 return RecordPacketSendFailure(cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -632,13 +634,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                 if (cancellationToken.IsCancellationRequested)
                     return false;
 
-                _ = TryReconnectAsync(cancellationToken).ContinueWith(t =>
-                {
-                    if (t.IsFaulted)
-                        _logger.LogError(t.Exception!.GetBaseException(), "Unobserved exception during DTLS reconnect");
-                    else if (t.Result == false && !cancellationToken.IsCancellationRequested)
-                        _logger.LogWarning("DTLS reconnection failed — lights may stop syncing until next playback");
-                }, TaskContinuationOptions.ExecuteSynchronously);
+                InvalidateConnection(dtlsConnection);
+                ScheduleReconnect(cancellationToken);
                 return RecordPacketSendFailure(cancellationToken);
             }
             catch (Exception ex)
@@ -646,6 +643,47 @@ namespace Jellyfin.Plugin.Hue.Hue
                 _logger.LogError(ex, "Unexpected error sending colors");
                 return RecordPacketSendFailure(cancellationToken);
             }
+        }
+
+        /// <summary>
+        /// Detaches a failed connection only when it is still the active stream. A public
+        /// replacement start can race with a send failure; the reference check prevents
+        /// stale cleanup from closing the newly installed stream.
+        /// </summary>
+        private void InvalidateConnection(IHueDtlsConnection failedConnection)
+        {
+            lock (_lock)
+            {
+                if (!ReferenceEquals(_dtlsConnection, failedConnection))
+                    return;
+
+                try
+                {
+                    failedConnection.Close();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to close the unhealthy DTLS stream");
+                }
+
+                _dtlsConnection = null;
+                _lastSentColors = null;
+            }
+        }
+
+        /// <summary>
+        /// Starts one bounded reconnect worker for a failed send. The reconnect gate
+        /// serializes overlapping workers and the lifecycle token cancels them on stop.
+        /// </summary>
+        private void ScheduleReconnect(CancellationToken cancellationToken)
+        {
+            _ = TryReconnectAsync(cancellationToken).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    _logger.LogError(t.Exception!.GetBaseException(), "Unobserved exception during DTLS reconnect");
+                else if (t.Result == false && !cancellationToken.IsCancellationRequested)
+                    _logger.LogWarning("DTLS reconnection failed — lights may stop syncing until next playback");
+            }, TaskContinuationOptions.ExecuteSynchronously);
         }
 
         private bool RecordPacketSendFailure(CancellationToken cancellationToken)
