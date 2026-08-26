@@ -431,32 +431,45 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpPost("EntertainmentAreas")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         public async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> PostEntertainmentAreas(
             [FromBody] HueEntertainmentAreasRequest? request,
             CancellationToken cancellationToken = default)
         {
             if (request == null ||
-                !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress) ||
-                !TryResolveCredentials(
-                    request.IpAddress,
-                    request.AppKey,
-                    null,
-                    request.UserId,
-                    request.DeviceId,
-                    allowStoredClientKey: false,
-                    out _,
-                    out _,
-                    out _))
+                !HueBridgeCertificateValidation.IsValidBridgeAddress(request.IpAddress))
             {
                 return BadRequest("Bridge IP and app key are required before loading entertainment areas.");
             }
 
+            string bridgeIp;
+            string appKey;
+            using (var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead())
+            {
+                if (configurationReadLease == null)
+                {
+                    return Conflict("Configuration is changing; retry loading entertainment areas after the active mutation completes.");
+                }
+
+                if (!TryResolveCredentials(
+                        request.IpAddress,
+                        request.AppKey,
+                        null,
+                        request.UserId,
+                        request.DeviceId,
+                        allowStoredClientKey: false,
+                        out bridgeIp,
+                        out appKey,
+                        out _))
+                {
+                    return BadRequest("Bridge IP and app key are required before loading entertainment areas.");
+                }
+            }
+
             return await LoadEntertainmentAreas(
-                request.IpAddress,
-                request.AppKey,
-                request.UserId,
-                request.DeviceId,
+                bridgeIp,
+                appKey,
                 cancellationToken);
         }
 
@@ -468,6 +481,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpPost("EntertainmentChannels")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         public async Task<ActionResult<IEnumerable<HueEntertainmentChannel>>> PostEntertainmentChannels(
             [FromBody] HueEntertainmentChannelsRequest? request,
@@ -480,18 +494,28 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("A valid bridge address, app key, and entertainment area ID are required.");
             }
 
-            if (!TryResolveCredentials(
-                    request.IpAddress,
-                    request.AppKey,
-                    null,
-                    request.UserId,
-                    request.DeviceId,
-                    allowStoredClientKey: false,
-                    out var bridgeIp,
-                    out var appKey,
-                    out _))
+            string bridgeIp;
+            string appKey;
+            using (var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead())
             {
-                return BadRequest("A valid bridge address and app key are required.");
+                if (configurationReadLease == null)
+                {
+                    return Conflict("Configuration is changing; retry loading entertainment channels after the active mutation completes.");
+                }
+
+                if (!TryResolveCredentials(
+                        request.IpAddress,
+                        request.AppKey,
+                        null,
+                        request.UserId,
+                        request.DeviceId,
+                        allowStoredClientKey: false,
+                        out bridgeIp,
+                        out appKey,
+                        out _))
+                {
+                    return BadRequest("A valid bridge address and app key are required.");
+                }
             }
 
             var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
@@ -536,28 +560,17 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         private async Task<ActionResult<IEnumerable<HueClient.EntertainmentArea>>> LoadEntertainmentAreas(
-            string? bridgeIp,
-            string? appKey,
-            string? userId,
-            string? deviceId,
+            string bridgeIp,
+            string appKey,
             CancellationToken cancellationToken)
         {
-            if (!TryResolveCredentials(
-                    bridgeIp,
-                    appKey,
-                    null,
-                    userId,
-                    deviceId,
-                    allowStoredClientKey: false,
-                    out var resolvedBridgeIp,
-                    out var resolvedAppKey,
-                    out _)
-                || !HueBridgeCertificateValidation.IsValidBridgeAddress(resolvedBridgeIp))
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(bridgeIp) ||
+                string.IsNullOrWhiteSpace(appKey))
             {
                 return BadRequest("Bridge IP and app key are required before loading entertainment areas.");
             }
 
-            var areas = await _hueClient.GetEntertainmentAreas(resolvedBridgeIp, resolvedAppKey, cancellationToken);
+            var areas = await _hueClient.GetEntertainmentAreas(bridgeIp, appKey, cancellationToken);
             if (areas == null)
             {
                 return StatusCode(StatusCodes.Status502BadGateway, "Could not contact the Hue bridge.");
@@ -1039,6 +1052,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpPost("TestConnection")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         public async Task<ActionResult<HueConnectionTestResult>> TestConnection(
             [FromBody] HueConnectionTestRequest? request,
@@ -1050,18 +1064,29 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("A valid private bridge address and app key are required.");
             }
 
-            if (!TryResolveCredentials(
-                    request.IpAddress,
-                    request.AppKey,
-                    request.ClientKey,
-                    request.UserId,
-                    request.DeviceId,
-                    allowStoredClientKey: string.IsNullOrWhiteSpace(request.AppKey),
-                    out var bridgeIp,
-                    out var appKey,
-                    out var clientKey))
+            string bridgeIp;
+            string appKey;
+            string clientKey;
+            using (var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead())
             {
-                return BadRequest("A valid private bridge address and app key are required.");
+                if (configurationReadLease == null)
+                {
+                    return Conflict("Configuration is changing; retry the Hue connection test after the active mutation completes.");
+                }
+
+                if (!TryResolveCredentials(
+                        request.IpAddress,
+                        request.AppKey,
+                        request.ClientKey,
+                        request.UserId,
+                        request.DeviceId,
+                        allowStoredClientKey: string.IsNullOrWhiteSpace(request.AppKey),
+                        out bridgeIp,
+                        out appKey,
+                        out clientKey))
+                {
+                    return BadRequest("A valid private bridge address and app key are required.");
+                }
             }
 
             HashSet<int>? requestedChannelIds = null;

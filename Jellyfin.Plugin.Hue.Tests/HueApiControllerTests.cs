@@ -1335,6 +1335,62 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task CredentialResolutionRoutes_RejectActiveConfigurationMutationBeforeBridgeCalls()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "tv-1",
+                            HueBridgeIp = "192.168.1.101",
+                            HueAppKey = "device-app-key",
+                            HueClientKey = "device-client-key"
+                        }
+                    }
+                }
+            }
+        });
+
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+
+        var controller = CreateController(bridgeLifecycleGate: gate);
+
+        var areas = await controller.PostEntertainmentAreas(new HueEntertainmentAreasRequest
+        {
+            UserId = "user-device",
+            DeviceId = "tv-1",
+            IpAddress = "192.168.1.101"
+        });
+        var channels = await controller.PostEntertainmentChannels(new HueEntertainmentChannelsRequest
+        {
+            UserId = "user-device",
+            DeviceId = "tv-1",
+            IpAddress = "192.168.1.101",
+            EntertainmentAreaId = "area-1"
+        });
+        var connection = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            UserId = "user-device",
+            DeviceId = "tv-1",
+            IpAddress = "192.168.1.101"
+        });
+
+        AssertConflict(areas.Result!);
+        AssertConflict(channels.Result!);
+        AssertConflict(connection.Result!);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task PostEntertainmentChannels_ReturnsSortedChannelIdsAndMemberCounts()
     {
         SetupHttpResponse(
