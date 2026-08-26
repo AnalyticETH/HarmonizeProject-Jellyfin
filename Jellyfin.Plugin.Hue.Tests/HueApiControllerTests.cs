@@ -10612,6 +10612,29 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task ExportSupportBundle_PropagatesConfigurationReadConflict()
+    {
+        InstallConfiguration(new PluginConfiguration());
+        var probe = new Mock<IHueEnvironmentProbe>();
+        probe
+            .Setup(environment => environment.CheckAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueEnvironmentProbeResult());
+
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        using var evaluation = lifecycleGate.TryEnterSchedulerEvaluation();
+        Assert.NotNull(evaluation);
+
+        var action = await CreateController(
+            bridgeLifecycleGate: lifecycleGate,
+            environmentProbe: probe.Object).ExportSupportBundle();
+
+        var conflict = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+        Assert.Contains("configuration", Assert.IsType<string>(conflict.Value), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task StopSync_WithoutHostedServiceReturnsServiceUnavailable()
     {
         var controller = CreateController();

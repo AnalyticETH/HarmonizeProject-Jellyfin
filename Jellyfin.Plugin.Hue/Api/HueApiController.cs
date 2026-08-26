@@ -2090,7 +2090,8 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(presets
                 .Where(preset => preset != null)
                 .OrderBy(preset => preset.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(ToColorPresetResult));
+                .Select(ToColorPresetResult)
+                .ToArray());
         }
 
         /// <summary>
@@ -2771,7 +2772,8 @@ namespace Jellyfin.Plugin.Hue.Api
             return Ok(playlists
                 .Where(playlist => playlist != null)
                 .OrderBy(playlist => playlist.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(playlist => ToScenePlaylistResult(playlist, config)));
+                .Select(playlist => ToScenePlaylistResult(playlist, config))
+                .ToArray());
         }
 
         /// <summary>
@@ -3867,7 +3869,8 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(schedule => schedule != null)
                 .OrderBy(schedule => schedule.TimeOfDay, StringComparer.Ordinal)
                 .ThenBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(schedule => ToSceneScheduleResult(schedule, config)));
+                .Select(schedule => ToSceneScheduleResult(schedule, config))
+                .ToArray());
         }
 
         /// <summary>
@@ -6644,6 +6647,11 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var diagnosticsAction = await GetDiagnostics(diagnosticsCancellationToken).ConfigureAwait(false);
+            if (diagnosticsAction.Result is ConflictObjectResult diagnosticsConflict)
+            {
+                return diagnosticsConflict;
+            }
+
             var diagnostics = ReadActionValue(diagnosticsAction) ?? new HueDiagnosticsResult
             {
                 PluginVersion = typeof(Plugin).Assembly.GetName().Version?.ToString(),
@@ -6668,7 +6676,13 @@ namespace Jellyfin.Plugin.Hue.Api
                         persistRepairs: false)
                     ?? Array.Empty<HueSceneAutomationRunResult>()
             };
-            var runtime = ReadActionValue(GetStatus()) ?? new HueSyncStatus
+            var runtimeAction = GetStatus();
+            if (runtimeAction.Result is ConflictObjectResult runtimeConflict)
+            {
+                return runtimeConflict;
+            }
+
+            var runtime = ReadActionValue(runtimeAction) ?? new HueSyncStatus
             {
                 ServiceAvailable = false,
                 State = "Unavailable",
@@ -8900,7 +8914,8 @@ namespace Jellyfin.Plugin.Hue.Api
             var mappings = config?.UserMappings?
                 .Where(mapping => mapping != null)
                 .Select(UserBridgeMappingSummary.From)
-                ?? Enumerable.Empty<UserBridgeMappingSummary>();
+                .ToArray()
+                ?? Array.Empty<UserBridgeMappingSummary>();
             return Ok(mappings);
         }
 
