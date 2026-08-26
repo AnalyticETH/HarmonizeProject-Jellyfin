@@ -1145,6 +1145,59 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task StopAsync_WhenLifecycleLockWaitIsCanceled_DefersCleanupUntilLockAvailable()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient, gate);
+        await service.StartAsync(CancellationToken.None);
+
+        var playbackLease = gate.TryEnterPlayback();
+        Assert.NotNull(playbackLease);
+        SetPrivateField(service, "_playbackLifecycleLease", playbackLease);
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "shutdown-session");
+        SetPrivateField(service, "_currentItemName", "Test item");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        var lifecycleLock = Assert.IsType<SemaphoreSlim>(GetPrivateField(service, "_syncLifecycleLock"));
+        await lifecycleLock.WaitAsync();
+        try
+        {
+            using var hostShutdown = new CancellationTokenSource();
+            var stopTask = service.StopAsync(hostShutdown.Token);
+            await Task.Delay(50);
+            Assert.False(stopTask.IsCompleted);
+
+            hostShutdown.Cancel();
+            await stopTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+            Assert.NotNull(GetPrivateField(service, "_deferredStopTask"));
+            Assert.NotNull(GetPrivateField(service, "_currentBridgeConfig"));
+            Assert.True(gate.IsPlaybackActive);
+        }
+        finally
+        {
+            lifecycleLock.Release();
+        }
+
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var deferredStopTask = Assert.IsAssignableFrom<Task>(GetPrivateField(service, "_deferredStopTask"));
+        await deferredStopTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+        Assert.False(gate.IsPlaybackActive);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PlaybackPause_QueuesImmediateResumeUntilDeactivationCompletes()
     {
         var handler = new BlockingHueHandler();

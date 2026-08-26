@@ -104,6 +104,9 @@ namespace Jellyfin.Plugin.Hue.Service
         private readonly object _syncLock = new object();
         private CancellationTokenSource? _startupCts;
         private readonly SemaphoreSlim _syncLifecycleLock = new SemaphoreSlim(1, 1);
+        // When host shutdown cancellation interrupts a lifecycle-lock wait, retain a
+        // single observed completion task so cleanup can finish after the host returns.
+        private Task? _deferredStopTask;
         private Task? _pauseCleanupTask;
         private string? _pauseCleanupSessionId;
         private (string BridgeIp, string AppKey, string ClientKey, string AreaId)? _currentBridgeConfig;
@@ -283,8 +286,31 @@ namespace Jellyfin.Plugin.Hue.Service
                 sessionSummarySink: AddConcurrentSessionSummary);
         }
 
-        public Task StartAsync(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
+            Task? deferredStopTask;
+            lock (_syncLock)
+            {
+                deferredStopTask = _deferredStopTask;
+            }
+
+            // A host cancellation can return before the lifecycle semaphore is
+            // available. Finish that deferred stop before accepting a new playback
+            // session so stale cleanup cannot race a restarted service.
+            if (deferredStopTask != null)
+            {
+                if (cancellationToken.CanBeCanceled)
+                    await deferredStopTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                else
+                    await deferredStopTask.ConfigureAwait(false);
+
+                lock (_syncLock)
+                {
+                    if (ReferenceEquals(_deferredStopTask, deferredStopTask))
+                        _deferredStopTask = null;
+                }
+            }
+
             _isStopping = false;
             SetRuntimeStatus("Idle", "Waiting for playback.", clearError: true);
             _logger.LogInformation("Hue Sync Service Started.");
@@ -303,7 +329,7 @@ namespace Jellyfin.Plugin.Hue.Service
             if (_managesPlaybackEvents)
                 RecoverActiveVideoSession();
 
-            return Task.CompletedTask;
+            return;
         }
 
         /// <summary>
@@ -377,11 +403,11 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             ConcurrentPlaybackWorker[] concurrentWorkers;
+            var deferredCleanupRequired = false;
             Task? pauseCleanup;
             lock (_syncLock)
             {
                 concurrentWorkers = _concurrentPlaybackWorkers.Values.ToArray();
-                _concurrentPlaybackWorkers.Clear();
                 _isStopping = true;
                 _startupCts?.Cancel();
                 _syncCts?.Cancel();
@@ -401,8 +427,14 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
+                    deferredCleanupRequired = true;
                     _logger.LogWarning("Host shutdown cancellation interrupted one or more concurrent Hue playback workers.");
                     SetCleanupWarning("Concurrent Hue playback cleanup was interrupted by host shutdown cancellation.");
+                }
+
+                if (!deferredCleanupRequired)
+                {
+                    RemoveConcurrentPlaybackWorkers(concurrentWorkers);
                 }
             }
 
@@ -417,6 +449,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
+                    deferredCleanupRequired = true;
                     _logger.LogWarning("Host shutdown cancellation interrupted paused-playback Hue cleanup.");
                     SetCleanupWarning("Paused-playback Hue cleanup was interrupted by host shutdown cancellation.");
                 }
@@ -447,6 +480,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
+                    deferredCleanupRequired = true;
                     _logger.LogWarning("Host shutdown cancellation interrupted the Hue lifecycle lock wait.");
                     SetCleanupWarning("Hue lifecycle cleanup was interrupted by host shutdown cancellation.");
                     return;
@@ -528,6 +562,9 @@ namespace Jellyfin.Plugin.Hue.Service
             {
                 if (lifecycleLockAcquired)
                     _syncLifecycleLock.Release();
+
+                if (deferredCleanupRequired)
+                    ScheduleDeferredStop();
 
                 SetRuntimeStatus("Idle", "Sync service stopped.");
             }
@@ -1525,6 +1562,12 @@ namespace Jellyfin.Plugin.Hue.Service
                         _concurrentPlaybackWorkers.Remove(matchingKey);
                 }
             }
+        }
+
+        private void RemoveConcurrentPlaybackWorkers(IEnumerable<ConcurrentPlaybackWorker> workers)
+        {
+            foreach (var worker in workers)
+                RemoveConcurrentPlaybackWorker(worker);
         }
 
         internal async Task HandleExternalPlaybackStartAsync(PlaybackProgressEventArgs e)
@@ -5475,6 +5518,26 @@ namespace Jellyfin.Plugin.Hue.Service
             task.ContinueWith(
                 t => _logger.LogError(t.Exception!.GetBaseException(), "Unobserved exception in background task"),
                 TaskContinuationOptions.OnlyOnFaulted);
+        }
+
+        /// <summary>
+        /// Completes a canceled host stop after the caller's shutdown deadline. The
+        /// lifecycle lock is intentionally awaited without the host token so bridge
+        /// cleanup, lease release, and retained concurrent workers cannot be orphaned.
+        /// </summary>
+        private void ScheduleDeferredStop()
+        {
+            Task deferredStopTask;
+            lock (_syncLock)
+            {
+                if (_deferredStopTask is { IsCompleted: false })
+                    return;
+
+                deferredStopTask = Task.Run(() => StopAsync(CancellationToken.None));
+                _deferredStopTask = deferredStopTask;
+            }
+
+            ObserveTask(deferredStopTask);
         }
 
         /// <summary>

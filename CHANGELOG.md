@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.313] - 2026-08-26
+
+### Shutdown cancellation resilience
+- **Deferred lifecycle cleanup**: host shutdown cancellation during the lifecycle-lock wait now schedules an observed, non-host-cancelable cleanup pass instead of orphaning the active sync state, bridge target, or playback lease.
+- **Concurrent worker retention**: playback workers remain tracked until their stop completes, allowing deferred cleanup to retry canceled worker shutdowns safely.
+- **Restart safety**: service startup waits for deferred cleanup before accepting new playback, preventing stale shutdown work from clobbering a restarted session.
+- **Regression coverage**: lifecycle tests cover canceled lock waits, eventual bridge deactivation, retained state clearing, and playback-lease release.
+
 ## [1.5.312] - 2026-08-26
 
 ### Cleanup reliability and read-only administrator projections

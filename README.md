@@ -457,7 +457,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.312 (Current)
+### Version 1.5.313 (Current)
+- **Shutdown cancellation resilience**: host cancellation during a lifecycle-lock wait now schedules an observed deferred cleanup pass, preserving bridge deactivation, sync-state clearing, and playback-lease release.
+- **Concurrent worker retention**: isolated playback workers remain tracked until stop completes so cancellation can be retried instead of orphaning a target.
+- **Restart safety**: service startup waits for deferred cleanup before accepting a new session, preventing stale shutdown work from clobbering restarted playback.
+- **Regression coverage**: lifecycle tests cover canceled lock waits and eventual cleanup/lease release.
 - **Pause cleanup retry safety**: failed entertainment-area deactivation now remains eligible for the shutdown retry and surfaces a credential-free cleanup warning.
 - **Read-only administrator projections**: playlist, user-mapping, reconciliation, dependency, and target-diagnostics reads no longer initialize collections or manufacture mapping IDs in live configuration.
 - **Scheduler read isolation**: status/history API reads do not persist lazy repairs, and scheduler evaluation cannot overlap a configuration snapshot.
