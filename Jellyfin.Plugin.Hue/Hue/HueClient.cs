@@ -22,6 +22,9 @@ namespace Jellyfin.Plugin.Hue.Hue
         private const int DefaultRetryAttempts = 3;
         private const int MaxRetryAttempts = 10;
         private const int RetryDelayMs = 1000;
+        private const int MaxLightStateTokenLength = 128;
+        private const int MaxGradientPoints = 5;
+        private const long MaxTimedEffectDurationMilliseconds = 21_600_000;
 
         /// <summary>
         /// Number of retry attempts for network operations. Defaults to 3; set from plugin configuration.
@@ -621,7 +624,65 @@ namespace Jellyfin.Plugin.Hue.Hue
             double X,
             double Y,
             int? Mirek = null,
-            bool HasColor = true);
+            bool HasColor = true,
+            LightStateSnapshot? Snapshot = null)
+        {
+            // Preserve the pre-snapshot constructor signature for binary consumers
+            // that create LightState instances outside the plugin assembly.
+            public LightState(
+                string id,
+                bool isOn,
+                int brightness,
+                double x,
+                double y,
+                int? mirek,
+                bool hasColor)
+                : this(id, isOn, brightness, x, y, mirek, hasColor, null)
+            {
+            }
+        }
+
+        /// <summary>
+        /// Optional Hue v2 light-state resources that can be safely restored. The DTO
+        /// deliberately contains only writable values; bridge capability and status
+        /// metadata are never retained for replay.
+        /// </summary>
+        public sealed record LightStateSnapshot(
+            LightGradientSnapshot? Gradient = null,
+            LightEffectsSnapshot? Effects = null,
+            LightEffectsV2Snapshot? EffectsV2 = null,
+            LightTimedEffectsSnapshot? TimedEffects = null,
+            LightAlertSnapshot? Alert = null);
+
+        /// <summary>Gradient points represented by the Hue v2 color.xy shape.</summary>
+        public sealed record LightGradientSnapshot(
+            IReadOnlyList<LightGradientPoint> Points,
+            string? Mode = null);
+
+        /// <summary>A single gradient or effect parameter color point.</summary>
+        public sealed record LightGradientPoint(double X, double Y);
+
+        /// <summary>The writable legacy effects effect value.</summary>
+        public sealed record LightEffectsSnapshot(string Effect);
+
+        /// <summary>The writable effects_v2 action and supported parameters.</summary>
+        public sealed record LightEffectsV2Snapshot(
+            string Effect,
+            LightEffectParameters? Parameters = null);
+
+        /// <summary>Supported writable effects_v2 parameters.</summary>
+        public sealed record LightEffectParameters(
+            LightGradientPoint? Color = null,
+            int? Mirek = null,
+            double? Speed = null);
+
+        /// <summary>The writable timed-effects effect and optional duration.</summary>
+        public sealed record LightTimedEffectsSnapshot(
+            string Effect,
+            long? Duration = null);
+
+        /// <summary>The writable alert action.</summary>
+        public sealed record LightAlertSnapshot(string Action);
 
         /// <summary>
         /// Summarizes a light-state restoration attempt without exposing bridge credentials
@@ -659,6 +720,274 @@ namespace Jellyfin.Plugin.Hue.Hue
             public int FailedCount { get; init; }
             public int CapturedCount => States.Count;
             public bool Succeeded => FailedCount == 0;
+        }
+
+        private static LightStateSnapshot? ParseLightStateSnapshot(JsonElement light)
+        {
+            LightGradientSnapshot? gradient = null;
+            if (light.TryGetProperty("gradient", out var gradientElement))
+                gradient = ParseGradientSnapshot(gradientElement);
+
+            LightEffectsSnapshot? effects = null;
+            if (light.TryGetProperty("effects", out var effectsElement))
+                effects = ParseEffectsSnapshot(effectsElement);
+
+            LightEffectsV2Snapshot? effectsV2 = null;
+            if (light.TryGetProperty("effects_v2", out var effectsV2Element))
+                effectsV2 = ParseEffectsV2Snapshot(effectsV2Element);
+
+            LightTimedEffectsSnapshot? timedEffects = null;
+            if (light.TryGetProperty("timed_effects", out var timedEffectsElement))
+                timedEffects = ParseTimedEffectsSnapshot(timedEffectsElement);
+
+            LightAlertSnapshot? alert = null;
+            if (light.TryGetProperty("alert", out var alertElement))
+                alert = ParseAlertSnapshot(alertElement);
+
+            if (gradient == null && effects == null && effectsV2 == null && timedEffects == null && alert == null)
+                return null;
+
+            return new LightStateSnapshot(gradient, effects, effectsV2, timedEffects, alert);
+        }
+
+        private static LightGradientSnapshot? ParseGradientSnapshot(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Object ||
+                !element.TryGetProperty("points", out var pointsElement) ||
+                pointsElement.ValueKind != JsonValueKind.Array ||
+                pointsElement.GetArrayLength() < 2 ||
+                pointsElement.GetArrayLength() > MaxGradientPoints)
+            {
+                return null;
+            }
+
+            var points = new List<LightGradientPoint>(pointsElement.GetArrayLength());
+            foreach (var pointElement in pointsElement.EnumerateArray())
+            {
+                var colorElement = pointElement;
+                if (pointElement.ValueKind == JsonValueKind.Object &&
+                    pointElement.TryGetProperty("color", out var wrappedColorElement))
+                {
+                    // Hue GET responses expose each point through a color feature,
+                    // while the writable PUT shape uses the point's xy member directly.
+                    colorElement = wrappedColorElement;
+                }
+
+                if (pointElement.ValueKind != JsonValueKind.Object ||
+                    colorElement.ValueKind != JsonValueKind.Object ||
+                    !colorElement.TryGetProperty("xy", out var xyElement) ||
+                    !TryReadXyPoint(xyElement, out var point))
+                {
+                    // A partial gradient is not safely restorable: omit the complete
+                    // optional resource while retaining the required light state.
+                    return null;
+                }
+
+                points.Add(point!);
+            }
+
+            string? mode = null;
+            if (element.TryGetProperty("mode", out var modeElement) &&
+                modeElement.ValueKind == JsonValueKind.String)
+            {
+                TryNormalizeSafeToken(modeElement.GetString(), out mode);
+            }
+
+            return new LightGradientSnapshot(points, mode);
+        }
+
+        private static LightEffectsSnapshot? ParseEffectsSnapshot(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Object || !TryReadEffectToken(element, out var effect))
+                return null;
+
+            return new LightEffectsSnapshot(effect);
+        }
+
+        private static LightEffectsV2Snapshot? ParseEffectsV2Snapshot(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Object)
+                return null;
+
+            var effect = string.Empty;
+            if (element.TryGetProperty("action", out var actionElement) &&
+                actionElement.ValueKind == JsonValueKind.Object)
+            {
+                TryGetSafeToken(actionElement, "effect", out effect);
+            }
+
+            if (string.IsNullOrEmpty(effect))
+                TryReadEffectToken(element, out effect);
+
+            if (string.IsNullOrEmpty(effect))
+                return null;
+
+            LightEffectParameters? parameters = null;
+            if (element.TryGetProperty("parameters", out var parametersElement))
+            {
+                parameters = ParseEffectParameters(parametersElement);
+            }
+            else if (element.TryGetProperty("action", out actionElement) &&
+                     actionElement.ValueKind == JsonValueKind.Object &&
+                     actionElement.TryGetProperty("parameters", out parametersElement))
+            {
+                parameters = ParseEffectParameters(parametersElement);
+            }
+            else if (element.TryGetProperty("status", out var statusElement) &&
+                     statusElement.ValueKind == JsonValueKind.Object &&
+                     statusElement.TryGetProperty("parameters", out parametersElement))
+            {
+                parameters = ParseEffectParameters(parametersElement);
+            }
+
+            return new LightEffectsV2Snapshot(effect, parameters);
+        }
+
+        private static LightEffectParameters? ParseEffectParameters(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Object)
+                return null;
+
+            LightGradientPoint? color = null;
+            if (element.TryGetProperty("color", out var colorElement) &&
+                colorElement.ValueKind == JsonValueKind.Object &&
+                colorElement.TryGetProperty("xy", out var xyElement) &&
+                TryReadXyPoint(xyElement, out var point))
+            {
+                color = point;
+            }
+
+            int? mirek = null;
+            if (element.TryGetProperty("color_temperature", out var colorTemperatureElement) &&
+                colorTemperatureElement.ValueKind == JsonValueKind.Object &&
+                TryReadMirek(colorTemperatureElement, out var mirekValue))
+            {
+                mirek = mirekValue;
+            }
+
+            double? speed = null;
+            if (TryGetFiniteNumber(element, "speed", out var speedValue) &&
+                speedValue >= 0 && speedValue <= 1)
+            {
+                speed = speedValue;
+            }
+
+            return color == null && mirek == null && speed == null
+                ? null
+                : new LightEffectParameters(color, mirek, speed);
+        }
+
+        private static LightTimedEffectsSnapshot? ParseTimedEffectsSnapshot(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Object || !TryReadEffectToken(element, out var effect))
+                return null;
+
+            long? duration = null;
+            if (TryGetFiniteNumber(element, "duration", out var durationValue) &&
+                durationValue >= 0 &&
+                durationValue <= MaxTimedEffectDurationMilliseconds &&
+                durationValue == Math.Truncate(durationValue))
+            {
+                duration = (long)durationValue;
+            }
+
+            return new LightTimedEffectsSnapshot(effect, duration);
+        }
+
+        private static LightAlertSnapshot? ParseAlertSnapshot(JsonElement element)
+        {
+            return element.ValueKind == JsonValueKind.Object && TryGetSafeToken(element, "action", out var action)
+                ? new LightAlertSnapshot(action)
+                : null;
+        }
+
+        private static bool TryReadEffectToken(JsonElement element, out string effect)
+        {
+            effect = string.Empty;
+            if (TryGetSafeToken(element, "effect", out effect))
+                return true;
+
+            if (TryGetSafeToken(element, "status", out effect))
+                return true;
+
+            if (element.TryGetProperty("status", out var statusElement) &&
+                statusElement.ValueKind == JsonValueKind.Object &&
+                TryGetSafeToken(statusElement, "effect", out effect))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetSafeToken(JsonElement element, string propertyName, out string value)
+        {
+            value = string.Empty;
+            return element.ValueKind == JsonValueKind.Object &&
+                   element.TryGetProperty(propertyName, out var valueElement) &&
+                   valueElement.ValueKind == JsonValueKind.String &&
+                   TryNormalizeSafeToken(valueElement.GetString(), out value);
+        }
+
+        private static bool TryNormalizeSafeToken(string? rawValue, out string value)
+        {
+            value = string.Empty;
+            if (string.IsNullOrWhiteSpace(rawValue))
+                return false;
+
+            var normalized = rawValue.Trim();
+            if (normalized.Length > MaxLightStateTokenLength)
+                return false;
+
+            foreach (var character in normalized)
+            {
+                if (char.IsControl(character))
+                    return false;
+            }
+
+            value = normalized;
+            return true;
+        }
+
+        private static bool TryReadXyPoint(JsonElement element, out LightGradientPoint? point)
+        {
+            point = null;
+            if (element.ValueKind != JsonValueKind.Object ||
+                !TryGetFiniteNumber(element, "x", out var x) ||
+                !TryGetFiniteNumber(element, "y", out var y) ||
+                x < 0 || x > 1 || y < 0 || y > 1)
+            {
+                return false;
+            }
+
+            point = new LightGradientPoint(x, y);
+            return true;
+        }
+
+        private static bool TryReadMirek(JsonElement element, out int mirek)
+        {
+            mirek = 0;
+            if (element.ValueKind != JsonValueKind.Object ||
+                !element.TryGetProperty("mirek", out var mirekElement) ||
+                mirekElement.ValueKind != JsonValueKind.Number ||
+                !mirekElement.TryGetInt32(out mirek) ||
+                mirek < 153 || mirek > 500)
+            {
+                mirek = 0;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryGetFiniteNumber(JsonElement element, string propertyName, out double value)
+        {
+            value = 0;
+            return element.ValueKind == JsonValueKind.Object &&
+                   element.TryGetProperty(propertyName, out var numberElement) &&
+                   numberElement.ValueKind == JsonValueKind.Number &&
+                   numberElement.TryGetDouble(out value) &&
+                   double.IsFinite(value);
         }
 
         /// <summary>
@@ -804,7 +1133,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                                 mirek = mirekNumber;
                         }
 
-                        return new LightState(lightId, isOn, brightness, x, y, mirek, hasColor);
+                        var snapshot = ParseLightStateSnapshot(light);
+                        return new LightState(lightId, isOn, brightness, x, y, mirek, hasColor, snapshot);
                     }, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                     if (state != null)
@@ -915,6 +1245,232 @@ namespace Jellyfin.Plugin.Hue.Hue
             };
         }
 
+        private static Dictionary<string, object?> BuildLightStatePayload(LightState state)
+        {
+            var payload = new Dictionary<string, object?>
+            {
+                ["on"] = new Dictionary<string, object?> { ["on"] = state.IsOn },
+                ["dimming"] = new Dictionary<string, object?> { ["brightness"] = state.Brightness }
+            };
+
+            if (state.Mirek.HasValue)
+            {
+                payload["color_temperature"] = new Dictionary<string, object?>
+                {
+                    ["mirek"] = state.Mirek.Value
+                };
+            }
+            else if (state.HasColor)
+            {
+                payload["color"] = new Dictionary<string, object?>
+                {
+                    ["xy"] = new Dictionary<string, object?>
+                    {
+                        ["x"] = state.X,
+                        ["y"] = state.Y
+                    }
+                };
+            }
+
+            AddSnapshotPayload(payload, state.Snapshot);
+            return payload;
+        }
+
+        private static void AddSnapshotPayload(
+            Dictionary<string, object?> payload,
+            LightStateSnapshot? snapshot)
+        {
+            if (snapshot == null)
+                return;
+
+            if (snapshot.Gradient != null && TryBuildGradientPayload(snapshot.Gradient, out var gradientPayload))
+                payload["gradient"] = gradientPayload;
+
+            // The bridge exposes both effects resources for compatibility, but their
+            // PUT actions represent one effect state. Prefer the newer v2 resource and
+            // avoid sending conflicting legacy/v2 actions in the same update. Timed
+            // effects are likewise mutually exclusive with normal effects.
+            Dictionary<string, object?>? timedEffectsPayload = null;
+            if (snapshot.TimedEffects != null &&
+                !IsNoEffect(snapshot.TimedEffects.Effect) &&
+                TryBuildTimedEffectsPayload(snapshot.TimedEffects, out var validTimedEffectsPayload))
+            {
+                timedEffectsPayload = validTimedEffectsPayload;
+            }
+
+            Dictionary<string, object?>? effectsV2Payload = null;
+            if (snapshot.EffectsV2 != null &&
+                TryBuildEffectsV2Payload(snapshot.EffectsV2, out var validEffectsV2Payload))
+            {
+                effectsV2Payload = validEffectsV2Payload;
+            }
+
+            Dictionary<string, object?>? effectsPayload = null;
+            if (snapshot.Effects != null &&
+                TryBuildEffectsPayload(snapshot.Effects, out var validEffectsPayload))
+            {
+                effectsPayload = validEffectsPayload;
+            }
+
+            if (timedEffectsPayload != null)
+            {
+                payload["timed_effects"] = timedEffectsPayload;
+            }
+            else if (effectsV2Payload != null &&
+                     ((snapshot.EffectsV2 != null && !IsNoEffect(snapshot.EffectsV2.Effect)) || effectsPayload == null))
+            {
+                payload["effects_v2"] = effectsV2Payload;
+            }
+            else if (effectsPayload != null)
+            {
+                payload["effects"] = effectsPayload;
+            }
+
+            if (snapshot.Alert != null && TryBuildAlertPayload(snapshot.Alert, out var alertPayload))
+                payload["alert"] = alertPayload;
+        }
+
+        private static bool TryBuildGradientPayload(
+            LightGradientSnapshot snapshot,
+            out Dictionary<string, object?> payload)
+        {
+            payload = new Dictionary<string, object?>();
+            if (snapshot.Points == null ||
+                snapshot.Points.Count < 2 ||
+                snapshot.Points.Count > MaxGradientPoints)
+            {
+                return false;
+            }
+
+            var points = new List<object>(snapshot.Points.Count);
+            foreach (var point in snapshot.Points)
+            {
+                if (point == null || !IsValidXy(point.X, point.Y))
+                    return false;
+
+                points.Add(new Dictionary<string, object?>
+                {
+                    ["xy"] = new Dictionary<string, object?>
+                    {
+                        ["x"] = point.X,
+                        ["y"] = point.Y
+                    }
+                });
+            }
+
+            payload["points"] = points;
+            if (TryNormalizeSafeToken(snapshot.Mode, out var mode))
+                payload["mode"] = mode;
+
+            return true;
+        }
+
+        private static bool TryBuildEffectsPayload(
+            LightEffectsSnapshot snapshot,
+            out Dictionary<string, object?> payload)
+        {
+            payload = new Dictionary<string, object?>();
+            if (!TryNormalizeSafeToken(snapshot.Effect, out var effect))
+                return false;
+
+            payload["effect"] = effect;
+            return true;
+        }
+
+        private static bool TryBuildEffectsV2Payload(
+            LightEffectsV2Snapshot snapshot,
+            out Dictionary<string, object?> payload)
+        {
+            payload = new Dictionary<string, object?>();
+            if (!TryNormalizeSafeToken(snapshot.Effect, out var effect))
+                return false;
+
+            var action = new Dictionary<string, object?>
+            {
+                ["effect"] = effect
+            };
+            if (snapshot.Parameters != null && TryBuildEffectParametersPayload(snapshot.Parameters, out var parametersPayload))
+                action["parameters"] = parametersPayload;
+
+            payload["action"] = action;
+            return true;
+        }
+
+        private static bool TryBuildEffectParametersPayload(
+            LightEffectParameters parameters,
+            out Dictionary<string, object?> payload)
+        {
+            payload = new Dictionary<string, object?>();
+
+            if (parameters.Color != null && IsValidXy(parameters.Color.X, parameters.Color.Y))
+            {
+                payload["color"] = new Dictionary<string, object?>
+                {
+                    ["xy"] = new Dictionary<string, object?>
+                    {
+                        ["x"] = parameters.Color.X,
+                        ["y"] = parameters.Color.Y
+                    }
+                };
+            }
+
+            if (parameters.Mirek is >= 153 and <= 500)
+            {
+                payload["color_temperature"] = new Dictionary<string, object?>
+                {
+                    ["mirek"] = parameters.Mirek.Value
+                };
+            }
+
+            if (parameters.Speed is double speed && double.IsFinite(speed) && speed >= 0 && speed <= 1)
+                payload["speed"] = speed;
+
+            return payload.Count > 0;
+        }
+
+        private static bool TryBuildTimedEffectsPayload(
+            LightTimedEffectsSnapshot snapshot,
+            out Dictionary<string, object?> payload)
+        {
+            payload = new Dictionary<string, object?>();
+            if (!TryNormalizeSafeToken(snapshot.Effect, out var effect))
+                return false;
+
+            payload["effect"] = effect;
+            if (snapshot.Duration is long duration &&
+                duration >= 0 &&
+                duration <= MaxTimedEffectDurationMilliseconds)
+            {
+                payload["duration"] = duration;
+            }
+
+            return true;
+        }
+
+        private static bool TryBuildAlertPayload(
+            LightAlertSnapshot snapshot,
+            out Dictionary<string, object?> payload)
+        {
+            payload = new Dictionary<string, object?>();
+            if (!TryNormalizeSafeToken(snapshot.Action, out var action))
+                return false;
+
+            payload["action"] = action;
+            return true;
+        }
+
+        private static bool IsValidXy(double x, double y)
+        {
+            return double.IsFinite(x) && double.IsFinite(y) &&
+                   x >= 0 && x <= 1 && y >= 0 && y <= 1;
+        }
+
+        private static bool IsNoEffect(string effect)
+        {
+            return string.Equals(effect, "no_effect", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(effect, "none", StringComparison.OrdinalIgnoreCase);
+        }
+
         /// <summary>
         /// Restores each saved light state independently with the configured retry policy and
         /// returns an aggregate result so callers can distinguish complete from partial cleanup.
@@ -947,25 +1503,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                         using var request = new HttpRequestMessage(HttpMethod.Put, url);
                         request.Headers.Add("hue-application-key", appKey);
 
-                        object payload = state.Mirek.HasValue
-                            ? new
-                            {
-                                on = new { on = state.IsOn },
-                                dimming = new { brightness = state.Brightness },
-                                color_temperature = new { mirek = state.Mirek.Value }
-                            }
-                            : state.HasColor
-                                ? new
-                                {
-                                    on = new { on = state.IsOn },
-                                    dimming = new { brightness = state.Brightness },
-                                    color = new { xy = new { x = state.X, y = state.Y } }
-                                }
-                                : new
-                                {
-                                    on = new { on = state.IsOn },
-                                    dimming = new { brightness = state.Brightness }
-                                };
+                        var payload = BuildLightStatePayload(state);
 
                         var json = JsonSerializer.Serialize(payload);
                         request.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");

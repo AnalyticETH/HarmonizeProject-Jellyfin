@@ -549,6 +549,119 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task GetLightStates_CapturesWritableAdvancedStateFields()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-advanced""}}] }
+            ]
+        }");
+        SetupHttpResponse(HttpStatusCode.OK, @"{
+            ""data"": [{
+                ""on"": {""on"": true},
+                ""dimming"": {""brightness"": 75},
+                ""color"": {""xy"": {""x"": 0.3127, ""y"": 0.329}},
+                ""gradient"": {
+                    ""points"": [
+                        {""xy"": {""x"": 0.1, ""y"": 0.2}},
+                        {""color"": {""xy"": {""x"": 0.3, ""y"": 0.4}}}
+                    ],
+                    ""mode"": ""interpolated_palette"",
+                    ""points_capable"": 5,
+                    ""mode_values"": [""interpolated_palette""],
+                    ""pixel_count"": 250
+                },
+                ""effects"": {
+                    ""status"": ""candle"",
+                    ""status_values"": [""stopped""],
+                    ""effect_values"": [""candle""]
+                },
+                ""effects_v2"": {
+                    ""status"": {
+                        ""effect"": ""cosmos"",
+                        ""parameters"": {
+                            ""color"": {""xy"": {""x"": 0.5, ""y"": 0.6}},
+                            ""color_temperature"": {""mirek"": 280},
+                            ""speed"": 0.5
+                        }
+                    },
+                    ""effect_values"": [""cosmos""]
+                },
+                ""timed_effects"": {
+                    ""status"": ""sunrise"",
+                    ""duration"": 5000,
+                    ""status_values"": [""active""],
+                    ""effect_values"": [""sunrise""]
+                },
+                ""alert"": {
+                    ""action"": ""none"",
+                    ""action_values"": [""breathe""]
+                }
+            }]
+        }");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetLightStates("192.168.1.100", "test-app-key", doc.RootElement);
+
+        var state = Assert.Single(result);
+        Assert.NotNull(state.Snapshot);
+        var snapshot = state.Snapshot!;
+        Assert.NotNull(snapshot.Gradient);
+        var gradient = snapshot.Gradient!;
+        Assert.Equal(2, gradient.Points.Count);
+        Assert.Equal(0.1, gradient.Points[0].X, 3);
+        Assert.Equal(0.4, gradient.Points[1].Y, 3);
+        Assert.Equal("interpolated_palette", gradient.Mode);
+        Assert.NotNull(snapshot.Effects);
+        Assert.Equal("candle", snapshot.Effects!.Effect);
+        Assert.NotNull(snapshot.EffectsV2);
+        Assert.Equal("cosmos", snapshot.EffectsV2!.Effect);
+        Assert.NotNull(snapshot.EffectsV2.Parameters);
+        Assert.Equal(0.5, snapshot.EffectsV2.Parameters!.Color!.X, 3);
+        Assert.Equal(280, snapshot.EffectsV2.Parameters.Mirek);
+        Assert.Equal(0.5, snapshot.EffectsV2.Parameters.Speed);
+        Assert.NotNull(snapshot.TimedEffects);
+        var timedEffects = snapshot.TimedEffects!;
+        Assert.Equal("sunrise", timedEffects.Effect);
+        Assert.Equal(5000, timedEffects.Duration);
+        Assert.NotNull(snapshot.Alert);
+        Assert.Equal("none", snapshot.Alert!.Action);
+    }
+
+    [Fact]
+    public async Task GetLightStates_MalformedAdvancedStateFieldsAreIgnored()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-malformed""}}] }
+            ]
+        }");
+        SetupHttpResponse(HttpStatusCode.OK, @"{
+            ""data"": [{
+                ""on"": {""on"": true},
+                ""dimming"": {""brightness"": 75},
+                ""gradient"": {
+                    ""points"": [{""color"": {""xy"": {""x"": 0.1, ""y"": 0.2}}}]
+                },
+                ""effects"": {""status"": 42},
+                ""effects_v2"": {""status"": {""effect"": ""\u0001bad""}},
+                ""timed_effects"": {""status"": 42, ""duration"": ""5000""},
+                ""alert"": {""action_values"": [""breathe""]}
+            }]
+        }");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetLightStates("192.168.1.100", "test-app-key", doc.RootElement);
+
+        var state = Assert.Single(result);
+        Assert.Null(state.Snapshot);
+        Assert.True(state.IsOn);
+        Assert.Equal(75, state.Brightness);
+    }
+
+    [Fact]
     public async Task GetLightStates_ChannelFilterReadsOnlySelectedChannels()
     {
         using var doc = JsonDocument.Parse(@"{
@@ -884,6 +997,183 @@ public class HueClientTests : IDisposable
         var root = payload.RootElement;
         Assert.Equal(325, root.GetProperty("color_temperature").GetProperty("mirek").GetInt32());
         Assert.False(root.TryGetProperty("color", out _));
+    }
+
+    [Fact]
+    public async Task RestoreLightStates_SendsSanitizedWritableAdvancedStateFields()
+    {
+        var snapshot = new HueClient.LightStateSnapshot(
+            new HueClient.LightGradientSnapshot(
+                new[]
+                {
+                    new HueClient.LightGradientPoint(0.1, 0.2),
+                    new HueClient.LightGradientPoint(0.3, 0.4)
+                },
+                "interpolated_palette"),
+            new HueClient.LightEffectsSnapshot("candle"),
+            new HueClient.LightEffectsV2Snapshot(
+                "cosmos",
+                new HueClient.LightEffectParameters(
+                    new HueClient.LightGradientPoint(0.5, 0.6),
+                    280,
+                    0.5)),
+            null,
+            new HueClient.LightAlertSnapshot("none"));
+        var lightStates = new List<HueClient.LightState>
+        {
+            new("light-advanced", true, 80, 0, 0, null, false, snapshot)
+        };
+        Task<string>? capturedBodyTask = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                capturedBodyTask = request.Content!.ReadAsStringAsync())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.RestoreLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            lightStates);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(capturedBodyTask);
+        using var payload = JsonDocument.Parse(await capturedBodyTask!);
+        var root = payload.RootElement;
+        Assert.True(root.GetProperty("on").GetProperty("on").GetBoolean());
+        Assert.Equal(80, root.GetProperty("dimming").GetProperty("brightness").GetInt32());
+
+        var gradient = root.GetProperty("gradient");
+        Assert.Equal(2, gradient.GetProperty("points").GetArrayLength());
+        Assert.Equal("interpolated_palette", gradient.GetProperty("mode").GetString());
+        var firstPoint = gradient.GetProperty("points")[0];
+        Assert.True(firstPoint.TryGetProperty("xy", out _));
+        Assert.False(firstPoint.TryGetProperty("color", out _));
+        Assert.False(gradient.TryGetProperty("points_capable", out _));
+        Assert.False(gradient.TryGetProperty("pixel_count", out _));
+
+        var effectsV2 = root.GetProperty("effects_v2");
+        Assert.Equal("cosmos", effectsV2.GetProperty("action").GetProperty("effect").GetString());
+        var parameters = effectsV2.GetProperty("action").GetProperty("parameters");
+        Assert.Equal(0.5, parameters.GetProperty("color").GetProperty("xy").GetProperty("x").GetDouble(), 3);
+        Assert.Equal(280, parameters.GetProperty("color_temperature").GetProperty("mirek").GetInt32());
+        Assert.Equal(0.5, parameters.GetProperty("speed").GetDouble(), 3);
+        Assert.False(effectsV2.TryGetProperty("status", out _));
+        Assert.False(root.TryGetProperty("effects", out _));
+        Assert.False(root.TryGetProperty("timed_effects", out _));
+        Assert.Equal("none", root.GetProperty("alert").GetProperty("action").GetString());
+        Assert.False(root.GetProperty("alert").TryGetProperty("action_values", out _));
+    }
+
+    [Fact]
+    public async Task RestoreLightStates_PrefersTimedEffectOverConflictingNormalEffects()
+    {
+        var snapshot = new HueClient.LightStateSnapshot(
+            Effects: new HueClient.LightEffectsSnapshot("candle"),
+            EffectsV2: new HueClient.LightEffectsV2Snapshot("cosmos"),
+            TimedEffects: new HueClient.LightTimedEffectsSnapshot("sunrise", 5000));
+        Task<string>? capturedBodyTask = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                capturedBodyTask = request.Content!.ReadAsStringAsync())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.RestoreLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            new List<HueClient.LightState>
+            {
+                new("light-timed", true, 80, 0.3, 0.33, null, true, snapshot)
+            });
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(capturedBodyTask);
+        using var payload = JsonDocument.Parse(await capturedBodyTask!);
+        var root = payload.RootElement;
+        Assert.Equal("sunrise", root.GetProperty("timed_effects").GetProperty("effect").GetString());
+        Assert.Equal(5000, root.GetProperty("timed_effects").GetProperty("duration").GetInt64());
+        Assert.False(root.TryGetProperty("effects", out _));
+        Assert.False(root.TryGetProperty("effects_v2", out _));
+    }
+
+    [Fact]
+    public async Task RestoreLightStates_InvalidAdvancedStateFieldsAreOmitted()
+    {
+        var snapshot = new HueClient.LightStateSnapshot(
+            new HueClient.LightGradientSnapshot(
+                new[] { new HueClient.LightGradientPoint(0.1, 0.2) },
+                "\u0001invalid"),
+            new HueClient.LightEffectsSnapshot("\u0001invalid"),
+            new HueClient.LightEffectsV2Snapshot(
+                "\u0001invalid",
+                new HueClient.LightEffectParameters(
+                    new HueClient.LightGradientPoint(2, 0.5),
+                    -1,
+                    double.NaN)),
+            new HueClient.LightTimedEffectsSnapshot("sunrise", 21_600_001),
+            new HueClient.LightAlertSnapshot("   "));
+        Task<string>? capturedBodyTask = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                capturedBodyTask = request.Content!.ReadAsStringAsync())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.RestoreLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            new List<HueClient.LightState>
+            {
+                new("light-invalid-advanced", false, 30, 0, 0, null, false, snapshot)
+            });
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(capturedBodyTask);
+        using var payload = JsonDocument.Parse(await capturedBodyTask!);
+        var root = payload.RootElement;
+        Assert.False(root.TryGetProperty("gradient", out _));
+        Assert.False(root.TryGetProperty("effects", out _));
+        Assert.False(root.TryGetProperty("effects_v2", out _));
+        Assert.True(root.TryGetProperty("timed_effects", out var timedEffects));
+        Assert.Equal("sunrise", timedEffects.GetProperty("effect").GetString());
+        Assert.False(timedEffects.TryGetProperty("duration", out _));
+        Assert.False(root.TryGetProperty("alert", out _));
     }
 
     [Fact]
