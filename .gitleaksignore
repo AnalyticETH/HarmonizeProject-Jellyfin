@@ -1,3 +1,8 @@
 # Historical false positive: the loopback-only DTLS fixture used a fixed,
 # non-secret PSK before the test switched to derived bytes.
 e48423a4b31df7b94d8007072611e276469eb899:Jellyfin.Plugin.Hue.Tests/HueDtlsConnectionTests.cs:generic-api-key:19
+
+# Historical false positive: the lifecycle race fixture used the literal
+# REDACTED marker as a non-secret client-key sentinel; the current test uses a
+# non-hex label, but this committed history remains intentionally immutable.
+85927d5001e562bd60e7ccda91880f528133439c:Jellyfin.Plugin.Hue.Tests/HueStreamerTests.cs:generic-api-key:215

@@ -212,7 +212,7 @@ public class HueStreamerTests
         {
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "app-key",
-            HueClientKey = "00112233445566778899aabbccddeeff"
+            HueClientKey = "stream-client-key"
         };
 
         await streamer.StartStreamAsync(config);

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.319] - 2026-08-26
+
+### Import target-mode integrity and security-gate hygiene
+- **Explicit target validation**: scheduled-cue edits that request both all-enabled broadcast and selected users, device routes, or the default target remain mixed until validation rejects the ambiguous request instead of silently changing its meaning.
+- **Import parity**: partial configuration imports apply the same target-mode normalization as direct schedule saves, preserving selected-target edits over inherited broadcast mode while retaining atomic rollback on validation or persistence failure.
+- **Security scan hygiene**: the lifecycle test's historical non-secret sentinel is documented as a narrowly scoped Gitleaks false positive; the active fixture uses a neutral label and the blocking history scan remains clean.
+- **Regression coverage**: direct-save and import tests cover explicit mixed-target rejection, partial-target conversion, and rollback behavior.
+
 ## [1.5.318] - 2026-08-26
 
 ### Restoration fidelity and target-mode safety

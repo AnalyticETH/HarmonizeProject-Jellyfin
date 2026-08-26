@@ -457,7 +457,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.318 (Current)
+### Version 1.5.319 (Current)
+- **Schedule target integrity**: explicit all-enabled broadcast requests that also select users, device routes, or the default target are rejected as ambiguous, while partial imports and edits switch away from inherited broadcast mode safely before validation.
+- **Security gate**: the committed lifecycle test sentinel is explicitly documented as non-secret historical data and excluded by a fingerprint-only Gitleaks rule; the active fixture no longer resembles a credential.
+- **Regression coverage**: direct-save and import tests cover mixed-target rejection, partial-target conversion, and atomic rollback.
+
+### Version 1.5.318
 - **Restoration fidelity**: current-light snapshots preserve writable Hue v2 gradient, effects/effects_v2, timed-effects, alert, and effect parameters with canonical bounded payloads while excluding read-only bridge metadata.
 - **Lifecycle and targeting safety**: diagnostics cancel all active target operations, stream generations prevent stale reconnect races, duplicate user mappings are blocked in target controls, and partial scheduled-cue target edits correctly switch away from inherited broadcast mode with atomic rollback.
 - **Regression coverage**: focused tests cover advanced state capture/restore, lifecycle races, duplicate mapping controls, and schedule target-mode transitions.
