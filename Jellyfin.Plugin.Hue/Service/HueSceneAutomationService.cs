@@ -2991,10 +2991,11 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// </summary>
     internal static bool IsDue(HueSceneSchedule schedule, DateTime localNow)
     {
+        DateTime serverUtcNow;
         if (schedule == null || !schedule.Enabled ||
             IsRunLimitReached(schedule) ||
             !PluginConfiguration.TryNormalizeSceneScheduleTimeMode(schedule.TimeMode, out var normalizedTimeMode) ||
-            !TryGetScheduleLocalNow(schedule, localNow, out var scheduleNow, out _) ||
+            !TryGetScheduleLocalNow(schedule, localNow, out var scheduleNow, out serverUtcNow) ||
             !TryGetScheduleRunDate(schedule, out var runDate))
             return false;
 
@@ -3038,14 +3039,25 @@ public sealed class HueSceneAutomationService : BackgroundService
                     candidateDate,
                     timeZone,
                     out var expectedLocal,
-                    out _))
+                    out var expectedUtc))
             {
                 continue;
             }
 
+            // Match the resolved instant as well as the local wall-clock minute. A
+            // fall-back transition can contain the same local minute twice; the
+            // occurrence calculator resolves that ambiguity deterministically (to
+            // the standard-time instant), so due evaluation must use the same UTC
+            // minute or the cue could run an hour early and then run again after a
+            // restart when the in-memory slot guard is lost.
             if (expectedLocal.Date == scheduleNow.Date &&
                 scheduleNow.Hour == expectedLocal.Hour &&
-                scheduleNow.Minute == expectedLocal.Minute)
+                scheduleNow.Minute == expectedLocal.Minute &&
+                expectedUtc.Year == serverUtcNow.Year &&
+                expectedUtc.Month == serverUtcNow.Month &&
+                expectedUtc.Day == serverUtcNow.Day &&
+                expectedUtc.Hour == serverUtcNow.Hour &&
+                expectedUtc.Minute == serverUtcNow.Minute)
             {
                 return true;
             }

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.304] - 2026-08-26
+
+### Credential and scheduling hardening
+- **Masked credential entry**: global and per-user Hue App Key and Client Key fields now use password controls with new-password autocomplete hints.
+- **Recursive JSON ambiguity rejection**: direct mapping writes reject case-variant duplicate properties at every nested object/array level before credentials or device targets are materialized.
+- **DST fall-back correctness**: scheduled cues now require the resolved UTC occurrence minute as well as the local wall-clock minute, preventing an ambiguous time from running at the wrong instant or repeating after restart.
+- **Regression coverage**: UI, nested mapping, and time-zone fall-back contracts cover the new fail-closed behavior.
+
 ## [1.5.303] - 2026-08-26
 
 ### Mapping input security

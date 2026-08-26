@@ -455,7 +455,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.303 (Current)
+### Version 1.5.304 (Current)
+- **Credential entry protection**: global and per-user Hue keys are masked password fields with `new-password` autocomplete hints.
+- **Ambiguous mapping rejection**: direct mapping writes fail closed on case-variant duplicate properties recursively, before nested targets or credential fields are materialized.
+- **DST fall-back scheduling**: due checks now match the resolved UTC occurrence minute, avoiding early or duplicate runs for ambiguous local times.
+
+### Version 1.5.303
 - **Ambiguous mapping input rejection**: direct user-mapping writes fail closed on duplicate property names that differ only by case, preventing inconsistent JSON binding before nested targets are materialized.
 - **Security regression coverage**: oversized case-variant device-target input is rejected without changing persisted mappings.
 

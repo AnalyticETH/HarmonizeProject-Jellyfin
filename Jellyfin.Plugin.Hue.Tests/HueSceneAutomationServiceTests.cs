@@ -919,6 +919,36 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TimeZoneAwareSchedule_UsesResolvedUtcMinuteDuringFallBack()
+    {
+        var zone = TimeZoneInfo.GetSystemTimeZones()
+            .FirstOrDefault(candidate => candidate.Id.Equals("America/New_York", StringComparison.OrdinalIgnoreCase));
+        if (zone == null)
+            return;
+
+        var schedule = new HueSceneSchedule
+        {
+            Id = "fall-back-ambiguous-time",
+            Name = "Fall-back ambiguous time",
+            Enabled = true,
+            PresetName = "Scene",
+            TimeOfDay = "01:30",
+            TimeZoneId = zone.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            DaysOfWeekMask = 127
+        };
+
+        // On 2026-11-01, 01:30 occurs first at 05:30 UTC (EDT) and again at
+        // 06:30 UTC (EST). ConvertTimeToUtc deterministically resolves the saved
+        // wall-clock value to the latter standard-time instant.
+        var firstUtcOccurrence = new DateTime(2026, 11, 1, 5, 30, 30, DateTimeKind.Utc);
+        var resolvedUtcOccurrence = new DateTime(2026, 11, 1, 6, 30, 30, DateTimeKind.Utc);
+
+        Assert.False(HueSceneAutomationService.IsDue(schedule, firstUtcOccurrence));
+        Assert.True(HueSceneAutomationService.IsDue(schedule, resolvedUtcOccurrence));
+    }
+
+    [Fact]
     public void DateWindow_ClampsNextRunAndRejectsOutsideDates()
     {
         var schedule = new HueSceneSchedule

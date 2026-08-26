@@ -200,12 +200,12 @@
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="hueAppKey">Hue App Key (Username)</label>
-                            <input id="hueAppKey" name="hueAppKey" type="text" is="emby-input" />
+                            <input id="hueAppKey" name="hueAppKey" type="password" is="emby-input" autocomplete="new-password" />
                             <div class="fieldDescription">Stored securely on the server. Leave blank to keep the stored key; use Link Bridge to replace it.</div>
                         </div>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="hueClientKey">Hue Client Key (DTLS)</label>
-                            <input id="hueClientKey" name="hueClientKey" type="text" is="emby-input" />
+                            <input id="hueClientKey" name="hueClientKey" type="password" is="emby-input" autocomplete="new-password" />
                             <div class="fieldDescription">Stored securely on the server. Leave blank to keep the stored key; use Link Bridge to replace it. Test Connection uses it for a short DTLS stream probe.</div>
                         </div>
                         <div class="inputContainer" style="margin-top: 0.75em;">
@@ -1558,13 +1558,13 @@
 
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="mappingAppKey">App Key</label>
-                                <input id="mappingAppKey" type="text" class="emby-input" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
+                                <input id="mappingAppKey" type="password" class="emby-input" autocomplete="new-password" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
                                 <div class="fieldDescription">Stored securely on the server. Leave blank to keep the stored key; use Link Bridge or enter a replacement manually.</div>
                             </div>
 
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="mappingClientKey">Client Key</label>
-                                <input id="mappingClientKey" type="text" class="emby-input" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
+                                <input id="mappingClientKey" type="password" class="emby-input" autocomplete="new-password" style="width: 100%; padding: 0.5em; font-size: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: inherit;" />
                                 <div class="fieldDescription">Stored securely on the server. Leave blank to keep the stored key; use Link Bridge or enter a replacement manually. Test Connection verifies the DTLS stream when available.</div>
                             </div>
 

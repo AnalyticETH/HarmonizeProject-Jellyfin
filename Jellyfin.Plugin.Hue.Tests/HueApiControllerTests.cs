@@ -676,6 +676,32 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMappingJsonRequest_RejectsCaseVariantDuplicateNestedPropertiesBeforeMaterializingTargets()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>("""
+            {
+              "UserId": "11111111-1111-1111-1111-111111111111",
+              "SyncEnabled": false,
+              "DeviceTargets": [
+                {
+                  "DeviceId": "living-room-tv",
+                  "deviceid": "other-device"
+                }
+              ]
+            }
+            """)!;
+
+        var action = CreateController().SaveUserMapping(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(
+            "Mapping contains duplicate property names that differ only by case.",
+            response.Value);
+        Assert.Empty(configuration.UserMappings);
+    }
+
+    [Fact]
     public void SaveUserMappingJsonRequest_RejectsMalformedUserIdWithoutMutation()
     {
         var existingMapping = new UserBridgeMapping

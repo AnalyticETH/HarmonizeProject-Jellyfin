@@ -11506,14 +11506,43 @@ namespace Jellyfin.Plugin.Hue.Api
         internal bool HasCaseInsensitiveDuplicateProperties()
         {
             var values = Values;
-            if (values == null || values.Count < 2)
+            if (values == null)
                 return false;
 
             var propertyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var propertyName in values.Keys)
+            foreach (var pair in values)
             {
-                if (!propertyNames.Add(propertyName))
+                if (!propertyNames.Add(pair.Key) || HasCaseInsensitiveDuplicateProperties(pair.Value))
                     return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasCaseInsensitiveDuplicateProperties(JsonElement value)
+        {
+            if (value.ValueKind == JsonValueKind.Object)
+            {
+                var propertyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var property in value.EnumerateObject())
+                {
+                    if (!propertyNames.Add(property.Name) ||
+                        HasCaseInsensitiveDuplicateProperties(property.Value))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            if (value.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in value.EnumerateArray())
+                {
+                    if (HasCaseInsensitiveDuplicateProperties(item))
+                        return true;
+                }
             }
 
             return false;
