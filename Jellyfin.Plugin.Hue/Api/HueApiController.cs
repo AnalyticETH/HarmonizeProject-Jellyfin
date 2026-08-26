@@ -1018,11 +1018,13 @@ namespace Jellyfin.Plugin.Hue.Api
                 request.TargetUserIds?.Count > 0 ||
                 request.TargetRoutes?.Count > 0 ||
                 request.IncludeDefaultTarget == true;
-            if (!hasSpecificTarget)
+            if (!hasSpecificTarget || request.TargetAllEnabledMappings == true)
                 return;
 
-            // A specific target selection is an explicit mode switch. Apply it before
-            // validation so a partial edit cannot leave an existing broadcast flag
+            // A specific target selection is an explicit mode switch unless the request
+            // explicitly asks for broadcast too. Preserve that mixed state for validation
+            // instead of silently changing the administrator's explicit broadcast choice.
+            // For partial edits, this prevents an inherited broadcast flag from remaining
             // combined with the newly selected user, route, or default target.
             schedule.TargetAllEnabledMappings = false;
 
@@ -8443,6 +8445,13 @@ namespace Jellyfin.Plugin.Hue.Api
                             !string.IsNullOrWhiteSpace(scheduleRequest?.TargetUserId)
                             ? false
                             : candidateSchedules[existingIndex].IncludeDefaultTarget;
+                    }
+                    if (scheduleRequest != null)
+                    {
+                        NormalizeSceneScheduleTargetMode(
+                            schedule,
+                            scheduleRequest,
+                            candidateSchedules[existingIndex].TargetAllEnabledMappings);
                     }
                     candidateSchedules[existingIndex] = schedule;
                 }

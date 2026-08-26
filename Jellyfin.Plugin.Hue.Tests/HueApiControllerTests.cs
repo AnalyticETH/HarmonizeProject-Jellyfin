@@ -7131,6 +7131,47 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_ExplicitBroadcastAndSelectedTargetsAreRejectedWithoutMutation()
+    {
+        const string userId = "explicit-broadcast-user";
+        var existingSchedule = new HueSceneSchedule
+        {
+            Id = "explicit-broadcast-cue",
+            Name = "Broadcast cue",
+            PresetName = "Welcome",
+            TargetAllEnabledMappings = true
+        };
+        var schedules = new List<HueSceneSchedule> { existingSchedule };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId, SyncEnabled = true }
+            },
+            SceneSchedules = schedules
+        });
+
+        var action = CreateController().SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = existingSchedule.Id,
+            Name = "Mixed cue",
+            PresetName = "Welcome",
+            TargetAllEnabledMappings = true,
+            TargetUserIds = new List<string> { userId },
+            TimeOfDay = "09:00",
+            DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("cannot combine all enabled targets", JsonSerializer.Serialize(response.Value), StringComparison.Ordinal);
+        Assert.Same(schedules, configuration.SceneSchedules);
+        Assert.Same(existingSchedule, Assert.Single(configuration.SceneSchedules));
+        Assert.True(configuration.SceneSchedules[0].TargetAllEnabledMappings);
+        Assert.Equal("Broadcast cue", configuration.SceneSchedules[0].Name);
+    }
+
+    [Fact]
     public void SceneSchedules_PartialTargetNormalizationValidationFailureRestoresBroadcastCue()
     {
         var existingSchedule = new HueSceneSchedule
@@ -15347,6 +15388,56 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("Renamed paused cue", imported.Name);
         Assert.False(imported.Enabled);
         Assert.True(imported.SkipNextOccurrence);
+    }
+
+    [Fact]
+    public void ConfigurationImport_PartialSelectedTargetOverridesExistingBroadcastMode()
+    {
+        const string userId = "import-partial-target-user";
+        var existingSchedule = new HueSceneSchedule
+        {
+            Id = "import-partial-target-cue",
+            Name = "Broadcast cue",
+            PresetName = "Welcome",
+            TargetAllEnabledMappings = true
+        };
+        var schedules = new List<HueSceneSchedule> { existingSchedule };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId, SyncEnabled = true }
+            },
+            SceneSchedules = schedules
+        });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ReplaceMappings = false;
+        request.ReplaceSceneSchedules = false;
+        request.ReplaceColorPresets = false;
+        request.SceneSchedules = new List<HueSceneScheduleRequest>
+        {
+            new()
+            {
+                Id = existingSchedule.Id,
+                Name = "Selected cue",
+                PresetName = "Welcome",
+                TargetUserIds = new List<string> { userId },
+                TimeOfDay = "09:00",
+                DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask
+            }
+        };
+
+        var action = CreateController().ImportConfiguration(request);
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        var imported = Assert.Single(configuration.SceneSchedules);
+        Assert.False(imported.TargetAllEnabledMappings);
+        Assert.Equal(new[] { userId }, imported.TargetUserIds);
+        Assert.Empty(imported.TargetRoutes);
+        Assert.False(imported.IncludeDefaultTarget);
+        Assert.Equal("Selected cue", imported.Name);
+        Assert.NotSame(existingSchedule, imported);
     }
 
     [Fact]
