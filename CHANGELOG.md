@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.316] - 2026-08-26
+
+### Raw preview credential isolation
+- **Fail-closed credential snapshots**: direct single-target previews now reserve the shared configuration read lease while resolving stored bridge credentials, returning a retryable conflict before any bridge request when an administrator mutation is active.
+- **No network under read lease**: the short snapshot lease is released before entertainment-area and streaming I/O so configuration writers are never blocked by bridge latency.
+- **Regression coverage**: API tests verify configuration mutation prevents credential resolution and produces no bridge or stream calls.
+
 ## [1.5.315] - 2026-08-26
 
 ### Capture lifecycle isolation

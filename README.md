@@ -457,7 +457,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.315 (Current)
+### Version 1.5.316 (Current)
+- **Raw preview credential isolation**: direct single-target previews take a short shared configuration read lease while resolving stored bridge credentials, fail closed with a retryable conflict during configuration mutation, and release the lease before bridge I/O.
+- **Regression coverage**: API tests verify mutation contention produces no bridge or stream calls.
+
+### Version 1.5.315
 - **Capture lifecycle isolation**: single and batch current-light capture routes reserve the shared diagnostic lifecycle before resolving persisted mappings and credentials, returning a retryable conflict instead of observing a concurrent configuration mutation.
 - **Regression coverage**: API tests verify capture target resolution is blocked before any bridge request while configuration changes are active.
 
