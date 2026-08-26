@@ -630,13 +630,14 @@ public sealed class HueApiControllerTests : IDisposable
             ",",
             Enumerable.Range(0, PluginConfiguration.MaxDeviceTargetsPerUser + 1)
                 .Select(index => $"{{\"DeviceId\":\"device-{index}\"}}"));
-        var request = JsonSerializer.Deserialize<HueUserMappingRequest>($$"""
+        var requestJson = """
             {
               "UserId": "11111111-1111-1111-1111-111111111111",
               "SyncEnabled": false,
-              "DeviceTargets": [{{deviceTargets}}]
+              "DeviceTargets": [__DEVICE_TARGETS__]
             }
-            """)!;
+            """.Replace("__DEVICE_TARGETS__", deviceTargets, StringComparison.Ordinal);
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>(requestJson)!;
 
         var action = CreateController().SaveUserMapping(request);
 
