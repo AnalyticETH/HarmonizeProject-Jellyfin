@@ -16,6 +16,7 @@ No unreleased changes.
 - **Malformed mapping protection**: invalid nested device-target property types now return a sanitized HTTP 400 without mutating persisted mappings.
 - **Deferred-cue correctness**: persisted playback-deferred occurrences are validated against the current schedule timing definition before replay, with stale state removed safely after edits or imports.
 - **Regression coverage**: API, scheduler, and administrator configuration-page tests cover malformed input, stale lifecycle responses, page teardown, and edited deferred cues.
+- **Trusted-main recovery**: the release workflow now exposes a manual dispatch trigger for recovering transient Actions startup failures without granting manual runs release-publication behavior.
 
 ## [1.5.305] - 2026-08-26
 
