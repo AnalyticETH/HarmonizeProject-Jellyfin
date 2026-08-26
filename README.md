@@ -457,7 +457,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.319 (Current)
+### Version 1.5.320 (Current)
+
+- **Stable multi-target previews**: raw, saved-scene, and saved-playlist previews now snapshot validated target credentials and saved-scene values under a short configuration read lease before releasing the lease for bridge I/O. Bulk previews retain one detached target/preset snapshot across every item, return a retryable conflict during active configuration mutation, and cannot be redirected by later edits.
+
+### Version 1.5.319
 - **Schedule target integrity**: explicit all-enabled broadcast requests that also select users, device routes, or the default target are rejected as ambiguous, while partial imports and edits switch away from inherited broadcast mode safely before validation.
 - **Security gate**: the committed lifecycle test sentinel is explicitly documented as non-secret historical data and excluded by a fingerprint-only Gitleaks rule; the active fixture no longer resembles a credential.
 - **Regression coverage**: direct-save and import tests cover mixed-target rejection, partial-target conversion, and atomic rollback.

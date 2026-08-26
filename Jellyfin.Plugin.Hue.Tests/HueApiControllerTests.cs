@@ -4186,6 +4186,78 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PreviewSnapshots_ReturnConflictWhileConfigurationMutationIsActive()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "snapshot-global-app",
+            HueClientKey = "snapshot-global-client",
+            EntertainmentAreaId = "snapshot-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Snapshot scene", DurationSeconds = 1 }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "snapshot-playlist",
+                    Name = "Snapshot playlist",
+                    PresetNames = new List<string> { "Snapshot scene" }
+                }
+            }
+        });
+        var streamTester = new Mock<IHueStreamTester>();
+        var gate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            gate);
+        var controller = CreateController(
+            streamTester.Object,
+            gate,
+            hostedServices: new[] { service });
+
+        using var mutationLease = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutationLease);
+
+        var raw = await controller.Preview(new HuePreviewRequest
+        {
+            TargetAllEnabledMappings = true,
+            DurationSeconds = 1
+        });
+        AssertConflict(raw.Result!);
+
+        var saved = await controller.PreviewColorPreset(
+            "Snapshot scene",
+            new HueSavedColorPresetPreviewRequest { TargetAllEnabledMappings = true });
+        AssertConflict(saved.Result!);
+
+        var savedBulk = await controller.PreviewColorPresetsBulk(
+            new HueColorPresetBulkPreviewRequest
+            {
+                PresetNames = new List<string> { "Snapshot scene" },
+                TargetAllEnabledMappings = true
+            });
+        AssertConflict(savedBulk.Result!);
+
+        var playlist = await controller.PreviewScenePlaylist("Snapshot playlist", null);
+        AssertConflict(playlist.Result!);
+
+        var playlistBulk = await controller.PreviewScenePlaylistsBulk(
+            new HueScenePlaylistBulkPreviewRequest
+            {
+                PlaylistIds = new List<string> { "snapshot-playlist" }
+            });
+        AssertConflict(playlistBulk.Result!);
+
+        streamTester.VerifyNoOtherCalls();
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task PreviewColorPreset_BlankTargetUserIdFailsClosedWithoutContactingBridge()
     {
         InstallConfiguration(new PluginConfiguration

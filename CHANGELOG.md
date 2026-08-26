@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.320] - 2026-08-26
+
+### Stable multi-target preview snapshots
+- **Configuration snapshot isolation**: raw multi-target, saved-scene, and saved-playlist previews now acquire a short read lease while validating and detaching target credentials and scene values, then release it before bridge I/O.
+- **Stable bulk previews**: every scene and playlist in a bulk operation uses the same preflighted target and saved-scene snapshots, so later configuration edits cannot redirect an in-flight run.
+- **Fail-closed contention**: preview requests return a retryable conflict while an administrator configuration mutation is active instead of starting from a partial configuration.
+- **Regression coverage**: API contention tests and detached target/preset service tests cover mutation barriers and post-snapshot configuration changes.
+
 ## [1.5.319] - 2026-08-26
 
 ### Import target-mode integrity and security-gate hygiene

@@ -4787,6 +4787,123 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunPreviewWithSnapshot_UsesDetachedTargetAndPresetAfterConfigurationChanges()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "snapshot-app-a",
+            HueClientKey = "snapshot-client-a",
+            EntertainmentAreaId = "snapshot-area-a",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Snapshot scene", Red = 17, Green = 34, Blue = 51, DurationSeconds = 1 }
+            }
+        };
+        InstallConfiguration(configuration);
+        var schedule = new HueSceneSchedule
+        {
+            Id = "snapshot-preview",
+            Name = "Snapshot preview"
+        };
+        Assert.True(HueSceneAutomationService.TryResolveTargets(
+            configuration,
+            schedule,
+            out var resolvedTargets,
+            out var targetError), targetError);
+
+        var detachedPreset = new HueColorPreset
+        {
+            Name = "Snapshot scene",
+            Red = 17,
+            Green = 34,
+            Blue = 51,
+            DurationSeconds = 1
+        };
+        configuration.HueBridgeIp = "192.168.1.101";
+        configuration.HueAppKey = "snapshot-app-b";
+        configuration.HueClientKey = "snapshot-client-b";
+        configuration.EntertainmentAreaId = "snapshot-area-b";
+        configuration.ColorPresets[0].Red = 221;
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPreviewWithSnapshotAsync(
+            schedule,
+            detachedPreset,
+            resolvedTargets,
+            targetRoutesOverride: null);
+
+        Assert.True(result.Succeeded);
+        var invocation = Assert.Single(streamTester.Invocations);
+        Assert.Equal("192.168.1.100", invocation.BridgeIp);
+        Assert.Equal("snapshot-app-a", invocation.AppKey);
+        Assert.Equal("snapshot-client-a", invocation.ClientKey);
+        Assert.Equal("snapshot-area-a", invocation.AreaId);
+        Assert.Equal(new[] { 17 }, streamTester.Reds);
+    }
+
+    [Fact]
+    public async Task RunPlaylistPreviewWithSnapshot_UsesDetachedPresetsAfterConfigurationChanges()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.110",
+            HueAppKey = "playlist-snapshot-app",
+            HueClientKey = "playlist-snapshot-client",
+            EntertainmentAreaId = "playlist-snapshot-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Playlist snapshot scene", Red = 23, Green = 46, Blue = 69, DurationSeconds = 1 }
+            }
+        };
+        InstallConfiguration(configuration);
+        var playlist = new HueScenePlaylist
+        {
+            Id = "playlist-snapshot",
+            Name = "Playlist snapshot",
+            PresetNames = new List<string> { "Playlist snapshot scene" }
+        };
+        var schedule = new HueSceneSchedule { Id = "playlist-snapshot-target" };
+        Assert.True(HueSceneAutomationService.TryResolveTargets(
+            configuration,
+            schedule,
+            out var resolvedTargets,
+            out var targetError), targetError);
+        var detachedPreset = new HueColorPreset
+        {
+            Name = "Playlist snapshot scene",
+            Red = 23,
+            Green = 46,
+            Blue = 69,
+            DurationSeconds = 1
+        };
+        configuration.ColorPresets[0].Red = 231;
+        configuration.ColorPresets[0].Green = 232;
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewWithSnapshotAsync(
+            playlist,
+            new[] { detachedPreset },
+            resolvedTargets);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(new[] { 23 }, streamTester.Reds);
+        Assert.Equal("192.168.1.110", Assert.Single(streamTester.Invocations).BridgeIp);
+    }
+
+    [Fact]
     public async Task RunPlaylistPreview_UsesPersistedSelectedTargetsAndPreservesTargetTelemetry()
     {
         const string canonicalUserId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
@@ -5854,6 +5971,7 @@ public sealed class HueSceneAutomationServiceTests
 
     private sealed class RecordingStreamTester : IHueStreamTester, IHueTransitionCurveStreamTester
     {
+        public List<(string BridgeIp, string AppKey, string ClientKey, string AreaId)> Invocations { get; } = new();
         public List<int> Reds { get; } = new();
         public List<int> Brightnesses { get; } = new();
         public List<int> Durations { get; } = new();
@@ -5894,6 +6012,7 @@ public sealed class HueSceneAutomationServiceTests
             string effect = PluginConfiguration.ColorPresetEffectSolid,
             int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
         {
+            Invocations.Add((bridgeIp, appKey, clientKey, areaId));
             Reds.Add(red);
             Brightnesses.Add(brightnessPercent);
             Durations.Add(durationSeconds);
@@ -5926,6 +6045,7 @@ public sealed class HueSceneAutomationServiceTests
             int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
             string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear)
         {
+            Invocations.Add((bridgeIp, appKey, clientKey, areaId));
             Reds.Add(red);
             Brightnesses.Add(brightnessPercent);
             Durations.Add(durationSeconds);

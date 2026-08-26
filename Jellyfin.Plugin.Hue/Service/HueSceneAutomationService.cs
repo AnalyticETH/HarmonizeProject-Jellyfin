@@ -1449,6 +1449,20 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (presets.Length == 0 || presets.Any(preset => preset == null))
             return Array.Empty<HueScenePlaylistScheduleStep>();
 
+        return BuildPlaylistScheduleSteps(
+            presets.Select(preset => preset!).ToArray(),
+            playlist,
+            runAtUtc);
+    }
+
+    internal static IReadOnlyList<HueScenePlaylistScheduleStep> BuildPlaylistScheduleSteps(
+        IReadOnlyList<HueColorPreset>? presets,
+        HueScenePlaylist? playlist,
+        DateTime runAtUtc)
+    {
+        if (playlist == null || presets == null || presets.Count == 0 || presets.Any(preset => preset == null))
+            return Array.Empty<HueScenePlaylistScheduleStep>();
+
         PluginConfiguration.TryNormalizeScenePlaylistOrder(
             playlist.PlaybackOrder,
             out var playbackOrder);
@@ -1456,13 +1470,13 @@ public sealed class HueSceneAutomationService : BackgroundService
             playlist.RepeatCount,
             PluginConfiguration.MinScenePlaylistRepeatCount,
             PluginConfiguration.MaxScenePlaylistRepeatCount);
-        var steps = new List<HueScenePlaylistScheduleStep>(presets.Length * repeatCount);
+        var steps = new List<HueScenePlaylistScheduleStep>(presets.Count * repeatCount);
         var startOffsetSeconds = 0;
         var normalizedRunAtUtc = DateTime.SpecifyKind(runAtUtc, DateTimeKind.Utc);
         for (var repeatIndex = 1; repeatIndex <= repeatCount; repeatIndex++)
         {
             var pass = BuildPlaylistPass(
-                presets.Select(preset => preset!).ToArray(),
+                presets,
                 playbackOrder,
                 playlist.Id,
                 repeatIndex,
@@ -2024,7 +2038,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             greenOverride,
             blueOverride,
             effectOverride: null,
-            targetRoutesOverride: null);
+            targetRoutesOverride: null,
+            resolvedTargetsOverride: null);
 
     /// <summary>
     /// Runs an administrator preview against credential-free explicit user/device routes.
@@ -2059,7 +2074,37 @@ public sealed class HueSceneAutomationService : BackgroundService
             greenOverride,
             blueOverride,
             effectOverride: null,
-            targetRoutesOverride: targetRoutesOverride);
+            targetRoutesOverride: targetRoutesOverride,
+            resolvedTargetsOverride: null);
+
+    /// <summary>
+    /// Runs an administrator preview using a detached target snapshot captured while
+    /// the configuration read lease was held. The resolved target descriptions contain
+    /// only the immutable values needed for bridge I/O, so configuration writers may
+    /// proceed while the preview is running without redirecting later operations.
+    /// </summary>
+    internal Task<HueSceneAutomationRunResult> RunPreviewWithSnapshotAsync(
+        HueSceneSchedule schedule,
+        HueColorPreset preset,
+        IReadOnlyList<HueSceneAutomationTargetDescription> resolvedTargets,
+        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride,
+        CancellationToken cancellationToken = default)
+        => RunPreviewWithEffectAsync(
+            schedule,
+            preset,
+            cancellationToken,
+            targetScopedPlayback: false,
+            brightnessPercentOverride: null,
+            transitionSecondsOverride: null,
+            transitionOutSecondsOverride: null,
+            transitionCurveOverride: null,
+            effectSpeedPercentOverride: null,
+            redOverride: null,
+            greenOverride: null,
+            blueOverride: null,
+            effectOverride: null,
+            targetRoutesOverride: targetRoutesOverride,
+            resolvedTargetsOverride: resolvedTargets);
 
     private async Task<HueSceneAutomationRunResult> RunPreviewWithEffectAsync(
         HueSceneSchedule schedule,
@@ -2075,11 +2120,12 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? greenOverride,
         int? blueOverride,
         string? effectOverride,
-        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride)
+        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride,
+        IReadOnlyList<HueSceneAutomationTargetDescription>? resolvedTargetsOverride)
     {
         var normalizedTargetRoutesOverride = NormalizeTargetRoutes(targetRoutesOverride);
         var config = Plugin.Instance?.Configuration;
-        if (config == null)
+        if (config == null && resolvedTargetsOverride == null)
             return Failure(
                 schedule?.Id,
                 "Scene automation configuration is unavailable.",
@@ -2093,8 +2139,25 @@ public sealed class HueSceneAutomationService : BackgroundService
                 schedule,
                 targetRoutes: normalizedTargetRoutesOverride);
 
-        if (!TryResolveTargets(config, schedule, out var targets, out var targetError, normalizedTargetRoutesOverride))
+        IReadOnlyList<HueSceneAutomationTargetDescription> targets;
+        if (resolvedTargetsOverride != null)
+        {
+            targets = resolvedTargetsOverride
+                .Where(target => target != null)
+                .ToArray();
+            if (targets.Count == 0)
+            {
+                return Failure(
+                    schedule.Id,
+                    "The preview target snapshot is unavailable.",
+                    schedule,
+                    targetRoutes: normalizedTargetRoutesOverride);
+            }
+        }
+        else if (!TryResolveTargets(config!, schedule, out targets, out var targetError, normalizedTargetRoutesOverride))
+        {
             return Failure(schedule.Id, targetError, schedule, targetRoutes: normalizedTargetRoutesOverride);
+        }
 
         var effect = !string.IsNullOrWhiteSpace(effectOverride) &&
             PluginConfiguration.TryNormalizeColorPresetEffect(effectOverride, out var normalizedEffectOverride)
@@ -2170,7 +2233,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     out var normalizedTransitionCurve)
                 ? normalizedTransitionCurve
                 : GetEffectiveTransitionCurve(preset),
-            TargetLabel = ResolveTargetLabel(config, schedule, targetRoutesOverride),
+            TargetLabel = ResolveTargetLabel(config, schedule, targetRoutesOverride, targets),
             TargetAllEnabledMappings = schedule.TargetAllEnabledMappings,
             TargetUserIds = schedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -2194,7 +2257,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// cancellable. Shuffle order is stable for a playlist/date/pass so retries do not
     /// silently produce a different sequence within the same day.
     /// </summary>
-    public async Task<HueScenePlaylistRunResult> RunPlaylistPreviewAsync(
+    public Task<HueScenePlaylistRunResult> RunPlaylistPreviewAsync(
         HueScenePlaylist playlist,
         CancellationToken cancellationToken = default,
         IReadOnlyList<string>? targetUserIdsOverride = null,
@@ -2202,30 +2265,94 @@ public sealed class HueSceneAutomationService : BackgroundService
         bool targetScopedPlayback = false,
         DateTime? runAtUtcOverride = null,
         IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride = null)
+        => RunPlaylistPreviewCoreAsync(
+            playlist,
+            cancellationToken,
+            targetUserIdsOverride,
+            includeDefaultTargetOverride,
+            targetScopedPlayback,
+            runAtUtcOverride,
+            targetRoutesOverride,
+            resolvedTargetsOverride: null,
+            resolvedPresetsOverride: null);
+
+    /// <summary>
+    /// Runs a saved-scene playlist from detached target and preset snapshots captured
+    /// while the configuration read lease was held. The snapshots keep a long-running
+    /// preview stable after configuration writers are allowed to continue.
+    /// </summary>
+    internal Task<HueScenePlaylistRunResult> RunPlaylistPreviewWithSnapshotAsync(
+        HueScenePlaylist playlist,
+        IReadOnlyList<HueColorPreset> resolvedPresets,
+        IReadOnlyList<HueSceneAutomationTargetDescription> resolvedTargets,
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? targetUserIdsOverride = null,
+        bool includeDefaultTargetOverride = false,
+        bool targetScopedPlayback = false,
+        DateTime? runAtUtcOverride = null,
+        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride = null)
+        => RunPlaylistPreviewCoreAsync(
+            playlist,
+            cancellationToken,
+            targetUserIdsOverride,
+            includeDefaultTargetOverride,
+            targetScopedPlayback,
+            runAtUtcOverride,
+            targetRoutesOverride,
+            resolvedTargets,
+            resolvedPresets);
+
+    private async Task<HueScenePlaylistRunResult> RunPlaylistPreviewCoreAsync(
+        HueScenePlaylist playlist,
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? targetUserIdsOverride = null,
+        bool includeDefaultTargetOverride = false,
+        bool targetScopedPlayback = false,
+        DateTime? runAtUtcOverride = null,
+        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride = null,
+        IReadOnlyList<HueSceneAutomationTargetDescription>? resolvedTargetsOverride = null,
+        IReadOnlyList<HueColorPreset>? resolvedPresetsOverride = null)
     {
         var normalizedTargetRoutesOverride = NormalizeTargetRoutes(targetRoutesOverride);
         var config = Plugin.Instance?.Configuration;
-        if (config == null)
+        if (config == null && (resolvedTargetsOverride == null || resolvedPresetsOverride == null))
             return PlaylistFailure(playlist, "Scene playlist configuration is unavailable.", normalizedTargetRoutesOverride);
 
         if (playlist == null)
             return PlaylistFailure(null, "The scene playlist is unavailable.", normalizedTargetRoutesOverride);
 
-        var validationErrors = PluginConfiguration.ValidateScenePlaylist(playlist, config);
-        if (validationErrors.Count > 0)
-            return PlaylistFailure(playlist, string.Join(" ", validationErrors), normalizedTargetRoutesOverride);
+        IReadOnlyList<HueColorPreset> resolvedPresets;
+        if (resolvedPresetsOverride != null)
+        {
+            var detachedValidationErrors = ValidateDetachedPlaylist(playlist, resolvedPresetsOverride);
+            if (detachedValidationErrors.Count > 0)
+            {
+                return PlaylistFailure(
+                    playlist,
+                    string.Join(" ", detachedValidationErrors),
+                    normalizedTargetRoutesOverride);
+            }
 
-        var presets = (playlist.PresetNames ?? new List<string>())
-            .Select(name => config.ColorPresets?.FirstOrDefault(candidate =>
-                candidate != null &&
-                string.Equals(candidate.Name?.Trim(), name?.Trim(), StringComparison.OrdinalIgnoreCase)))
-            .ToList();
-        if (presets.Any(preset => preset == null))
-            return PlaylistFailure(
-                playlist,
-                "The scene playlist references a saved scene that no longer exists.",
-                normalizedTargetRoutesOverride);
-        var resolvedPresets = presets.Select(preset => preset!).ToArray();
+            resolvedPresets = resolvedPresetsOverride.ToArray();
+        }
+        else
+        {
+            var validationErrors = PluginConfiguration.ValidateScenePlaylist(playlist, config!);
+            if (validationErrors.Count > 0)
+                return PlaylistFailure(playlist, string.Join(" ", validationErrors), normalizedTargetRoutesOverride);
+
+            var presets = (playlist.PresetNames ?? new List<string>())
+                .Select(name => config!.ColorPresets?.FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.Name?.Trim(), name?.Trim(), StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (presets.Any(preset => preset == null))
+                return PlaylistFailure(
+                    playlist,
+                    "The scene playlist references a saved scene that no longer exists.",
+                    normalizedTargetRoutesOverride);
+            resolvedPresets = presets.Select(preset => preset!).ToArray();
+        }
 
         var normalizedTargetUserIdsOverride = targetUserIdsOverride?
             .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -2257,13 +2384,29 @@ public sealed class HueSceneAutomationService : BackgroundService
                 effectiveTargetUserIds.Count == 0 &&
                 playlist.TargetAllEnabledMappings
         };
-        if (!TryResolveTargets(
-                config,
-                targetSchedule,
-                out var resolvedTargets,
-                out var targetError,
-                normalizedTargetRoutesOverride))
+        IReadOnlyList<HueSceneAutomationTargetDescription> resolvedTargets;
+        if (resolvedTargetsOverride != null)
+        {
+            resolvedTargets = resolvedTargetsOverride
+                .Where(target => target != null)
+                .ToArray();
+            if (resolvedTargets.Count == 0)
+            {
+                return PlaylistFailure(
+                    playlist,
+                    "The playlist target snapshot is unavailable.",
+                    normalizedTargetRoutesOverride);
+            }
+        }
+        else if (!TryResolveTargets(
+                     config!,
+                     targetSchedule,
+                     out resolvedTargets,
+                     out var targetError,
+                     normalizedTargetRoutesOverride))
+        {
             return PlaylistFailure(playlist, targetError, normalizedTargetRoutesOverride);
+        }
 
         var repeatCount = Math.Clamp(
             playlist.RepeatCount,
@@ -2274,7 +2417,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             out var playbackOrder);
         var executionStartedAtUtc = DateTime.UtcNow;
         var runAtUtc = NormalizeRunAtUtc(runAtUtcOverride) ?? executionStartedAtUtc;
-        var plannedSteps = BuildPlaylistScheduleSteps(config, playlist, runAtUtc);
+        var plannedSteps = BuildPlaylistScheduleSteps(resolvedPresets, playlist, runAtUtc);
         var totalStepCount = plannedSteps.Count;
         if (_streamTester is IHuePlaylistStreamTester playlistStreamTester)
         {
@@ -2328,7 +2471,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 plannedStep.Green,
                 plannedStep.Blue,
                 plannedStep.Effect,
-                normalizedTargetRoutesOverride).ConfigureAwait(false);
+                normalizedTargetRoutesOverride,
+                resolvedTargetsOverride: resolvedTargets).ConfigureAwait(false);
             steps.Add(new HueScenePlaylistStepResult
             {
                 Index = plannedStep.Index,
@@ -2388,8 +2532,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             .ToArray();
         var message = steps.Count == totalStepCount && succeededCount == totalStepCount
             ? repeatCount == 1
-                ? $"Played playlist '{playlist.Name?.Trim()}' with {presets.Count} saved scene(s)."
-                : $"Played playlist '{playlist.Name?.Trim()}' with {presets.Count} saved scene(s) for {repeatCount} passes."
+                ? $"Played playlist '{playlist.Name?.Trim()}' with {resolvedPresets.Count} saved scene(s)."
+                : $"Played playlist '{playlist.Name?.Trim()}' with {resolvedPresets.Count} saved scene(s) for {repeatCount} passes."
             : steps.Count == 0
                 ? "The scene playlist did not contain any runnable steps."
                 : $"Played {succeededCount} of {totalStepCount} playlist step(s).";
@@ -2399,7 +2543,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistName = playlist.Name?.Trim() ?? string.Empty,
             RepeatCount = repeatCount,
             PlaybackOrder = playbackOrder,
-            TargetLabel = ResolveTargetLabel(config, targetSchedule, normalizedTargetRoutesOverride),
+            TargetLabel = ResolveTargetLabel(config, targetSchedule, normalizedTargetRoutesOverride, resolvedTargets),
             TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -2416,7 +2560,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     private async Task<HueScenePlaylistRunResult> RunContinuousPlaylistPreviewAsync(
-        PluginConfiguration config,
+        PluginConfiguration? config,
         HueScenePlaylist playlist,
         HueSceneSchedule targetSchedule,
         IReadOnlyList<HueSceneAutomationTargetRoute> targetRoutes,
@@ -2559,7 +2703,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistName = playlist.Name?.Trim() ?? string.Empty,
             RepeatCount = repeatCount,
             PlaybackOrder = playbackOrder,
-            TargetLabel = ResolveTargetLabel(config, targetSchedule, targetRoutes),
+            TargetLabel = ResolveTargetLabel(config, targetSchedule, targetRoutes, resolvedTargets),
             TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -2817,6 +2961,54 @@ public sealed class HueSceneAutomationService : BackgroundService
             Message = message,
             RunAtUtc = DateTime.UtcNow
         };
+    }
+
+    private static List<string> ValidateDetachedPlaylist(
+        HueScenePlaylist playlist,
+        IReadOnlyList<HueColorPreset> resolvedPresets)
+    {
+        var errors = PluginConfiguration.ValidateScenePlaylist(playlist, configuration: null);
+        var presetNames = playlist.PresetNames ?? new List<string>();
+        if (resolvedPresets == null || resolvedPresets.Count != presetNames.Count)
+        {
+            errors.Add("The scene playlist saved-scene snapshot does not match its saved scenes.");
+            return errors;
+        }
+
+        for (var index = 0; index < presetNames.Count; index++)
+        {
+            var preset = resolvedPresets[index];
+            var expectedName = presetNames[index]?.Trim() ?? string.Empty;
+            if (preset == null ||
+                !string.Equals(preset.Name?.Trim(), expectedName, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"The scene playlist saved-scene snapshot does not match scene {index + 1}.");
+                continue;
+            }
+
+            errors.AddRange(PluginConfiguration.ValidateColorPreset(
+                preset,
+                $"Saved scene '{expectedName}'"));
+        }
+
+        if (errors.Count == 0 &&
+            playlist.RepeatCount >= PluginConfiguration.MinScenePlaylistRepeatCount &&
+            playlist.RepeatCount <= PluginConfiguration.MaxScenePlaylistRepeatCount)
+        {
+            var totalDuration = resolvedPresets
+                .Select((preset, index) => PluginConfiguration.GetEffectiveScenePlaylistStepDurationSeconds(
+                    playlist,
+                    index,
+                    preset))
+                .Sum() * playlist.RepeatCount;
+            if (totalDuration > PluginConfiguration.MaxScenePlaylistTotalDurationSeconds)
+            {
+                errors.Add(
+                    $"Scene playlist repeated duration cannot exceed {PluginConfiguration.MaxScenePlaylistTotalDurationSeconds} seconds");
+            }
+        }
+
+        return errors;
     }
 
     /// <summary>
@@ -5891,7 +6083,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     internal static string ResolveTargetLabel(
         PluginConfiguration? config,
         HueSceneSchedule schedule,
-        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutes = null)
+        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutes = null,
+        IReadOnlyList<HueSceneAutomationTargetDescription>? resolvedTargets = null)
     {
         if (schedule.TargetAllEnabledMappings)
             return "All enabled targets";
@@ -5927,7 +6120,18 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         var targetUserId = PluginConfiguration.NormalizeJellyfinUserId(schedule.TargetUserId);
         if (string.IsNullOrWhiteSpace(targetUserId))
-            return "Default bridge target";
+        {
+            return resolvedTargets is { Count: 1 } &&
+                !string.IsNullOrWhiteSpace(resolvedTargets[0].TargetLabel)
+                ? resolvedTargets[0].TargetLabel
+                : "Default bridge target";
+        }
+
+        if (resolvedTargets is { Count: 1 } &&
+            !string.IsNullOrWhiteSpace(resolvedTargets[0].TargetLabel))
+        {
+            return resolvedTargets[0].TargetLabel;
+        }
 
         var matchingMappings = (config?.UserMappings ?? new List<UserBridgeMapping>())
             .Where(candidate => candidate != null &&
