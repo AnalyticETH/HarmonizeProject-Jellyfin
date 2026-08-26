@@ -19,6 +19,7 @@ for (const marker of [
   "semgrep",
   "--require-hashes",
   "node scripts/validate-config-page.mjs",
+  "node scripts/test-config-page-exports.mjs",
   "node scripts/validate-api-docs.mjs"
 ]) {
   if (!workflow.includes(marker)) {

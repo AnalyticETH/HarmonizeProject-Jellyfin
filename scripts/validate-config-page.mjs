@@ -573,6 +573,8 @@ const requiredScript = [
     "updateSceneScheduleBulkButtons: function",
     "downloadCsvDocument: function",
     "downloadCsvFromApi: function",
+    "var exportStates = {",
+    "exportButton.disabled = false",
     "exportSceneScheduleConflictsCsv: function",
     "exportSceneScheduleOccurrencesCsv: function",
     "exportSceneScheduleHistoryCsv: function",
@@ -844,13 +846,17 @@ for (const [functionName, requestKey, routeMarker, queryMarker, downloadMarker] 
         "getPageLifecycleRequest",
         "isPageLifecycleRequestCurrent(page, pageGeneration, request)",
         "if (!isCurrent()) return;",
-        "JSON.stringify(exportDocument, null, 2)"
+        "JSON.stringify(exportDocument, null, 2)",
+        "var requestRecord = request && request._huePageRequestRecord",
+        "page._huePageRequests.configurationExport === requestRecord",
+        "HueConfigurationPage.cancelPageLifecycleRequest(page, 'configurationExport')"
     ]) {
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} ${functionName} is missing configuration export lifecycle protection: ${marker}`);
         }
     }
-    if (!functionBody.includes("if (isCurrent())") ||
+    if (!functionBody.includes("var current = isCurrent()") ||
+        !functionBody.includes("if (current || tracked)") ||
         !functionBody.includes("page._hueConfigurationExporting = false")) {
         throw new Error(`${file} ${functionName} must guard terminal cleanup against stale page lifecycle state`);
     }
@@ -917,7 +923,7 @@ for (const [functionName, requestKey, queryMarker] of [
         "page._huePageGeneration += 1",
         "page._huePageActive = false",
         "page._huePageRequests = {}",
-        "abortPageLifecycleRequest(requests[key])",
+        "cancelPageLifecycleRequest(page, key)",
         "page._hueSessionHistoryLoading = false",
         "page._hueSceneScheduleRuntimeStatusLoading = false",
         "page._hueSceneScheduleConflictsLoading = false",

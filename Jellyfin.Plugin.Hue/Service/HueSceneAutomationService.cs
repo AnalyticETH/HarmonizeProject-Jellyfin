@@ -3931,7 +3931,11 @@ public sealed class HueSceneAutomationService : BackgroundService
         var clientKey = config.HueClientKey?.Trim() ?? string.Empty;
         var areaId = config.EntertainmentAreaId?.Trim() ?? string.Empty;
         var channelIds = config.ChannelIds?.Trim() ?? string.Empty;
-        var retryAttempts = config.NetworkRetryAttempts;
+        // Configuration validation bounds this value, but scene automation may run
+        // against a legacy or hand-edited persisted file. Keep the resolved target
+        // consistent with HueClient's bounded retry policy and prevent malformed
+        // settings from extending a scheduled bridge operation indefinitely.
+        var retryAttempts = Math.Clamp(config.NetworkRetryAttempts, 0, 10);
         string targetLabel = "Default bridge target";
 
         if (!string.IsNullOrWhiteSpace(targetUserId))
@@ -4006,7 +4010,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             }
 
             if (mapping.NetworkRetryAttemptsOverride.HasValue)
-                retryAttempts = mapping.NetworkRetryAttemptsOverride.Value;
+                retryAttempts = Math.Clamp(mapping.NetworkRetryAttemptsOverride.Value, 0, 10);
         }
 
         if (!Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(bridgeIp))

@@ -623,6 +623,31 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMappingJsonRequest_RejectsOversizedDeviceTargetCollectionBeforeMaterializingIt()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+        var deviceTargets = string.Join(
+            ",",
+            Enumerable.Range(0, PluginConfiguration.MaxDeviceTargetsPerUser + 1)
+                .Select(index => $"{{\"DeviceId\":\"device-{index}\"}}"));
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>($$"""
+            {
+              "UserId": "11111111-1111-1111-1111-111111111111",
+              "SyncEnabled": false,
+              "DeviceTargets": [{{deviceTargets}}]
+            }
+            """)!;
+
+        var action = CreateController().SaveUserMapping(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(
+            $"User mapping may define no more than {PluginConfiguration.MaxDeviceTargetsPerUser} device targets.",
+            response.Value);
+        Assert.Empty(configuration.UserMappings);
+    }
+
+    [Fact]
     public void SaveUserMappingJsonRequest_RejectsMalformedUserIdWithoutMutation()
     {
         var existingMapping = new UserBridgeMapping
@@ -11659,6 +11684,32 @@ public sealed class HueApiControllerTests : IDisposable
             request,
             $"Imported scene schedule 1 target selection may contain no more than {PluginConfiguration.MaxSceneScheduleTargetMappings} target routes.",
             $"Imported scene schedule 1 excluded dates may contain no more than {PluginConfiguration.MaxSceneScheduleExcludedDates} items.");
+    }
+
+    [Fact]
+    public void ConfigurationImport_RejectsOversizedMappingDeviceCollectionsBeforePlanning()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration { SyncEnabled = false });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.UserMappings = new List<UserBridgeMappingImport>
+        {
+            new()
+            {
+                UserId = Guid.NewGuid().ToString("D"),
+                DeviceTargets = Enumerable.Range(0, PluginConfiguration.MaxDeviceTargetsPerUser + 1)
+                    .Select(index => new UserDeviceBridgeTargetSummary { DeviceId = $"device-{index}" })
+                    .ToList(),
+                DeviceTargetCredentials = Enumerable.Range(0, PluginConfiguration.MaxDeviceTargetsPerUser + 1)
+                    .Select(index => new UserDeviceBridgeTargetImport { DeviceId = $"device-{index}" })
+                    .ToList()
+            }
+        };
+
+        AssertConfigurationImportCapacityRejected(
+            configuration,
+            request,
+            $"Imported user mapping 1 device targets may contain no more than {PluginConfiguration.MaxDeviceTargetsPerUser} items.",
+            $"Imported user mapping 1 device-target credentials may contain no more than {PluginConfiguration.MaxDeviceTargetsPerUser} items.");
     }
 
     [Fact]

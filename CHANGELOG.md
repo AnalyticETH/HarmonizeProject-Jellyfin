@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.302] - 2026-08-26
+
+### Export and backend hardening
+- **Button recovery**: page lifecycle teardown now routes tracked administrator export cancellation through common cleanup so navigation or bfcache restore cannot leave export controls disabled.
+- **Deterministic regression harness**: CI covers all administrator JSON, CSV, and iCalendar export routes, response types, filenames, stale suppression, cancellation, failures, and duplicate-click bounds.
+- **Bounded server inputs and retries**: configuration imports and direct mapping writes reject oversized nested device collections before planning or materialization, while Hue retry settings are clamped to a finite 0-10 policy for legacy persisted values and direct callers.
+- **Regression coverage**: API and Hue client tests cover nested import capacity, early mapping rejection, and retry clamping without mutating configuration.
+
 ## [1.5.301] - 2026-08-26
 
 ### Export lifecycle reliability

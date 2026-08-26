@@ -36,6 +36,22 @@ public class HueClientTests : IDisposable
         _httpClient.Dispose();
     }
 
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, 0)]
+    [InlineData(10, 10)]
+    [InlineData(11, 10)]
+    [InlineData(int.MaxValue, 10)]
+    public void RetryAttempts_IsClampedToBoundedNetworkPolicy(int configured, int expected)
+    {
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = configured
+        };
+
+        Assert.Equal(expected, client.RetryAttempts);
+    }
+
     #region DiscoverBridgeIp Tests
 
     [Fact]

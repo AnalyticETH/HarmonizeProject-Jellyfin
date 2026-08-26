@@ -7748,6 +7748,25 @@ namespace Jellyfin.Plugin.Hue.Api
                 importedSchedules.Count,
                 PluginConfiguration.MaxSceneSchedules);
 
+            for (var index = 0; index < importedMappings.Count; index++)
+            {
+                var mapping = importedMappings[index];
+                if (mapping == null)
+                    continue;
+
+                var label = $"Imported user mapping {index + 1}";
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} device targets",
+                    mapping.DeviceTargets?.Count ?? 0,
+                    PluginConfiguration.MaxDeviceTargetsPerUser);
+                AddImportCollectionLimitError(
+                    importCapacityErrors,
+                    $"{label} device-target credentials",
+                    mapping.DeviceTargetCredentials?.Count ?? 0,
+                    PluginConfiguration.MaxDeviceTargetsPerUser);
+            }
+
             for (var index = 0; index < importedPlaylists.Count; index++)
             {
                 var playlist = importedPlaylists[index];
@@ -9651,6 +9670,13 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Mapping is required.");
             }
 
+            if (request.TryGetDeviceTargetCount(out var deviceTargetCount) &&
+                deviceTargetCount > PluginConfiguration.MaxDeviceTargetsPerUser)
+            {
+                return BadRequest(
+                    $"User mapping may define no more than {PluginConfiguration.MaxDeviceTargetsPerUser} device targets.");
+            }
+
             var mapping = request.ToConfigurationMapping();
             if (!Guid.TryParse(mapping.UserId?.Trim(), out var parsedUserId))
             {
@@ -11471,6 +11497,20 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonExtensionData]
         public Dictionary<string, JsonElement>? Values { get; set; }
+
+        internal bool TryGetDeviceTargetCount(out int count)
+        {
+            count = 0;
+            var values = Values;
+            if (values == null || !TryGetValue(values, "DeviceTargets", out var deviceTargets) ||
+                deviceTargets.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            count = deviceTargets.GetArrayLength();
+            return true;
+        }
 
         internal UserBridgeMapping ToConfigurationMapping()
         {

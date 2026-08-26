@@ -1,0 +1,431 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import vm from "node:vm";
+
+const file = "Jellyfin.Plugin.Hue/Configuration/configPage.html";
+const html = fs.readFileSync(file, "utf8");
+const scriptMatch = html.match(/<script type="text\/javascript">([\s\S]*?)<\/script>/);
+
+if (!scriptMatch) {
+    throw new Error(`${file} does not contain the configuration script`);
+}
+
+const exportCases = [
+    {
+        method: "exportConfiguration",
+        key: "configurationExport",
+        flag: "_hueConfigurationExporting",
+        button: "#exportConfigurationBtn",
+        route: "HueSync/Configuration/Export",
+        fileName: "jellyfin-hue-configuration.json",
+        dataType: "json",
+        contentType: "application/json",
+        response: { UserMappings: [], Marker: "configuration" }
+    },
+    {
+        method: "exportSceneScheduleConflicts",
+        key: "sceneScheduleConflictsExport",
+        flag: "_hueSceneScheduleConflictsExporting",
+        button: "#exportSceneScheduleConflictsBtn",
+        route: "HueSync/SceneSchedules/Conflicts?limit=50&days=31&scheduleId=cue-1",
+        fileName: "jellyfin-hue-scene-schedule-conflicts.json",
+        dataType: "json",
+        contentType: "application/json",
+        response: { Conflicts: [], Marker: "conflicts" }
+    },
+    {
+        method: "exportSceneScheduleConflictsCsv",
+        key: "sceneScheduleConflictsCsvExport",
+        flag: "_hueSceneScheduleConflictsCsvExporting",
+        button: "#exportSceneScheduleConflictsCsvBtn",
+        route: "HueSync/SceneSchedules/Conflicts/ExportCsv?limit=50&days=31&scheduleId=cue-1",
+        fileName: "jellyfin-hue-scene-schedule-conflicts.csv",
+        dataType: "text",
+        contentType: "text/csv;charset=utf-8",
+        response: "kind,marker\nconflicts,csv"
+    },
+    {
+        method: "exportSceneScheduleOccurrences",
+        key: "sceneScheduleOccurrencesExport",
+        flag: "_hueSceneScheduleOccurrencesExporting",
+        button: "#exportSceneScheduleOccurrencesBtn",
+        route: "HueSync/SceneSchedules/Occurrences?limit=50&days=31&scheduleId=cue-1",
+        fileName: "jellyfin-hue-scene-schedule-occurrences.json",
+        dataType: "json",
+        contentType: "application/json",
+        response: { Occurrences: [], Marker: "occurrences" }
+    },
+    {
+        method: "exportSceneScheduleOccurrencesCsv",
+        key: "sceneScheduleOccurrencesCsvExport",
+        flag: "_hueSceneScheduleOccurrencesCsvExporting",
+        button: "#exportSceneScheduleOccurrencesCsvBtn",
+        route: "HueSync/SceneSchedules/Occurrences/ExportCsv?limit=50&days=31&scheduleId=cue-1",
+        fileName: "jellyfin-hue-scene-schedule-occurrences.csv",
+        dataType: "text",
+        contentType: "text/csv;charset=utf-8",
+        response: "kind,marker\noccurrences,csv"
+    },
+    {
+        method: "exportSceneScheduleCalendar",
+        key: "sceneScheduleCalendarExport",
+        flag: "_hueSceneScheduleCalendarExporting",
+        button: "#exportSceneScheduleCalendarBtn",
+        route: "HueSync/SceneSchedules/Calendar?limit=50&days=31&scheduleId=cue-1",
+        fileName: "jellyfin-hue-scene-cues.ics",
+        dataType: "text",
+        contentType: "text/calendar;charset=utf-8",
+        response: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n"
+    },
+    {
+        method: "exportSceneScheduleHistory",
+        key: "sceneScheduleHistoryExport",
+        flag: "_hueSceneScheduleHistoryExporting",
+        button: "#exportSceneScheduleHistoryBtn",
+        route: "HueSync/SceneSchedules/History/Export?limit=100&scheduleId=cue-1&outcome=Error",
+        fileName: "jellyfin-hue-scene-schedule-history.json",
+        dataType: "json",
+        contentType: "application/json",
+        response: { History: [], Marker: "schedule-history" }
+    },
+    {
+        method: "exportSceneScheduleHistoryCsv",
+        key: "sceneScheduleHistoryCsvExport",
+        flag: "_hueSceneScheduleHistoryCsvExporting",
+        button: "#exportSceneScheduleHistoryCsvBtn",
+        route: "HueSync/SceneSchedules/History/ExportCsv?limit=100&scheduleId=cue-1&outcome=Error",
+        fileName: "jellyfin-hue-scene-schedule-history.csv",
+        dataType: "text",
+        contentType: "text/csv;charset=utf-8",
+        response: "kind,marker\nschedule-history,csv"
+    },
+    {
+        method: "exportSessionHistory",
+        key: "sessionHistoryExport",
+        flag: "_hueSessionHistoryExporting",
+        button: "#exportSessionHistoryBtn",
+        route: "HueSync/History/Export?limit=25&outcome=Stopped",
+        fileName: "jellyfin-hue-session-history.json",
+        dataType: "json",
+        contentType: "application/json",
+        response: { Sessions: [], Marker: "session-history" }
+    },
+    {
+        method: "exportSessionHistoryCsv",
+        key: "sessionHistoryCsvExport",
+        flag: "_hueSessionHistoryCsvExporting",
+        button: "#exportSessionHistoryCsvBtn",
+        route: "HueSync/History/ExportCsv?limit=25&outcome=Stopped",
+        fileName: "jellyfin-hue-session-history.csv",
+        dataType: "text",
+        contentType: "text/csv;charset=utf-8",
+        response: "kind,marker\nsession-history,csv"
+    }
+];
+
+function makeElement(tagName = "div") {
+    const element = {
+        tagName: String(tagName).toUpperCase(),
+        disabled: false,
+        value: "",
+        textContent: "",
+        selectedIndex: 0,
+        options: [],
+        style: {},
+        children: [],
+        listeners: {},
+        classList: {
+            contains: () => false,
+            add: () => {},
+            remove: () => {}
+        },
+        addEventListener(eventName, handler) {
+            this.listeners[eventName] = handler;
+        },
+        appendChild(child) {
+            this.children.push(child);
+            return child;
+        },
+        removeChild(child) {
+            const index = this.children.indexOf(child);
+            if (index >= 0) this.children.splice(index, 1);
+            return child;
+        },
+        click() {},
+        closest() {
+            return null;
+        }
+    };
+    return element;
+}
+
+function makeHarness() {
+    const downloads = [];
+    const blobs = new Map();
+    const requests = [];
+    let blobNumber = 0;
+
+    const body = makeElement("body");
+    const document = {
+        body,
+        querySelector() {
+            return makeElement();
+        },
+        querySelectorAll() {
+            return [];
+        },
+        createTextNode(value) {
+            return { textContent: String(value || "") };
+        },
+        createElement(tagName) {
+            const element = makeElement(tagName);
+            if (String(tagName).toLowerCase() === "a") {
+                element.click = () => {
+                    downloads.push({
+                        fileName: element.download,
+                        href: element.href,
+                        blob: blobs.get(element.href)
+                    });
+                };
+            }
+            return element;
+        },
+        addEventListener() {}
+    };
+
+    const url = {
+        createObjectURL(blob) {
+            const value = `blob:hue-config-contract-${++blobNumber}`;
+            blobs.set(value, blob);
+            return value;
+        },
+        revokeObjectURL(value) {
+            blobs.delete(value);
+        }
+    };
+
+    class TestBlob {
+        constructor(parts, options) {
+            this.parts = parts;
+            this.type = options && options.type;
+        }
+    }
+
+    function makeDeferred(options) {
+        let resolvePromise;
+        let rejectPromise;
+        const promise = new Promise((resolve, reject) => {
+            resolvePromise = resolve;
+            rejectPromise = reject;
+        });
+        promise.options = options;
+        promise.aborted = false;
+        promise.abort = () => {
+            promise.aborted = true;
+        };
+        return {
+            promise,
+            options,
+            resolve: resolvePromise,
+            reject: rejectPromise
+        };
+    }
+
+    const apiClient = {
+        getUrl(value) {
+            return value;
+        },
+        ajax(options) {
+            const deferred = makeDeferred(options);
+            requests.push(deferred);
+            return deferred.promise;
+        }
+    };
+
+    const context = vm.createContext({
+        ApiClient: apiClient,
+        Blob: TestBlob,
+        Dashboard: {
+            hideLoadingMsg() {},
+            showLoadingMsg() {},
+            confirm() {}
+        },
+        URL: url,
+        console: {
+            error() {},
+            warn() {},
+            log() {}
+        },
+        document,
+        window: {
+            document,
+            URL: url,
+            setTimeout(callback) {
+                callback();
+                return 1;
+            },
+            clearTimeout() {}
+        },
+        setTimeout(callback) {
+            callback();
+            return 1;
+        },
+        clearTimeout() {},
+        AbortController
+    });
+
+    new vm.Script(`"use strict";\n${scriptMatch[1]}`, { filename: file }).runInContext(context);
+
+    const pageElements = new Map();
+    const page = {
+        _huePageActive: true,
+        _huePageGeneration: 7,
+        querySelector(selector) {
+            if (typeof selector !== "string" || selector[0] !== "#") return null;
+            const id = selector.slice(1);
+            if (!pageElements.has(id)) {
+                pageElements.set(id, makeElement());
+            }
+            return pageElements.get(id);
+        }
+    };
+
+    for (const [id, value] of [
+        ["sceneScheduleConflictFilter", "cue-1"],
+        ["sceneScheduleOccurrenceFilter", "cue-1"],
+        ["sceneScheduleReportHorizon", "31"],
+        ["sceneScheduleHistoryOutcome", "Error"],
+        ["sceneScheduleHistoryCueFilter", "cue-1"],
+        ["sessionHistoryOutcome", "Stopped"]
+    ]) {
+        const element = page.querySelector(`#${id}`);
+        element.value = value;
+        element.selectedIndex = 1;
+        element.options = [
+            { value: "", textContent: "All cues" },
+            { value, textContent: "Cue One" }
+        ];
+    }
+
+    return {
+        page,
+        api: context.HueConfigurationPage,
+        requests,
+        downloads,
+        blobs
+    };
+}
+
+function mutateQuery(page, method) {
+    if (method.includes("Conflicts")) {
+        page.querySelector("#sceneScheduleConflictFilter").value = "cue-2";
+    } else if (method.includes("Occurrences") || method.includes("Calendar")) {
+        page.querySelector("#sceneScheduleOccurrenceFilter").value = "cue-2";
+    } else if (method.includes("SceneScheduleHistory")) {
+        page.querySelector("#sceneScheduleHistoryOutcome").value = "Succeeded";
+    } else if (method.includes("Configuration")) {
+        page._huePageGeneration += 1;
+    } else {
+        page.querySelector("#sessionHistoryOutcome").value = "Completed";
+    }
+}
+
+function assertExportPayload(testCase, download) {
+    assert.equal(download.fileName, testCase.fileName, `${testCase.method} file name`);
+    assert.ok(download.blob, `${testCase.method} creates a blob`);
+    assert.equal(download.blob.type, testCase.contentType, `${testCase.method} content type`);
+    const payload = download.blob.parts.join("");
+    if (testCase.dataType === "json") {
+        assert.deepEqual(JSON.parse(payload), testCase.response, `${testCase.method} JSON payload`);
+    } else {
+        assert.equal(payload, testCase.response, `${testCase.method} text payload`);
+    }
+}
+
+async function testSuccessfulExport(testCase) {
+    const harness = makeHarness();
+    const { page, api, requests, downloads } = harness;
+    const operation = api[testCase.method](page);
+    assert.ok(operation && typeof operation.then === "function", `${testCase.method} returns a promise`);
+    assert.equal(requests.length, 1, `${testCase.method} starts one request`);
+    assert.equal(requests[0].options.type, "GET", `${testCase.method} uses GET`);
+    assert.equal(requests[0].options.dataType, testCase.dataType, `${testCase.method} response type`);
+    assert.equal(requests[0].options.url, testCase.route, `${testCase.method} query scope`);
+    assert.equal(page[testCase.flag], true, `${testCase.method} marks itself busy`);
+    assert.equal(page.querySelector(testCase.button).disabled, true, `${testCase.method} disables its button`);
+
+    requests[0].resolve(testCase.response);
+    await operation;
+
+    assert.equal(downloads.length, 1, `${testCase.method} downloads once`);
+    assertExportPayload(testCase, downloads[0]);
+    assert.equal(page[testCase.flag], false, `${testCase.method} clears busy state`);
+    assert.equal(page.querySelector(testCase.button).disabled, false, `${testCase.method} re-enables its button`);
+}
+
+async function testStaleQuerySuppressesExport(testCase) {
+    const harness = makeHarness();
+    const { page, api, requests, downloads } = harness;
+    const operation = api[testCase.method](page);
+    assert.equal(requests.length, 1, `${testCase.method} starts a stale-query request`);
+    mutateQuery(page, testCase.method);
+    requests[0].resolve(testCase.response);
+    await operation;
+
+    assert.equal(downloads.length, 0, `${testCase.method} suppresses a stale-query download`);
+    assert.equal(page[testCase.flag], false, `${testCase.method} clears stale-query busy state`);
+    assert.equal(page.querySelector(testCase.button).disabled, false, `${testCase.method} re-enables after stale query`);
+    assert.equal(page._huePageRequests[testCase.key], undefined, `${testCase.method} removes stale request record`);
+    assert.equal(requests[0].promise.aborted, true, `${testCase.method} aborts stale request record`);
+}
+
+async function testInvalidatedPageSuppressesExport(testCase) {
+    const harness = makeHarness();
+    const { page, api, requests, downloads } = harness;
+    const operation = api[testCase.method](page);
+    assert.equal(requests.length, 1, `${testCase.method} starts an invalidation request`);
+    api.invalidatePageLifecycle(page);
+    assert.equal(page._huePageActive, false, `${testCase.method} marks page inactive`);
+    assert.equal(page[testCase.flag], false, `${testCase.method} clears busy state on invalidation`);
+    assert.equal(page.querySelector(testCase.button).disabled, false, `${testCase.method} re-enables button on invalidation`);
+    assert.equal(page._huePageRequests[testCase.key], undefined, `${testCase.method} removes invalidated request record`);
+    assert.equal(requests[0].promise.aborted, true, `${testCase.method} aborts invalidated request`);
+    requests[0].resolve(testCase.response);
+    await operation;
+    assert.equal(downloads.length, 0, `${testCase.method} suppresses an invalidated download`);
+}
+
+async function testCurrentFailure(testCase) {
+    const harness = makeHarness();
+    const { page, api, requests, downloads } = harness;
+    const operation = api[testCase.method](page);
+    requests[0].reject(new Error("deterministic export failure"));
+    await operation;
+    assert.equal(downloads.length, 0, `${testCase.method} does not download failures`);
+    assert.equal(page[testCase.flag], false, `${testCase.method} clears failed busy state`);
+    assert.equal(page.querySelector(testCase.button).disabled, false, `${testCase.method} re-enables after failure`);
+}
+
+async function testDuplicateClickIsBounded(testCase) {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    const first = api[testCase.method](page);
+    const second = api[testCase.method](page);
+    assert.ok(first && typeof first.then === "function", `${testCase.method} first click returns a promise`);
+    if (second !== undefined) {
+        assert.ok(second && typeof second.then === "function", `${testCase.method} duplicate click returns only a settled no-op promise`);
+    }
+    assert.equal(requests.length, 1, `${testCase.method} keeps one in-flight request`);
+    requests[0].resolve(testCase.response);
+    await first;
+}
+
+for (const testCase of exportCases) {
+    await testSuccessfulExport(testCase);
+    await testStaleQuerySuppressesExport(testCase);
+    await testInvalidatedPageSuppressesExport(testCase);
+    await testCurrentFailure(testCase);
+    await testDuplicateClickIsBounded(testCase);
+}
+
+console.log(`Configuration export lifecycle contracts passed (${exportCases.length} exports; success, stale-scope, invalidation, failure, and duplicate-click paths)`);

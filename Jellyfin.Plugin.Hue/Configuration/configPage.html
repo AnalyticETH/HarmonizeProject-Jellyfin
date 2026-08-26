@@ -2386,10 +2386,10 @@
                     page._huePageGeneration += 1;
                     page._huePageActive = false;
                     var requests = page._huePageRequests || {};
-                    page._huePageRequests = {};
                     Object.keys(requests).forEach(function (key) {
-                        HueConfigurationPage.abortPageLifecycleRequest(requests[key]);
+                        HueConfigurationPage.cancelPageLifecycleRequest(page, key);
                     });
+                    page._huePageRequests = {};
                     page._hueSessionHistoryLoading = false;
                     page._hueSceneScheduleRuntimeStatusLoading = false;
                     page._hueSceneScheduleConflictsLoading = false;
@@ -2958,9 +2958,14 @@
                             status.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        if (isCurrent()) {
+                        var current = isCurrent();
+                        var requestRecord = request && request._huePageRequestRecord;
+                        var tracked = page && page._huePageRequests &&
+                            page._huePageRequests.configurationExport === requestRecord;
+                        if (current || tracked) {
                             page._hueConfigurationExporting = false;
                             if (button) button.disabled = false;
+                            if (!current) HueConfigurationPage.cancelPageLifecycleRequest(page, 'configurationExport');
                         }
                         Dashboard.hideLoadingMsg();
                     });

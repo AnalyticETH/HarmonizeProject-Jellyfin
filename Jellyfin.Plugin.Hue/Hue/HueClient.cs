@@ -20,12 +20,19 @@ namespace Jellyfin.Plugin.Hue.Hue
         private readonly ILogger<HueClient> _logger;
         private readonly IHueBridgeLocalDiscovery? _localDiscovery;
         private const int DefaultRetryAttempts = 3;
+        private const int MaxRetryAttempts = 10;
         private const int RetryDelayMs = 1000;
 
         /// <summary>
         /// Number of retry attempts for network operations. Defaults to 3; set from plugin configuration.
         /// </summary>
-        public int RetryAttempts { get; set; } = DefaultRetryAttempts;
+        public int RetryAttempts
+        {
+            get => _retryAttempts;
+            set => _retryAttempts = Math.Clamp(value, 0, MaxRetryAttempts);
+        }
+
+        private int _retryAttempts = DefaultRetryAttempts;
 
         /// <summary>
         /// Creates a lightweight playback client that reuses the safe HttpClient transport
@@ -60,7 +67,11 @@ namespace Jellyfin.Plugin.Hue.Hue
         {
             ArgumentNullException.ThrowIfNull(operation);
 
-            var retries = Math.Max(0, maxRetries ?? RetryAttempts);
+            // Configuration normally validates this range, but persisted settings can
+            // outlive older versions and callers can invoke the client directly. Keep
+            // malformed values from turning one bridge failure into an unbounded retry
+            // loop (or overflowing the exponential backoff calculation).
+            var retries = Math.Clamp(maxRetries ?? RetryAttempts, 0, MaxRetryAttempts);
             for (int attempt = 0; attempt <= retries; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();

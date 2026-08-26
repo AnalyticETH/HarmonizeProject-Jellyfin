@@ -63,6 +63,9 @@ jobs:
       - name: Validate administrator configuration page
         run: node scripts/validate-config-page.mjs
 
+      - name: Test configuration export lifecycles
+        run: node scripts/test-config-page-exports.mjs
+
       - name: Validate release documentation and package contract
         run: node scripts/validate-release-docs.mjs
 

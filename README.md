@@ -455,7 +455,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.301 (Current)
+### Version 1.5.302 (Current)
+- **Export teardown recovery**: tracked administrator export cancellation restores button state after navigation, pagehide, or bfcache restore and prevents stale downloads.
+- **Export lifecycle harness**: CI gates execute deterministic VM coverage for all JSON, CSV, and iCalendar administrator exports.
+- **Bounded backend inputs and retries**: nested device-target imports and direct mapping payloads are rejected before materialization when oversized, and Hue retry values are clamped to a finite 0-10 range.
+
+### Version 1.5.301
 - **Lifecycle-safe exports**: configuration, scheduled-cue JSON/CSV/iCalendar, and session-history exports are bound to the active page and query scope; stale work is cancelled or ignored and controls recover after filter changes or navigation.
 - **Export regression contracts**: validator coverage protects request records, filter/horizon cancellation, credential-free downloads, and teardown cleanup.
 
