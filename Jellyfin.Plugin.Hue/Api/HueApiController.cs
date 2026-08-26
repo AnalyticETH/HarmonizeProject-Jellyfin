@@ -9670,6 +9670,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Mapping is required.");
             }
 
+            if (request.HasCaseInsensitiveDuplicateProperties())
+            {
+                return BadRequest("Mapping contains duplicate property names that differ only by case.");
+            }
+
             if (request.TryGetDeviceTargetCount(out var deviceTargetCount) &&
                 deviceTargetCount > PluginConfiguration.MaxDeviceTargetsPerUser)
             {
@@ -11497,6 +11502,22 @@ namespace Jellyfin.Plugin.Hue.Api
     {
         [JsonExtensionData]
         public Dictionary<string, JsonElement>? Values { get; set; }
+
+        internal bool HasCaseInsensitiveDuplicateProperties()
+        {
+            var values = Values;
+            if (values == null || values.Count < 2)
+                return false;
+
+            var propertyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var propertyName in values.Keys)
+            {
+                if (!propertyNames.Add(propertyName))
+                    return true;
+            }
+
+            return false;
+        }
 
         internal bool TryGetDeviceTargetCount(out int count)
         {

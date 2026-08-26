@@ -649,6 +649,33 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMappingJsonRequest_RejectsCaseVariantDuplicatePropertiesBeforeMaterializingTargets()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+        var deviceTargets = string.Join(
+            ",",
+            Enumerable.Range(0, PluginConfiguration.MaxDeviceTargetsPerUser + 1)
+                .Select(index => $"{{\"DeviceId\":\"device-{index}\"}}"));
+        var requestJson = """
+            {
+              "UserId": "11111111-1111-1111-1111-111111111111",
+              "SyncEnabled": false,
+              "DeviceTargets": [],
+              "devicetargets": [__DEVICE_TARGETS__]
+            }
+            """.Replace("__DEVICE_TARGETS__", deviceTargets, StringComparison.Ordinal);
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>(requestJson)!;
+
+        var action = CreateController().SaveUserMapping(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(
+            "Mapping contains duplicate property names that differ only by case.",
+            response.Value);
+        Assert.Empty(configuration.UserMappings);
+    }
+
+    [Fact]
     public void SaveUserMappingJsonRequest_RejectsMalformedUserIdWithoutMutation()
     {
         var existingMapping = new UserBridgeMapping
