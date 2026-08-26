@@ -3210,13 +3210,13 @@ public sealed class HueApiControllerTests : IDisposable
         var action = await CreateController(
             streamTester.Object,
             bridgeLifecycleGate: gate).Preview(new HuePreviewRequest
-        {
-            IpAddress = "192.168.1.100",
-            AppKey = "request-app-key",
-            ClientKey = "request-client-key",
-            EntertainmentAreaId = "area-1",
-            DurationSeconds = 2
-        });
+            {
+                IpAddress = "192.168.1.100",
+                AppKey = "request-app-key",
+                ClientKey = "request-client-key",
+                EntertainmentAreaId = "area-1",
+                DurationSeconds = 2
+            });
 
         AssertConflict(action.Result!);
         _httpHandlerMock.VerifyNoOtherCalls();
