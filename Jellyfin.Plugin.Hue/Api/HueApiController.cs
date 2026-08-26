@@ -1008,6 +1008,38 @@ namespace Jellyfin.Plugin.Hue.Api
             };
         }
 
+        private static void NormalizeSceneScheduleTargetMode(
+            HueSceneSchedule schedule,
+            HueSceneScheduleRequest request,
+            bool existingTargetAllEnabledMappings)
+        {
+            var hasSpecificTarget =
+                !string.IsNullOrWhiteSpace(request.TargetUserId) ||
+                request.TargetUserIds?.Count > 0 ||
+                request.TargetRoutes?.Count > 0 ||
+                request.IncludeDefaultTarget == true;
+            if (!hasSpecificTarget)
+                return;
+
+            // A specific target selection is an explicit mode switch. Apply it before
+            // validation so a partial edit cannot leave an existing broadcast flag
+            // combined with the newly selected user, route, or default target.
+            schedule.TargetAllEnabledMappings = false;
+
+            if (!existingTargetAllEnabledMappings)
+                return;
+
+            // A valid broadcast cue has no selected-target state to inherit. Clear any
+            // omitted fields while retaining values explicitly supplied by this request;
+            // explicit mixed target fields remain visible to validation as an error.
+            if (request.TargetUserIds == null)
+                schedule.TargetUserIds = new List<string>();
+            if (request.TargetRoutes == null)
+                schedule.TargetRoutes = new List<HueSceneScheduleTargetRoute>();
+            if (!request.IncludeDefaultTarget.HasValue)
+                schedule.IncludeDefaultTarget = false;
+        }
+
         private static string BuildDuplicateSceneScheduleName(
             IEnumerable<HueSceneSchedule> schedules,
             string? sourceName)
@@ -4918,6 +4950,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 }
                 if (!request.SkipNextOccurrence.HasValue)
                     schedule.SkipNextOccurrence = candidateSchedules[existingIndex].SkipNextOccurrence;
+
+                NormalizeSceneScheduleTargetMode(
+                    schedule,
+                    request,
+                    candidateSchedules[existingIndex].TargetAllEnabledMappings);
                 candidateSchedules[existingIndex] = schedule;
             }
             else

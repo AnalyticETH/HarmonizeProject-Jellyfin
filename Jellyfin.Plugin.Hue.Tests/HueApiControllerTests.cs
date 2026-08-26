@@ -7027,6 +7027,187 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(configuration.SceneSchedules[0].TargetAllEnabledMappings);
     }
 
+    [Theory]
+    [InlineData("legacy-user")]
+    [InlineData("selected-user")]
+    [InlineData("device-route")]
+    [InlineData("default-target")]
+    public void SceneSchedules_PartialTargetSelectionOverridesExistingBroadcastMode(string selection)
+    {
+        const string userId = "partial-target-user";
+        const string deviceId = "living-room-tv";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId,
+                    UserName = "Living Room",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new() { DeviceId = deviceId }
+                    }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "partial-target-cue",
+                    Name = "Broadcast cue",
+                    PresetName = "Welcome",
+                    TargetAllEnabledMappings = true
+                }
+            }
+        });
+        var controller = CreateController();
+        var request = new HueSceneScheduleRequest
+        {
+            Id = "partial-target-cue",
+            Name = "Selected cue",
+            PresetName = "Welcome",
+            TimeOfDay = "09:00",
+            DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask
+        };
+
+        switch (selection)
+        {
+            case "legacy-user":
+                request.TargetUserId = $" {userId} ";
+                break;
+            case "selected-user":
+                request.TargetUserIds = new List<string> { $" {userId} " };
+                break;
+            case "device-route":
+                request.TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                {
+                    new() { UserId = $" {userId} ", DeviceId = $" {deviceId} " }
+                };
+                break;
+            case "default-target":
+                request.IncludeDefaultTarget = true;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(selection), selection, null);
+        }
+
+        var action = controller.SaveSceneSchedule(request);
+
+        var result = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(action.Result).Value);
+        Assert.False(result.TargetAllEnabledMappings);
+        Assert.False(configuration.SceneSchedules[0].TargetAllEnabledMappings);
+        switch (selection)
+        {
+            case "legacy-user":
+                Assert.Equal(userId, result.TargetUserId);
+                Assert.Empty(result.TargetUserIds);
+                Assert.Empty(result.TargetRoutes);
+                Assert.False(result.IncludeDefaultTarget);
+                break;
+            case "selected-user":
+                Assert.Equal(string.Empty, result.TargetUserId);
+                Assert.Equal(new[] { userId }, result.TargetUserIds);
+                Assert.Empty(result.TargetRoutes);
+                Assert.False(result.IncludeDefaultTarget);
+                break;
+            case "device-route":
+                Assert.Equal(string.Empty, result.TargetUserId);
+                Assert.Empty(result.TargetUserIds);
+                var route = Assert.Single(result.TargetRoutes);
+                Assert.Equal(userId, route.UserId);
+                Assert.Equal(deviceId, route.DeviceId);
+                Assert.False(result.IncludeDefaultTarget);
+                break;
+            case "default-target":
+                Assert.Equal(string.Empty, result.TargetUserId);
+                Assert.Empty(result.TargetUserIds);
+                Assert.Empty(result.TargetRoutes);
+                Assert.True(result.IncludeDefaultTarget);
+                break;
+        }
+    }
+
+    [Fact]
+    public void SceneSchedules_PartialTargetNormalizationValidationFailureRestoresBroadcastCue()
+    {
+        var existingSchedule = new HueSceneSchedule
+        {
+            Id = "partial-target-rollback",
+            Name = "Broadcast cue",
+            PresetName = "Welcome",
+            TargetAllEnabledMappings = true
+        };
+        var schedules = new List<HueSceneSchedule> { existingSchedule };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            SceneSchedules = schedules
+        });
+
+        var action = CreateController().SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = existingSchedule.Id,
+            Name = "Invalid selected cue",
+            PresetName = "Welcome",
+            TargetUserIds = new List<string> { "missing-user" },
+            TimeOfDay = "09:00",
+            DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("selected user mapping that does not exist", JsonSerializer.Serialize(response.Value), StringComparison.Ordinal);
+        Assert.Same(schedules, configuration.SceneSchedules);
+        Assert.Same(existingSchedule, Assert.Single(configuration.SceneSchedules));
+        Assert.Equal("Broadcast cue", configuration.SceneSchedules[0].Name);
+        Assert.True(configuration.SceneSchedules[0].TargetAllEnabledMappings);
+    }
+
+    [Fact]
+    public void SceneSchedules_PartialTargetNormalizationPersistenceFailureRestoresBroadcastCue()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("partial target persistence failed"));
+        const string userId = "partial-persist-user";
+        var existingSchedule = new HueSceneSchedule
+        {
+            Id = "partial-target-persist",
+            Name = "Broadcast cue",
+            PresetName = "Welcome",
+            TargetAllEnabledMappings = true
+        };
+        var schedules = new List<HueSceneSchedule> { existingSchedule };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId, SyncEnabled = true }
+            },
+            SceneSchedules = schedules
+        }, serializer.Object);
+
+        var action = CreateController().SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = existingSchedule.Id,
+            Name = "Selected cue",
+            PresetName = "Welcome",
+            TargetUserIds = new List<string> { userId },
+            TimeOfDay = "09:00",
+            DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Same(schedules, configuration.SceneSchedules);
+        Assert.Same(existingSchedule, Assert.Single(configuration.SceneSchedules));
+        Assert.True(configuration.SceneSchedules[0].TargetAllEnabledMappings);
+    }
+
     [Fact]
     public void SceneSchedules_SelectedTargetsRoundTripAndPreserveOnPartialUpdate()
     {
