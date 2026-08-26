@@ -4209,7 +4209,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             HueSceneDeferredRun? deferredRun = null;
             var deferredExpired = false;
             var hasDeferredRun = deferDuringPlayback && TryGetDeferredRun(
-                schedule.Id,
+                schedule,
                 evaluationNow,
                 deferMinutes,
                 out deferredRun,
@@ -5945,7 +5945,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     private bool TryGetDeferredRun(
-        string scheduleId,
+        HueSceneSchedule? schedule,
         DateTime localNow,
         int deferMinutes,
         out HueSceneDeferredRun? deferredRun,
@@ -5953,16 +5953,29 @@ public sealed class HueSceneAutomationService : BackgroundService
     {
         deferredRun = null;
         expired = false;
-        var key = scheduleId?.Trim() ?? string.Empty;
+        if (schedule == null)
+            return false;
+
+        var key = schedule?.Id?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(key))
             return false;
 
+        var stale = false;
         lock (_deferredRunLock)
         {
             if (!_deferredRuns.TryGetValue(key, out var current))
                 return false;
 
-            if (localNow - current.DeferredAtLocal >= TimeSpan.FromMinutes(deferMinutes))
+            // A deferred occurrence belongs to the exact schedule definition that
+            // produced its UTC slot. Imports and edits can retain the same stable ID
+            // while changing the time zone, recurrence, exclusion window, or solar
+            // settings; never replay that old slot against the new definition.
+            if (!IsDeferredOccurrenceCurrent(schedule, current.OccurrenceSlot))
+            {
+                _deferredRuns.Remove(key);
+                stale = true;
+            }
+            else if (localNow - current.DeferredAtLocal >= TimeSpan.FromMinutes(deferMinutes))
             {
                 _deferredRuns.Remove(key);
                 deferredRun = current;
@@ -5974,6 +5987,16 @@ public sealed class HueSceneAutomationService : BackgroundService
             }
         }
 
+        if (stale)
+        {
+            ClearDeferredRuntimeState(key);
+            PersistDeferredRuns();
+            _logger.LogInformation(
+                "Discarded stale deferred Hue scene occurrence for schedule {0} after its timing definition changed",
+                key);
+            return false;
+        }
+
         if (expired)
         {
             ClearDeferredRuntimeState(key);
@@ -5981,6 +6004,44 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         return !expired;
+    }
+
+    private static bool IsDeferredOccurrenceCurrent(
+        HueSceneSchedule? schedule,
+        DateTime occurrenceSlot)
+    {
+        if (schedule == null || occurrenceSlot == default)
+            return false;
+
+        var normalizedSlot = DateTime.SpecifyKind(occurrenceSlot, DateTimeKind.Utc);
+        DateTime serverLocalBeforeOccurrence;
+        try
+        {
+            // The occurrence preview deliberately excludes instants at or before its
+            // supplied clock. Start one second before the persisted slot so the exact
+            // deferred occurrence is eligible even when solar calculations retain
+            // sub-minute UTC precision.
+            serverLocalBeforeOccurrence = TimeZoneInfo.ConvertTimeFromUtc(
+                normalizedSlot.AddSeconds(-1),
+                TimeZoneInfo.Local);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        var candidate = CloneSchedule(schedule);
+        // The administrator skip marker is consumed separately by the scheduler. It
+        // must not make an otherwise valid deferred slot look stale before that marker
+        // can be recorded as the explicit skipped outcome.
+        candidate.SkipNextOccurrence = false;
+        return GetUpcomingOccurrences(
+                candidate,
+                serverLocalBeforeOccurrence,
+                maxOccurrences: MaxUpcomingOccurrencesPerSchedule,
+                horizonDays: 3,
+                includeFutureStartBeyondHorizon: true)
+            .Any(occurrence => DateTime.SpecifyKind(occurrence.UtcTime, DateTimeKind.Utc) == normalizedSlot);
     }
 
     /// <summary>

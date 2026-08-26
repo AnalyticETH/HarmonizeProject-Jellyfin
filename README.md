@@ -455,7 +455,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.305 (Current)
+### Version 1.5.306 (Current)
+- **Lifecycle-safe configuration import**: validation and submission cancel superseded or hidden-page requests, suppress stale responses, clear approval state on teardown, and block duplicate in-flight imports.
+- **Malformed mapping protection**: invalid nested device-target values return a sanitized 400 response without mutating persisted mappings.
+- **Deferred-cue correctness**: persisted playback-deferred occurrences are checked against the current schedule definition before replay, preventing stale timing after edits or imports.
+- **Regression coverage**: API, scheduler, and configuration-page contracts cover malformed input, stale lifecycle responses, page teardown, and edited deferred cues.
+
+### Version 1.5.305
 - **Stale mapping-edit protection**: administrator mapping edits cancel superseded requests and ignore late success, failure, and cleanup callbacks after navigation or pagehide.
 - **Fail-closed schedule routes**: malformed null target routes are rejected before direct-save or import mutation.
 - **Partial schedule state preservation**: omitted `Enabled` and `SkipNextOccurrence` fields retain existing values during partial updates, while explicit values override them.

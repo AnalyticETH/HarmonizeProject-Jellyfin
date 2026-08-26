@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.306] - 2026-08-26
+
+### Import and scheduler lifecycle hardening
+- **Lifecycle-safe configuration import**: administrator import validation and submission now cancel superseded or hidden-page requests, suppress stale responses, clear approval state on teardown, and prevent duplicate in-flight imports.
+- **Malformed mapping protection**: invalid nested device-target property types now return a sanitized HTTP 400 without mutating persisted mappings.
+- **Deferred-cue correctness**: persisted playback-deferred occurrences are validated against the current schedule timing definition before replay, with stale state removed safely after edits or imports.
+- **Regression coverage**: API, scheduler, and administrator configuration-page tests cover malformed input, stale lifecycle responses, page teardown, and edited deferred cues.
+
 ## [1.5.305] - 2026-08-26
 
 ### Mapping and schedule lifecycle hardening

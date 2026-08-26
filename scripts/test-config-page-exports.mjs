@@ -215,6 +215,13 @@ function makeHarness() {
         }
     }
 
+    const dashboard = {
+        hideLoadingMsg() {},
+        showLoadingMsg() {},
+        confirm() {},
+        alert() {}
+    };
+
     function makeDeferred(options) {
         let resolvePromise;
         let rejectPromise;
@@ -249,12 +256,7 @@ function makeHarness() {
     const context = vm.createContext({
         ApiClient: apiClient,
         Blob: TestBlob,
-        Dashboard: {
-            hideLoadingMsg() {},
-            showLoadingMsg() {},
-            confirm() {},
-            alert() {}
-        },
+        Dashboard: dashboard,
         URL: url,
         console: {
             error() {},
@@ -317,7 +319,8 @@ function makeHarness() {
         api: context.HueConfigurationPage,
         requests,
         downloads,
-        blobs
+        blobs,
+        dashboard
     };
 }
 
@@ -487,6 +490,97 @@ async function testEditMappingLifecycleGuards() {
         "invalidated mapping edit cannot overwrite the hidden page");
 }
 
+async function testConfigurationImportValidationLifecycleGuards() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    api.applyConfigurationImportCredentials = () => true;
+    page._hueImportDocument = { Configuration: { HueBridgeIp: "bridge.local" } };
+
+    const first = api.validateConfigurationImport(page);
+    assert.ok(first && typeof first.then === "function", "import validation returns a promise");
+    assert.equal(requests.length, 1, "first import validation starts one request");
+    assert.equal(requests[0].options.type, "POST", "import validation uses POST");
+    assert.equal(requests[0].options.url, "HueSync/Configuration/ValidateImport", "import validation uses the preflight endpoint");
+    assert.equal(page.querySelector("#validateConfigurationImportBtn").disabled, true, "validation disables its button while pending");
+
+    const second = api.validateConfigurationImport(page);
+    assert.equal(requests.length, 2, "second import validation starts one replacement request");
+    assert.equal(requests[0].promise.aborted, true, "second import validation aborts the superseded request");
+    page.querySelector("#configurationPortabilityStatus").textContent = "current validation marker";
+    requests[0].resolve({
+        valid: true,
+        canImport: true,
+        message: "stale validation"
+    });
+    await first;
+    assert.equal(
+        page.querySelector("#configurationPortabilityStatus").textContent,
+        "current validation marker",
+        "superseded import validation cannot overwrite current status");
+    assert.equal(page.querySelector("#applyConfigurationImportBtn").disabled, true, "superseded import validation cannot enable import");
+
+    requests[1].resolve({
+        valid: true,
+        canImport: true,
+        message: "Import is valid",
+        totalMappings: 1,
+        totalColorPresets: 2,
+        totalScenePlaylists: 3,
+        totalSceneSchedules: 4
+    });
+    await second;
+    assert.match(
+        page.querySelector("#configurationPortabilityStatus").textContent,
+        /^Import is valid/,
+        "current import validation reports its result");
+    assert.equal(page.querySelector("#applyConfigurationImportBtn").disabled, false, "current valid import enables apply");
+
+    page._hueImportDocument = { Configuration: { HueBridgeIp: "other-bridge.local" } };
+    const afterPagehide = api.validateConfigurationImport(page);
+    assert.equal(requests.length, 3, "page-scoped import validation starts one request");
+    page.querySelector("#configurationPortabilityStatus").textContent = "unchanged after pagehide";
+    api.invalidatePageLifecycle(page);
+    assert.equal(requests[2].promise.aborted, true, "pagehide aborts import validation");
+    assert.equal(page._hueImportDocument, null, "pagehide clears the pending import document");
+    assert.equal(page.querySelector("#applyConfigurationImportBtn").disabled, true, "pagehide disables import approval");
+    requests[2].resolve({ valid: true, canImport: true, message: "hidden stale validation" });
+    await afterPagehide;
+    assert.equal(
+        page.querySelector("#configurationPortabilityStatus").textContent,
+        "unchanged after pagehide",
+        "invalidated import validation cannot update the hidden page");
+}
+
+async function testConfigurationImportSubmitLifecycleGuards() {
+    const harness = makeHarness();
+    const { page, api, requests, dashboard } = harness;
+    api.applyConfigurationImportCredentials = () => true;
+    api.loadConfiguration = () => {};
+    api.loadUserMappings = () => {};
+    api.loadColorPresets = () => {};
+    api.loadScenePlaylists = () => {};
+    api.loadSceneSchedules = () => {};
+    dashboard.confirm = (title, message, callback) => callback(true);
+    page._hueImportDocument = { Configuration: { HueBridgeIp: "bridge.local" } };
+    page._hueImportValidated = true;
+
+    api.submitConfigurationImport(page);
+    assert.equal(requests.length, 1, "configuration import starts one request after confirmation");
+    assert.equal(requests[0].options.type, "POST", "configuration import uses POST");
+    assert.equal(requests[0].options.url, "HueSync/Configuration/Import", "configuration import uses the import endpoint");
+
+    page.querySelector("#configurationPortabilityStatus").textContent = "unchanged after pagehide";
+    api.invalidatePageLifecycle(page);
+    assert.equal(requests[0].promise.aborted, true, "pagehide aborts configuration import UI request");
+    requests[0].resolve({ message: "hidden stale import" });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(
+        page.querySelector("#configurationPortabilityStatus").textContent,
+        "unchanged after pagehide",
+        "invalidated configuration import cannot update the hidden page");
+    assert.equal(page._hueImportDocument, null, "pagehide clears the imported document before a later confirmation");
+}
+
 for (const testCase of exportCases) {
     await testSuccessfulExport(testCase);
     await testStaleQuerySuppressesExport(testCase);
@@ -496,5 +590,7 @@ for (const testCase of exportCases) {
 }
 
 await testEditMappingLifecycleGuards();
+await testConfigurationImportValidationLifecycleGuards();
+await testConfigurationImportSubmitLifecycleGuards();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit stale-scope and pagehide paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit and import validation/submit stale-scope/pagehide paths)`);

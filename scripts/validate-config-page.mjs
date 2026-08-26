@@ -568,8 +568,12 @@ const requiredScript = [
     "Import change summary (credential-safe):",
     "setConfigurationImportValidated: function",
     "invalidateConfigurationImport: function",
+    "cancelPageLifecycleRequest(page, 'configurationImportValidation')",
     "HueConfigurationPage.setConfigurationImportValidated(page, false)",
     "page._hueImportValidationGeneration",
+    "configurationImportValidation",
+    "configurationImport",
+    "clearConfigurationImport(page)",
     "input.addEventListener('input', function ()",
     "if (!page._hueImportValidated)",
     "Validate Import successfully before importing.",
@@ -1088,10 +1092,13 @@ for (const contract of [
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
     if (!functionBody.includes("HueConfigurationPage.setConfigurationImportValidated(page, valid && canImport)") ||
         !functionBody.includes("applyButton.disabled = !page._hueImportValidated") ||
-        !functionBody.includes("validationGeneration !== page._hueImportValidationGeneration") ||
-        !functionBody.includes("validationGeneration === page._hueImportValidationGeneration") ||
+        !functionBody.includes("getPageLifecycleRequest") ||
+        !functionBody.includes("'configurationImportValidation'") ||
+        !functionBody.includes("isPageLifecycleRequestCurrent(page, pageGeneration, request)") ||
+        !functionBody.includes("return request.then") ||
+        !functionBody.includes("if (isCurrent())") ||
         !functionBody.includes("Dashboard.hideLoadingMsg();")) {
-        throw new Error(`${file} ${functionName} must only enable import after successful validation`);
+        throw new Error(`${file} ${functionName} must only enable import after a current, successful validation`);
     }
 }
 
@@ -1104,8 +1111,12 @@ for (const contract of [
         !functionBody.includes("Validate Import successfully before importing.") ||
         !functionBody.includes("HueConfigurationPage.applyConfigurationImportCredentials(page)") ||
         !functionBody.includes("changing the bridge requires replacement App/Client keys or explicit credential clearing") ||
+        !functionBody.includes("getPageLifecycleRequest") ||
+        !functionBody.includes("'configurationImport'") ||
+        !functionBody.includes("isPageLifecycleRequestCurrent(page, pageGeneration, request)") ||
+        !functionBody.includes("if (!isCurrent()) return;") ||
         !functionBody.includes("HueConfigurationPage.loadSceneSchedules(page)")) {
-        throw new Error(`${file} ${functionName} must fail closed until import preflight succeeds`);
+        throw new Error(`${file} ${functionName} must fail closed until import preflight succeeds and its page remains current`);
     }
 }
 

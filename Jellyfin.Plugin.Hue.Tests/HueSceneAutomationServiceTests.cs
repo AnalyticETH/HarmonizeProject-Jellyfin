@@ -2583,6 +2583,67 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_DropsDeferredCueWhenItsTimingDefinitionChanges()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stale-deferred-app-secret",
+            HueClientKey = "stale-deferred-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Stale deferred scene", Red = 11, Green = 22, Blue = 33, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "stale-deferred-cue",
+                    Name = "Stale deferred cue",
+                    PresetName = "Stale deferred scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using (var playbackLease = lifecycleGate.TryEnterPlayback("stale-deferred-target"))
+        {
+            Assert.NotNull(playbackLease);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+            Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        }
+
+        // Simulate an import or edit that keeps the stable ID but changes the next
+        // occurrence. The old 07:05 deferred slot must never run as the new 08:05 cue.
+        configuration.SceneSchedules[0].TimeOfDay = "08:05";
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Empty(streamTester.Reds);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.False(Assert.Single(service.GetStatus().Schedules).DeferredPending);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_PerCueDeferOverrideQueuesWhenGlobalPolicySkips()
     {
         var configuration = new PluginConfiguration

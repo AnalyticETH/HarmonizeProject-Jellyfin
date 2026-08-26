@@ -649,6 +649,36 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMappingJsonRequest_RejectsMalformedDeviceTargetValuesWithoutMutation()
+    {
+        var existingMapping = new UserBridgeMapping
+        {
+            UserId = "22222222-2222-2222-2222-222222222222",
+            UserName = "Existing Viewer",
+            SyncEnabled = false
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { existingMapping }
+        });
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>("""
+            {
+              "UserId": "11111111-1111-1111-1111-111111111111",
+              "UserName": "Rejected Viewer",
+              "SyncEnabled": false,
+              "DeviceTargets": [42]
+            }
+            """)!;
+
+        var action = CreateController().SaveUserMapping(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Equal("Mapping contains invalid property values.", response.Value);
+        Assert.Same(existingMapping, Assert.Single(configuration.UserMappings));
+    }
+
+    [Fact]
     public void SaveUserMappingJsonRequest_RejectsCaseVariantDuplicatePropertiesBeforeMaterializingTargets()
     {
         var configuration = InstallConfiguration(new PluginConfiguration());

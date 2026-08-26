@@ -2412,6 +2412,10 @@
                     page._hueSupportBundleRequest = null;
                     page._hueDiagnosticsCancellationRequest = null;
                     page._hueDiagnosticsCancellationRequested = false;
+                    // Import preflight is page-scoped. Drop its document and
+                    // validation state so a hidden page cannot apply a stale
+                    // approval after it is shown again.
+                    HueConfigurationPage.clearConfigurationImport(page);
                 },
                 getPageLifecycleRequest: function (page, generation, key, url, requestOptions, target) {
                     HueConfigurationPage.ensurePageLifecycle(page);
@@ -2978,6 +2982,7 @@
                 },
                 invalidateConfigurationImport: function (page) {
                     if (!page) return;
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'configurationImportValidation');
                     page._hueImportValidationGeneration = (page._hueImportValidationGeneration || 0) + 1;
                     HueConfigurationPage.setConfigurationImportValidated(page, false);
                     var validateButton = page.querySelector('#validateConfigurationImportBtn');
@@ -3190,19 +3195,30 @@
                     var validateButton = page && page.querySelector('#validateConfigurationImportBtn');
                     var applyButton = page && page.querySelector('#applyConfigurationImportBtn');
                     if (!page || !importDocument || !HueConfigurationPage.applyConfigurationImportCredentials(page)) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                     HueConfigurationPage.invalidateConfigurationImport(page);
                     var validationGeneration = page._hueImportValidationGeneration;
                     if (validateButton) validateButton.disabled = true;
                     if (applyButton) applyButton.disabled = true;
                     Dashboard.showLoadingMsg();
-                    ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/Configuration/ValidateImport"),
-                        data: JSON.stringify(importDocument),
-                        contentType: "application/json",
-                        dataType: "json"
-                    }).then(function (response) {
-                        if (validationGeneration !== page._hueImportValidationGeneration) return;
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'configurationImportValidation',
+                        ApiClient.getUrl("HueSync/Configuration/ValidateImport"),
+                        {
+                            type: "POST",
+                            data: JSON.stringify(importDocument),
+                            contentType: "application/json",
+                            dataType: "json"
+                        });
+                    var isCurrent = function () {
+                        return validationGeneration === page._hueImportValidationGeneration &&
+                            HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         response = response || {};
                         HueConfigurationPage.renderConfigurationImportDiff(page, response);
                         var valid = response.valid !== undefined ? !!response.valid : !!response.Valid;
@@ -3224,7 +3240,7 @@
                             }
                         }
                     }).catch(function (err) {
-                        if (validationGeneration !== page._hueImportValidationGeneration) return;
+                        if (!isCurrent()) return;
                         HueConfigurationPage.setConfigurationImportValidated(page, false);
                         console.error("Failed to validate Hue configuration import:", err);
                         if (status) {
@@ -3232,17 +3248,19 @@
                             status.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        if (validationGeneration === page._hueImportValidationGeneration) {
+                        if (isCurrent()) {
                             if (validateButton) validateButton.disabled = false;
                             if (applyButton) applyButton.disabled = !page._hueImportValidated;
+                            Dashboard.hideLoadingMsg();
                         }
-                        Dashboard.hideLoadingMsg();
                     });
                 },
                 submitConfigurationImport: function (page) {
                     var status = page && page.querySelector('#configurationPortabilityStatus');
                     var importDocument = page && page._hueImportDocument;
                     if (!page || !importDocument) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                     if (!page._hueImportValidated) {
                         if (status) {
                             status.textContent = "Validate Import successfully before importing.";
@@ -3253,19 +3271,30 @@
                     if (!HueConfigurationPage.applyConfigurationImportCredentials(page)) return;
 
                     Dashboard.confirm("Import this configuration? Existing settings, mappings, saved scenes, and scheduled cues will be replaced. Stored bridge keys are preserved only when the imported target matches this server's target; changing the bridge requires replacement App/Client keys or explicit credential clearing. Any values entered above are sent once for this import and are never exported.", "Import Hue Configuration", function (confirmed) {
-                        if (!confirmed) return;
+                        if (!confirmed || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                            page._hueImportDocument !== importDocument || !page._hueImportValidated ||
+                            (page._huePageRequests && page._huePageRequests.configurationImport)) return;
                         var button = page.querySelector('#importConfigurationBtn');
                         var applyButton = page.querySelector('#applyConfigurationImportBtn');
                         if (button) button.disabled = true;
                         if (applyButton) applyButton.disabled = true;
                         Dashboard.showLoadingMsg();
-                        ApiClient.ajax({
-                            type: "POST",
-                            url: ApiClient.getUrl("HueSync/Configuration/Import"),
-                            data: JSON.stringify(importDocument),
-                            contentType: "application/json",
-                            dataType: "json"
-                        }).then(function (response) {
+                        var request = HueConfigurationPage.getPageLifecycleRequest(
+                            page,
+                            pageGeneration,
+                            'configurationImport',
+                            ApiClient.getUrl("HueSync/Configuration/Import"),
+                            {
+                                type: "POST",
+                                data: JSON.stringify(importDocument),
+                                contentType: "application/json",
+                                dataType: "json"
+                            });
+                        var isCurrent = function () {
+                            return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                        };
+                        request.then(function (response) {
+                            if (!isCurrent()) return;
                             response = response || {};
                             if (status) {
                                 status.textContent = response.message || response.Message || "Configuration imported.";
@@ -3278,6 +3307,7 @@
                             HueConfigurationPage.loadScenePlaylists(page);
                             HueConfigurationPage.loadSceneSchedules(page);
                         }).catch(function (err) {
+                            if (!isCurrent()) return;
                             HueConfigurationPage.invalidateConfigurationImport(page);
                             console.error("Failed to import Hue configuration:", err);
                             if (status) {
@@ -3286,9 +3316,16 @@
                             }
                             Dashboard.alert("Unable to import configuration: " + (err && err.message ? err.message : "invalid, incomplete, or active playback"));
                         }).finally(function () {
-                            if (button) button.disabled = false;
-                            if (applyButton) applyButton.disabled = !page._hueImportValidated;
-                            Dashboard.hideLoadingMsg();
+                            var current = isCurrent();
+                            if (current) {
+                                if (button) button.disabled = false;
+                                if (applyButton) applyButton.disabled = !page._hueImportValidated;
+                                Dashboard.hideLoadingMsg();
+                            }
+                            var requestRecord = request && request._huePageRequestRecord;
+                            if (page && page._huePageRequests && page._huePageRequests.configurationImport === requestRecord) {
+                                HueConfigurationPage.cancelPageLifecycleRequest(page, 'configurationImport');
+                            }
                         });
                     });
                 },

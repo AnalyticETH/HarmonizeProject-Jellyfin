@@ -9688,7 +9688,22 @@ namespace Jellyfin.Plugin.Hue.Api
                     $"User mapping may define no more than {PluginConfiguration.MaxDeviceTargetsPerUser} device targets.");
             }
 
-            var mapping = request.ToConfigurationMapping();
+            UserBridgeMapping mapping;
+            try
+            {
+                mapping = request.ToConfigurationMapping();
+            }
+            catch (JsonException)
+            {
+                // Keep malformed JSON field types at the API boundary. In particular,
+                // do not let a scalar/object nested in DeviceTargets escape as a 500
+                // after the request has already passed the inexpensive shape checks.
+                return BadRequest("Mapping contains invalid property values.");
+            }
+            catch (NotSupportedException)
+            {
+                return BadRequest("Mapping contains invalid property values.");
+            }
             if (!Guid.TryParse(mapping.UserId?.Trim(), out var parsedUserId))
             {
                 return BadRequest("userId must be a valid Jellyfin user ID.");
