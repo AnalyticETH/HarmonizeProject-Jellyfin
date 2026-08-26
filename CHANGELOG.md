@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.310] - 2026-08-26
+
+### Streaming resilience and cancellation
+- **Fail-closed channel frames**: malformed, null, or short RGB16 payloads are rejected before threshold comparison, transport health checks, or reconnect scheduling.
+- **Cancellation-aware startup**: entertainment-area activation waits now stop immediately when the linked sync lifecycle is cancelled.
+- **Regression coverage**: streaming tests verify malformed frames never emit packets or trigger reconnects after a valid stream has started.
+
 ## [1.5.309] - 2026-08-26
 
 ### Scheduler reliability, target validation, and configuration navigation

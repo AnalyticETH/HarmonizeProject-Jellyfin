@@ -286,6 +286,72 @@ public class HueStreamerTests
     }
 
     [Fact]
+    public async Task SendColors_WhenShortColorFollowsValidSend_FailsClosedWithoutReconnect()
+    {
+        var connection = new TestDtlsConnection();
+        SetPrivateField(_streamer, "_dtlsConnection", connection);
+        var validColors = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 10, 10, 20, 20, 30, 30 }
+        };
+
+        Assert.True(await _streamer.SendColors("area-id", validColors));
+
+        var malformedColors = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 10, 10, 20 }
+        };
+        Assert.False(await _streamer.SendColors("area-id", malformedColors, colorChangeThreshold: 1));
+
+        Assert.Equal(1, _streamer.PacketsSent);
+        Assert.Equal(1, _streamer.PacketSendFailures);
+        Assert.Equal(0, _streamer.ReconnectAttempts);
+        Assert.True(connection.IsHealthy);
+    }
+
+    [Fact]
+    public async Task SendColors_WhenNullColorFollowsValidSend_FailsClosedWithoutReconnect()
+    {
+        var connection = new TestDtlsConnection();
+        SetPrivateField(_streamer, "_dtlsConnection", connection);
+        var validColors = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 10, 10, 20, 20, 30, 30 }
+        };
+
+        Assert.True(await _streamer.SendColors("area-id", validColors));
+
+        var malformedColors = new Dictionary<int, byte[]>
+        {
+            [1] = null!
+        };
+        Assert.False(await _streamer.SendColors("area-id", malformedColors, colorChangeThreshold: 1));
+
+        Assert.Equal(1, _streamer.PacketsSent);
+        Assert.Equal(1, _streamer.PacketSendFailures);
+        Assert.Equal(0, _streamer.ReconnectAttempts);
+        Assert.True(connection.IsHealthy);
+    }
+
+    [Fact]
+    public async Task SendColors_WhenMalformedFrameTargetsUnhealthyStream_DoesNotReconnect()
+    {
+        var connection = new TestDtlsConnection { IsHealthy = false };
+        SetPrivateField(_streamer, "_dtlsConnection", connection);
+
+        var malformedColors = new Dictionary<int, byte[]>
+        {
+            [1] = new byte[] { 1, 2, 3 }
+        };
+
+        Assert.False(await _streamer.SendColors("area-id", malformedColors, colorChangeThreshold: 1));
+
+        Assert.Equal(1, _streamer.PacketSendFailures);
+        Assert.Equal(0, _streamer.ReconnectAttempts);
+        Assert.False(connection.IsHealthy);
+    }
+
+    [Fact]
     public void HuePskTlsClient_UsesHueDtls12PskContract()
     {
         var client = new HuePskTlsClient(

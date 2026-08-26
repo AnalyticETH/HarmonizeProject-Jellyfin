@@ -166,6 +166,13 @@ namespace Jellyfin.Plugin.Hue.Hue
                 if (!_lastSentColors.TryGetValue(kvp.Key, out var oldColor))
                     return true;
 
+                // SendColors validates the complete frame before reaching this helper,
+                // but keep the comparison fail-closed for callers or future code paths
+                // that provide malformed data. Invalid values must force the normal
+                // packet validation path instead of indexing past a short/null buffer.
+                if (kvp.Value == null || kvp.Value.Length != 6 || oldColor == null || oldColor.Length != 6)
+                    return true;
+
                 // Compare the high byte of each 16-bit R, G, B component (bytes 0, 2, 4)
                 for (int i = 0; i < 6; i += 2)
                 {
@@ -504,6 +511,7 @@ namespace Jellyfin.Plugin.Hue.Hue
         public byte[] BuildHueStreamPacket(Dictionary<int, byte[]> channelColors)
         {
             ArgumentNullException.ThrowIfNull(channelColors);
+            ValidateChannelColors(channelColors);
 
             using var ms = new MemoryStream(16 + channelColors.Count * 9);
 
@@ -532,12 +540,6 @@ namespace Jellyfin.Plugin.Hue.Hue
             {
                 int channelId = kvp.Key;
                 var rgb16 = kvp.Value; // [R_hi, R_lo, G_hi, G_lo, B_hi, B_lo]
-
-                if (channelId < 0 || channelId > ushort.MaxValue)
-                    throw new ArgumentOutOfRangeException(nameof(channelColors), channelId, "Hue channel IDs must fit in an unsigned 16-bit value.");
-
-                if (rgb16 == null || rgb16.Length != 6)
-                    throw new ArgumentException("Every channel color must contain exactly six RGB16 bytes.", nameof(channelColors));
 
                 ms.WriteByte(0x00);               // device type: light
                 ms.WriteByte((byte)(channelId >> 8));   // channel ID high byte
@@ -568,6 +570,15 @@ namespace Jellyfin.Plugin.Hue.Hue
 
             if (cancellationToken.IsCancellationRequested)
                 return false;
+
+            // Validate before health checks or threshold comparison. A malformed frame
+            // must fail closed without triggering a reconnect for an otherwise unrelated
+            // transport, and it must not reach the indexing logic in the threshold path.
+            if (!AreChannelColorsValid(channelColors))
+            {
+                _logger.LogWarning("Cannot send colors: every channel ID and RGB16 value must be valid");
+                return RecordPacketSendFailure(cancellationToken);
+            }
 
             // Check health before applying the color-change threshold. A static scene can
             // legitimately produce identical frames for a long time; suppressing the
@@ -642,6 +653,41 @@ namespace Jellyfin.Plugin.Hue.Hue
             {
                 _logger.LogError(ex, "Unexpected error sending colors");
                 return RecordPacketSendFailure(cancellationToken);
+            }
+        }
+
+        private static bool AreChannelColorsValid(Dictionary<int, byte[]> channelColors)
+        {
+            foreach (var kvp in channelColors)
+            {
+                if (kvp.Key < 0 || kvp.Key > ushort.MaxValue ||
+                    kvp.Value == null || kvp.Value.Length != 6)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static void ValidateChannelColors(Dictionary<int, byte[]> channelColors)
+        {
+            foreach (var kvp in channelColors)
+            {
+                if (kvp.Key < 0 || kvp.Key > ushort.MaxValue)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(channelColors),
+                        kvp.Key,
+                        "Hue channel IDs must fit in an unsigned 16-bit value.");
+                }
+
+                if (kvp.Value == null || kvp.Value.Length != 6)
+                {
+                    throw new ArgumentException(
+                        "Every channel color must contain exactly six RGB16 bytes.",
+                        nameof(channelColors));
+                }
             }
         }
 

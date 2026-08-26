@@ -457,7 +457,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.309 (Current)
+### Version 1.5.310 (Current)
+- **Fail-closed channel frames**: malformed, null, or short RGB16 payloads are rejected before threshold comparison, transport health checks, or reconnect scheduling.
+- **Cancellation-aware startup**: entertainment-area activation waits now stop immediately when the linked sync lifecycle is cancelled.
+- **Regression coverage**: streaming tests verify malformed frames never emit packets or trigger reconnects after a valid stream has started.
+
+### Version 1.5.309
 - **DST-safe deferred cues**: persisted waits now retain a UTC timestamp, migrate legacy local-only entries safely, and expire from elapsed instants rather than wall-clock arithmetic.
 - **Global target integrity**: partially populated default bridge targets are validated even when custom user/device mappings exist, while intentionally blank global targets remain valid for custom-only configurations.
 - **Configuration navigation**: the administrator page now provides a keyboard-friendly section index with focusable anchors for status, diagnostics, bridge targets, scenes, scheduling, mappings, and advanced settings.

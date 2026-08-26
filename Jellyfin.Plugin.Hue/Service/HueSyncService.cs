@@ -4907,7 +4907,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
 
                 // Small delay to let the bridge switch to streaming mode before the DTLS tunnel
-                await Task.Delay(EntertainmentAreaActivationDelayMs);
+                await Task.Delay(EntertainmentAreaActivationDelayMs, token).ConfigureAwait(false);
                 if (token.IsCancellationRequested)
                     return;
 
