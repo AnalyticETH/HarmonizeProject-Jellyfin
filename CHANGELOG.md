@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.318] - 2026-08-26
+
+### Restoration fidelity and target-mode safety
+- **Advanced Hue state restoration**: capture and restore writable gradient, effects v2, timed-effects, alert, and effect-parameter resources with canonical Hue v2 payloads, bounded values, and read-only metadata excluded.
+- **Lifecycle safety**: scoped diagnostics now cancel every active target operation, and stream startup/reconnect generation guards prevent stale work from resurrecting or closing replacement sessions.
+- **Target-mode correctness**: partial scheduled-cue edits that select a user, device route, or default target now leave inherited all-target broadcast mode before validation, with atomic rollback on invalid or failed persistence.
+- **Administrator safeguards**: duplicate Jellyfin user mappings are surfaced and blocked from ambiguous target selection and broadcast actions.
+- **Regression coverage**: focused tests cover advanced light-state round trips, cancellation and stream races, duplicate mapping guards, and schedule target-mode transitions.
+
 ## [1.5.317] - 2026-08-26
 
 ### Credential-resolution lifecycle isolation

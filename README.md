@@ -457,7 +457,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.317 (Current)
+### Version 1.5.318 (Current)
+- **Restoration fidelity**: current-light snapshots preserve writable Hue v2 gradient, effects/effects_v2, timed-effects, alert, and effect parameters with canonical bounded payloads while excluding read-only bridge metadata.
+- **Lifecycle and targeting safety**: diagnostics cancel all active target operations, stream generations prevent stale reconnect races, duplicate user mappings are blocked in target controls, and partial scheduled-cue target edits correctly switch away from inherited broadcast mode with atomic rollback.
+- **Regression coverage**: focused tests cover advanced state capture/restore, lifecycle races, duplicate mapping controls, and schedule target-mode transitions.
+
+### Version 1.5.317
 - **Credential-resolution lifecycle isolation**: bridge-area, channel, and connection-test routes take a short shared configuration read lease while resolving persisted credentials, fail closed during configuration mutation, and release it before network I/O.
 - **Regression coverage**: API tests verify mutation contention produces no bridge calls across all three routes.
 
