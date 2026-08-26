@@ -11,7 +11,25 @@
         <div data-role="content">
             <div class="content-primary">
                 <h1>Philips Hue Sync Configuration</h1>
-                <fieldset class="verticalSection" id="runtimeStatusSection">
+                <nav id="configurationSectionNav" aria-label="Configuration sections" style="display: flex; gap: 0.5em 1em; align-items: center; flex-wrap: wrap; margin: 0 0 1em; padding: 0.75em 1em; border: 1px solid rgba(255,255,255,0.16); border-radius: 6px;">
+                    <strong id="configurationSectionNavLabel">Jump to:</strong>
+                    <a href="#runtimeStatusSection">Live Sync Status</a>
+                    <a href="#sessionHistorySection">Recent Sessions</a>
+                    <a href="#environmentDiagnosticsSection">Diagnostics</a>
+                    <a href="#configurationPortabilitySection">Backup and Restore</a>
+                    <a href="#bridgeConnectionSection">Bridge</a>
+                    <a href="#lightingTargetSection">Lighting Target</a>
+                    <a href="#globalChannelProfileSection">Channel Profile</a>
+                    <a href="#sceneEffectPreviewSection">Scene Preview</a>
+                    <a href="#savedScenePlaylistsSection">Playlists</a>
+                    <a href="#scheduledSceneCuesSection">Scheduled Cues</a>
+                    <a href="#syncPerformanceSection">Sync Performance</a>
+                    <a href="#cinemaModeSection">Cinema Mode</a>
+                    <a href="#playbackPauseBehaviorSection">Pause Behavior</a>
+                    <a href="#perUserMappingsSection">Per-User Mappings</a>
+                    <a href="#advancedSettingsSection">Advanced Settings</a>
+                </nav>
+                <fieldset class="verticalSection" id="runtimeStatusSection" tabindex="-1">
                     <legend>Live Sync Status</legend>
                     <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
                         <div style="flex: 1 1 280px;">
@@ -58,7 +76,7 @@
                     <div id="runtimeCleanupWarning" role="status" aria-live="polite" aria-atomic="true" style="display: none; color: #ffd27f; margin-top: 0.5em;"></div>
                     <div class="fieldDescription" style="margin-top: 0.75em;">Updates automatically while this page is open. Stop Current Sync restores the lights and leaves playback running; bridge credentials are never included in status responses.</div>
                 </fieldset>
-                <fieldset class="verticalSection" id="sessionHistorySection">
+                <fieldset class="verticalSection" id="sessionHistorySection" tabindex="-1">
                     <legend>Recent Hue Sessions</legend>
                     <div class="fieldDescription" style="margin-bottom: 0.75em;">Review the most recent completed sync sessions, including outcomes, target labels, and aggregate quality telemetry. History is bounded in memory and contains no bridge credentials or playback tokens. Export it for troubleshooting or clear it for privacy.</div>
                     <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
@@ -100,7 +118,7 @@
                     <div id="sessionHistoryStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.75em;">Loading recent sessions...</div>
                     <div id="runtimeSessionHistory" style="margin-top: 0.5em; overflow-x: auto;"></div>
                 </fieldset>
-                <fieldset class="verticalSection" id="environmentDiagnosticsSection">
+                <fieldset class="verticalSection" id="environmentDiagnosticsSection" tabindex="-1">
                     <legend>System Diagnostics</legend>
                     <div class="fieldDescription" style="margin-bottom: 0.75em;">Check local playback prerequisites and bridge lifecycle contention without changing bridge state. Export Support Bundle collects these results, credential-free configuration metadata, runtime telemetry, and bounded playback/scheduler history in one reviewable JSON document; labels and media metadata may be private.</div>
                     <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
@@ -136,7 +154,7 @@
                     <div id="targetDiagnosticsDuplicateMappings" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="display: none; color: #f0ad4e; margin-top: 0.5em;"></div>
                     <div id="targetDiagnosticsTable" style="margin-top: 0.5em; overflow-x: auto;"></div>
                 </fieldset>
-                <fieldset class="verticalSection" id="configurationPortabilitySection">
+                <fieldset class="verticalSection" id="configurationPortabilitySection" tabindex="-1">
                     <legend>Backup and Restore</legend>
                     <div class="fieldDescription" style="margin-bottom: 0.75em;">Export your settings, per-user profiles, and saved color scenes as a credential-safe JSON document. Stored bridge keys are never included; importing on this server preserves matching keys. For a migration, enter replacement keys below; they stay in this page's memory and are sent only with the atomic import request. Use <strong>Validate Import</strong> to run a non-mutating dependency and configuration preflight before confirming the replacement.</div>
                     <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
@@ -162,7 +180,7 @@
                     </div>
                 </fieldset>
                 <form class="huePluginConfigurationForm">
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="bridgeConnectionSection" tabindex="-1">
                         <legend>Bridge connection</legend>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="hueBridgeIp">Hue Bridge Address</label>
@@ -217,7 +235,7 @@
                         </div>
                     </fieldset>
 
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="lightingTargetSection" tabindex="-1">
                         <legend>Lighting target</legend>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="entertainmentAreaSelect">Entertainment Area</label>
@@ -240,7 +258,7 @@
                         </div>
                     </fieldset>
 
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="globalChannelProfileSection" tabindex="-1">
                         <legend>Global Channel Profile</legend>
                         <div class="fieldDescription" style="margin-bottom: 1em;">Choose the entertainment channels driven by the default profile. Leave this field blank to drive every channel. Per-user mappings with a populated channel override take precedence; blank per-user fields inherit this global selection.</div>
                         <div class="inputContainer">
@@ -256,7 +274,7 @@
                         </div>
                     </fieldset>
 
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="sceneEffectPreviewSection" tabindex="-1">
                         <legend>Scene Effect Preview</legend>
                         <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, hue-cycling Rainbow, warm flickering Candle, cycling warm-to-cool Temperature, drifting green-to-violet Aurora, high-energy Fire, rolling blue/cyan Ocean, electric blue/white Lightning, or cool white/blue Starlight effect on the default bridge target—or every distinct enabled target—for a few seconds. Set animation speed from 25% to 400% for non-solid effects. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect, speed, and transitions into scheduled cues. All-target preview uses each target's saved channel profile and runs sequentially, reporting independent outcomes. Capture Current Light Color reads one target or a selected/all-target set, reports each room independently, and seeds this editor with a weighted aggregate RGB/brightness sample, making it easy to save a multi-room snapshot as a reusable scene. Saved Scene Playlists can chain these reusable scenes in a chosen order. Stop active playback before previewing or capturing.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
@@ -399,7 +417,7 @@
                             <div id="previewPresetStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;">Save a color, effect, animation speed, brightness, duration, and optional fade-in/fade-out as a reusable scene. Choose the default bridge, all enabled targets, a mapped user, or a nested ↳ device route in Saved Scene Preview Targets; route requests carry only the user and device identifiers. Preview Saved Scene uses that selection; Preview Saved Scene on All Targets is an explicit broadcast override. Use Duplicate Scene to create a safe editable variant, enter a new name and use Rename Scene to migrate playlist and scheduled-cue references atomically, or use View References before changing/deleting a scene. Scenes contain no bridge credentials. A scene cannot be deleted while a playlist or scheduled cue still references it.</div>
                     </fieldset>
 
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="savedScenePlaylistsSection" tabindex="-1">
                         <legend>Saved Scene Playlists</legend>
                         <div class="fieldDescription" style="margin-bottom: 1em;">Compose up to 20 saved scenes into a playlist. Each step inherits its saved scene's RGB color, brightness, effect speed, fade transitions, and fade curve unless you set explicit 0-255 red/green/blue channel values, 0-100% brightness, 25-400% effect speed, 0-30 second fade-in, 0-30 second fade-out, or Linear/SmoothStep/EaseIn/EaseOut/EaseInOut curve overrides; blank fields and Inherited scene curves preserve the saved scene. Its hold duration inherits the scene by default or can use a bounded per-step override from 1-30 seconds (0 means inherit). Choose Saved order or a stable date-seeded Shuffle for each restorative preview pass. Repeat the complete sequence up to 10 times when the bounded total duration remains at or below 10 minutes. Choose the default target, all enabled targets, or a deliberate subset of enabled mappings and optionally include the default bridge. Playlist definitions contain only scene names, per-step duration/RGB/brightness/effect-speed/transition/curve overrides, repeat count, playback order, and credential-free target selection, never bridge credentials. Preview Targets can override one preview run with mapped users or nested ↳ device routes without changing the saved playlist; Preview Playlist on All Targets remains an explicit broadcast override. Renaming a playlist automatically updates scheduled cues that use it; use View References to inspect dependent cues before deletion, which remains blocked until those cues are changed or removed.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
@@ -484,7 +502,7 @@
                             <div id="scenePlaylistStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;">Select saved scenes, set optional per-step RGB channel, effect, brightness, effect speed, fade-in, fade-out, fade curve, and hold overrides (blank fields and Inherited scene values preserve the scene; 0 seconds inherits each scene's duration), choose Saved order or Stable daily shuffle, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge. Use Rename Playlist to migrate every scheduled-cue reference atomically before continuing to edit the renamed playlist.</div>
                     </fieldset>
 
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="scheduledSceneCuesSection" tabindex="-1">
                         <legend>Scheduled Scene Cues</legend>
                                 <div class="fieldDescription" style="margin-bottom: 1em;">Display a saved scene or a saved-scene playlist automatically at a chosen wall-clock time and time zone. Playlist cues use the saved order or stable daily shuffle for each repeat pass and keep each scene's RGB color, effect, and optional per-step brightness, duration, fade-in, fade-out, and fade-curve overrides (blank RGB/brightness/transitions and Inherited scene curves preserve the saved scene); their playback order, pass count, effective per-step RGB/brightness/durations/transitions/curves, start offsets, and total duration are shown in status, calendar, and history. Single-scene cues can override any saved-scene red, green, or blue channel from 0-255; blank channels inherit the saved scene, and effective RGB is included in status, occurrence exports, calendar metadata, and retained run history. The saved scene's effect and 25-400% animation speed are inherited by every single-scene cue. Leave the one-time date blank for a recurring cue, or set it to run exactly once; recurring cues can run daily, weekly on selected weekdays, monthly on a calendar day, monthly on an ordinal weekday such as the first Monday or last Friday, or yearly on a calendar date. Use the interval control for every-N-day/week/month/year cadences; intervals above 1 require a start date anchor. Optional inclusive end dates and exclusions still apply. Leave Hold duration blank (or enter 0) for the saved scene or playlist; a 1-30 second override is available only for single-scene cues because playlist steps have their own saved overrides. Set Maximum executions to 1-365 to stop a recurring cue after a finite number of attempts, or leave it at 0 for unlimited runs; the counter survives Jellyfin restarts and one-time cues still disable after their first successful run. Set Priority from 0-100 when several cues are due together; higher values run first and equal values keep saved order. Choose a playback policy per cue: <strong>Inherit global policy</strong> keeps the scheduler-wide setting, while Skip or Defer overrides it for this cue only. Saved-scene fade-in and fade-out transitions are inherited and clamped to fit the effective cue duration. Choose <strong>All enabled targets</strong> to run the cue sequentially on the default bridge and every distinct enabled user-mapped target, or multi-select a deliberate subset of enabled mappings and optionally the default bridge; each selected target is validated and reported without exposing credentials. Use <strong>Enable/Disable Cue</strong> to pause one rule without editing its schedule, <strong>Skip Next Cue</strong> to omit one upcoming automatic occurrence while keeping future recurrence, or <strong>Duplicate Cue</strong> to create a disabled copy with a fresh counter before making a variation. Cues are short, restorative previews: active playback wins, and the selected lights are always restored after the scene duration.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
@@ -848,7 +866,7 @@
                         <div id="sceneScheduleHistory" style="margin-top: 0.5em; overflow-x: auto;"></div>
                     </fieldset>
 
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="syncPerformanceSection" tabindex="-1">
                         <legend>Sync performance</legend>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="playbackMediaFilter">Playback Media Scope</label>
@@ -1066,7 +1084,7 @@
                         </div>
                     </fieldset>
 
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="cinemaModeSection" tabindex="-1">
                         <legend>Cinema Mode</legend>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label>
@@ -1083,7 +1101,7 @@
                         </div>
                     </fieldset>
 
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="playbackPauseBehaviorSection" tabindex="-1">
                         <legend>Playback Pause Behavior</legend>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="pauseBehavior">When Playback Is Paused</label>
@@ -1096,7 +1114,7 @@
                         </div>
                     </fieldset>
 
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="perUserMappingsSection" tabindex="-1">
                         <legend>Per-User Bridge Mappings</legend>
                         <div class="fieldDescription" style="margin-bottom: 1em;">
                             Map individual Jellyfin users to specific Hue bridges and entertainment areas.
@@ -1638,7 +1656,7 @@
                         </fieldset>
                     </fieldset>
 
-                    <fieldset class="verticalSection">
+                    <fieldset class="verticalSection" id="advancedSettingsSection" tabindex="-1">
                         <legend>Advanced Settings</legend>
 
                         <div class="checkboxContainer checkboxContainer-withDescription">

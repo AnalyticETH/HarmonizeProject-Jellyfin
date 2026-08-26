@@ -3473,6 +3473,70 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void Validate_WhenUserMappingsExist_RejectsIncompleteDefaultBridgeTarget()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "not-a-bridge",
+            HueAppKey = "",
+            HueClientKey = "",
+            EntertainmentAreaId = "",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.100",
+                    HueAppKey = "app-key",
+                    HueClientKey = "client-key",
+                    EntertainmentAreaId = "area-1"
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains(
+            "Hue Bridge address must be a valid private IP address or .local host name",
+            errors);
+        Assert.Contains(
+            "Hue App Key is required. Use the 'Link Bridge' button to generate credentials",
+            errors);
+        Assert.Contains(
+            "Hue Client Key is required for streaming. Use the 'Link Bridge' button to generate credentials",
+            errors);
+        Assert.Contains(
+            "Entertainment Area ID is required. Select an area from the dropdown or enter manually",
+            errors);
+        Assert.False(config.IsValid());
+    }
+
+    [Fact]
+    public void Validate_WhenUserMappingsExist_AllowsUnsetDefaultBridgeTarget()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.100",
+                    HueAppKey = "app-key",
+                    HueClientKey = "client-key",
+                    EntertainmentAreaId = "area-1"
+                }
+            }
+        };
+
+        Assert.Empty(config.Validate());
+    }
+
+    [Fact]
     public void Validate_WhenUserMappingsEmptyIp_StillRequiresDefaultBridge()
     {
         // Arrange — user mapping exists but has empty bridge IP

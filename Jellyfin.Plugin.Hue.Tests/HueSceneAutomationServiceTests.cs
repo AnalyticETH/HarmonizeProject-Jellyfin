@@ -3004,6 +3004,70 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_ExpiresDeferredCueUsingUtcAcrossLocalClockFallback()
+    {
+        var occurrenceUtc = new DateTime(2026, 8, 18, 0, 0, 0, DateTimeKind.Utc);
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 1,
+            PersistSceneScheduleHistory = true,
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Clock fallback scene", DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "clock-fallback-deferred-cue",
+                    Name = "Clock fallback deferred cue",
+                    PresetName = "Clock fallback scene",
+                    TimeOfDay = "00:00",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            },
+            PersistedSceneAutomationDeferredRuns = new List<HueSceneDeferredRunEntry>
+            {
+                new()
+                {
+                    ScheduleId = "clock-fallback-deferred-cue",
+                    OccurrenceSlot = occurrenceUtc,
+                    // A fall-back transition can move the displayed local clock from
+                    // 01:30 back to 01:00 while the UTC clock has advanced.
+                    DeferredAtLocal = new DateTime(2026, 8, 18, 1, 30, 0),
+                    DeferredAtUtc = new DateTime(2026, 8, 18, 0, 30, 0, DateTimeKind.Utc)
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+
+        // The local clock appears to be one half-hour earlier than its deferred
+        // timestamp, but the UTC elapsed time is 30 minutes and exceeds the window.
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 1, 0, 0, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.Skipped);
+        Assert.True(history.WasDeferred);
+        Assert.Contains("defer window", history.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_RecoversPendingSkipWithoutPlayingTheMissedCue()
     {
         var configuration = new PluginConfiguration

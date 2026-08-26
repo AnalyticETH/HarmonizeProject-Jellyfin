@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.309] - 2026-08-26
+
+### Scheduler reliability, target validation, and configuration navigation
+- **DST-safe deferred cues**: persisted waits now retain a UTC timestamp, migrate legacy local-only entries safely, and expire from elapsed instants rather than wall-clock arithmetic.
+- **Global target integrity**: partially populated default bridge targets are validated even when custom user/device mappings exist, while intentionally blank global targets remain valid for custom-only configurations.
+- **Configuration navigation**: the administrator page now provides a keyboard-friendly section index with focusable anchors for status, diagnostics, bridge targets, scenes, scheduling, mappings, and advanced settings.
+- **Regression coverage**: scheduler, configuration validation, and static administrator-page contracts cover UTC migration, incomplete targets, navigation links, and focusable sections.
+
 ## [1.5.308] - 2026-08-26
 
 ### Bridge target safety, stream recovery, and accessible telemetry

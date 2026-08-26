@@ -5975,7 +5975,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 _deferredRuns.Remove(key);
                 stale = true;
             }
-            else if (localNow - current.DeferredAtLocal >= TimeSpan.FromMinutes(deferMinutes))
+            else if (ConvertServerLocalNowToUtc(localNow) - current.DeferredAtUtc >= TimeSpan.FromMinutes(deferMinutes))
             {
                 _deferredRuns.Remove(key);
                 deferredRun = current;
@@ -6080,6 +6080,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             entry => new HueSceneDeferredRun(
                 entry.OccurrenceSlot,
                 entry.DeferredAtLocal,
+                ResolveDeferredAtUtc(entry),
                 restored: true),
             StringComparer.OrdinalIgnoreCase);
 
@@ -6123,7 +6124,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 entry.Value.OccurrenceSlot,
                 entry.Value.DeferredAtLocal,
                 deferMinutes,
-                restored: true);
+                restored: true,
+                deferredAtUtc: entry.Value.DeferredAtUtc);
         }
 
         if (shouldSave && persistRepairs && SavePersistedDeferredRunsConfiguration())
@@ -6161,11 +6163,24 @@ public sealed class HueSceneAutomationService : BackgroundService
                 !string.IsNullOrWhiteSpace(entry.ScheduleId) &&
                 enabledScheduleIds.Contains(entry.ScheduleId.Trim()) &&
                 entry.OccurrenceSlot != default &&
-                entry.DeferredAtLocal != default)
+                (entry.DeferredAtLocal != default ||
+                 (entry.DeferredAtUtc.HasValue && entry.DeferredAtUtc.Value != default)))
             .GroupBy(entry => entry.ScheduleId.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .OrderBy(entry => entry.ScheduleId, StringComparer.OrdinalIgnoreCase)
-            .Select(CloneDeferredRunEntry)
+            .Select(entry =>
+            {
+                var normalized = CloneDeferredRunEntry(entry);
+                normalized.DeferredAtUtc = ResolveDeferredAtUtc(entry);
+                if (normalized.DeferredAtLocal == default)
+                {
+                    normalized.DeferredAtLocal = TimeZoneInfo.ConvertTimeFromUtc(
+                        normalized.DeferredAtUtc.Value,
+                        TimeZoneInfo.Local);
+                }
+
+                return normalized;
+            })
             .ToList();
         shouldSave = normalizedEntries.Count != configuredEntries.Count ||
             normalizedEntries.Where((entry, index) =>
@@ -6174,9 +6189,30 @@ public sealed class HueSceneAutomationService : BackgroundService
                     configuredEntries[index]?.ScheduleId?.Trim(),
                     StringComparison.OrdinalIgnoreCase) ||
                 entry.OccurrenceSlot != configuredEntries[index]?.OccurrenceSlot ||
-                entry.DeferredAtLocal != configuredEntries[index]?.DeferredAtLocal)
+                entry.DeferredAtLocal != configuredEntries[index]?.DeferredAtLocal ||
+                entry.DeferredAtUtc != configuredEntries[index]?.DeferredAtUtc)
                 .Any();
         return normalizedEntries;
+    }
+
+    private static DateTime ResolveDeferredAtUtc(HueSceneDeferredRunEntry entry)
+    {
+        if (entry.DeferredAtUtc is { } persistedUtc && persistedUtc != default)
+        {
+            return NormalizeUtcInstant(persistedUtc);
+        }
+
+        return ConvertServerLocalNowToUtc(entry.DeferredAtLocal);
+    }
+
+    private static DateTime NormalizeUtcInstant(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
     }
 
     private void PersistPendingDeferredRunsRepair()
@@ -6224,12 +6260,22 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             if (!_deferredRuns.ContainsKey(key))
             {
-                _deferredRuns[key] = new HueSceneDeferredRun(occurrenceSlot, localNow, restored: false);
+                _deferredRuns[key] = new HueSceneDeferredRun(
+                    occurrenceSlot,
+                    localNow,
+                    ConvertServerLocalNowToUtc(localNow),
+                    restored: false);
                 queued = true;
             }
         }
 
-        MarkDeferredRuntimeState(key, occurrenceSlot, localNow, deferMinutes, restored: false);
+        MarkDeferredRuntimeState(
+            key,
+            occurrenceSlot,
+            localNow,
+            deferMinutes,
+            restored: false,
+            deferredAtUtc: ConvertServerLocalNowToUtc(localNow));
         if (queued)
         {
             PersistDeferredRuns();
@@ -6262,8 +6308,16 @@ public sealed class HueSceneAutomationService : BackgroundService
         DateTime occurrenceSlot,
         DateTime deferredAtLocal,
         int deferMinutes,
-        bool restored)
+        bool restored,
+        DateTime? deferredAtUtc = null)
     {
+        var effectiveDeferredAtUtc = deferredAtUtc.HasValue
+            ? NormalizeUtcInstant(deferredAtUtc.Value)
+            : ConvertServerLocalNowToUtc(deferredAtLocal);
+        var deferredUntilUtc = effectiveDeferredAtUtc.AddMinutes(deferMinutes);
+        var deferredUntilLocal = TimeZoneInfo.ConvertTimeFromUtc(
+            deferredUntilUtc,
+            TimeZoneInfo.Local);
         lock (_runtimeStateLock)
         {
             if (!_runtimeStates.TryGetValue(scheduleId, out var state))
@@ -6275,7 +6329,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.DeferredPending = true;
             state.DeferredOccurrenceSlot = occurrenceSlot;
             state.DeferredAtLocal = deferredAtLocal;
-            state.DeferredUntilLocal = deferredAtLocal.AddMinutes(deferMinutes);
+            state.DeferredUntilLocal = deferredUntilLocal;
             state.DeferredRestored = restored;
             state.LastMessage = restored
                 ? "Restored after scheduler restart; waiting for active playback to finish before running this automatic cue."
@@ -6326,7 +6380,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 {
                     ScheduleId = entry.Key,
                     OccurrenceSlot = entry.Value.OccurrenceSlot,
-                    DeferredAtLocal = entry.Value.DeferredAtLocal
+                    DeferredAtLocal = entry.Value.DeferredAtLocal,
+                    DeferredAtUtc = entry.Value.DeferredAtUtc
                 })
                 .ToList();
         }
@@ -6362,7 +6417,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             ScheduleId = source.ScheduleId?.Trim() ?? string.Empty,
             OccurrenceSlot = source.OccurrenceSlot,
-            DeferredAtLocal = source.DeferredAtLocal
+            DeferredAtLocal = source.DeferredAtLocal,
+            DeferredAtUtc = source.DeferredAtUtc
         };
     }
 
@@ -6613,15 +6669,21 @@ internal sealed class HueSceneScheduleRuntimeState
 
 internal sealed class HueSceneDeferredRun
 {
-    public HueSceneDeferredRun(DateTime occurrenceSlot, DateTime deferredAtLocal, bool restored)
+    public HueSceneDeferredRun(
+        DateTime occurrenceSlot,
+        DateTime deferredAtLocal,
+        DateTime deferredAtUtc,
+        bool restored)
     {
         OccurrenceSlot = occurrenceSlot;
         DeferredAtLocal = deferredAtLocal;
+        DeferredAtUtc = deferredAtUtc;
         Restored = restored;
     }
 
     public DateTime OccurrenceSlot { get; }
     public DateTime DeferredAtLocal { get; }
+    public DateTime DeferredAtUtc { get; }
     public bool Restored { get; }
 }
 

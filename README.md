@@ -49,6 +49,8 @@ Unlike simple "cinema mode" automations that just dim the lights, this plugin ac
 ## Configuration
 Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
 
+The configuration page starts with a keyboard-friendly **Configuration sections** index. Use it to jump directly to live status, diagnostics, backup/restore, bridge and target setup, scene tools, scheduling, per-user mappings, or advanced settings without traversing the entire page.
+
 | Setting | Description |
 | :--- | :--- |
 | **Hue Bridge Address** | The private/local IP address of your bridge (or a .local mDNS host name). |
@@ -455,7 +457,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.308 (Current)
+### Version 1.5.309 (Current)
+- **DST-safe deferred cues**: persisted waits now retain a UTC timestamp, migrate legacy local-only entries safely, and expire from elapsed instants rather than wall-clock arithmetic.
+- **Global target integrity**: partially populated default bridge targets are validated even when custom user/device mappings exist, while intentionally blank global targets remain valid for custom-only configurations.
+- **Configuration navigation**: the administrator page now provides a keyboard-friendly section index with focusable anchors for status, diagnostics, bridge targets, scenes, scheduling, mappings, and advanced settings.
+- **Regression coverage**: scheduler, configuration validation, and static administrator-page contracts cover UTC migration, incomplete targets, navigation links, and focusable sections.
+
+### Version 1.5.308
 - **Area-target correctness**: entertainment configuration responses now select the requested resource by ID and fail closed when identified responses describe a different area, while preserving legacy responses without resource IDs.
 - **Transport recovery**: disposed and I/O-failed DTLS connections are invalidated only when still active and enter the existing serialized, bounded reconnect flow without closing a replacement stream.
 - **Accessible diagnostics**: administrator action results expose atomic live status/alert regions while high-frequency scheduler telemetry remains quiet for screen readers.

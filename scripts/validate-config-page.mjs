@@ -12,6 +12,37 @@ if (!scriptMatch) {
 new vm.Script(scriptMatch[1], { filename: file });
 
 const requiredMarkup = [
+    'id="configurationSectionNav" aria-label="Configuration sections"',
+    'href="#runtimeStatusSection"',
+    'href="#sessionHistorySection"',
+    'href="#environmentDiagnosticsSection"',
+    'href="#configurationPortabilitySection"',
+    'href="#bridgeConnectionSection"',
+    'href="#lightingTargetSection"',
+    'href="#globalChannelProfileSection"',
+    'href="#sceneEffectPreviewSection"',
+    'href="#savedScenePlaylistsSection"',
+    'href="#scheduledSceneCuesSection"',
+    'href="#syncPerformanceSection"',
+    'href="#cinemaModeSection"',
+    'href="#playbackPauseBehaviorSection"',
+    'href="#perUserMappingsSection"',
+    'href="#advancedSettingsSection"',
+    'id="runtimeStatusSection" tabindex="-1"',
+    'id="sessionHistorySection" tabindex="-1"',
+    'id="environmentDiagnosticsSection" tabindex="-1"',
+    'id="configurationPortabilitySection" tabindex="-1"',
+    'id="bridgeConnectionSection" tabindex="-1"',
+    'id="lightingTargetSection" tabindex="-1"',
+    'id="globalChannelProfileSection" tabindex="-1"',
+    'id="sceneEffectPreviewSection" tabindex="-1"',
+    'id="savedScenePlaylistsSection" tabindex="-1"',
+    'id="scheduledSceneCuesSection" tabindex="-1"',
+    'id="syncPerformanceSection" tabindex="-1"',
+    'id="cinemaModeSection" tabindex="-1"',
+    'id="playbackPauseBehaviorSection" tabindex="-1"',
+    'id="perUserMappingsSection" tabindex="-1"',
+    'id="advancedSettingsSection" tabindex="-1"',
     'id="registerBtn"',
     'id="mappingLinkBridgeBtn"',
     'id="cancelConnectionTestBtn"',
@@ -180,6 +211,38 @@ const requiredMarkup = [
 for (const marker of requiredMarkup) {
     if (!html.includes(marker)) {
         throw new Error(`${file} is missing required markup: ${marker}`);
+    }
+}
+
+const sectionNavMatch = html.match(/<nav\b[^>]*\bid="configurationSectionNav"[^>]*>([\s\S]*?)<\/nav>/);
+if (!sectionNavMatch) {
+    throw new Error(`${file} is missing the configuration section navigation body`);
+}
+
+const sectionNavigationTargets = [
+    "runtimeStatusSection",
+    "sessionHistorySection",
+    "environmentDiagnosticsSection",
+    "configurationPortabilitySection",
+    "bridgeConnectionSection",
+    "lightingTargetSection",
+    "globalChannelProfileSection",
+    "sceneEffectPreviewSection",
+    "savedScenePlaylistsSection",
+    "scheduledSceneCuesSection",
+    "syncPerformanceSection",
+    "cinemaModeSection",
+    "playbackPauseBehaviorSection",
+    "perUserMappingsSection",
+    "advancedSettingsSection"
+];
+for (const targetId of sectionNavigationTargets) {
+    if (!sectionNavMatch[1].includes(`href="#${targetId}"`)) {
+        throw new Error(`${file} section navigation is missing #${targetId}`);
+    }
+    const targetMatch = html.match(new RegExp(`<[^>]*\\bid="${targetId}"[^>]*>`));
+    if (!targetMatch || !targetMatch[0].includes('tabindex="-1"')) {
+        throw new Error(`${file} section navigation target ${targetId} must be programmatically focusable`);
     }
 }
 

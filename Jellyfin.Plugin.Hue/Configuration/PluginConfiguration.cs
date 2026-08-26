@@ -563,6 +563,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public string ScheduleId { get; set; } = string.Empty;
         public DateTime OccurrenceSlot { get; set; }
         public DateTime DeferredAtLocal { get; set; }
+        /// <summary>
+        /// UTC instant when the occurrence entered the defer window. This is persisted
+        /// alongside the legacy server-local timestamp so a daylight-saving transition
+        /// or host time-zone change cannot extend or prematurely expire the wait.
+        /// </summary>
+        public DateTime? DeferredAtUtc { get; set; }
     }
 
     /// <summary>
@@ -4050,14 +4056,22 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             if (SyncEnabled)
             {
-                // Default bridge fields are only required if no per-user mappings exist
+                // Default bridge fields are only required if no per-user mappings exist.
+                // Once any global target field is present, however, validate the whole
+                // target even when custom mappings also exist. Otherwise an incomplete
+                // global target can remain "valid" and fail later for unmapped users,
+                // default-target scenes, or fallback playback.
                 bool hasUserMappings = UserMappings?.Exists(mapping =>
                     mapping != null &&
                     mapping.SyncEnabled &&
                     (!string.IsNullOrWhiteSpace(mapping.HueBridgeIp) ||
                      mapping.DeviceTargets?.Any(target =>
                          target != null && !string.IsNullOrWhiteSpace(target.HueBridgeIp)) == true)) == true;
-                if (!hasUserMappings)
+                var hasAnyGlobalTargetField = !string.IsNullOrWhiteSpace(HueBridgeIp) ||
+                    !string.IsNullOrWhiteSpace(HueAppKey) ||
+                    !string.IsNullOrWhiteSpace(HueClientKey) ||
+                    !string.IsNullOrWhiteSpace(EntertainmentAreaId);
+                if (!hasUserMappings || hasAnyGlobalTargetField)
                 {
                     if (string.IsNullOrWhiteSpace(HueBridgeIp))
                         errors.Add("Hue Bridge IP is required when sync is enabled");
