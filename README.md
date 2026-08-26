@@ -457,7 +457,12 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.313 (Current)
+### Version 1.5.314 (Current)
+- **Configuration read isolation**: all credential-free scene, playlist, status, diagnostics, and user-mapping projections now take a short shared read lease, rejecting requests while an administrator mutation or scheduler evaluation is applying.
+- **Export conflict fidelity**: JSON, CSV, and iCalendar schedule exports preserve the retryable 409 response instead of being misreported as a 404 or empty report during a configuration mutation.
+- **Regression coverage**: API tests cover every protected projection under configuration mutation and scheduler-evaluation barriers, plus diagnostics after its environment probe.
+
+### Version 1.5.313
 - **Shutdown cancellation resilience**: host cancellation during a lifecycle-lock wait now schedules an observed deferred cleanup pass, preserving bridge deactivation, sync-state clearing, and playback-lease release.
 - **Concurrent worker retention**: isolated playback workers remain tracked until stop completes so cancellation can be retried instead of orphaning a target.
 - **Restart safety**: service startup waits for deferred cleanup before accepting a new session, preventing stale shutdown work from clobbering restarted playback.

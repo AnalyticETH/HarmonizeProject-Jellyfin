@@ -2073,8 +2073,15 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("ColorPresets")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<IEnumerable<HueColorPresetResult>> GetColorPresets()
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the saved-scene request after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 return NotFound("Plugin configuration not available.");
@@ -2095,10 +2102,17 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("ColorPresets/{name}/Dependencies")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueColorPresetDependenciesResult> GetColorPresetDependencies(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
                 return NotFound("Color preset not found.");
+
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the saved-scene dependency request after the active mutation completes.");
+            }
 
             var config = Plugin.Instance?.Configuration;
             if (config == null)
@@ -2740,8 +2754,15 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("ScenePlaylists")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<IEnumerable<HueScenePlaylistResult>> GetScenePlaylists()
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the scene playlist request after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 return NotFound("Plugin configuration not available.");
@@ -2761,10 +2782,17 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("ScenePlaylists/{name}/Dependencies")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueScenePlaylistDependenciesResult> GetScenePlaylistDependencies(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
                 return NotFound("Scene playlist not found.");
+
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the scene playlist dependency request after the active mutation completes.");
+            }
 
             var config = Plugin.Instance?.Configuration;
             if (config == null)
@@ -3822,8 +3850,15 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("SceneSchedules")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<IEnumerable<HueSceneScheduleResult>> GetSceneSchedules()
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the scheduled-cue request after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 return NotFound("Plugin configuration not available.");
@@ -3867,8 +3902,15 @@ namespace Jellyfin.Plugin.Hue.Api
         /// </summary>
         [HttpGet("SceneSchedules/Status")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueSceneAutomationStatus> GetSceneScheduleStatus()
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the schedule status request after the active mutation completes.");
+            }
+
             if (_sceneAutomationService == null)
             {
                 return Ok(new HueSceneAutomationStatus
@@ -3894,11 +3936,18 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("SceneSchedules/Conflicts")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueSceneScheduleConflictsResult> GetSceneScheduleConflicts(
             [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.DefaultConflictLimit,
             [FromQuery(Name = "days")] int days = HueSceneAutomationService.DefaultConflictHorizonDays,
             [FromQuery(Name = "scheduleId")] string? scheduleId = null)
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the schedule conflict report after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 return NotFound("Plugin configuration not available.");
@@ -3934,15 +3983,17 @@ namespace Jellyfin.Plugin.Hue.Api
         [Produces("text/csv")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public IActionResult ExportSceneScheduleConflictsCsv(
             [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.DefaultConflictLimit,
             [FromQuery(Name = "days")] int days = HueSceneAutomationService.DefaultConflictHorizonDays,
             [FromQuery(Name = "scheduleId")] string? scheduleId = null)
         {
-            if (Plugin.Instance?.Configuration == null)
-                return NotFound("Plugin configuration not available.");
+            var reportAction = GetSceneScheduleConflicts(limit, days, scheduleId);
+            if (reportAction.Result is ConflictObjectResult conflict)
+                return conflict;
 
-            var report = ReadActionValue(GetSceneScheduleConflicts(limit, days, scheduleId));
+            var report = ReadActionValue(reportAction);
             if (report == null)
                 return NotFound("Schedule conflict report is not available.");
 
@@ -3998,11 +4049,18 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("SceneSchedules/Occurrences")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueSceneScheduleOccurrencesResult> GetSceneScheduleOccurrences(
             [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule,
             [FromQuery(Name = "days")] int days = HueSceneAutomationService.DefaultUpcomingHorizonDays,
             [FromQuery(Name = "scheduleId")] string? scheduleId = null)
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the schedule occurrence report after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 return NotFound("Plugin configuration not available.");
@@ -4040,15 +4098,17 @@ namespace Jellyfin.Plugin.Hue.Api
         [Produces("text/csv")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public IActionResult ExportSceneScheduleOccurrencesCsv(
             [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule,
             [FromQuery(Name = "days")] int days = HueSceneAutomationService.DefaultUpcomingHorizonDays,
             [FromQuery(Name = "scheduleId")] string? scheduleId = null)
         {
-            if (Plugin.Instance?.Configuration == null)
-                return NotFound("Plugin configuration not available.");
+            var reportAction = GetSceneScheduleOccurrences(limit, days, scheduleId);
+            if (reportAction.Result is ConflictObjectResult conflict)
+                return conflict;
 
-            var report = ReadActionValue(GetSceneScheduleOccurrences(limit, days, scheduleId));
+            var report = ReadActionValue(reportAction);
             if (report == null)
                 return NotFound("Schedule occurrence report is not available.");
 
@@ -4149,11 +4209,18 @@ namespace Jellyfin.Plugin.Hue.Api
         [Produces("text/calendar")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public IActionResult GetSceneScheduleCalendar(
             [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxUpcomingOccurrencesPerSchedule,
             [FromQuery(Name = "days")] int days = HueSceneAutomationService.DefaultUpcomingHorizonDays,
             [FromQuery(Name = "scheduleId")] string? scheduleId = null)
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the schedule calendar export after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 return NotFound("Plugin configuration not available.");
@@ -4542,11 +4609,18 @@ namespace Jellyfin.Plugin.Hue.Api
         /// </summary>
         [HttpGet("SceneSchedules/History")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueSceneScheduleHistoryResult> GetSceneScheduleHistory(
             [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxSceneScheduleHistoryCount,
             [FromQuery(Name = "scheduleId")] string? scheduleId = null,
             [FromQuery(Name = "outcome")] string? outcome = null)
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the schedule history request after the active mutation completes.");
+            }
+
             var boundedLimit = Math.Clamp(limit, 1, HueSceneAutomationService.MaxSceneScheduleHistoryCount);
             var normalizedScheduleId = string.IsNullOrWhiteSpace(scheduleId) ? null : scheduleId.Trim();
             var normalizedOutcome = string.IsNullOrWhiteSpace(outcome) ? null : outcome.Trim();
@@ -4573,6 +4647,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// </summary>
         [HttpGet("SceneSchedules/History/Export")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueSceneScheduleHistoryResult> ExportSceneScheduleHistory(
             [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxSceneScheduleHistoryCount,
             [FromQuery(Name = "scheduleId")] string? scheduleId = null,
@@ -4590,15 +4665,20 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("SceneSchedules/History/ExportCsv")]
         [Produces("text/csv")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public IActionResult ExportSceneScheduleHistoryCsv(
             [FromQuery(Name = "limit")] int limit = HueSceneAutomationService.MaxSceneScheduleHistoryCount,
             [FromQuery(Name = "scheduleId")] string? scheduleId = null,
             [FromQuery(Name = "outcome")] string? outcome = null)
         {
-            if (Plugin.Instance?.Configuration == null)
-                return NotFound("Plugin configuration not available.");
+            var reportAction = GetSceneScheduleHistory(limit, scheduleId, outcome);
+            if (reportAction.Result is ConflictObjectResult conflict)
+                return conflict;
 
-            var report = ReadActionValue(GetSceneScheduleHistory(limit, scheduleId, outcome));
+            var report = ReadActionValue(reportAction);
+            if (report == null)
+                return NotFound("Schedule history is not available.");
+
             var builder = new StringBuilder();
             AppendCsvRow(
                 builder,
@@ -6129,8 +6209,15 @@ namespace Jellyfin.Plugin.Hue.Api
 
         [HttpGet("Status")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueSyncStatus> GetStatus()
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the status request after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             var runtime = _syncService?.GetRuntimeStatus();
             var sessions = _syncService?.GetPlaybackRuntimeStatuses() ?? Array.Empty<HueRuntimeStatus>();
@@ -6357,12 +6444,19 @@ namespace Jellyfin.Plugin.Hue.Api
         /// </summary>
         [HttpGet("Diagnostics")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<ActionResult<HueDiagnosticsResult>> GetDiagnostics(
             CancellationToken cancellationToken = default)
         {
             using var diagnosticsOperation = _diagnosticsCancellationGate.Begin(cancellationToken);
             var diagnosticsCancellationToken = diagnosticsOperation.Token;
             var environment = await _environmentProbe.CheckAsync(diagnosticsCancellationToken).ConfigureAwait(false);
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry diagnostics after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             var configurationErrors = new List<string>();
             if (config == null)
@@ -8793,8 +8887,15 @@ namespace Jellyfin.Plugin.Hue.Api
         /// </summary>
         [HttpGet("UserMappings")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<IEnumerable<UserBridgeMappingSummary>> GetUserMappings()
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the user mapping request after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             var mappings = config?.UserMappings?
                 .Where(mapping => mapping != null)
@@ -8811,9 +8912,16 @@ namespace Jellyfin.Plugin.Hue.Api
         /// </summary>
         [HttpGet("UserMappings/Reconcile")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public ActionResult<HueUserMappingReconciliationResult> GetUserMappingReconciliation()
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry mapping reconciliation after the active mutation completes.");
+            }
+
             var result = BuildUserMappingReconciliationResult();
             return result.UserDirectoryAvailable
                 ? Ok(result)
@@ -9439,6 +9547,12 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             if (string.IsNullOrWhiteSpace(userId))
                 return NotFound("User mapping not found.");
+
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the mapping dependency request after the active mutation completes.");
+            }
 
             var config = Plugin.Instance?.Configuration;
             if (config == null)

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.314] - 2026-08-26
+
+### Configuration projection read isolation
+- **Credential-free read leases**: scene, playlist, status, diagnostics, and user-mapping projections now take a short shared configuration read lease, rejecting requests while an administrator mutation or scheduler evaluation is applying.
+- **Export conflict fidelity**: schedule JSON, CSV, and iCalendar exports preserve retryable 409 responses rather than converting an active mutation into a misleading 404 or empty report.
+- **Regression coverage**: API tests cover every protected projection under configuration-mutation and scheduler-evaluation barriers, plus diagnostics after its environment probe.
+
 ## [1.5.313] - 2026-08-26
 
 ### Shutdown cancellation resilience

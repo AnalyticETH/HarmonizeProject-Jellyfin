@@ -9859,6 +9859,57 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void CredentialFreeConfigurationReadRoutes_RejectActiveConfigurationMutation()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Scene" } },
+            ScenePlaylists = new List<HueScenePlaylist> { new() { Name = "Playlist" } },
+            SceneSchedules = new List<HueSceneSchedule> { new() { Id = "cue-1", Name = "Cue" } },
+            UserMappings = new List<UserBridgeMapping> { new() { UserId = "user-1", UserName = "Viewer" } }
+        });
+
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+
+        var controller = CreateController(bridgeLifecycleGate: gate);
+
+        AssertConfigurationReadConflict(controller.GetColorPresets());
+        AssertConfigurationReadConflict(controller.GetColorPresetDependencies("Scene"));
+        AssertConfigurationReadConflict(controller.GetScenePlaylists());
+        AssertConfigurationReadConflict(controller.GetScenePlaylistDependencies("Playlist"));
+        AssertConfigurationReadConflict(controller.GetSceneSchedules());
+        AssertConfigurationReadConflict(controller.GetSceneScheduleStatus());
+        AssertConfigurationReadConflict(controller.GetSceneScheduleConflicts());
+        AssertConfigurationReadConflict(controller.GetSceneScheduleOccurrences());
+        AssertConflict(controller.GetSceneScheduleCalendar());
+        AssertConfigurationReadConflict(controller.GetSceneScheduleHistory());
+        AssertConfigurationReadConflict(controller.ExportSceneScheduleHistory());
+        AssertConflict(controller.ExportSceneScheduleConflictsCsv());
+        AssertConflict(controller.ExportSceneScheduleOccurrencesCsv());
+        AssertConflict(controller.ExportSceneScheduleHistoryCsv());
+        AssertConfigurationReadConflict(controller.GetStatus());
+        AssertConfigurationReadConflict(controller.GetUserMappings());
+        AssertConfigurationReadConflict(controller.GetUserMappingReconciliation());
+        AssertConfigurationReadConflict(controller.GetUserMappingDependencies("user-1"));
+    }
+
+    [Fact]
+    public void CredentialFreeConfigurationReadRoutes_RejectActiveSchedulerEvaluation()
+    {
+        InstallConfiguration(new PluginConfiguration());
+
+        var gate = new HueBridgeLifecycleGate();
+        using var evaluation = gate.TryEnterSchedulerEvaluation();
+        Assert.NotNull(evaluation);
+
+        var action = CreateController(bridgeLifecycleGate: gate).GetSceneScheduleOccurrences();
+
+        AssertConfigurationReadConflict(action);
+    }
+
+    [Fact]
     public void GetSessionHistory_WithoutHostedSyncServiceReturnsBoundedEmptyHistory()
     {
         var controller = CreateController();
@@ -9995,6 +10046,30 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(diagnostics.AudioCaptureRequired);
         Assert.False(diagnostics.AudioCapture.Available);
         Assert.False(diagnostics.CanStartPlayback);
+    }
+
+    [Fact]
+    public async Task Diagnostics_RejectsActiveConfigurationMutationAfterEnvironmentProbe()
+    {
+        InstallConfiguration(new PluginConfiguration());
+
+        var probe = new Mock<IHueEnvironmentProbe>();
+        probe
+            .Setup(environment => environment.CheckAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueEnvironmentProbeResult());
+
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+
+        var action = await CreateController(
+            bridgeLifecycleGate: gate,
+            environmentProbe: probe.Object).GetDiagnostics();
+
+        AssertConfigurationReadConflict(action);
+        probe.Verify(
+            environment => environment.CheckAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -15142,6 +15217,20 @@ public sealed class HueApiControllerTests : IDisposable
             diagnosticsCancellationGate,
             sessionManager,
             userManager: userManager);
+    }
+
+    private static void AssertConflict(IActionResult action)
+    {
+        var response = Assert.IsType<ConflictObjectResult>(action);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+    }
+
+    private static void AssertConfigurationReadConflict<T>(ActionResult<T> action)
+        where T : class
+    {
+        Assert.Null(action.Value);
+        Assert.NotNull(action.Result);
+        AssertConflict(action.Result!);
     }
 
     private static HueConfigurationImportRequest CreateConfigurationImportRequest(

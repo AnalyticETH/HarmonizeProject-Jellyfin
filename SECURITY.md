@@ -23,6 +23,7 @@ Every trusted `main` push runs the named self-hosted CI runner with:
 - Blocking Semgrep static analysis with the explicit `p/default` ruleset and a JSON artifact; the scanner and all transitive packages come from `.github/semgrep/requirements.txt`, a Python 3.12/x86_64 SHA-256 lock validated before `pip --require-hashes` installation
 - A source-controlled trusted-workflow boundary validator that checks main-only triggers and guards, self-hosted runner identities, isolated release permissions, immutable action references, and strict release-version extraction
 - Host shutdown cancellation leaves an observed deferred cleanup pass that retries lifecycle-lock, bridge deactivation, and concurrent-worker cleanup before a service restart can accept new playback
+- Credential-free scene, playlist, status, diagnostics, and user-mapping projections use a shared read lease and fail closed with a retryable conflict while configuration mutation or scheduler evaluation is active
 - Immutable commit-SHA references for third-party GitHub Actions
 - Repository-level GitHub Actions SHA-pinning enforcement (`sha_pinning_required=true`); the repository currently permits all action owners, so every workflow reference is also reviewed and pinned to an immutable commit SHA
 - Dependabot monitoring for the hash-locked Semgrep environment and its transitive packages
