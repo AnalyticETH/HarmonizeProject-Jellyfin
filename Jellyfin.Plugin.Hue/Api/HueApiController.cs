@@ -1785,15 +1785,6 @@ namespace Jellyfin.Plugin.Hue.Api
             if (string.IsNullOrWhiteSpace(name))
                 return NotFound("Color preset not found.");
 
-            if (_streamTester == null)
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
-
-            if (_sceneAutomationService == null)
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
-
-            if (_syncService?.IsSyncing == true)
-                return Conflict("Stop active playback before running a Hue scene preview.");
-
             HueSceneSchedule previewSchedule;
             HueColorPreset previewPreset;
             IReadOnlyList<HueSceneAutomationTargetRoute> targetRoutes;
@@ -1871,6 +1862,15 @@ namespace Jellyfin.Plugin.Hue.Api
                 PluginConfiguration.TryNormalizeColorPresetEffect(previewPreset.Effect, out var normalizedEffect);
                 previewPreset.Effect = normalizedEffect;
             }
+
+            if (_streamTester == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
+
+            if (_sceneAutomationService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+
+            if (_syncService?.IsSyncing == true)
+                return Conflict("Stop active playback before running a Hue scene preview.");
 
             var previewResult = await _sceneAutomationService.RunPreviewWithSnapshotAsync(
                 previewSchedule,
@@ -3242,13 +3242,6 @@ namespace Jellyfin.Plugin.Hue.Api
             if (string.IsNullOrWhiteSpace(name))
                 return NotFound("Scene playlist not found.");
 
-            if (_streamTester == null)
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
-            if (_sceneAutomationService == null)
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
-            if (_syncService?.IsSyncing == true)
-                return Conflict("Stop active playback before running a Hue scene playlist.");
-
             HueScenePlaylist playlist;
             IReadOnlyList<HueColorPreset> resolvedPresets;
             IReadOnlyList<HueSceneAutomationTargetDescription> resolvedTargets;
@@ -3366,6 +3359,13 @@ namespace Jellyfin.Plugin.Hue.Api
                     .Select(CloneColorPreset)
                     .ToArray();
             }
+
+            if (_streamTester == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
+            if (_sceneAutomationService == null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+            if (_syncService?.IsSyncing == true)
+                return Conflict("Stop active playback before running a Hue scene playlist.");
 
             var result = await _sceneAutomationService.RunPlaylistPreviewWithSnapshotAsync(
                 playlist,
