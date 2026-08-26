@@ -578,6 +578,7 @@ namespace Jellyfin.Plugin.Hue.Api
             foreach (var channel in channels.EnumerateArray())
             {
                 if (channel.TryGetProperty("channel_id", out var channelIdProperty) &&
+                    channelIdProperty.ValueKind == System.Text.Json.JsonValueKind.Number &&
                     channelIdProperty.TryGetInt32(out var channelId) &&
                     channelId >= ushort.MinValue &&
                     channelId <= ushort.MaxValue)
@@ -1124,12 +1125,19 @@ namespace Jellyfin.Plugin.Hue.Api
                 return Ok(result);
             }
 
+            var availableChannelIds = GetValidChannelIds(areaConfiguration.Value);
+            if (availableChannelIds.Count == 0)
+            {
+                result.AreaFound = false;
+                result.Message = "Bridge reachable, but the selected entertainment area has no controllable channels.";
+                return Ok(result);
+            }
+
             result.AreaFound = true;
             result.AreaName = selectedArea.Name;
             var selectedChannelIds = requestedChannelIds;
             if (selectedChannelIds != null)
             {
-                var availableChannelIds = GetValidChannelIds(areaConfiguration.Value);
                 var missingChannelIds = selectedChannelIds
                     .Where(channelId => !availableChannelIds.Contains(channelId))
                     .OrderBy(channelId => channelId)

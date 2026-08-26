@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.307] - 2026-08-26
+
+### Bridge reliability and administrator telemetry
+- **Fail-closed channel validation**: connection diagnostics now ignore malformed, non-numeric, negative, and out-of-range entertainment channel IDs and skip DTLS probing when no controllable channels remain.
+- **Reconnect resilience**: failed internal DTLS startup attempts retain the active target and lifecycle state so later frames can consume the remaining bounded retry budget; public stops still clear stale reconnect state.
+- **Playlist duration visibility**: saved playlist selectors and schedule status, upcoming-occurrence, and history tables now render bounded total durations alongside their step and pass metadata.
+- **Regression coverage**: API, streaming lifecycle, and administrator configuration-page contracts cover channel validation, reconnect retry preservation, and playlist telemetry rendering.
+
 ## [1.5.306] - 2026-08-26
 
 ### Import and scheduler lifecycle hardening

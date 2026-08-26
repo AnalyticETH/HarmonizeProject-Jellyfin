@@ -316,7 +316,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                 if (!dtlsConnection.IsHealthy)
                 {
                     _logger.LogError("Managed DTLS tunnel closed immediately — check bridge IP, Client Key, and that the entertainment area was activated (action=start) first.");
-                    StopStream();
+                    // A reconnect failure must leave the saved target and lifecycle
+                    // token intact so a later SendColors call can consume the remaining
+                    // bounded retry budget. A public startup still clears the target.
+                    StopStream(cancelPendingReconnect);
                     return;
                 }
 
@@ -326,7 +329,10 @@ namespace Jellyfin.Plugin.Hue.Hue
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start the managed Hue DTLS connection.");
-                StopStream();
+                // Preserve reconnect state after an internal startup failure. Clearing
+                // _lastBridgeConfig here would make all later frames permanently unable
+                // to retry even though MaxReconnectAttempts has not been exhausted.
+                StopStream(cancelPendingReconnect);
                 throw;
             }
             finally

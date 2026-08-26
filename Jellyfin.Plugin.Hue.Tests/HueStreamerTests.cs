@@ -150,6 +150,50 @@ public class HueStreamerTests
     }
 
     [Fact]
+    public async Task SendColors_WhenReconnectStartupFails_RetainsTargetForLaterRetry()
+    {
+        var firstConnection = new TestDtlsConnection();
+        var failedReconnectStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connectionNumber = 0;
+        var streamer = new HueStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) =>
+            {
+                var number = Interlocked.Increment(ref connectionNumber);
+                if (number == 1)
+                    return Task.FromResult<IHueDtlsConnection>(firstConnection);
+
+                if (number == 2)
+                {
+                    failedReconnectStarted.TrySetResult(true);
+                    return Task.FromResult<IHueDtlsConnection>(new TestDtlsConnection { IsHealthy = false });
+                }
+
+                return Task.FromResult<IHueDtlsConnection>(new TestDtlsConnection());
+            });
+
+        await streamer.StartStreamAsync(
+            "192.168.1.100",
+            "app-key",
+            "00112233445566778899aabbccddeeff");
+
+        firstConnection.ThrowOnSend = true;
+        var colors = new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } };
+        Assert.False(await streamer.SendColors("area-id", colors));
+
+        await failedReconnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The first reconnect returns an unhealthy connection. The saved target must
+        // survive that failure so this subsequent frame can perform attempt two.
+        Assert.True(await streamer.SendColors("area-id", colors));
+        Assert.Equal(3, connectionNumber);
+        Assert.Equal(2, streamer.ReconnectAttempts);
+        Assert.True(streamer.IsHealthy());
+
+        streamer.StopStream();
+    }
+
+    [Fact]
     public async Task SendColors_WhenCanceledBeforeWriteReturnsFalse()
     {
         using var cancellationSource = new CancellationTokenSource();

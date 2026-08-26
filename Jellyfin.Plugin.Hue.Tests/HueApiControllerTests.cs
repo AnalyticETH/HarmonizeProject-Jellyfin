@@ -2478,6 +2478,69 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task TestConnection_WithNoValidEntertainmentChannelsReportsNoControllableChannels()
+    {
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":-1},{\"channel_id\":65536},{\"channel_id\":\"2\"}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.TestAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<System.Text.Json.JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "DTLS probe succeeded."
+            });
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConnectionTestResult>(response.Value);
+        Assert.False(result.AreaFound);
+        Assert.Null(result.AreaName);
+        Assert.Contains("no controllable channels", result.Message, StringComparison.OrdinalIgnoreCase);
+        streamTester.Verify(tester => tester.TestAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<System.Text.Json.JsonElement>(),
+            It.IsAny<IReadOnlySet<int>?>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task TestConnection_WithChannelProfileValidatesAndPassesSelectedChannelsToProbe()
     {
         _httpHandlerMock
