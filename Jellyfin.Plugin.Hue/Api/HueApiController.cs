@@ -7447,8 +7447,15 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("Configuration")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HuePluginConfigurationSettings> GetConfiguration()
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the configuration request after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
             {
@@ -7466,8 +7473,15 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpGet("Configuration/Export")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueConfigurationExportDocument> ExportConfiguration()
         {
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration is changing; retry the export after the active mutation completes.");
+            }
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 return NotFound("Plugin configuration not available.");
@@ -7485,6 +7499,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueConfigurationImportValidationResult> ValidateConfigurationImport(
             [FromBody] HueConfigurationImportRequest? request)
         {
@@ -7494,6 +7509,12 @@ namespace Jellyfin.Plugin.Hue.Api
             if (request.SchemaVersion != HueConfigurationExportDocument.CurrentSchemaVersion)
             {
                 return BadRequest($"Unsupported configuration schema version {request.SchemaVersion}. Expected {HueConfigurationExportDocument.CurrentSchemaVersion}.");
+            }
+
+            using var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead();
+            if (configurationReadLease == null)
+            {
+                return Conflict("Configuration import validation cannot run while configuration is changing; retry after the active mutation completes.");
             }
 
             var config = Plugin.Instance?.Configuration;

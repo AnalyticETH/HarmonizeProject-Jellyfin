@@ -216,10 +216,13 @@ function makeHarness() {
     }
 
     const dashboard = {
+        alerts: [],
         hideLoadingMsg() {},
         showLoadingMsg() {},
         confirm() {},
-        alert() {}
+        alert(message) {
+            this.alerts.push(message);
+        }
     };
 
     function makeDeferred(options) {
@@ -581,6 +584,87 @@ async function testConfigurationImportSubmitLifecycleGuards() {
     assert.equal(page._hueImportDocument, null, "pagehide clears the imported document before a later confirmation");
 }
 
+async function testConfigurationSaveSuppressesStaleConfigurationLoad() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    api.loadEntertainmentAreas = () => {};
+    api.loadColorPresets = () => {};
+    api.loadScenePlaylists = () => {};
+    api.loadSceneSchedules = () => {};
+    api.refreshStatus = (currentPage, message) => {
+        currentPage.querySelector('#configurationPortabilityStatus').textContent = message;
+    };
+
+    const load = api.loadConfiguration(page);
+    assert.equal(requests.length, 1, "configuration save race starts with one tracked load");
+    page.querySelector('#hueBridgeIp').value = "edited-bridge";
+    const save = api.saveConfiguration(page);
+    assert.equal(requests.length, 2, "configuration save starts one replacement request");
+    assert.equal(requests[0].promise.aborted, true, "configuration save aborts the stale configuration load");
+    assert.equal(requests[1].options.type, "POST", "configuration save uses POST");
+    assert.equal(requests[1].options.url, "HueSync/Configuration", "configuration save uses the configuration endpoint");
+    assert.equal(page.querySelector('#saveConfigurationBtn').disabled, true, "configuration save disables its button");
+
+    requests[0].resolve({ HueBridgeIp: "old-bridge", SyncEnabled: true });
+    await load;
+    assert.equal(
+        page.querySelector('#hueBridgeIp').value,
+        "edited-bridge",
+        "stale configuration load cannot overwrite edits made before save"
+    );
+
+    requests[1].resolve({ HueBridgeIp: "edited-bridge", HasAppKey: false, HasClientKey: false });
+    await save;
+    assert.equal(
+        page.querySelector('#configurationPortabilityStatus').textContent,
+        "Configuration saved.",
+        "current configuration save reports success"
+    );
+    assert.equal(api.globalBridgeIp, "edited-bridge", "current configuration save updates the global target");
+    assert.equal(page.querySelector('#saveConfigurationBtn').disabled, false, "configuration save re-enables its button");
+}
+
+async function testConfigurationSaveInvalidationSuppressesCallbacks() {
+    const harness = makeHarness();
+    const { page, api, requests, dashboard } = harness;
+    api.refreshStatus = (currentPage, message) => {
+        currentPage.querySelector('#configurationPortabilityStatus').textContent = message;
+    };
+    const save = api.saveConfiguration(page);
+    assert.equal(requests.length, 1, "configuration save starts one tracked request");
+    page.querySelector('#configurationPortabilityStatus').textContent = "sentinel before pagehide";
+    api.invalidatePageLifecycle(page);
+    assert.equal(requests[0].promise.aborted, true, "pagehide aborts configuration save");
+    assert.equal(page._hueConfigurationSaving, false, "pagehide clears configuration save state");
+    assert.equal(page.querySelector('#saveConfigurationBtn').disabled, false, "pagehide re-enables the save button");
+    assert.equal(page._huePageRequests.configurationSave, undefined, "pagehide removes the save request record");
+    requests[0].resolve({ HueBridgeIp: "stale-bridge" });
+    await save;
+    assert.equal(
+        page.querySelector('#configurationPortabilityStatus').textContent,
+        "sentinel before pagehide",
+        "invalidated configuration save cannot update hidden-page status"
+    );
+    assert.equal(dashboard.alerts.length, 0, "invalidated configuration save cannot show a stale alert");
+}
+
+async function testConfigurationSaveDuplicateSubmitIsBounded() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    const statusMessages = [];
+    api.refreshStatus = (_currentPage, message) => statusMessages.push(message);
+    const first = api.saveConfiguration(page);
+    const second = api.saveConfiguration(page);
+    assert.equal(requests.length, 1, "duplicate configuration submit keeps one in-flight request");
+    assert.ok(second && typeof second.then === "function", "duplicate configuration submit returns a settled no-op");
+    assert.equal(page._hueConfigurationSaving, true, "configuration save remains marked busy while pending");
+    requests[0].resolve({ HueBridgeIp: "saved-bridge", HasAppKey: false, HasClientKey: false });
+    await Promise.all([first, second]);
+    assert.deepEqual(statusMessages, ["Configuration saved."], "duplicate configuration submit reports one result");
+    assert.equal(page._hueConfigurationSaving, false, "configuration save clears its busy state");
+    assert.equal(page.querySelector('#saveConfigurationBtn').disabled, false, "duplicate configuration submit re-enables the button");
+}
+
 for (const testCase of exportCases) {
     await testSuccessfulExport(testCase);
     await testStaleQuerySuppressesExport(testCase);
@@ -592,5 +676,8 @@ for (const testCase of exportCases) {
 await testEditMappingLifecycleGuards();
 await testConfigurationImportValidationLifecycleGuards();
 await testConfigurationImportSubmitLifecycleGuards();
+await testConfigurationSaveSuppressesStaleConfigurationLoad();
+await testConfigurationSaveInvalidationSuppressesCallbacks();
+await testConfigurationSaveDuplicateSubmitIsBounded();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit and import validation/submit stale-scope/pagehide paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, import, and save stale-scope/pagehide paths)`);

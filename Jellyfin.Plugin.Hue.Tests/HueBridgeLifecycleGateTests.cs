@@ -126,6 +126,45 @@ public sealed class HueBridgeLifecycleGateTests
     }
 
     [Fact]
+    public void ConfigurationReadLeasesBlockMutationUntilAllReadersDispose()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        var firstReader = gate.TryEnterConfigurationRead();
+        var secondReader = gate.TryEnterConfigurationRead();
+
+        Assert.NotNull(firstReader);
+        Assert.NotNull(secondReader);
+        Assert.True(gate.IsConfigurationReadActive);
+        Assert.Null(gate.TryEnterConfigurationMutation());
+
+        firstReader!.Dispose();
+        Assert.True(gate.IsConfigurationReadActive);
+        Assert.Null(gate.TryEnterConfigurationMutation());
+
+        secondReader!.Dispose();
+        Assert.False(gate.IsConfigurationReadActive);
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+        Assert.Null(gate.TryEnterConfigurationRead());
+    }
+
+    [Fact]
+    public void ConfigurationMutationBlocksNewReadersUntilDisposed()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+
+        Assert.NotNull(mutation);
+        Assert.Null(gate.TryEnterConfigurationRead());
+
+        mutation!.Dispose();
+        Assert.False(gate.IsConfigurationMutationActive);
+        using var reader = gate.TryEnterConfigurationRead();
+        Assert.NotNull(reader);
+        Assert.True(gate.IsConfigurationReadActive);
+    }
+
+    [Fact]
     public void SchedulerEvaluationBlocksConfigurationMutationUntilDisposed()
     {
         var gate = new HueBridgeLifecycleGate();

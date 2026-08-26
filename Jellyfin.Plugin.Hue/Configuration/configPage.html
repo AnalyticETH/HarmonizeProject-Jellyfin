@@ -1768,7 +1768,7 @@
                         <div class="fieldDescription">If enabled, lights will sync to the video in real-time (uses CPU/GPU resources).</div>
                     </div>
                     <br />
-                    <button is="emby-button" type="submit" class="raised button-submit block">
+                    <button is="emby-button" type="submit" class="raised button-submit block" id="saveConfigurationBtn">
                         <span>Save</span>
                     </button>
                 </form>
@@ -2390,7 +2390,8 @@
                         sceneScheduleHistoryCsvExport: { property: '_hueSceneScheduleHistoryCsvExporting', selector: '#exportSceneScheduleHistoryCsvBtn' },
                         sessionHistoryExport: { property: '_hueSessionHistoryExporting', selector: '#exportSessionHistoryBtn' },
                         sessionHistoryCsvExport: { property: '_hueSessionHistoryCsvExporting', selector: '#exportSessionHistoryCsvBtn' },
-                        configurationExport: { property: '_hueConfigurationExporting', selector: '#exportConfigurationBtn' }
+                        configurationExport: { property: '_hueConfigurationExporting', selector: '#exportConfigurationBtn' },
+                        configurationSave: { property: '_hueConfigurationSaving', selector: '#saveConfigurationBtn' }
                     }[key];
                     if (exportStates) {
                         page[exportStates.property] = false;
@@ -2423,6 +2424,7 @@
                     page._hueSessionHistoryExporting = false;
                     page._hueSessionHistoryCsvExporting = false;
                     page._hueConfigurationExporting = false;
+                    page._hueConfigurationSaving = false;
                     page._hueDiagnosticsLoading = false;
                     page._hueTargetDiagnosticsLoading = false;
                     page._hueDiagnosticsRequest = null;
@@ -2829,7 +2831,11 @@
                     });
                 },
                 saveConfiguration: function (page, clearConfirmationComplete) {
-                    var clearCredentialsCheckbox = page && page.querySelector('#clearStoredCredentials');
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueConfigurationSaving) return Promise.resolve();
+                    var clearCredentialsCheckbox = page.querySelector('#clearStoredCredentials');
                     if (clearCredentialsCheckbox && clearCredentialsCheckbox.checked && !clearConfirmationComplete) {
                         Dashboard.confirm(
                             "Clear the stored global Hue App Key and Client Key? This cannot be undone from the configuration page.",
@@ -2843,6 +2849,13 @@
                             });
                         return Promise.resolve();
                     }
+                    // A configuration load started during pageshow may still be in
+                    // flight. Cancel it before saving so its late response cannot erase
+                    // edits made while the administrator was working.
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'configuration');
+                    page._hueConfigurationSaving = true;
+                    var saveButton = page.querySelector('#saveConfigurationBtn');
+                    if (saveButton) saveButton.disabled = true;
                     Dashboard.showLoadingMsg();
                     var parseNumberOrDefault = function (selector, fallback) {
                         var value = parseInt(page.querySelector(selector).value, 10);
@@ -2918,13 +2931,22 @@
                         SceneAutomationDeferMinutes: parseNumberOrDefault('#sceneAutomationDeferMinutes', 15)
                     };
 
-                    return ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/Configuration"),
-                        data: JSON.stringify(config),
-                        contentType: "application/json",
-                        dataType: "json"
-                    }).then(function (response) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'configurationSave',
+                        ApiClient.getUrl("HueSync/Configuration"),
+                        {
+                            type: "POST",
+                            data: JSON.stringify(config),
+                            contentType: "application/json",
+                            dataType: "json"
+                        });
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         response = response || {};
                         HueConfigurationPage.globalBridgeIp = String(response.hueBridgeIp || response.HueBridgeIp || page.querySelector('#hueBridgeIp').value || '').trim();
                         HueConfigurationPage.globalHasAppKey = response.hasAppKey !== undefined ? !!response.hasAppKey : !!response.HasAppKey;
@@ -2932,11 +2954,21 @@
                         if (clearCredentialsCheckbox) clearCredentialsCheckbox.checked = false;
                         HueConfigurationPage.refreshStatus(page, "Configuration saved.", "success");
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to save Hue configuration:", err);
                         HueConfigurationPage.refreshStatus(page, "Unable to save configuration. Check the server log for details.", "error");
                         Dashboard.alert("Failed to save configuration: " + (err && err.message ? err.message : "unknown error"));
                     }).finally(function () {
-                        Dashboard.hideLoadingMsg();
+                        var current = isCurrent();
+                        var requestRecord = request && request._huePageRequestRecord;
+                        var tracked = page && page._huePageRequests &&
+                            page._huePageRequests.configurationSave === requestRecord;
+                        if (current || tracked) {
+                            page._hueConfigurationSaving = false;
+                            if (saveButton) saveButton.disabled = false;
+                            if (!current) HueConfigurationPage.cancelPageLifecycleRequest(page, 'configurationSave');
+                        }
+                        if (current) Dashboard.hideLoadingMsg();
                     });
                 },
                 exportConfiguration: function (page) {

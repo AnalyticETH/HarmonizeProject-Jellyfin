@@ -1711,7 +1711,10 @@ namespace Jellyfin.Plugin.Hue.Service
             ObserveTask(StartSyncForItem(e));
         }
 
-        private async void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
+        private void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
+            => ObserveTask(HandlePlaybackStoppedEventAsync(e));
+
+        private async Task HandlePlaybackStoppedEventAsync(PlaybackStopEventArgs e)
         {
             if (TryGetConcurrentPlaybackWorker(e, out var concurrentWorker))
             {
@@ -1825,67 +1828,72 @@ namespace Jellyfin.Plugin.Hue.Service
             // Serialize capture, process shutdown, restoration, and area deactivation with
             // the next startup. No state is captured before this lock is acquired.
             await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
-            lock (_syncLock)
-            {
-                if (_isStopping ||
-                    (_currentPlaySessionId != null &&
-                     !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal)))
-                {
-                    _syncLifecycleLock.Release();
-                    return;
-                }
-            }
-
-            var config = Plugin.Instance?.Configuration;
-            var bridgeConfig = _currentBridgeConfig;
-            var savedLightStates = _savedLightStates;
-            await StopSyncAsync(
-                deactivateArea: false,
-                expectedPlaySessionId: e.PlaySessionId,
-                clearSession: false).ConfigureAwait(false);
-            _currentBridgeConfig = null;
-            _currentFrameResolution = null;
-            _currentVideoScalingMode = null;
-            _currentVideoDeinterlaceMode = null;
-            _currentTargetFps = null;
-            _currentAudioSensitivityPercent = null;
-            _currentAudioNoiseGatePercent = null;
-            _currentAudioFrequencies = null;
-            _currentAudioBandGains = null;
-            _currentAudioResponseSmoothingPercent = null;
-            _currentAudioBandSpreadPercent = null;
-            _currentAudioBeatPulsePercent = null;
-            _currentAudioBeatPulseDecayPercent = null;
-            _currentAudioBeatPulseThresholdPercent = null;
-            _currentAudioColorPalette = null;
-            _currentAudioSpatialMode = null;
-            _currentAudioChannelMode = null;
-            _currentSamplingBreadthPercent = null;
-            _currentSamplingMode = null;
-            _currentSpatialOrientation = null;
-            _currentColorSmoothingPercent = null;
-
             try
-            {
-                await RestoreAndDeactivateAsync(
-                    config,
-                    bridgeConfig,
-                    savedLightStates,
-                    sessionOutcome: "Stopped");
-            }
-            finally
             {
                 lock (_syncLock)
                 {
-                    if (string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                    if (_isStopping ||
+                        (_currentPlaySessionId != null &&
+                         !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal)))
                     {
-                        _currentPlaySessionId = null;
-                        _recoveredSessionId = null;
-                        _externalPlaybackStartPending = false;
-                        _externalPlaybackStopRequested = false;
-                        ResetPlaybackProgressTrackingLocked();
+                        return;
                     }
                 }
+
+                var config = Plugin.Instance?.Configuration;
+                var bridgeConfig = _currentBridgeConfig;
+                var savedLightStates = _savedLightStates;
+                await StopSyncAsync(
+                    deactivateArea: false,
+                    expectedPlaySessionId: e.PlaySessionId,
+                    clearSession: false).ConfigureAwait(false);
+                _currentBridgeConfig = null;
+                _currentFrameResolution = null;
+                _currentVideoScalingMode = null;
+                _currentVideoDeinterlaceMode = null;
+                _currentTargetFps = null;
+                _currentAudioSensitivityPercent = null;
+                _currentAudioNoiseGatePercent = null;
+                _currentAudioFrequencies = null;
+                _currentAudioBandGains = null;
+                _currentAudioResponseSmoothingPercent = null;
+                _currentAudioBandSpreadPercent = null;
+                _currentAudioBeatPulsePercent = null;
+                _currentAudioBeatPulseDecayPercent = null;
+                _currentAudioBeatPulseThresholdPercent = null;
+                _currentAudioColorPalette = null;
+                _currentAudioSpatialMode = null;
+                _currentAudioChannelMode = null;
+                _currentSamplingBreadthPercent = null;
+                _currentSamplingMode = null;
+                _currentSpatialOrientation = null;
+                _currentColorSmoothingPercent = null;
+
+                try
+                {
+                    await RestoreAndDeactivateAsync(
+                        config,
+                        bridgeConfig,
+                        savedLightStates,
+                        sessionOutcome: "Stopped");
+                }
+                finally
+                {
+                    lock (_syncLock)
+                    {
+                        if (string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                        {
+                            _currentPlaySessionId = null;
+                            _recoveredSessionId = null;
+                            _externalPlaybackStartPending = false;
+                            _externalPlaybackStopRequested = false;
+                            ResetPlaybackProgressTrackingLocked();
+                        }
+                    }
+                }
+            }
+            finally
+            {
                 _syncLifecycleLock.Release();
             }
         }

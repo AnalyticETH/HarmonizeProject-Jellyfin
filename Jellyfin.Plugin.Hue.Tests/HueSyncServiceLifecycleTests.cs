@@ -1,5 +1,6 @@
 using System.Net;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
@@ -20,6 +21,16 @@ namespace Jellyfin.Plugin.Hue.Tests;
 [Collection("PluginState")]
 public sealed class HueSyncServiceLifecycleTests
 {
+    [Fact]
+    public void PlaybackStopEventHandler_ObservesTaskInsteadOfAsyncVoid()
+    {
+        var method = typeof(HueSyncService).GetMethod("OnPlaybackStopped", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(method);
+        Assert.Equal(typeof(void), method!.ReturnType);
+        Assert.Null(method.GetCustomAttribute<AsyncStateMachineAttribute>());
+    }
+
     [Fact]
     public async Task HasActivePlaybackSessions_IgnoresTerminalSnapshots()
     {

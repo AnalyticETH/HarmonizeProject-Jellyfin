@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.311] - 2026-08-26
+
+### Configuration consistency and lifecycle safety
+- **Consistent configuration snapshots**: configuration reads and import validation now use a shared short-lived read lease, preventing hybrid responses while an administrator save or import is applying.
+- **Save lifecycle protection**: administrator configuration saves cancel stale loads, suppress hidden or superseded callbacks, and bound duplicate submissions with recoverable controls.
+- **Playback-stop fault observation**: playback-stop event work now flows through the service task observer so asynchronous cleanup faults are logged instead of escaping as `async void` exceptions.
+- **Regression coverage**: lifecycle, endpoint contention, configuration-page, and playback-stop handler contracts cover the new consistency and cancellation behavior.
+
 ## [1.5.310] - 2026-08-26
 
 ### Streaming resilience and cancellation

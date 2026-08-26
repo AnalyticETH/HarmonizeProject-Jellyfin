@@ -19,6 +19,7 @@ public sealed class HueBridgeLifecycleGate
     private bool _unscopedPlaybackActive;
     private bool _unscopedDiagnosticActive;
     private bool _configurationMutationActive;
+    private int _configurationReadCount;
     private int _schedulerEvaluationCount;
 
     /// <summary>
@@ -80,6 +81,22 @@ public sealed class HueBridgeLifecycleGate
     }
 
     /// <summary>
+    /// Gets whether one or more credential-free configuration projections currently
+    /// hold a read lease. Read leases cover only synchronous snapshots; bridge and
+    /// diagnostic I/O must remain outside the lease.
+    /// </summary>
+    public bool IsConfigurationReadActive
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _configurationReadCount > 0;
+            }
+        }
+    }
+
+    /// <summary>
     /// Gets whether an automatic scheduler evaluation currently owns the barrier.
     /// </summary>
     public bool IsSchedulerEvaluationActive
@@ -104,6 +121,7 @@ public sealed class HueBridgeLifecycleGate
         lock (_sync)
         {
             if (_configurationMutationActive ||
+                _configurationReadCount > 0 ||
                 _schedulerEvaluationCount > 0 ||
                 IsPlaybackActiveLocked() ||
                 IsDiagnosticActiveLocked())
@@ -113,6 +131,24 @@ public sealed class HueBridgeLifecycleGate
 
             _configurationMutationActive = true;
             return new LifecycleLease(this, LifecycleKind.ConfigurationMutation, resourceKey: null);
+        }
+    }
+
+    /// <summary>
+    /// Attempts to reserve a short, synchronous configuration snapshot. The lease is
+    /// shared with configuration writers so a projection cannot observe fields from a
+    /// partially applied import. It deliberately does not wait, preserving the
+    /// fail-fast conflict behavior used by the other lifecycle reservations.
+    /// </summary>
+    public IDisposable? TryEnterConfigurationRead()
+    {
+        lock (_sync)
+        {
+            if (_configurationMutationActive)
+                return null;
+
+            _configurationReadCount++;
+            return new LifecycleLease(this, LifecycleKind.ConfigurationRead, resourceKey: null);
         }
     }
 
@@ -222,6 +258,10 @@ public sealed class HueBridgeLifecycleGate
             {
                 _configurationMutationActive = false;
             }
+            else if (kind == LifecycleKind.ConfigurationRead)
+            {
+                _configurationReadCount = Math.Max(0, _configurationReadCount - 1);
+            }
             else if (kind == LifecycleKind.SchedulerEvaluation)
             {
                 _schedulerEvaluationCount = Math.Max(0, _schedulerEvaluationCount - 1);
@@ -268,6 +308,7 @@ public sealed class HueBridgeLifecycleGate
         Playback,
         Diagnostic,
         ConfigurationMutation,
+        ConfigurationRead,
         SchedulerEvaluation
     }
 }

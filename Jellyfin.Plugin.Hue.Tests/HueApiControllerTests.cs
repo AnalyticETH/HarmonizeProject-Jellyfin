@@ -11334,6 +11334,21 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetConfiguration_RejectsActiveConfigurationMutation()
+    {
+        InstallConfiguration(new PluginConfiguration());
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+
+        var action = CreateController(bridgeLifecycleGate: gate).GetConfiguration();
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Null(action.Value);
+    }
+
+    [Fact]
     public void ExportConfiguration_IncludesProfilesAndScenesWithoutSecrets()
     {
         InstallConfiguration(new PluginConfiguration
@@ -11483,6 +11498,21 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ExportConfiguration_RejectsActiveConfigurationMutation()
+    {
+        InstallConfiguration(new PluginConfiguration());
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+
+        var action = CreateController(bridgeLifecycleGate: gate).ExportConfiguration();
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Null(action.Value);
+    }
+
+    [Fact]
     public void ValidateConfigurationImport_ReturnsCredentialSafePlanWithoutChangingConfiguration()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -11518,6 +11548,22 @@ public sealed class HueApiControllerTests : IDisposable
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("existing-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("existing-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateConfigurationImport_RejectsActiveConfigurationMutation()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+
+        var action = CreateController(bridgeLifecycleGate: gate)
+            .ValidateConfigurationImport(CreateConfigurationImportRequest(configuration));
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Null(action.Value);
     }
 
     [Fact]
