@@ -49,6 +49,10 @@ namespace Jellyfin.Plugin.Hue.Hue
         // A stream stop cancels any delayed reconnect or in-flight DTLS startup. The
         // source is replaced for the next stream so a later playback can reconnect normally.
         private CancellationTokenSource _streamLifecycleCts = new CancellationTokenSource();
+        // Incremented whenever a public lifecycle transition retires the lifecycle source.
+        // Startup and reconnect workers carry this generation so stale work cannot install a
+        // stream or clear a replacement stream after a stop/start race.
+        private long _streamLifecycleGeneration;
 
         // How long to wait after establishing DTLS before attempting to write
         // The DTLS handshake typically takes 100-400ms on a local network
@@ -202,8 +206,23 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="config">Plugin configuration containing bridge IP and credentials</param>
         public async Task StartStreamAsync(PluginConfiguration config)
         {
-            await StartStreamAsync(config.HueBridgeIp, config.HueAppKey, config.HueClientKey).ConfigureAwait(false);
-            _lastConfig = config;
+            var lifecycleGeneration = await StartStreamWithGenerationAsync(
+                config.HueBridgeIp,
+                config.HueAppKey,
+                config.HueClientKey,
+                CancellationToken.None).ConfigureAwait(false);
+
+            // The configuration overload historically retained the full config for a
+            // reconnect. Only publish it if the same startup still owns the lifecycle;
+            // otherwise a stop that raced completion must not leave a stale reconnect target.
+            if (lifecycleGeneration.HasValue)
+            {
+                lock (_lock)
+                {
+                    if (_streamLifecycleGeneration == lifecycleGeneration.Value)
+                        _lastConfig = config;
+                }
+            }
         }
 
         /// <summary>
@@ -221,6 +240,19 @@ namespace Jellyfin.Plugin.Hue.Hue
             string clientKey,
             CancellationToken cancellationToken = default)
         {
+            await StartStreamWithGenerationAsync(
+                bridgeIp,
+                appKey,
+                clientKey,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task<long?> StartStreamWithGenerationAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            CancellationToken cancellationToken)
+        {
             // Reconnects use the same gate. A public replacement start must wait for an
             // in-flight reconnect to finish (or observe its canceled lifecycle) before
             // replacing the connection; otherwise stale reconnect cleanup can close the
@@ -228,7 +260,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             await _reconnectLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                await StartStreamCoreAsync(
+                return await StartStreamCoreAsync(
                     bridgeIp,
                     appKey,
                     clientKey,
@@ -241,24 +273,25 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
         }
 
-        private async Task StartStreamCoreAsync(
+        private async Task<long?> StartStreamCoreAsync(
             string bridgeIp,
             string appKey,
             string clientKey,
             CancellationToken cancellationToken,
-            bool cancelPendingReconnect)
+            bool cancelPendingReconnect,
+            long? expectedLifecycleGeneration = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (string.IsNullOrEmpty(bridgeIp) || string.IsNullOrEmpty(clientKey))
             {
                 _logger.LogError("Bridge IP or Client Key missing.");
-                return;
+                return null;
             }
 
             if (string.IsNullOrEmpty(appKey))
             {
                 _logger.LogError("Hue App Key missing.");
-                return;
+                return null;
             }
 
             if (cancelPendingReconnect)
@@ -272,34 +305,79 @@ namespace Jellyfin.Plugin.Hue.Hue
                 }
             }
 
-            // A reconnect already owns the current lifecycle token. Do not cancel that
-            // token when it replaces the failed connection; an external StopStream still can.
-            StopStream(cancelPendingReconnect);
-            _lastBridgeConfig = (bridgeIp, appKey, clientKey);
-            _lastSentColors = null;
-
-            CancellationTokenSource? startupTokenSource = null;
-            CancellationToken startupToken;
+            // Capture the lifecycle generation before replacing the connection. For a
+            // reconnect this is the generation owned by the reconnect worker; for a public
+            // start it lets us distinguish our replacement stop from a concurrent external
+            // stop that must win and cancel this startup.
+            long expectedStartGeneration;
             lock (_lock)
             {
-                startupToken = _streamLifecycleCts.Token;
+                expectedStartGeneration = _streamLifecycleGeneration;
             }
 
-            if (cancellationToken.CanBeCanceled)
+            if (expectedLifecycleGeneration.HasValue &&
+                expectedLifecycleGeneration.Value != expectedStartGeneration)
             {
+                return null;
+            }
+
+            // A reconnect already owns the current lifecycle token. Do not cancel that
+            // token when it replaces the failed connection; an external StopStream still can.
+            if (!StopStream(cancelPendingReconnect, expectedStartGeneration))
+            {
+                return null;
+            }
+
+            var requiredLifecycleGeneration = cancelPendingReconnect
+                ? expectedStartGeneration + 1
+                : expectedStartGeneration;
+            CancellationTokenSource? startupTokenSource = null;
+            CancellationToken startupToken;
+            long lifecycleGeneration;
+            lock (_lock)
+            {
+                // StopStream logs outside the state lock. A reentrant/concurrent stop can
+                // therefore retire the source before this block; never overwrite that stop
+                // by publishing a new target against its replacement lifecycle.
+                if (_streamLifecycleGeneration != requiredLifecycleGeneration)
+                {
+                    return null;
+                }
+
+                // A stop can clear the saved reconnect target while this worker is waiting
+                // to capture its token. Do not resurrect it when this is an internal retry.
+                if (!cancelPendingReconnect && _lastConfig == null && _lastBridgeConfig == null)
+                {
+                    return null;
+                }
+
+                if (cancelPendingReconnect)
+                {
+                    _lastBridgeConfig = (bridgeIp, appKey, clientKey);
+                    _lastSentColors = null;
+                }
+
+                lifecycleGeneration = _streamLifecycleGeneration;
+                startupToken = _streamLifecycleCts.Token;
+
+                // Always use a linked source, even when the caller has no cancellation
+                // token. Startup awaits (including Task.Delay) can then safely register on
+                // this live source while StopStream cancels and disposes the retired
+                // lifecycle source underneath it.
                 startupTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken,
                     startupToken);
                 startupToken = startupTokenSource.Token;
             }
 
+            IHueDtlsConnection? dtlsConnection = null;
             try
             {
                 // Use a managed DTLS PSK session so the App Key and Client Key remain in
                 // this process's memory instead of being exposed through /proc or ps.
                 _logger.LogInformation("Starting managed DTLS tunnel to {0}:2100", bridgeIp);
 
-                var dtlsConnection = await _connectDtlsAsync(
+                dtlsConnection = await _connectDtlsAsync(
                     bridgeIp,
                     appKey,
                     clientKey,
@@ -307,18 +385,45 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                 if (startupToken.IsCancellationRequested)
                 {
-                    dtlsConnection.Close();
+                    SafeClose(dtlsConnection);
                     startupToken.ThrowIfCancellationRequested();
                 }
 
+                var installed = false;
                 lock (_lock)
                 {
-                    _dtlsConnection = dtlsConnection;
+                    if (_streamLifecycleGeneration == lifecycleGeneration &&
+                        !startupToken.IsCancellationRequested)
+                    {
+                        _dtlsConnection = dtlsConnection;
+                        installed = true;
+                    }
+                }
+
+                if (!installed)
+                {
+                    SafeClose(dtlsConnection);
+                    startupToken.ThrowIfCancellationRequested();
+                    return null;
                 }
 
                 // Keep the existing short bridge-settle delay so the first packet is
                 // sent only after the entertainment area has switched to streaming mode.
                 await Task.Delay(DtlsHandshakeWaitMs, startupToken).ConfigureAwait(false);
+
+                var stillCurrent = false;
+                lock (_lock)
+                {
+                    stillCurrent = _streamLifecycleGeneration == lifecycleGeneration &&
+                        ReferenceEquals(_dtlsConnection, dtlsConnection);
+                }
+
+                if (!stillCurrent || startupToken.IsCancellationRequested)
+                {
+                    SafeClose(dtlsConnection);
+                    startupToken.ThrowIfCancellationRequested();
+                    return null;
+                }
 
                 if (!dtlsConnection.IsHealthy)
                 {
@@ -326,12 +431,13 @@ namespace Jellyfin.Plugin.Hue.Hue
                     // A reconnect failure must leave the saved target and lifecycle
                     // token intact so a later SendColors call can consume the remaining
                     // bounded retry budget. A public startup still clears the target.
-                    StopStream(cancelPendingReconnect);
-                    return;
+                    StopStream(cancelPendingReconnect, lifecycleGeneration);
+                    return null;
                 }
 
                 _reconnectAttempts = 0;
                 _logger.LogInformation("Managed DTLS tunnel started to {0}:2100", bridgeIp);
+                return lifecycleGeneration;
             }
             catch (Exception ex)
             {
@@ -339,7 +445,12 @@ namespace Jellyfin.Plugin.Hue.Hue
                 // Preserve reconnect state after an internal startup failure. Clearing
                 // _lastBridgeConfig here would make all later frames permanently unable
                 // to retry even though MaxReconnectAttempts has not been exhausted.
-                StopStream(cancelPendingReconnect);
+                if (dtlsConnection != null && !OwnsConnection(lifecycleGeneration, dtlsConnection))
+                {
+                    SafeClose(dtlsConnection);
+                }
+
+                StopStream(cancelPendingReconnect, lifecycleGeneration);
                 throw;
             }
             finally
@@ -353,29 +464,41 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// </summary>
         private async Task<bool> TryReconnectAsync(CancellationToken cancellationToken)
         {
-            CancellationToken lifecycleToken;
+            CancellationTokenSource reconnectTokenSource;
+            long lifecycleGeneration;
             lock (_lock)
             {
-                lifecycleToken = _streamLifecycleCts.Token;
+                lifecycleGeneration = _streamLifecycleGeneration;
+                // Keep linked-source registration under the lifecycle lock. StopStream
+                // retires and disposes the old source after releasing this lock.
+                reconnectTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    _streamLifecycleCts.Token);
             }
 
-            using var reconnectTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                lifecycleToken);
+            using var reconnectTokenSourceLease = reconnectTokenSource;
             var reconnectToken = reconnectTokenSource.Token;
 
-            await _reconnectLock.WaitAsync(reconnectToken).ConfigureAwait(false);
+            var reconnectLockAcquired = false;
             try
             {
+                await _reconnectLock.WaitAsync(reconnectToken).ConfigureAwait(false);
+                reconnectLockAcquired = true;
                 reconnectToken.ThrowIfCancellationRequested();
+
+                lock (_lock)
+                {
+                    if (_streamLifecycleGeneration != lifecycleGeneration ||
+                        (_lastConfig == null && _lastBridgeConfig == null))
+                    {
+                        return false;
+                    }
+                }
 
                 // A concurrent SendColors call may have repaired the stream while this
                 // caller was waiting for the reconnect gate.
                 if (IsHealthy())
                     return true;
-
-                if (_lastConfig == null && _lastBridgeConfig == null)
-                    return false;
 
                 if (_reconnectAttempts >= MaxReconnectAttempts)
                     return false;
@@ -385,7 +508,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                 var attempt = _reconnectAttempts;
                 _logger.LogWarning("Attempting to reconnect DTLS stream (attempt {0}/{1})", attempt, MaxReconnectAttempts);
 
-                StopStream(cancelPendingReconnect: false);
+                if (!StopStream(false, lifecycleGeneration))
+                    return false;
                 // Exponential backoff — await so we don't block a thread pool thread
                 await Task.Delay(1000 * attempt, reconnectToken).ConfigureAwait(false);
 
@@ -410,24 +534,37 @@ namespace Jellyfin.Plugin.Hue.Hue
                     await Task.Delay(EntertainmentAreaActivationDelayMs, reconnectToken).ConfigureAwait(false); // Let bridge enter streaming mode
                 }
 
-                if (_lastBridgeConfig != null)
+                (string bridgeIp, string appKey, string clientKey)? bridgeConfig;
+                PluginConfiguration? config;
+                lock (_lock)
                 {
-                    var (bridgeIp, appKey, clientKey) = _lastBridgeConfig.Value;
+                    if (_streamLifecycleGeneration != lifecycleGeneration)
+                        return false;
+
+                    bridgeConfig = _lastBridgeConfig;
+                    config = _lastConfig;
+                }
+
+                if (bridgeConfig != null)
+                {
+                    var (bridgeIp, appKey, clientKey) = bridgeConfig.Value;
                     await StartStreamCoreAsync(
                         bridgeIp,
                         appKey,
                         clientKey,
                         reconnectToken,
-                        cancelPendingReconnect: false).ConfigureAwait(false);
+                        cancelPendingReconnect: false,
+                        expectedLifecycleGeneration: lifecycleGeneration).ConfigureAwait(false);
                 }
-                else if (_lastConfig != null)
+                else if (config != null)
                 {
                     await StartStreamCoreAsync(
-                        _lastConfig.HueBridgeIp,
-                        _lastConfig.HueAppKey,
-                        _lastConfig.HueClientKey,
+                        config.HueBridgeIp,
+                        config.HueAppKey,
+                        config.HueClientKey,
                         reconnectToken,
-                        cancelPendingReconnect: false).ConfigureAwait(false);
+                        cancelPendingReconnect: false,
+                        expectedLifecycleGeneration: lifecycleGeneration).ConfigureAwait(false);
                 }
 
                 return IsHealthy();
@@ -443,27 +580,87 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
             finally
             {
-                _reconnectLock.Release();
+                if (reconnectLockAcquired)
+                    _reconnectLock.Release();
             }
         }
 
         public virtual void StopStream()
             => StopStream(cancelPendingReconnect: true);
 
-        private void StopStream(bool cancelPendingReconnect)
+        private bool OwnsConnection(long lifecycleGeneration, IHueDtlsConnection connection)
+        {
+            lock (_lock)
+            {
+                return _streamLifecycleGeneration == lifecycleGeneration &&
+                    ReferenceEquals(_dtlsConnection, connection);
+            }
+        }
+
+        private void SafeClose(IHueDtlsConnection? connection)
+        {
+            if (connection == null)
+                return;
+
+            try
+            {
+                connection.Close();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to close the DTLS stream");
+            }
+        }
+
+        private void CancelAndDisposeLifecycle(CancellationTokenSource lifecycle)
+        {
+            try
+            {
+                // Cancel synchronously so all linked registrations have observed the stop
+                // before the retired source is disposed.
+                lifecycle.Cancel(throwOnFirstException: false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error canceling retired DTLS stream lifecycle");
+            }
+
+            try
+            {
+                lifecycle.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error disposing retired DTLS stream lifecycle");
+            }
+        }
+
+        private bool StopStream(
+            bool cancelPendingReconnect,
+            long? expectedLifecycleGeneration = null)
         {
             CancellationTokenSource? canceledLifecycle = null;
             try
             {
                 lock (_lock)
                 {
+                    if (expectedLifecycleGeneration.HasValue &&
+                        expectedLifecycleGeneration.Value != _streamLifecycleGeneration)
+                    {
+                        return false;
+                    }
+
                     if (cancelPendingReconnect)
                     {
                         canceledLifecycle = _streamLifecycleCts;
                         _streamLifecycleCts = new CancellationTokenSource();
+                        _streamLifecycleGeneration++;
                     }
 
-                    _dtlsConnection?.Close();
+                    if (_dtlsConnection != null)
+                    {
+                        SafeClose(_dtlsConnection);
+                    }
                     _dtlsConnection = null;
                     _lastSentColors = null;
                     if (cancelPendingReconnect)
@@ -474,12 +671,24 @@ namespace Jellyfin.Plugin.Hue.Hue
                         _lastBridgeConfig = null;
                     }
                 }
-                canceledLifecycle?.Cancel();
+
+                if (canceledLifecycle != null)
+                {
+                    CancelAndDisposeLifecycle(canceledLifecycle);
+                }
+
                 _logger.LogInformation("DTLS stream stopped");
+                return true;
             }
             catch (Exception ex)
             {
+                if (canceledLifecycle != null)
+                {
+                    CancelAndDisposeLifecycle(canceledLifecycle);
+                }
+
                 _logger.LogWarning(ex, "Error stopping DTLS stream");
+                return false;
             }
         }
 

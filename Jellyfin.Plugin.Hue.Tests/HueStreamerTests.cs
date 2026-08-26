@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -147,6 +148,93 @@ public class HueStreamerTests
         Assert.True(await streamer.SendColors(
             "area-id",
             new Dictionary<int, byte[]> { [1] = new byte[] { 4, 4, 5, 5, 6, 6 } }));
+    }
+
+    [Fact]
+    public async Task StartStreamAsync_WhenStopRacesLifecycleCapture_DoesNotResurrectStream()
+    {
+        var logger = new CallbackLogger<HueStreamer>();
+        HueStreamer? streamer = null;
+        var stopCount = 0;
+        var connectionCount = 0;
+        logger.OnMessage = message =>
+        {
+            if (message == "DTLS stream stopped" && Interlocked.Exchange(ref stopCount, 1) == 0)
+                streamer!.StopStream();
+        };
+
+        streamer = new HueStreamer(
+            logger,
+            (_, _, _, _) =>
+            {
+                Interlocked.Increment(ref connectionCount);
+                return Task.FromResult<IHueDtlsConnection>(new TestDtlsConnection());
+            });
+
+        await streamer.StartStreamAsync(
+            "192.168.1.100",
+            "app-key",
+            "00112233445566778899aabbccddeeff");
+
+        Assert.Equal(0, connectionCount);
+        Assert.False(streamer.IsHealthy());
+        Assert.False(await streamer.SendColors(
+            "area-id",
+            new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } }));
+        Assert.Equal(0, streamer.ReconnectAttempts);
+    }
+
+    [Fact]
+    public async Task StartStreamAsync_WithConfig_DoesNotRetainReconnectTargetAfterStopWinsAtCompletion()
+    {
+        var logger = new CallbackLogger<HueStreamer>();
+        HueStreamer? streamer = null;
+        var stopCount = 0;
+        var connectionCount = 0;
+        logger.OnMessage = message =>
+        {
+            if (message == "Managed DTLS tunnel started to 192.168.1.100:2100" &&
+                Interlocked.Exchange(ref stopCount, 1) == 0)
+            {
+                streamer!.StopStream();
+            }
+        };
+
+        streamer = new HueStreamer(
+            logger,
+            (_, _, _, _) =>
+            {
+                Interlocked.Increment(ref connectionCount);
+                return Task.FromResult<IHueDtlsConnection>(new TestDtlsConnection());
+            });
+
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-key",
+            HueClientKey = "00112233445566778899aabbccddeeff"
+        };
+
+        await streamer.StartStreamAsync(config);
+
+        Assert.Equal(1, connectionCount);
+        Assert.False(streamer.IsHealthy());
+        streamer.MaxReconnectAttempts = 1;
+        Assert.False(await streamer.SendColors(
+            "area-id",
+            new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } }));
+        Assert.Equal(1, connectionCount);
+        Assert.Equal(0, streamer.ReconnectAttempts);
+    }
+
+    [Fact]
+    public void StopStream_DisposesRetiredLifecycleCancellationSource()
+    {
+        var retiredLifecycle = GetPrivateField<CancellationTokenSource>(_streamer, "_streamLifecycleCts");
+
+        _streamer.StopStream();
+
+        Assert.Throws<ObjectDisposedException>(() => retiredLifecycle.Token.Register(static () => { }).Dispose());
     }
 
     [Fact]
@@ -456,6 +544,33 @@ public class HueStreamerTests
     private static void SetPrivateField(object target, string fieldName, object? value)
     {
         target.GetType().GetField(fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(target, value);
+    }
+
+    private static T GetPrivateField<T>(object target, string fieldName)
+    {
+        return (T)target.GetType().GetField(
+            fieldName,
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(target)!;
+    }
+
+    private sealed class CallbackLogger<T> : ILogger<T>
+    {
+        public Action<string>? OnMessage { get; set; }
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            OnMessage?.Invoke(formatter(state, exception));
+        }
     }
 
     private sealed class TestDtlsConnection : IHueDtlsConnection
