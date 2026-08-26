@@ -3990,8 +3990,8 @@ namespace Jellyfin.Plugin.Hue.Api
             [FromQuery(Name = "scheduleId")] string? scheduleId = null)
         {
             var reportAction = GetSceneScheduleConflicts(limit, days, scheduleId);
-            if (reportAction.Result is ConflictObjectResult conflict)
-                return conflict;
+            if (reportAction.Result is ConflictObjectResult conflictResponse)
+                return conflictResponse;
 
             var report = ReadActionValue(reportAction);
             if (report == null)
@@ -4105,8 +4105,8 @@ namespace Jellyfin.Plugin.Hue.Api
             [FromQuery(Name = "scheduleId")] string? scheduleId = null)
         {
             var reportAction = GetSceneScheduleOccurrences(limit, days, scheduleId);
-            if (reportAction.Result is ConflictObjectResult conflict)
-                return conflict;
+            if (reportAction.Result is ConflictObjectResult conflictResponse)
+                return conflictResponse;
 
             var report = ReadActionValue(reportAction);
             if (report == null)
@@ -4672,8 +4672,8 @@ namespace Jellyfin.Plugin.Hue.Api
             [FromQuery(Name = "outcome")] string? outcome = null)
         {
             var reportAction = GetSceneScheduleHistory(limit, scheduleId, outcome);
-            if (reportAction.Result is ConflictObjectResult conflict)
-                return conflict;
+            if (reportAction.Result is ConflictObjectResult conflictResponse)
+                return conflictResponse;
 
             var report = ReadActionValue(reportAction);
             if (report == null)
