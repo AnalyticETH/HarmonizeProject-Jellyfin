@@ -2186,12 +2186,17 @@ namespace Jellyfin.Plugin.Hue.Service
                         }
                     }
 
-                    await _hueClient.StopEntertainmentArea(
+                    var deactivated = await _hueClient.StopEntertainmentAreaWithResult(
                         bridgeConfig.Value.BridgeIp,
                         bridgeConfig.Value.AppKey,
                         bridgeConfig.Value.AreaId,
                         cleanupToken).ConfigureAwait(false);
-                    _bridgeAreaDeactivated = true;
+                    _bridgeAreaDeactivated = deactivated;
+                    if (!deactivated)
+                    {
+                        pauseMessage = $"{pauseMessage} The entertainment area could not be deactivated; cleanup will retry.";
+                        SetCleanupWarning("The entertainment area could not be deactivated after playback pause; cleanup will retry.");
+                    }
                     ReleasePlaybackLifecycleLease();
                     SetRuntimeStatus("Paused", pauseMessage);
                 }

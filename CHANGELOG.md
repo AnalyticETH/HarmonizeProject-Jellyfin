@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.312] - 2026-08-26
+
+### Cleanup reliability and read-only administrator projections
+- **Pause cleanup retry safety**: failed entertainment-area deactivation now keeps the bridge target marked active, records a cleanup warning, and retries during service shutdown instead of falsely reporting success.
+- **Read-only projections**: administrator playlist, user-mapping, reconciliation, dependency, and target-diagnostics reads no longer initialize collections or manufacture mapping IDs in live configuration.
+- **Scheduler read isolation**: status and history API reads no longer persist lazy scheduler-history repairs, and configuration snapshots are mutually exclusive with scheduler evaluation.
+- **Regression coverage**: lifecycle, scheduler, API, and gate tests cover failed pause deactivation, shutdown retry, non-mutating reads, and scheduler/read exclusion.
+
 ## [1.5.311] - 2026-08-26
 
 ### Configuration consistency and lifecycle safety

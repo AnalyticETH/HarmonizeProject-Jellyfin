@@ -94,6 +94,9 @@ jobs:
     - name: Validate pull-request workflow boundary
       run: node scripts/validate-pull-request-workflow.mjs
 
+    - name: Validate trusted workflow boundary
+      run: node scripts/validate-trusted-workflow.mjs
+
     - name: Validate deterministic release package
       run: node scripts/validate-release-package.mjs
 
@@ -236,9 +239,10 @@ jobs:
         cp tested-publish/Jellyfin.Plugin.Hue.dll release-package/
         cp tested-publish/BouncyCastle.Cryptography.dll release-package/
         cp tested-publish/meta.json release-package/
-        META_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' tested-publish/meta.json | head -n 1)
-        SOURCE_META_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' meta.json | head -n 1)
+        META_VERSION=$(jq -er '.version | strings | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"))' tested-publish/meta.json)
+        SOURCE_META_VERSION=$(jq -er '.version | strings | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"))' meta.json)
         PROJECT_VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj | head -n 1)
+        printf '%s\n' "$PROJECT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
         test -n "$META_VERSION" && test "$META_VERSION" = "$SOURCE_META_VERSION" && test "$META_VERSION" = "$PROJECT_VERSION"
         test -f release-package/Jellyfin.Plugin.Hue.dll
         test -f release-package/BouncyCastle.Cryptography.dll
@@ -305,7 +309,7 @@ jobs:
     - name: Extract version from meta.json
       id: version
       run: |
-        VERSION=$(cat meta.json | grep -oP '"version":\s*"\K[^"]+')
+        VERSION=$(jq -er '.version | strings | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"))' meta.json)
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "tag=v$VERSION" >> $GITHUB_OUTPUT
         echo "Detected version: $VERSION"
@@ -338,7 +342,7 @@ jobs:
             CHANGES="See CHANGELOG.md for details."
           fi
         else
-          CHANGES=$(cat meta.json | grep -oP '"changelog":\s*"\K[^"]+' | sed 's/\\n/\n/g')
+          CHANGES=$(jq -r '.changelog // "See CHANGELOG.md for details."' meta.json)
         fi
         echo "changes<<EOF" >> $GITHUB_OUTPUT
         echo "$CHANGES" >> $GITHUB_OUTPUT

@@ -182,4 +182,19 @@ public sealed class HueBridgeLifecycleGateTests
         using var mutation = gate.TryEnterConfigurationMutation();
         Assert.NotNull(mutation);
     }
+
+    [Fact]
+    public void SchedulerEvaluationAndConfigurationReadsAreMutuallyExclusive()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var reader = gate.TryEnterConfigurationRead();
+
+        Assert.NotNull(reader);
+        Assert.Null(gate.TryEnterSchedulerEvaluation());
+
+        reader!.Dispose();
+        using var evaluation = gate.TryEnterSchedulerEvaluation();
+        Assert.NotNull(evaluation);
+        Assert.Null(gate.TryEnterConfigurationRead());
+    }
 }

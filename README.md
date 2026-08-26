@@ -394,7 +394,7 @@ doubles. A real bridge is only needed for an end-to-end playback check after ins
 Tests are automatically run in CI/CD on:
 - Trusted pushes to `main`
 
-Full CI runs locked restores, build/tests, formatting, dependency auditing, Gitleaks, and Semgrep on the named self-hosted runner. A repository-controlled weekly default-branch workflow reruns the blocking Gitleaks and Semgrep gates. The main persistent-runner workflow accepts `workflow_dispatch` only for an operator recovery run on `main`; manual recovery never publishes a release, while pull-request and non-main push events remain excluded and every self-hosted job has a `refs/heads/main` guard. The runner is configured under the dedicated, least-privileged `harmonize-runner` service account with an isolated home. Release publication uses a separate least-privileged self-hosted identity so its short-lived `contents:write` token is never exposed to the build/test account, verifies the release ZIP's SHA-256 sidecar before publication, and fails closed when its version tag already exists. See `.github/workflows/dotnet-ci.yml` and [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md) for the full workflow and host runbook.
+Full CI runs locked restores, build/tests, formatting, dependency auditing, Gitleaks, and Semgrep on the named self-hosted runner. A repository-controlled weekly default-branch workflow reruns the blocking Gitleaks and Semgrep gates. The main persistent-runner workflow accepts `workflow_dispatch` only for an operator recovery run on `main`; manual recovery never publishes a release, while pull-request and non-main push events remain excluded and every self-hosted job has a `refs/heads/main` guard. The trusted workflow boundary validator (`scripts/validate-trusted-workflow.mjs`) keeps those trigger, runner, permission, immutable-action, and version contracts executable. The runner is configured under the dedicated, least-privileged `harmonize-runner` service account with an isolated home. Release publication uses a separate least-privileged self-hosted identity so its short-lived `contents:write` token is never exposed to the build/test account, verifies the release ZIP's SHA-256 sidecar before publication, and fails closed when its version tag already exists. See `.github/workflows/dotnet-ci.yml` and [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md) for the full workflow and host runbook.
 
 ### Troubleshooting
 
@@ -457,7 +457,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.311 (Current)
+### Version 1.5.312 (Current)
+- **Pause cleanup retry safety**: failed entertainment-area deactivation now remains eligible for the shutdown retry and surfaces a credential-free cleanup warning.
+- **Read-only administrator projections**: playlist, user-mapping, reconciliation, dependency, and target-diagnostics reads no longer initialize collections or manufacture mapping IDs in live configuration.
+- **Scheduler read isolation**: status/history API reads do not persist lazy repairs, and scheduler evaluation cannot overlap a configuration snapshot.
+- **Regression coverage**: lifecycle, scheduler, API, and gate tests cover failed pause deactivation, shutdown retry, non-mutating reads, and scheduler/read exclusion.
 - **Consistent configuration snapshots**: configuration reads and import validation now use a shared short-lived read lease, preventing hybrid responses while an administrator save or import is applying.
 - **Save lifecycle protection**: administrator configuration saves cancel stale loads, suppress hidden or superseded callbacks, and bound duplicate submissions with recoverable controls.
 - **Playback-stop fault observation**: playback-stop event work now flows through the service task observer so asynchronous cleanup faults are logged instead of escaping as `async void` exceptions.

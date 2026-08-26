@@ -903,12 +903,13 @@ public sealed class HueSceneAutomationService : BackgroundService
     public IReadOnlyList<HueSceneAutomationRunResult> GetHistory(
         int limit = MaxSceneScheduleHistoryCount,
         string? scheduleId = null,
-        string? outcome = null)
+        string? outcome = null,
+        bool persistRepairs = true)
     {
-        var readRepairLease = TryAcquireReadRepairLease();
+        var readRepairLease = persistRepairs ? TryAcquireReadRepairLease() : null;
         try
         {
-            EnsureHistoryLoaded(readRepairLease != null);
+            EnsureHistoryLoaded(persistRepairs && readRepairLease != null);
             var boundedLimit = Math.Clamp(limit, 1, MaxSceneScheduleHistoryCount);
             var normalizedScheduleId = scheduleId?.Trim();
             var normalizedOutcome = outcome?.Trim();
@@ -1021,12 +1022,12 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// bridge connection details never enter this snapshot; target labels are derived
     /// from the current mapping names only.
     /// </summary>
-    public HueSceneAutomationStatus GetStatus()
+    public HueSceneAutomationStatus GetStatus(bool persistRepairs = true)
     {
-        var readRepairLease = TryAcquireReadRepairLease();
+        var readRepairLease = persistRepairs ? TryAcquireReadRepairLease() : null;
         try
         {
-            return GetStatusSnapshot(readRepairLease != null);
+            return GetStatusSnapshot(persistRepairs && readRepairLease != null);
         }
         finally
         {

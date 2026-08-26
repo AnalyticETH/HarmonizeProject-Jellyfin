@@ -83,7 +83,8 @@ public sealed class HueBridgeLifecycleGate
     /// <summary>
     /// Gets whether one or more credential-free configuration projections currently
     /// hold a read lease. Read leases cover only synchronous snapshots; bridge and
-    /// diagnostic I/O must remain outside the lease.
+    /// diagnostic I/O must remain outside the lease. Scheduler evaluation is excluded
+    /// for the same interval so a projection cannot straddle a scheduled configuration read.
     /// </summary>
     public bool IsConfigurationReadActive
     {
@@ -144,7 +145,7 @@ public sealed class HueBridgeLifecycleGate
     {
         lock (_sync)
         {
-            if (_configurationMutationActive)
+            if (_configurationMutationActive || _schedulerEvaluationCount > 0)
                 return null;
 
             _configurationReadCount++;
@@ -155,13 +156,14 @@ public sealed class HueBridgeLifecycleGate
     /// <summary>
     /// Attempts to reserve the scheduler evaluation side of the configuration barrier.
     /// Automatic scheduler work may continue beside playback, but it cannot overlap a
-    /// configuration mutation; the returned lease remains held across asynchronous work.
+    /// configuration mutation or read lease; the returned lease remains held across
+    /// asynchronous work.
     /// </summary>
     public IDisposable? TryEnterSchedulerEvaluation()
     {
         lock (_sync)
         {
-            if (_configurationMutationActive)
+            if (_configurationMutationActive || _configurationReadCount > 0)
                 return null;
 
             _schedulerEvaluationCount++;

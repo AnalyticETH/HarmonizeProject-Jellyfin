@@ -16,9 +16,9 @@ credentials are `0440` and work/home/cache directories are `0700`. The services 
 `ProtectSystem=strict`, `ProtectHome`, private devices and temporary directories,
 namespace and SUID/SGID restrictions, an empty capability set, and bounded resources.
 
-Persistent runners accept only repository-controlled trusted `main` pushes and scheduled
-default-branch security scans. The trusted main and scheduled security workflows expose
-neither `workflow_dispatch`, pull-request, nor non-main push triggers, and every self-hosted
+Persistent runners accept only repository-controlled trusted `main` pushes, the main-only
+operator recovery dispatch, and scheduled default-branch security scans. The trusted main
+and scheduled security workflows expose no pull-request or non-main push triggers, and every self-hosted
 job has a `github.ref == 'refs/heads/main'` guard as defense in depth. Pull-request and non-main code
 must not be routed to either identity. The release label is reserved for the single
 `contents:write` job. Every job also has a bounded `timeout-minutes` budget (20 minutes for

@@ -2746,8 +2746,8 @@ namespace Jellyfin.Plugin.Hue.Api
             if (config == null)
                 return NotFound("Plugin configuration not available.");
 
-            config.ScenePlaylists ??= new List<HueScenePlaylist>();
-            return Ok(config.ScenePlaylists
+            var playlists = config.ScenePlaylists ?? new List<HueScenePlaylist>();
+            return Ok(playlists
                 .Where(playlist => playlist != null)
                 .OrderBy(playlist => playlist.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(playlist => ToScenePlaylistResult(playlist, config)));
@@ -3882,7 +3882,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 });
             }
 
-            return Ok(_sceneAutomationService.GetStatus());
+            return Ok(_sceneAutomationService.GetStatus(persistRepairs: false));
         }
 
         /// <summary>
@@ -4558,7 +4558,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 ScheduleIdFilter = normalizedScheduleId,
                 OutcomeFilter = normalizedOutcome,
                 GeneratedAtUtc = DateTime.UtcNow,
-                Runs = _sceneAutomationService?.GetHistory(boundedLimit, normalizedScheduleId, normalizedOutcome)
+                Runs = _sceneAutomationService?.GetHistory(
+                        boundedLimit,
+                        normalizedScheduleId,
+                        normalizedOutcome,
+                        persistRepairs: false)
                     ?? Array.Empty<HueSceneAutomationRunResult>()
             });
         }
@@ -6485,7 +6489,6 @@ namespace Jellyfin.Plugin.Hue.Api
             PluginConfiguration config,
             CancellationToken cancellationToken)
         {
-            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
             var duplicateMappingGroups = BuildTargetDiagnosticsDuplicateMappingGroups(config);
             var targets = EnumerateConfiguredTargets(config).ToArray();
             var areaRequests = new Dictionary<string, Task<List<HueClient.EntertainmentArea>?>>(StringComparer.Ordinal);
@@ -6566,7 +6569,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 PersistenceEnabled = config.PersistSceneScheduleHistory,
                 Limit = HueSceneAutomationService.MaxSceneScheduleHistoryCount,
                 GeneratedAtUtc = generatedAtUtc,
-                Runs = _sceneAutomationService?.GetHistory(HueSceneAutomationService.MaxSceneScheduleHistoryCount)
+                Runs = _sceneAutomationService?.GetHistory(
+                        HueSceneAutomationService.MaxSceneScheduleHistoryCount,
+                        persistRepairs: false)
                     ?? Array.Empty<HueSceneAutomationRunResult>()
             };
             var runtime = ReadActionValue(GetStatus()) ?? new HueSyncStatus
@@ -6585,7 +6590,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetDiagnostics = targetDiagnostics,
                 Runtime = runtime,
                 SessionHistory = sessionHistory,
-                SceneAutomation = _sceneAutomationService?.GetStatus() ?? new HueSceneAutomationStatus
+                SceneAutomation = _sceneAutomationService?.GetStatus(persistRepairs: false) ?? new HueSceneAutomationStatus
                 {
                     ServiceAvailable = false,
                     GeneratedAtUtc = generatedAtUtc,
@@ -8791,7 +8796,6 @@ namespace Jellyfin.Plugin.Hue.Api
         public ActionResult<IEnumerable<UserBridgeMappingSummary>> GetUserMappings()
         {
             var config = Plugin.Instance?.Configuration;
-            PluginConfiguration.EnsureUserMappingIds(config?.UserMappings);
             var mappings = config?.UserMappings?
                 .Where(mapping => mapping != null)
                 .Select(UserBridgeMappingSummary.From)
@@ -8810,7 +8814,6 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public ActionResult<HueUserMappingReconciliationResult> GetUserMappingReconciliation()
         {
-            PluginConfiguration.EnsureUserMappingIds(Plugin.Instance?.Configuration?.UserMappings);
             var result = BuildUserMappingReconciliationResult();
             return result.UserDirectoryAvailable
                 ? Ok(result)
@@ -8932,7 +8935,6 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var mappings = Plugin.Instance?.Configuration?.UserMappings ?? new List<UserBridgeMapping>();
-            PluginConfiguration.EnsureUserMappingIds(mappings);
             var normalizedIdCounts = mappings
                 .Where(mapping => mapping != null)
                 .Select(mapping => PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId))
@@ -9442,14 +9444,13 @@ namespace Jellyfin.Plugin.Hue.Api
             if (config == null)
                 return NotFound("Plugin configuration not available.");
 
-            config.UserMappings ??= new List<UserBridgeMapping>();
-            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
+            var mappings = config.UserMappings ?? new List<UserBridgeMapping>();
             var normalizedUserId = userId.Trim();
             var requestedMappingId = mappingId?.Trim() ?? string.Empty;
             UserBridgeMapping? mapping;
             if (!string.IsNullOrWhiteSpace(requestedMappingId))
             {
-                var exactMatches = config.UserMappings
+                var exactMatches = mappings
                     .Where(candidate => candidate != null &&
                         string.Equals(candidate.MappingId?.Trim(), requestedMappingId, StringComparison.OrdinalIgnoreCase))
                     .Cast<UserBridgeMapping>()
@@ -9463,7 +9464,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
             else
             {
-                var matchingMappings = config.UserMappings
+                var matchingMappings = mappings
                     .Where(candidate => candidate != null &&
                         PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, normalizedUserId))
                     .Cast<UserBridgeMapping>()

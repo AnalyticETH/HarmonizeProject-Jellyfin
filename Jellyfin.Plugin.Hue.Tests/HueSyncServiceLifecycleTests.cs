@@ -1264,6 +1264,41 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task PlaybackPause_WhenDeactivationFails_RetainsBridgeStateForShutdownRetry()
+    {
+        var handler = new BlockingHueHandler { FailStopRequests = true };
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        ((HueClient)GetPrivateField(service, "_hueClient")!).RetryAttempts = 0;
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+        SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-10));
+
+        var progressMethod = typeof(HueSyncService).GetMethod("OnPlaybackProgress", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        progressMethod.Invoke(service, new object?[] { null, CreateProgress("session-a", isPaused: true) });
+
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForRuntimeStatusAsync(
+            service,
+            "Paused",
+            "Playback paused; waiting to resume. The entertainment area could not be deactivated; cleanup will retry.");
+
+        Assert.False((bool)GetPrivateField(service, "_bridgeAreaDeactivated")!);
+        Assert.Contains("deactivated", service.GetRuntimeStatus().CleanupWarning, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, handler.StopRequestCount);
+
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(2, handler.StopRequestCount);
+    }
+
+    [Fact]
     public async Task PlaybackPause_DuringShutdownDoesNotPublishCleanupTask()
     {
         using var httpClient = new HttpClient(new BlockingHueHandler());
@@ -1533,13 +1568,16 @@ public sealed class HueSyncServiceLifecycleTests
         public TaskCompletionSource<bool> BrightnessRequest { get; } = NewSignal();
         public string? LastLightPutBody { get; private set; }
         public bool FailRestorationRequests { get; set; }
+        public bool FailStopRequests { get; set; }
         public bool FailLightCaptureRequests { get; set; }
         public TaskCompletionSource<bool> LightCaptureRequest { get; } = NewSignal();
         public int StartAreaRequestCount { get; private set; }
+        public int StopRequestCount => Volatile.Read(ref _stopRequestCount);
 
         private readonly TaskCompletionSource<bool> _firstConfigurationRelease = NewSignal();
         private readonly TaskCompletionSource<bool> _stopRelease = NewSignal();
         private int _configurationRequestCount;
+        private int _stopRequestCount;
 
         public void ReleaseFirstConfiguration() => _firstConfigurationRelease.TrySetResult(true);
 
@@ -1591,9 +1629,12 @@ public sealed class HueSyncServiceLifecycleTests
                 }
                 if (body.Contains("\"stop\"", StringComparison.Ordinal))
                 {
+                    Interlocked.Increment(ref _stopRequestCount);
                     StopRequest.TrySetResult(true);
                     await _stopRelease.Task;
                     StopRequestCompleted.TrySetResult(true);
+                    if (FailStopRequests)
+                        return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
                 }
             }
 

@@ -15,14 +15,15 @@ Include the affected release, reproduction steps, impact, and any suggested miti
 Every trusted `main` push runs the named self-hosted CI runner with:
 
 - A dedicated, least-privileged `harmonize-runner` service account and isolated home directory
-- No `workflow_dispatch`, pull-request, or non-main push trigger, plus a job-level `refs/heads/main` guard and a separate release-runner identity for the `contents:write` publication job
+- A main-only `workflow_dispatch` recovery trigger for operators, with no pull-request or non-main push trigger, plus a job-level `refs/heads/main` guard and a separate release-runner identity for the `contents:write` publication job
 - Release packaging generates a SHA-256 sidecar, carries it with the inter-job artifact, verifies it on the isolated release runner, and publishes it beside the release ZIP
 - Locked-mode NuGet restores with committed dependency content hashes
 - NuGet vulnerability auditing through `dotnet list package --vulnerable --include-transitive`
 - Blocking Gitleaks history scanning with a redacted JSON artifact
 - Blocking Semgrep static analysis with the explicit `p/default` ruleset and a JSON artifact; the scanner and all transitive packages come from `.github/semgrep/requirements.txt`, a Python 3.12/x86_64 SHA-256 lock validated before `pip --require-hashes` installation
+- A source-controlled trusted-workflow boundary validator that checks main-only triggers and guards, self-hosted runner identities, isolated release permissions, immutable action references, and strict release-version extraction
 - Immutable commit-SHA references for third-party GitHub Actions
-- Repository-level GitHub Actions SHA-pinning enforcement (`sha_pinning_required=true`) while retaining the current action allowlist
+- Repository-level GitHub Actions SHA-pinning enforcement (`sha_pinning_required=true`); the repository currently permits all action owners, so every workflow reference is also reviewed and pinned to an immutable commit SHA
 - Dependabot monitoring for the hash-locked Semgrep environment and its transitive packages
 - Bounded job timeouts that release a persistent runner when a restore, scanner, or release step stalls
 

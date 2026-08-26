@@ -50,13 +50,20 @@ Write-Host "📤 Publishing plugin dependencies..." -ForegroundColor Yellow
 dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj --configuration Release --no-build --output ./publish
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# Extract version from meta.json
-$metaContent = Get-Content "meta.json" -Raw
-$version = ($metaContent | Select-String '"version":\s*"([^"]+)"').Matches.Groups[1].Value
+# Extract and validate the version from JSON rather than matching arbitrary text.
+$metaContent = Get-Content "meta.json" -Raw | ConvertFrom-Json
+$version = [string]$metaContent.version
+$versionPattern = '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+if ($version -notmatch $versionPattern) {
+    throw "meta.json version must be a four-part numeric version."
+}
 $projectContent = Get-Content "Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj" -Raw
 $projectVersion = ($projectContent | Select-String '<Version>([^<]+)</Version>').Matches.Groups[1].Value
-$publishedMetaContent = Get-Content "publish/meta.json" -Raw
-$publishedVersion = ($publishedMetaContent | Select-String '"version":\s*"([^"]+)"').Matches.Groups[1].Value
+$publishedMetaContent = Get-Content "publish/meta.json" -Raw | ConvertFrom-Json
+$publishedVersion = [string]$publishedMetaContent.version
+if ($projectVersion -notmatch $versionPattern -or $publishedVersion -notmatch $versionPattern) {
+    throw "Project and published versions must be four-part numeric versions."
+}
 if ([string]::IsNullOrWhiteSpace($version) -or $version -ne $projectVersion -or $version -ne $publishedVersion) {
     throw "Version mismatch: meta.json=$version project=$projectVersion published=$publishedVersion"
 }

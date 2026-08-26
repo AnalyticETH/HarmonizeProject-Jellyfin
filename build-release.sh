@@ -49,9 +49,10 @@ dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj \
     --output ./publish
 
 # Extract and validate the release version from both sources of truth.
-VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' meta.json | head -n 1)
+VERSION=$(python3 -c 'import json, re, sys; value=json.load(open(sys.argv[1], encoding="utf-8")).get("version"); print(value) if isinstance(value, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+", value) else sys.exit("meta.json version must be a four-part numeric version")' meta.json)
 PROJECT_VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj | head -n 1)
-PUBLISHED_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' publish/meta.json | head -n 1)
+PUBLISHED_VERSION=$(python3 -c 'import json, re, sys; value=json.load(open(sys.argv[1], encoding="utf-8")).get("version"); print(value) if isinstance(value, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+", value) else sys.exit("published meta.json version must be a four-part numeric version")' publish/meta.json)
+printf '%s\n' "$PROJECT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
 if [ -z "$VERSION" ] || [ "$VERSION" != "$PROJECT_VERSION" ] || [ "$VERSION" != "$PUBLISHED_VERSION" ]; then
     echo "❌ Version mismatch: meta.json=$VERSION project=$PROJECT_VERSION published=$PUBLISHED_VERSION" >&2
     exit 1

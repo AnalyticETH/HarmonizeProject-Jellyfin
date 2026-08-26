@@ -65,6 +65,7 @@ public sealed class HueApiControllerTests : IDisposable
         var mappingsResponse = Assert.IsType<OkObjectResult>(mappingsAction.Result);
         var mappings = Assert.IsAssignableFrom<IEnumerable<UserBridgeMappingSummary>>(mappingsResponse.Value).ToArray();
         Assert.Collection(mappings, mapping => Assert.Equal("valid-user", mapping.UserId));
+        Assert.Empty(configuration.UserMappings[1].MappingId);
 
         var exportAction = controller.ExportConfiguration();
         var exportResponse = Assert.IsType<OkObjectResult>(exportAction.Result);
@@ -86,7 +87,7 @@ public sealed class HueApiControllerTests : IDisposable
         userManager.Setup(manager => manager.GetUserById(renamedUserId)).Returns(liveRenamedUser);
         userManager.Setup(manager => manager.GetUserById(missingUserId)).Returns((Jellyfin.Data.Entities.User?)null);
         userManager.Setup(manager => manager.GetUserById(duplicateUserId)).Returns(liveHealthyUser);
-        InstallConfiguration(new PluginConfiguration
+        var configuration = InstallConfiguration(new PluginConfiguration
         {
             UserMappings = new List<UserBridgeMapping>
             {
@@ -116,6 +117,7 @@ public sealed class HueApiControllerTests : IDisposable
             mapping.NeedsRepair);
         Assert.DoesNotContain("secret-app", JsonSerializer.Serialize(result), StringComparison.Ordinal);
         Assert.DoesNotContain("secret-client", JsonSerializer.Serialize(result), StringComparison.Ordinal);
+        Assert.All(configuration.UserMappings, mapping => Assert.Empty(mapping.MappingId));
     }
 
     [Fact]
@@ -4144,6 +4146,19 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("target IDs", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
         streamTester.VerifyNoOtherCalls();
         _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void GetScenePlaylists_DoesNotInitializeMissingCollection()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration());
+        configuration.ScenePlaylists = null!;
+
+        var action = CreateController().GetScenePlaylists();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Empty(Assert.IsAssignableFrom<IEnumerable<HueScenePlaylistResult>>(response.Value));
+        Assert.Null(configuration.ScenePlaylists);
     }
 
     [Fact]
@@ -8531,6 +8546,45 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneScheduleReadRoutes_DoNotPersistLazyHistoryRepairs()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        var persistedHistory = new List<HueSceneScheduleHistoryEntry>
+        {
+            new()
+            {
+                ScheduleId = "stale-cue",
+                ScheduleName = "Stale cue",
+                Succeeded = true,
+                RunAtUtc = DateTime.UtcNow
+            }
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = false,
+            PersistedSceneScheduleHistory = persistedHistory
+        }, serializer.Object);
+        var sceneService = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var controller = CreateController(hostedServices: new IHostedService[] { sceneService });
+
+        var statusAction = controller.GetSceneScheduleStatus();
+        Assert.IsType<OkObjectResult>(statusAction.Result);
+        var historyAction = controller.GetSceneScheduleHistory();
+        var historyResponse = Assert.IsType<OkObjectResult>(historyAction.Result);
+        var history = Assert.IsType<HueSceneScheduleHistoryResult>(historyResponse.Value);
+
+        Assert.Empty(history.Runs);
+        Assert.Same(persistedHistory, configuration.PersistedSceneScheduleHistory);
+        Assert.Single(configuration.PersistedSceneScheduleHistory);
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [Fact]
     public void SceneScheduleHistory_FiltersOutcomeAndExportWithoutSecrets()
     {
         InstallConfiguration(new PluginConfiguration
@@ -10776,6 +10830,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(result.ScheduledCues[1].Enabled);
         Assert.True(result.ScheduledCues[2].Enabled);
         Assert.Equal(new[] { "mapping-cue-disabled", "mapping-cue-enabled", "mapping-cue-device-route", "mapping-cue-selected" }, result.ScheduledCues.Select(cue => cue.Id));
+        Assert.Empty(configuration.UserMappings[0].MappingId);
 
         var serialized = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("mapping-dependency-app-secret", serialized, StringComparison.Ordinal);
