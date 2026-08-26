@@ -3,6 +3,9 @@ name: .NET CI/CD
 on:
   push:
     branches: [ main ]
+  # Permit an operator to recover a transient Actions startup failure on the
+  # trusted default branch without changing release publication semantics.
+  workflow_dispatch:
 
 permissions:
   contents: read
