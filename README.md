@@ -457,7 +457,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.314 (Current)
+### Version 1.5.315 (Current)
+- **Capture lifecycle isolation**: single and batch current-light capture routes reserve the shared diagnostic lifecycle before resolving persisted mappings and credentials, returning a retryable conflict instead of observing a concurrent configuration mutation.
+- **Regression coverage**: API tests verify capture target resolution is blocked before any bridge request while configuration changes are active.
+
+### Version 1.5.314
 - **Configuration read isolation**: all credential-free scene, playlist, status, diagnostics, and user-mapping projections now take a short shared read lease, rejecting requests while an administrator mutation or scheduler evaluation is applying.
 - **Export conflict fidelity**: JSON, CSV, and iCalendar schedule exports preserve the retryable 409 response instead of being misreported as a 404 or empty report during a configuration mutation.
 - **Regression coverage**: API tests cover every protected projection under configuration mutation and scheduler-evaluation barriers, plus diagnostics after its environment probe.

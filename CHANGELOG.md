@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.315] - 2026-08-26
+
+### Capture lifecycle isolation
+- **Early diagnostic reservation**: single and batch current-light capture routes now reserve the shared diagnostic lifecycle before reading persisted mappings and credentials, so configuration mutation cannot change the target after validation begins.
+- **Fail-closed contention**: active configuration changes return the existing retryable HTTP 409 response before any bridge request or target traversal.
+- **Regression coverage**: API tests verify both capture routes reject configuration mutation before target resolution and make no bridge calls.
+
 ## [1.5.314] - 2026-08-26
 
 ### Configuration projection read isolation
