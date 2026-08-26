@@ -14,6 +14,8 @@ for (const marker of [
   "permissions:\n      contents: write",
   "uses: ./.github/workflows/security-scan.yml",
   "jq -er '.version | strings | select(test(\"^[0-9]+\\\\.[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"))'",
+  'local_tag_ref="refs/tags/${TAG}"',
+  'git show-ref --verify --quiet "$local_tag_ref"',
 ]) {
   if (!ci.includes(marker)) {
     throw new Error(`${ciPath} is missing trusted-workflow marker: ${marker}`);
