@@ -457,7 +457,9 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.320 (Current)
+### Version 1.5.321 (Current)
+
+- **Resumable release publication**: the trusted self-hosted release job resumes partial drafts, retries transient GitHub API failures, and verifies the published tag, commit, ZIP, and checksum assets before succeeding.
 
 - **Stable multi-target previews**: raw, saved-scene, and saved-playlist previews now snapshot validated target credentials and saved-scene values under a short configuration read lease before releasing the lease for bridge I/O. Bulk previews retain one detached target/preset snapshot across every item, return a retryable conflict during active configuration mutation, and cannot be redirected by later edits.
 

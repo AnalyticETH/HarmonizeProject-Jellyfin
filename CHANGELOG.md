@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.321] - 2026-08-26
+
+### Resumable release publication
+- **Idempotent GitHub releases**: the trusted self-hosted release job now creates or resumes a draft, uploads both package assets with bounded retries, and publishes only after verifying the tag, commit, draft state, and exact asset set.
+- **Transient API recovery**: a gateway failure after a partial upload no longer leaves the workflow red or requires manual release reconstruction.
+- **Release contract coverage**: the same deterministic archive and checksum gates continue to run before publication.
+
 ## [1.5.320] - 2026-08-26
 
 ### Stable multi-target preview snapshots
