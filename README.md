@@ -471,7 +471,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.334 (Current)
+### Version 1.5.335 (Current)
+
+- **.NET 8 ABI guard**: Dependabot ignores major `System.Text.Json` and `System.Text.Encodings.Web` updates because the plugin does not ship framework assemblies; security and minor/patch monitoring remain enabled.
+
+- **Executable Dependabot policy contract**: every tracked NuGet project block is required to carry the ABI guard so unsupported major PRs do not reopen unattended.
 
 - **Complete NuGet Dependabot coverage**: monitor the plugin, test, and benchmark project directories explicitly so nested package manifests cannot be skipped by a repository-root configuration.
 

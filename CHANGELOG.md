@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.335] - 2026-08-27
+
+### Dependency policy hardening
+- **.NET 8 ABI guard**: ignore major `System.Text.Json` and `System.Text.Encodings.Web` updates because the plugin does not ship framework assemblies; retain security and minor/patch monitoring.
+- **Executable Dependabot policy contract**: require the ABI guard in every tracked NuGet project block so unsupported major PRs do not reopen unattended.
+
 ## [1.5.334] - 2026-08-27
 
 ### Dependency update coverage

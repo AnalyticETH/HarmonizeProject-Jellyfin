@@ -72,6 +72,20 @@ for (const directory of expectedNugetDirectories) {
   }
 }
 
+const abiPinnedPackages = ["System.Text.Json", "System.Text.Encodings.Web"];
+for (const block of blocks.filter(candidate => candidate.ecosystem === "nuget")) {
+  for (const dependency of abiPinnedPackages) {
+    const dependencyPattern = new RegExp(
+      `dependency-name:\\s*"${dependency.replaceAll(".", "\\.")}"\\s*\\n\\s*update-types:\\s*\\["version-update:semver-major"\\]`,
+    );
+    if (!dependencyPattern.test(block.block)) {
+      throw new Error(
+        `${dependabotPath} must ignore major ${dependency} updates in the ${block.directory} NuGet block to preserve the .NET 8 host ABI`,
+      );
+    }
+  }
+}
+
 const requiredNonNugetUpdates = [
   ["github-actions", "/"],
   ["pip", "/.github/semgrep"],
