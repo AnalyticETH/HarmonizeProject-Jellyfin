@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.327] - 2026-08-27
+
+### Scheduler and route-credential lifecycle hardening
+- **Manual/scheduled cue slot recovery**: a scheduler occurrence slot claimed before discovering an active manual cue is now released, allowing the occurrence to run on a later poll after the manual lifecycle completes.
+- **Scoped device-route credential caching**: temporary administrator route credentials are isolated by normalized user/mapping, bridge, and case-sensitive device identity, so a shared device ID cannot reuse keys from another bridge or mapping.
+- **Regression coverage**: scheduler tests cover manual-run collision recovery; administrator contracts cover bridge/user isolation, unknown-bridge rejection, and scoped route removal.
+
 ## [1.5.326] - 2026-08-27
 
 ### Exact configuration-action classification

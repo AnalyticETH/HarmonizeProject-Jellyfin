@@ -5200,6 +5200,15 @@ public sealed class HueSceneAutomationService : BackgroundService
         using var scheduleLifecycle = BeginScheduleLifecycle();
         if (!TryBeginRun(schedule, out var currentRunCount, out var alreadyRunning))
         {
+            // The scheduler claims an occurrence slot before entering this method so
+            // overlapping scheduler evaluations cannot start the same cue twice. A
+            // manual run may already own the cue, however: scheduler evaluations are
+            // allowed to continue beside playback. Do not let that rejected attempt
+            // consume the occurrence slot, or the next poll will permanently suppress
+            // the occurrence after the manual run completes.
+            if (alreadyRunning && runAtUtcOverride.HasValue)
+                ReleaseRunSlot(schedule.Id, runAtUtcOverride.Value);
+
             var exhausted = Failure(
                 schedule.Id,
                 alreadyRunning

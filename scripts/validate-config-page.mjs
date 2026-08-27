@@ -542,6 +542,9 @@ const requiredScript = [
     "removeMappingDeviceRoute: function",
     "loadMappingDeviceRouteAreas: function",
     "getMappingDeviceRouteTarget: function",
+    "getMappingDeviceRouteCredentialContext: function",
+    "getMappingDeviceRouteCredentialKey: function",
+    "forgetMappingDeviceRouteCredentials: function",
     "getMappingTargetFingerprint: function",
     "isPageLifecycleTargetRequestCurrent: function",
     "cancelPageLifecycleRequest: function",
@@ -770,6 +773,41 @@ const requiredScript = [
 for (const marker of requiredScript) {
     if (!scriptMatch[1].includes(marker)) {
         throw new Error(`${file} is missing required behavior: ${marker}`);
+    }
+}
+
+{
+    const functionName = "getMappingDeviceRouteCredentialKey";
+    const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "getMappingDeviceRouteCredentialContext(userId, mappingId)",
+        "normalizedDeviceId",
+        "normalizedBridgeIp",
+        "normalizedUserId",
+        "normalizedMappingId",
+        "if (!normalizedDeviceId || !normalizedBridgeIp || (!normalizedUserId && !normalizedMappingId)) return '';"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} must scope ephemeral route credentials by route identity and owner`);
+        }
+    }
+}
+
+{
+    const functionName = "rememberMappingDeviceRouteCredentials";
+    const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "bridgeIp, userId, mappingId",
+        "getMappingDeviceRouteCredentialKey(deviceId, bridgeIp, userId, mappingId)",
+        "if (!key) return;"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} must refuse unscoped route credential caching`);
+        }
     }
 }
 

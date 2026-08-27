@@ -4008,6 +4008,66 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_WhenManualCueIsActive_ReleasesClaimedOccurrenceSlot()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "manual-first-app-secret",
+            HueClientKey = "manual-first-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Manual-first scene", Red = 10, Green = 20, Blue = 30, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "manual-first-cue",
+                    Name = "Manual-first cue",
+                    PresetName = "Manual-first scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new OverlapRecoveryStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var manualTask = service.RunScheduleAsync("manual-first-cue");
+        await streamTester.FirstPreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The scheduler can evaluate while a manual cue owns the same schedule. Its
+        // rejected attempt must release the slot it claimed before checking run state.
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 19, 7, 5, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        streamTester.ReleaseFirstPreview.TrySetResult(true);
+        var manualResult = await manualTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(manualResult.Succeeded);
+
+        // Re-evaluating the same occurrence after the manual run has ended should now
+        // execute the scheduled cue; a leaked slot would suppress this invocation.
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 19, 7, 5, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        Assert.Equal(new[] { 10, 10 }, streamTester.Reds);
+        Assert.Equal(2, Assert.Single(configuration.SceneSchedules).RunCount);
+    }
+
+    [Fact]
     public async Task ResetSchedulesRunCount_RefusesActiveCueWithoutPartialMutation()
     {
         var configuration = new PluginConfiguration

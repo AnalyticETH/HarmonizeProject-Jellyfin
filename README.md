@@ -467,7 +467,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.326 (Current)
+### Version 1.5.327 (Current)
+
+- **Manual/scheduled cue slot recovery**: when a scheduler evaluation loses a race with a manually running cue, its claimed occurrence slot is released so the same occurrence can run after the manual lifecycle completes instead of being silently suppressed.
+
+- **Scoped device-route credential caching**: temporary administrator route credentials are now isolated by normalized user/mapping, bridge, and case-sensitive device identity, preventing a reused device ID on another bridge or mapping from inheriting the wrong keys.
 
 - **Exact configuration-action classification**: configuration mutation arbitration now matches route segments and HTTP methods exactly, so saved scenes, playlists, and scheduled cues whose names contain `Preview`, `Run`, or `Cancel` cannot bypass the writer lease; only the documented preview/run/cancel actions remain pass-through.
 

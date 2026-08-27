@@ -665,6 +665,62 @@ async function testConfigurationImportFileLifecycleGuards() {
     assert.equal(activePage._hueImportReader, null, "a completed file read clears its reader state");
 }
 
+async function testMappingDeviceRouteCredentialScope() {
+    const harness = makeHarness();
+    const { api } = harness;
+    const userOne = "12345678-1234-1234-1234-1234567890ab";
+    const userTwo = "87654321-4321-4321-4321-ba0987654321";
+    const deviceId = "shared-playback-device";
+    const mappingOne = "mapping-one";
+    const mappingTwo = "mapping-two";
+    const bridgeOne = "192.168.1.10.";
+    const bridgeTwo = "192.168.1.11";
+
+    const firstKey = api.getMappingDeviceRouteCredentialKey(deviceId, bridgeOne, userOne, mappingOne);
+    const secondUserKey = api.getMappingDeviceRouteCredentialKey(deviceId, bridgeOne, userTwo, mappingTwo);
+    const secondBridgeKey = api.getMappingDeviceRouteCredentialKey(deviceId, bridgeTwo, userOne, mappingOne);
+    assert.notEqual(firstKey, secondUserKey, "route credential keys isolate mappings for different users");
+    assert.notEqual(firstKey, secondBridgeKey, "route credential keys isolate bridge changes");
+
+    api._hueDeviceRouteCredentials = {};
+    api.rememberMappingDeviceRouteCredentials(deviceId, "app-one", "client-one", bridgeOne, userOne, mappingOne);
+    api.rememberMappingDeviceRouteCredentials(deviceId, "app-two", "client-two", bridgeTwo, userOne, mappingOne);
+    api.rememberMappingDeviceRouteCredentials(deviceId, "app-other", "client-other", bridgeOne, userTwo, mappingTwo);
+
+    assert.equal(
+        api.getMappingDeviceRouteCredentials(deviceId, "192.168.1.10", userOne, mappingOne).appKey,
+        "app-one",
+        "matching route identity returns its own cached App Key"
+    );
+    assert.equal(
+        api.getMappingDeviceRouteCredentials(deviceId, bridgeTwo, userOne, mappingOne).appKey,
+        "app-two",
+        "changed bridge returns only the replacement route key"
+    );
+    assert.equal(
+        api.getMappingDeviceRouteCredentials(deviceId, bridgeOne, userTwo, mappingTwo).appKey,
+        "app-other",
+        "different mapping owner returns only its own cached App Key"
+    );
+    assert.equal(
+        api.getMappingDeviceRouteCredentials(deviceId, "192.168.1.12", userOne, mappingOne).appKey,
+        "",
+        "unknown bridge cannot reuse another bridge's route credentials"
+    );
+
+    api.forgetMappingDeviceRouteCredentials(deviceId, bridgeOne, userOne, mappingOne);
+    assert.equal(
+        api.getMappingDeviceRouteCredentials(deviceId, bridgeOne, userOne, mappingOne).appKey,
+        "",
+        "removing a route clears only its scoped cached credentials"
+    );
+    assert.equal(
+        api.getMappingDeviceRouteCredentials(deviceId, bridgeTwo, userOne, mappingOne).appKey,
+        "app-two",
+        "removing one route scope preserves a distinct bridge scope"
+    );
+}
+
 async function testConfigurationImportSubmitLifecycleGuards() {
     const harness = makeHarness();
     const { page, api, requests, dashboard } = harness;
@@ -910,6 +966,7 @@ for (const testCase of exportCases) {
 await testEditMappingLifecycleGuards();
 await testConfigurationImportValidationLifecycleGuards();
 await testConfigurationImportFileLifecycleGuards();
+await testMappingDeviceRouteCredentialScope();
 await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
@@ -917,4 +974,4 @@ await testConfigurationSaveDuplicateSubmitIsBounded();
 await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, import file/validation/submit, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials, import file/validation/submit, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);

@@ -2046,6 +2046,29 @@
                     var element = document.getElementById(id);
                     return element ? String(element.value || '').trim() : '';
                 },
+                getMappingDeviceRouteCredentialContext: function (userId, mappingId) {
+                    var userSelect = !userId && typeof document !== 'undefined' && document && typeof document.getElementById === 'function'
+                        ? document.getElementById('mappingUserSelect')
+                        : null;
+                    return {
+                        userId: String(userId || (userSelect ? userSelect.value : '') || HueConfigurationPage.mappingEditingUserId || '').trim(),
+                        mappingId: String(mappingId || HueConfigurationPage.mappingEditingMappingId || '').trim()
+                    };
+                },
+                getMappingDeviceRouteCredentialKey: function (deviceId, bridgeIp, userId, mappingId) {
+                    var context = HueConfigurationPage.getMappingDeviceRouteCredentialContext(userId, mappingId);
+                    var normalizedDeviceId = String(deviceId || '').trim();
+                    var normalizedBridgeIp = String(bridgeIp || '').trim().replace(/\.+$/, '').toLowerCase();
+                    var normalizedUserId = HueConfigurationPage.normalizeJellyfinUserId(context.userId).toLowerCase();
+                    var normalizedMappingId = context.mappingId.toLowerCase();
+                    if (!normalizedDeviceId || !normalizedBridgeIp || (!normalizedUserId && !normalizedMappingId)) return '';
+                    return JSON.stringify({
+                        userId: normalizedUserId,
+                        mappingId: normalizedMappingId,
+                        bridgeIp: normalizedBridgeIp,
+                        deviceId: normalizedDeviceId
+                    });
+                },
                 getMappingDeviceRouteTarget: function () {
                     var userSelect = document.getElementById('mappingUserSelect');
                     return {
@@ -2068,19 +2091,25 @@
                     status.textContent = message || '';
                     status.style.color = tone === 'error' ? '#d9534f' : tone === 'success' ? '#8bc34a' : '';
                 },
-                getMappingDeviceRouteCredentials: function (deviceId) {
-                    var key = String(deviceId || '').trim();
+                getMappingDeviceRouteCredentials: function (deviceId, bridgeIp, userId, mappingId) {
+                    var key = HueConfigurationPage.getMappingDeviceRouteCredentialKey(deviceId, bridgeIp, userId, mappingId);
                     var credentials = HueConfigurationPage._hueDeviceRouteCredentials || {};
                     return key && credentials[key] ? credentials[key] : { appKey: '', clientKey: '' };
                 },
-                rememberMappingDeviceRouteCredentials: function (deviceId, appKey, clientKey) {
-                    var key = String(deviceId || '').trim();
+                rememberMappingDeviceRouteCredentials: function (deviceId, appKey, clientKey, bridgeIp, userId, mappingId) {
+                    var key = HueConfigurationPage.getMappingDeviceRouteCredentialKey(deviceId, bridgeIp, userId, mappingId);
                     if (!key) return;
                     HueConfigurationPage._hueDeviceRouteCredentials = HueConfigurationPage._hueDeviceRouteCredentials || {};
                     var existing = HueConfigurationPage._hueDeviceRouteCredentials[key] || { appKey: '', clientKey: '' };
                     if (appKey) existing.appKey = String(appKey).trim();
                     if (clientKey) existing.clientKey = String(clientKey).trim();
                     HueConfigurationPage._hueDeviceRouteCredentials[key] = existing;
+                },
+                forgetMappingDeviceRouteCredentials: function (deviceId, bridgeIp, userId, mappingId) {
+                    var key = HueConfigurationPage.getMappingDeviceRouteCredentialKey(deviceId, bridgeIp, userId, mappingId);
+                    if (key && HueConfigurationPage._hueDeviceRouteCredentials) {
+                        delete HueConfigurationPage._hueDeviceRouteCredentials[key];
+                    }
                 },
                 populateMappingDeviceRouteAreas: function (selectedId, selectedName) {
                     var select = document.getElementById('mappingDeviceRouteAreaSelect');
@@ -2124,7 +2153,11 @@
                     var read = function (pascalName, camelName) {
                         return HueConfigurationPage.getMappingDeviceTargetValue(route, pascalName, camelName);
                     };
-                    var credentials = HueConfigurationPage.getMappingDeviceRouteCredentials(selected);
+                    var credentials = HueConfigurationPage.getMappingDeviceRouteCredentials(
+                        selected,
+                        read('HueBridgeIp', 'hueBridgeIp'),
+                        HueConfigurationPage.mappingEditingUserId,
+                        HueConfigurationPage.mappingEditingMappingId);
                     HueConfigurationPage.setMappingDeviceRouteEditorValue('mappingDeviceRouteId', selected);
                     HueConfigurationPage.setMappingDeviceRouteEditorValue('mappingDeviceRouteName', read('DeviceName', 'deviceName'));
                     HueConfigurationPage.setMappingDeviceRouteEditorValue('mappingDeviceRouteBridge', read('HueBridgeIp', 'hueBridgeIp'));
@@ -2157,7 +2190,13 @@
                         var appKey = HueConfigurationPage.getMappingDeviceTargetValue(route, 'HueAppKey', 'hueAppKey');
                         var clientKey = HueConfigurationPage.getMappingDeviceTargetValue(route, 'HueClientKey', 'hueClientKey');
                         if (appKey || clientKey) {
-                            HueConfigurationPage.rememberMappingDeviceRouteCredentials(deviceId, appKey, clientKey);
+                            HueConfigurationPage.rememberMappingDeviceRouteCredentials(
+                                deviceId,
+                                appKey,
+                                clientKey,
+                                HueConfigurationPage.getMappingDeviceTargetValue(route, 'HueBridgeIp', 'hueBridgeIp'),
+                                HueConfigurationPage.mappingEditingUserId,
+                                HueConfigurationPage.mappingEditingMappingId);
                         }
                         // Keep secrets out of the visible JSON editor; addUserMapping
                         // merges the short-lived editor state back into the write-only
@@ -2195,7 +2234,11 @@
                     var readExisting = function (pascalName, camelName) {
                         return HueConfigurationPage.getMappingDeviceTargetValue(existing, pascalName, camelName);
                     };
-                    var remembered = HueConfigurationPage.getMappingDeviceRouteCredentials(deviceId);
+                    var remembered = HueConfigurationPage.getMappingDeviceRouteCredentials(
+                        deviceId,
+                        bridgeIp,
+                        userId,
+                        HueConfigurationPage.mappingEditingMappingId);
                     appKey = appKey || remembered.appKey || readExisting('HueAppKey', 'hueAppKey');
                     clientKey = clientKey || remembered.clientKey || readExisting('HueClientKey', 'hueClientKey');
                     if (!existing && (!appKey || !clientKey)) {
@@ -2208,7 +2251,13 @@
                         return;
                     }
                     if (appKey || clientKey) {
-                        HueConfigurationPage.rememberMappingDeviceRouteCredentials(deviceId, appKey, clientKey);
+                        HueConfigurationPage.rememberMappingDeviceRouteCredentials(
+                            deviceId,
+                            appKey,
+                            clientKey,
+                            bridgeIp,
+                            userId,
+                            HueConfigurationPage.mappingEditingMappingId);
                     }
                     var route = {
                         DeviceId: deviceId,
@@ -2237,11 +2286,21 @@
                         HueConfigurationPage.setMappingDeviceRouteEditorStatus('Select or enter a device route before removing it.', 'error');
                         return;
                     }
-                    var routes = HueConfigurationPage.readMappingDeviceTargets().filter(function (target) {
+                    var currentRoutes = HueConfigurationPage.readMappingDeviceTargets();
+                    var removedRoute = currentRoutes.find(function (target) {
+                        return HueConfigurationPage.getMappingDeviceTargetValue(target, 'DeviceId', 'deviceId') === deviceId;
+                    });
+                    var routes = currentRoutes.filter(function (target) {
                         return HueConfigurationPage.getMappingDeviceTargetValue(target, 'DeviceId', 'deviceId') !== deviceId;
                     });
                     HueConfigurationPage.writeMappingDeviceTargets(routes);
-                    if (HueConfigurationPage._hueDeviceRouteCredentials) delete HueConfigurationPage._hueDeviceRouteCredentials[deviceId];
+                    if (removedRoute) {
+                        HueConfigurationPage.forgetMappingDeviceRouteCredentials(
+                            deviceId,
+                            HueConfigurationPage.getMappingDeviceTargetValue(removedRoute, 'HueBridgeIp', 'hueBridgeIp'),
+                            HueConfigurationPage.mappingEditingUserId,
+                            HueConfigurationPage.mappingEditingMappingId);
+                    }
                     var select = document.getElementById('mappingDeviceRouteSelect');
                     if (select) select.value = '';
                     HueConfigurationPage.clearMappingDeviceRouteEditor('Device route removed from this mapping draft. Save the user mapping to persist the change.');
@@ -12568,11 +12627,16 @@
                                     return value == null ? '' : String(value).trim();
                                 };
                                 var routeDeviceId = readText('DeviceId', 'deviceId');
-                                var routeCredentials = HueConfigurationPage.getMappingDeviceRouteCredentials(routeDeviceId);
+                                var routeBridgeIp = readText('HueBridgeIp', 'hueBridgeIp');
+                                var routeCredentials = HueConfigurationPage.getMappingDeviceRouteCredentials(
+                                    routeDeviceId,
+                                    routeBridgeIp,
+                                    userId,
+                                    HueConfigurationPage.mappingEditingMappingId);
                                 return {
                                     DeviceId: routeDeviceId,
                                     DeviceName: readText('DeviceName', 'deviceName'),
-                                    HueBridgeIp: readText('HueBridgeIp', 'hueBridgeIp'),
+                                    HueBridgeIp: routeBridgeIp,
                                     HueAppKey: readText('HueAppKey', 'hueAppKey') || routeCredentials.appKey,
                                     HueClientKey: readText('HueClientKey', 'hueClientKey') || routeCredentials.clientKey,
                                     EntertainmentAreaId: readText('EntertainmentAreaId', 'entertainmentAreaId'),
