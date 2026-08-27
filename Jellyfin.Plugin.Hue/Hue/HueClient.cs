@@ -1157,6 +1157,22 @@ namespace Jellyfin.Plugin.Hue.Hue
                         }
 
                         var light = data[0];
+                        if (light.ValueKind != JsonValueKind.Object ||
+                            (light.TryGetProperty("id", out var lightIdProperty) &&
+                             (lightIdProperty.ValueKind != JsonValueKind.String ||
+                              !string.Equals(
+                                  lightIdProperty.GetString()?.Trim(),
+                                  lightId,
+                                  StringComparison.OrdinalIgnoreCase))))
+                        {
+                            // A response for another light must never be associated with
+                            // the requested resource. Preserve compatibility with older
+                            // bridge responses that omit the optional id field, but fail
+                            // closed whenever an explicit id is malformed or mismatched.
+                            throw new InvalidOperationException(
+                                $"Hue light response did not identify requested light {lightId}.");
+                        }
+
                         if (!light.TryGetProperty("on", out var on) ||
                             !on.TryGetProperty("on", out var onValue) ||
                             !light.TryGetProperty("dimming", out var dimming) ||

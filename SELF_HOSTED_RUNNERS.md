@@ -46,6 +46,13 @@ gh api repos/AnalyticETH/HarmonizeProject-Jellyfin/actions/permissions
 gh api repos/AnalyticETH/HarmonizeProject-Jellyfin/actions/permissions/selected-actions
 ```
 
+The build, security-scan, and pull-request workflows also run
+`scripts/validate-workflow-inventory.mjs`. It fails closed if a new workflow file is
+added without updating the reviewed inventory, if an action is outside the selected
+allowlist or is not pinned to a full commit SHA, or if a new workflow routes code to a
+persistent runner without the trusted `main` guard. This keeps the runner-boundary
+invariant enforceable when workflows change.
+
 ## Version maintenance
 
 Automatic in-place updates are disabled because the application directories are

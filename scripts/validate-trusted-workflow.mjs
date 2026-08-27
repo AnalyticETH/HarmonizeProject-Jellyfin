@@ -36,6 +36,8 @@ for (const marker of [
   "Run documented Linux release helper",
   "chmod +x ./build-release.sh",
   "./build-release.sh",
+  "Validate workflow inventory and runner boundaries",
+  "node scripts/validate-workflow-inventory.mjs",
   "needs: [create-release-package, validate-release-helper]",
 ]) {
   if (!ci.includes(marker)) {
@@ -52,6 +54,8 @@ for (const marker of [
   "SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'",
   "SEMGREP_DEFAULT_CONFIG_SHA256:",
   "sha256sum --check --strict -",
+  "Validate workflow inventory and runner boundaries",
+  "node scripts/validate-workflow-inventory.mjs",
 ]) {
   if (!security.includes(marker)) {
     throw new Error(`${securityPath} is missing blocking-security marker: ${marker}`);

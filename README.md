@@ -471,7 +471,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.340 (Current)
+### Version 1.5.341 (Current)
+
+- **Bridge response identity validation**: state capture rejects malformed or mismatched Hue light resource IDs rather than labeling another light as the requested resource, preventing unsafe restoration.
+
+- **Workflow inventory hardening**: every tracked workflow remains in the reviewed set, uses immutable selected actions, and keeps persistent self-hosted jobs behind per-job `main` guards; pull-request jobs stay on fixed ephemeral runners without secrets or write permissions.
+
+- **Disabled mapping preview safety**: the administrator's Preview Current Color control follows the selected mapping's Sync Enabled state and remains correct after metadata, lifecycle, and busy-state updates.
+
+- **Regression coverage**: malformed/mismatched bridge IDs, disabled-mapping preview state, and workflow-boundary contracts are exercised before release.
 
 - **Deferred scheduler durability**: expired deferred one-time cues now clear stale Skip Next markers together with their completed disabled state, and deferred queue/removal/expiry/normalization writes retry from the authoritative runtime snapshot after transient persistence failures.
 

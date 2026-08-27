@@ -704,6 +704,74 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task GetLightStatesWithResult_MismatchedResourceIdRejectsState()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""requested-light""}}] }
+            ]
+        }");
+        SetupHttpResponse(HttpStatusCode.OK, @"{
+            ""data"": [{
+                ""id"": ""different-light"",
+                ""on"": {""on"": true},
+                ""dimming"": {""brightness"": 75}
+            }]
+        }");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(1, result.AttemptedCount);
+        Assert.Equal(0, result.CapturedCount);
+        Assert.Equal(1, result.FailedCount);
+        Assert.Empty(result.States);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("42")]
+    public async Task GetLightStatesWithResult_MalformedResourceIdRejectsState(string malformedId)
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""requested-light""}}] }
+            ]
+        }");
+        SetupHttpResponse(HttpStatusCode.OK, $@"{{
+            ""data"": [{{
+                ""id"": {malformedId},
+                ""on"": {{""on"": true}},
+                ""dimming"": {{""brightness"": 75}}
+            }}]
+        }}");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(1, result.AttemptedCount);
+        Assert.Equal(0, result.CapturedCount);
+        Assert.Equal(1, result.FailedCount);
+        Assert.Empty(result.States);
+    }
+
+    [Fact]
     public async Task GetLightStates_ChannelFilterReadsOnlySelectedChannels()
     {
         using var doc = JsonDocument.Parse(@"{

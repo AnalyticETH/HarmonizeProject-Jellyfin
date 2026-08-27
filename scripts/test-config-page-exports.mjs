@@ -1240,6 +1240,28 @@ async function testDuplicateMappingResolutionLifecycleGuards() {
     assert.equal(confirmationHarness.requests.length, 0, "a confirmation completed after pagehide cannot start duplicate resolution");
 }
 
+async function testDisabledMappingCannotPreview() {
+    const harness = makeHarness();
+    const { page, api } = harness;
+    page._huePreviewTargetMetadataReady = true;
+    const syncEnabled = page.querySelector("#mappingSyncEnabled");
+    const previewButton = page.querySelector("#mappingPreviewColorBtn");
+
+    syncEnabled.checked = true;
+    api.updatePreviewTargetMetadataControls(page);
+    assert.equal(previewButton.disabled, false, "enabled mapping allows current-color preview");
+
+    syncEnabled.checked = false;
+    api.toggleMappingSyncFields(page);
+    assert.equal(previewButton.disabled, true, "disabled mapping blocks current-color preview");
+
+    syncEnabled.checked = true;
+    api.toggleMappingSyncFields(page);
+    api.setPreviewBusy(page, true);
+    api.setPreviewBusy(page, false);
+    assert.equal(previewButton.disabled, false, "ending a preview restores enabled mapping preview state");
+}
+
 for (const testCase of exportCases) {
     await testSuccessfulExport(testCase);
     await testStaleQuerySuppressesExport(testCase);
@@ -1265,5 +1287,6 @@ await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
 await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
+await testDisabledMappingCannotPreview();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, save stale-scope/pagehide, duplicate-target, duplicate-resolution, and disabled-mapping preview paths)`);

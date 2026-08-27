@@ -2881,6 +2881,8 @@
                     if (!page) return;
                     var ready = HueConfigurationPage.hasPreviewTargetMetadata(page);
                     var busy = !!page._huePreviewRequest;
+                    var mappingSyncEnabled = page.querySelector('#mappingSyncEnabled');
+                    var mappingPreviewEnabled = !mappingSyncEnabled || mappingSyncEnabled.checked !== false;
                     var targetSelectors = page.querySelectorAll('#scenePlaylistTarget, #previewSavedPresetTarget, #previewColorTarget, #captureColorTarget, #scenePlaylistPreviewTarget, #scenePlaylistBulkPreviewTarget');
                     var colorTargetSelectors = page.querySelectorAll('#previewSavedPresetTarget, #previewColorTarget, #captureColorTarget');
                     var previewButtons = page.querySelectorAll('#previewColorBtn, #previewAllTargetsBtn, #captureCurrentColorBtn, #previewSavedPresetBtn, #previewSavedPresetAllBtn, #previewSelectedPreviewPresetsBtn, #previewSelectedPreviewPresetsAllBtn, #previewScenePlaylistBtn, #previewScenePlaylistAllBtn, #previewSelectedScenePlaylistsBtn, #previewSelectedScenePlaylistsAllBtn, #mappingPreviewColorBtn');
@@ -2902,10 +2904,12 @@
                             page.querySelector('#captureCurrentColorBtn'),
                             page.querySelector('#previewSavedPresetBtn'),
                             page.querySelector('#previewSavedPresetAllBtn'),
-                            page.querySelector('#mappingPreviewColorBtn')
+                            mappingPreviewEnabled ? page.querySelector('#mappingPreviewColorBtn') : null
                         ], function (control) {
                             if (control) control.disabled = false;
                         });
+                        var mappingPreviewButton = page.querySelector('#mappingPreviewColorBtn');
+                        if (mappingPreviewButton) mappingPreviewButton.disabled = !mappingPreviewEnabled;
                         HueConfigurationPage.updateColorPresetBulkButtons(page);
                         HueConfigurationPage.updateScenePlaylistButtons(page);
                         HueConfigurationPage.updateScenePlaylistBulkButtons(page);
@@ -4064,6 +4068,8 @@
                     var bulkPlaylistAllTargetsButton = page && page.querySelector('#previewSelectedScenePlaylistsAllBtn');
                     var bulkPlaylistTargetSelect = page && page.querySelector('#scenePlaylistBulkPreviewTarget');
                     var mappingButton = page && page.querySelector('#mappingPreviewColorBtn');
+                    var mappingSyncEnabled = page && page.querySelector('#mappingSyncEnabled');
+                    var mappingPreviewEnabled = !mappingSyncEnabled || mappingSyncEnabled.checked !== false;
                     if (defaultButton) defaultButton.disabled = busy;
                     if (allTargetsButton) allTargetsButton.disabled = busy || duplicateTargetsBlocked;
                     if (captureButton) captureButton.disabled = busy;
@@ -4080,7 +4086,7 @@
                     if (bulkPlaylistButton) bulkPlaylistButton.disabled = busy;
                     if (bulkPlaylistAllTargetsButton) bulkPlaylistAllTargetsButton.disabled = busy || duplicateTargetsBlocked;
                     if (bulkPlaylistTargetSelect) bulkPlaylistTargetSelect.disabled = busy;
-                    if (mappingButton) mappingButton.disabled = busy;
+                    if (mappingButton) mappingButton.disabled = busy || !mappingPreviewEnabled;
                     if (cancelButton) {
                         cancelButton.style.display = busy ? "" : "none";
                         cancelButton.disabled = false;
@@ -12204,6 +12210,7 @@
                     var manualAreaContainer = page.querySelector('#mappingManualAreaContainer');
                     if (manualAreaContainer) manualAreaContainer.style.opacity = enabled ? "1" : "0.55";
                     if (!enabled) HueConfigurationPage.toggleMappingManualArea(false);
+                    HueConfigurationPage.updatePreviewTargetMetadataControls(page);
                 },
 
                 discoverMappingBridge: function () {

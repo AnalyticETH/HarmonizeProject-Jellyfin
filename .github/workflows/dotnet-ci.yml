@@ -102,6 +102,9 @@ jobs:
     - name: Validate pull-request workflow boundary
       run: node scripts/validate-pull-request-workflow.mjs
 
+    - name: Validate workflow inventory and runner boundaries
+      run: node scripts/validate-workflow-inventory.mjs
+
     - name: Validate trusted workflow boundary
       run: node scripts/validate-trusted-workflow.mjs
 

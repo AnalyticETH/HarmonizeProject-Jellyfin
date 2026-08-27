@@ -27,11 +27,11 @@ env:
   # Registry aliases are fetched as reviewed, SHA-256-pinned snapshots. A changed
   # ruleset fails closed instead of silently changing the security policy.
   SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'
-  SEMGREP_DEFAULT_CONFIG_SHA256: '33d1d3c250c3787ac9b955cb8cef76cb8ecd9937593871b87e5365fdf65c27dd'
+  SEMGREP_DEFAULT_CONFIG_SHA256: '2d7fbaaa6bbe6324e43aa852021804da2e9a4ac102a9562da30d8efbee1a2f05'
   SEMGREP_JAVASCRIPT_CONFIG_URL: 'https://semgrep.dev/c/p/javascript'
   SEMGREP_JAVASCRIPT_CONFIG_SHA256: 'e65e8449157ef5d587f2c2a0c17ed388910ca90336e514d27941ccd25543cf4e'
   SEMGREP_PYTHON_CONFIG_URL: 'https://semgrep.dev/c/p/python'
-  SEMGREP_PYTHON_CONFIG_SHA256: 'bec482e6fbbe20c76ec6f805e57176932c9dd10d12ea72b9019aa95cc03852cb'
+  SEMGREP_PYTHON_CONFIG_SHA256: '31c1dfa46e8ddd97f9ac98c607ddd77b20a2c3356d7ec987359961d47ec27035'
 
 concurrency:
   group: security-scan-${{ github.workflow }}-${{ github.ref }}
@@ -49,6 +49,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Validate workflow inventory and runner boundaries
+        run: node scripts/validate-workflow-inventory.mjs
       - name: Install gitleaks
         run: |
           set -euo pipefail

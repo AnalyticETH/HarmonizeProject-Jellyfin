@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.341] - 2026-08-27
+
+### Bridge and workflow safety
+- **Bridge response identity validation**: reject malformed or mismatched Hue light resource IDs during state capture instead of associating another light with the requested resource.
+- **Workflow inventory hardening**: enforce the reviewed workflow set, immutable selected actions, safe triggers, fixed pull-request runners, and per-job `main` guards for persistent self-hosted jobs, including the scheduled security scan.
+- **Disabled mapping preview safety**: keep the administrator's current-color preview disabled while a user mapping is disabled and restore the correct state after lifecycle or busy-state changes.
+- **Regression coverage**: cover malformed and mismatched bridge resource IDs, disabled-mapping preview state, and workflow-boundary contracts.
+
 ## [1.5.340] - 2026-08-27
 
 ### Deferred scheduler durability
