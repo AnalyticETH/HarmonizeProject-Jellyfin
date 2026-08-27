@@ -139,7 +139,7 @@ const pinnedConfigRuntimeMarkers = [
     'test "${#script_rule_excludes[@]}" -eq 1'
 ];
 const productionScanMarkers = [
-    "--config \"$RUNNER_TEMP/semgrep-default.yml\" --metrics off --timeout 120",
+    "--config \"$RUNNER_TEMP/semgrep-default.yml\" --metrics off --jobs 1 --timeout 300",
     "--include='*.cs' --include='*.yml' --include='*.yaml'",
     "--include='*.json' --include='*.ps1' --include='*.sh'",
     "--json --output semgrep-production.json ."

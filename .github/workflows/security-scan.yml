@@ -156,8 +156,12 @@ jobs:
         run: |
           set -euo pipefail
           set +e
+          # Production C# taint analysis can hit a transient fixpoint timeout
+          # on the shared runner; keep the gate fail-closed while allowing a
+          # bounded five-minute per-file analysis window. Serial execution
+          # keeps taint fixpoint analysis stable on the shared host.
           "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
-            --config "$RUNNER_TEMP/semgrep-default.yml" --metrics off --timeout 120 \
+            --config "$RUNNER_TEMP/semgrep-default.yml" --metrics off --jobs 1 --timeout 300 \
             --include='*.cs' --include='*.yml' --include='*.yaml' \
             --include='*.json' --include='*.ps1' --include='*.sh' \
             --json --output semgrep-production.json .
