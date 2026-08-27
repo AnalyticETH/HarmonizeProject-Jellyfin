@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.322] - 2026-08-26
+
+### Fail-closed release publication
+- **Pre-publication asset validation**: the trusted self-hosted release job now checks the draft contains exactly the ZIP and SHA-256 sidecar before making it public.
+- **Retry-safe verification**: final release reads use the same bounded retry policy as creation, upload, and publication, while matching tag/commit drafts remain resumable.
+- **Documentation parity**: the release runbook now describes resumable matching drafts instead of the retired tag-already-exists failure behavior.
+
 ## [1.5.321] - 2026-08-26
 
 ### Resumable release publication

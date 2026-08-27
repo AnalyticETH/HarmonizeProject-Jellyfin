@@ -381,8 +381,7 @@ jobs:
           echo "Release tag ${TAG} already points to workflow commit ${SHA}."
         else
           if git show-ref --verify --quiet "$local_tag_ref"; then
-            local_tag_sha="$(git rev-parse "${local_tag_ref}^{commit}")"
-            echo "Removing stale local release tag ${TAG} at ${local_tag_sha}; the remote tag is absent."
+            echo "Removing stale local release tag ${TAG}; the remote tag is absent."
             git tag -d "$TAG"
           fi
 
@@ -480,13 +479,20 @@ jobs:
           jellyfin-plugin-hue-release.zip.sha256 \
           --clobber
 
+        # Refuse to publish a draft that contains anything other than the
+        # two verified release assets. This check intentionally runs before
+        # the draft is made public, and is repeated after publication below.
+        release_assets="$(retry gh release view "$RELEASE_TAG" --json assets)"
+        jq -e '([.assets[] | select(.state == "uploaded") | .name] | sort == ["jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"])' \
+          <<<"$release_assets" >/dev/null
+
         retry gh release edit "$RELEASE_TAG" \
           --draft=false \
           --prerelease=false \
           --title "Jellyfin Hue Sync v${RELEASE_VERSION}" \
           --notes-file "$body_file"
 
-        final_release="$(gh release view "$RELEASE_TAG" --json tagName,targetCommitish,isDraft,isPrerelease,assets)"
+        final_release="$(retry gh release view "$RELEASE_TAG" --json tagName,targetCommitish,isDraft,isPrerelease,assets)"
         jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" \
           '(.tagName == $tag) and (.targetCommitish == $sha) and (.isDraft == false) and (.isPrerelease == false) and ([.assets[].name] | sort == ["jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"])' \
           <<<"$final_release" >/dev/null
