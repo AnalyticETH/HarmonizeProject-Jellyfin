@@ -5168,6 +5168,15 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.BrightnessPercent = candidateSchedules[existingIndex].BrightnessPercent;
                 if (!request.DurationSpecified)
                     schedule.DurationSeconds = candidateSchedules[existingIndex].DurationSeconds;
+                if (!request.DaysOfWeekMask.HasValue)
+                {
+                    var existingDaysOfWeekMask = candidateSchedules[existingIndex].DaysOfWeekMask;
+                    if (!string.Equals(schedule.Recurrence, PluginConfiguration.SceneScheduleRecurrenceWeekly, StringComparison.Ordinal) ||
+                        (existingDaysOfWeekMask >= 1 && existingDaysOfWeekMask <= PluginConfiguration.AllSceneScheduleDaysMask))
+                    {
+                        schedule.DaysOfWeekMask = existingDaysOfWeekMask;
+                    }
+                }
                 if (!request.EnabledSpecified)
                     schedule.Enabled = candidateSchedules[existingIndex].Enabled;
                 if (!request.TargetAllEnabledMappings.HasValue)
@@ -13737,7 +13746,7 @@ namespace Jellyfin.Plugin.Hue.Api
         public List<string> ExcludedDates { get; set; } = new();
 
         [JsonPropertyName("daysOfWeekMask")]
-        public int DaysOfWeekMask { get; set; } = PluginConfiguration.AllSceneScheduleDaysMask;
+        public int? DaysOfWeekMask { get; set; }
 
         private bool _enabled = true;
         private bool _enabledSpecified;
@@ -13816,7 +13825,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ExcludedDates = (ExcludedDates ?? new List<string>())
                     .Select(value => value?.Trim() ?? string.Empty)
                     .ToList(),
-                DaysOfWeekMask = DaysOfWeekMask,
+                DaysOfWeekMask = DaysOfWeekMask ?? PluginConfiguration.AllSceneScheduleDaysMask,
                 Enabled = Enabled,
                 SkipNextOccurrence = SkipNextOccurrence ?? false
             };

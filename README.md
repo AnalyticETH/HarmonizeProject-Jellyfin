@@ -471,7 +471,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.345 (Current)
+### Version 1.5.346 (Current)
+
+- **Weekday-mask update parity**: partial schedule updates preserve an existing valid weekly weekday mask when the field is omitted, while new cues retain the all-days default and malformed legacy masks fall back safely.
+
+- **History-repair persistence retry**: failed normalization, save, and empty-history clears retain a dirty marker and retry the authoritative in-memory history on a later read or write.
+
+- **Paginated draft discovery**: trusted release publication searches all GitHub release pages so older drafts remain resumable after the repository exceeds 100 releases.
+
+- **Regression coverage**: controller schedule updates, serializer-backed history retries, and paginated trusted-workflow fixtures cover the new boundaries.
 
 - **User-mapping reconciliation lifecycle safety**: stale report and apply callbacks are cancelled or ignored after page teardown, so hidden pages cannot show obsolete confirmations, status, or mapping reloads.
 

@@ -524,8 +524,10 @@ jobs:
         gh --version | head -n 1
 
         find_release_json() {
-          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-            | jq -c --arg tag "$RELEASE_TAG" '[.[] | select(.tag_name == $tag)] | first'
+          # Search every release page so an older draft remains resumable after
+          # the repository grows beyond the first 100 releases.
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | jq -sc --arg tag "$RELEASE_TAG" 'add | [.[] | select(.tag_name == $tag)] | first'
         }
 
         ensure_draft() {

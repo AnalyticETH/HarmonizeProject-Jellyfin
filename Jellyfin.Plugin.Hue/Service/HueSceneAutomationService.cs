@@ -5718,6 +5718,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                 _historyPersistencePending = false;
             }
         }
+        else if (shouldSave && persistRepairs)
+        {
+            MarkHistoryPersistencePending();
+        }
     }
 
     private void PersistPendingSceneScheduleHistoryRepair()
@@ -5726,26 +5730,22 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (config == null)
             return;
 
-        var configuredEntries = config.PersistedSceneScheduleHistory ??
-            new List<HueSceneScheduleHistoryEntry>();
-        var normalizedEntries = config.PersistSceneScheduleHistory
-            ? configuredEntries
-                .Where(entry => entry != null)
-                .Take(config.GetSceneScheduleHistoryRetentionCount())
-                .Select(CloneHistoryEntry)
-                .ToList()
-            : new List<HueSceneScheduleHistoryEntry>();
-        var shouldSave = normalizedEntries.Count != configuredEntries.Count;
-        if (!shouldSave)
+        List<HueSceneScheduleHistoryEntry> entries;
+        lock (_historyLock)
         {
-            lock (_historyLock)
-            {
-                _historyPersistencePending = false;
-            }
-            return;
+            entries = config.PersistSceneScheduleHistory
+                ? _runHistory
+                    .Take(config.GetSceneScheduleHistoryRetentionCount())
+                    .Select(ToHistoryEntry)
+                    .ToList()
+                : new List<HueSceneScheduleHistoryEntry>();
         }
 
-        config.PersistedSceneScheduleHistory = normalizedEntries
+        // A failed initial repair already copied the normalized list into the live
+        // configuration object, so comparing against that list cannot establish that
+        // the XML file was updated. Persist the authoritative in-memory history whenever
+        // the dirty flag is set, even when the configuration appears equal.
+        config.PersistedSceneScheduleHistory = entries
             .Select(CloneHistoryEntry)
             .ToList();
         if (SavePersistedSceneScheduleHistoryConfiguration())
@@ -5754,6 +5754,10 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 _historyPersistencePending = false;
             }
+        }
+        else
+        {
+            MarkHistoryPersistencePending();
         }
     }
 
@@ -5784,9 +5788,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 lock (_historyLock)
                 {
-                    _historyPersistencePending = false;
+                    if (!_historyPersistencePending)
+                        return;
                 }
-                return;
             }
 
             config.PersistedSceneScheduleHistory.Clear();
@@ -5798,6 +5802,10 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 _historyPersistencePending = false;
             }
+        }
+        else
+        {
+            MarkHistoryPersistencePending();
         }
     }
 
@@ -5821,6 +5829,14 @@ public sealed class HueSceneAutomationService : BackgroundService
             // Persistence is diagnostic-only and must never interrupt a cue run.
             _logger.LogWarning(ex, "Could not persist Hue scheduled-scene history");
             return false;
+        }
+    }
+
+    private void MarkHistoryPersistencePending()
+    {
+        lock (_historyLock)
+        {
+            _historyPersistencePending = true;
         }
     }
 

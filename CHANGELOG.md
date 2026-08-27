@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.346] - 2026-08-27
+
+### Schedule and release durability
+- **Weekday-mask update parity**: partial schedule updates preserve an existing valid weekly weekday mask when the field is omitted, while new cues retain the all-days default and malformed legacy masks fall back safely.
+- **History-repair persistence retry**: failed normalization, save, and empty-history clears retain a dirty marker and retry the authoritative in-memory history on a later read or write.
+- **Paginated draft discovery**: trusted release publication searches all GitHub release pages so older drafts remain resumable after the repository exceeds 100 releases.
+- **Regression coverage**: controller schedule updates, serializer-backed history retries, and paginated trusted-workflow fixtures cover the new boundaries.
+
 ## [1.5.345] - 2026-08-27
 
 ### Lifecycle and release integrity

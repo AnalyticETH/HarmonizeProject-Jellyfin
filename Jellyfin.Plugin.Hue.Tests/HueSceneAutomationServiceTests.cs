@@ -6195,6 +6195,95 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void GetHistory_RetriesFailedHistoryRepairWithAuthoritativeSnapshot()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .SetupSequence(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated history repair persistence failure"))
+            .Pass();
+        var configuration = new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = true,
+            SceneScheduleHistoryRetentionCount = 1,
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new()
+                {
+                    ScheduleId = "history-newest",
+                    RunAtUtc = DateTime.UtcNow
+                },
+                new()
+                {
+                    ScheduleId = "history-older",
+                    RunAtUtc = DateTime.UtcNow.AddMinutes(-1)
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.Equal("history-newest", Assert.Single(service.GetHistory()).ScheduleId);
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Once);
+        Assert.Single(configuration.PersistedSceneScheduleHistory);
+
+        Assert.Equal("history-newest", Assert.Single(service.GetHistory()).ScheduleId);
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Exactly(2));
+        Assert.Single(configuration.PersistedSceneScheduleHistory);
+    }
+
+    [Fact]
+    public void ClearHistory_RetriesFailedHistoryPersistence()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .SetupSequence(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated history persistence failure"))
+            .Pass();
+        var configuration = new PluginConfiguration
+        {
+            PersistSceneScheduleHistory = true,
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>
+            {
+                new()
+                {
+                    ScheduleId = "clear-history-cue",
+                    RunAtUtc = DateTime.UtcNow
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.Single(service.GetHistory());
+        Assert.Equal(1, service.ClearHistory());
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Once);
+        Assert.Empty(configuration.PersistedSceneScheduleHistory);
+
+        Assert.Empty(service.GetHistory());
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Exactly(2));
+        Assert.Empty(configuration.PersistedSceneScheduleHistory);
+    }
+
+    [Fact]
     public void GetHistory_DoesNotPersistLazyRepairWhileConfigurationMutationIsHeld()
     {
         var serializer = new Mock<IXmlSerializer>();

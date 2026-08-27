@@ -7234,6 +7234,41 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_PartialUpdatePreservesOmittedWeekdayMask()
+    {
+        const int weekdayMask = 1 << (int)DayOfWeek.Monday;
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Weeknight" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "weekday-cue",
+                    Name = "Weeknight cue",
+                    PresetName = "Weeknight",
+                    TimeOfDay = "20:00",
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceWeekly,
+                    DaysOfWeekMask = weekdayMask,
+                    Enabled = true
+                }
+            }
+        });
+
+        var request = System.Text.Json.JsonSerializer.Deserialize<HueSceneScheduleRequest>("""
+            {"id":"weekday-cue","name":"Updated weeknight cue","presetName":"Weeknight","enabled":false}
+            """)!;
+        Assert.Null(request.DaysOfWeekMask);
+
+        var action = CreateController().SaveSceneSchedule(request);
+
+        var result = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(action.Result).Value);
+        Assert.Equal(weekdayMask, result.DaysOfWeekMask);
+        Assert.Equal(weekdayMask, configuration.SceneSchedules[0].DaysOfWeekMask);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
     public void SceneSchedules_CrudSupportsSolarTimingAndPortableMetadata()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
