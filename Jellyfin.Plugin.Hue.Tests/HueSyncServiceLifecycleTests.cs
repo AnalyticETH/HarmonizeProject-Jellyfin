@@ -1113,7 +1113,7 @@ public sealed class HueSyncServiceLifecycleTests
 
             Assert.True(SpinWait.SpinUntil(
                 () => string.Equals(
-                    GetPrivateField(service, "_playbackStopInFlightSessionId"),
+                    (string?)GetPrivateField(service, "_playbackStopInFlightSessionId"),
                     "session-a",
                     StringComparison.Ordinal),
                 TimeSpan.FromSeconds(5)));
