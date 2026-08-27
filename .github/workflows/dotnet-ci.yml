@@ -478,16 +478,16 @@ jobs:
         # record or the first asset and then return a transient gateway error;
         # retries must resume that draft instead of creating a second release.
         retry() {
-          local attempt delay status
+          local attempt delay failure_status
           delay=5
           for attempt in 1 2 3 4 5 6; do
             if "$@"; then
               return 0
             else
-              status=$?
+              failure_status=$?
             fi
             if [ "$attempt" -eq 6 ]; then
-              return "$status"
+              return "$failure_status"
             fi
             echo "GitHub release operation failed (attempt $attempt/6); retrying in ${delay}s..." >&2
             sleep "$delay"
@@ -523,18 +523,25 @@ jobs:
         command -v gh >/dev/null
         gh --version | head -n 1
 
+        find_release_json() {
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq --arg tag "$RELEASE_TAG" '[.[] | select(.tag_name == $tag)] | first'
+        }
+
         ensure_draft() {
           local release_json target_sha
-          if release_json="$(gh release view "$RELEASE_TAG" --json targetCommitish,isDraft 2>/dev/null)"; then
-            if ! jq -e '.isDraft == true' <<<"$release_json" >/dev/null; then
+          release_json="$(find_release_json)"
+          if [ "$release_json" != "null" ]; then
+            if ! jq -e '.draft == true' <<<"$release_json" >/dev/null; then
               echo "Release $RELEASE_TAG is already published; refusing to overwrite it." >&2
               return 1
             fi
-            target_sha="$(jq -er '.targetCommitish' <<<"$release_json")"
+            target_sha="$(jq -er '.target_commitish' <<<"$release_json")"
             if [ "$target_sha" != "$RELEASE_SHA" ]; then
               echo "Release $RELEASE_TAG already targets $target_sha, expected $RELEASE_SHA; refusing to publish." >&2
               return 1
             fi
+            RELEASE_ID="$(jq -er '.id' <<<"$release_json")"
             echo "Release $RELEASE_TAG already exists at $RELEASE_SHA; resuming it."
             return 0
           fi
@@ -545,9 +552,26 @@ jobs:
             --target "$RELEASE_SHA" \
             --title "Jellyfin Hue Sync v${RELEASE_VERSION}" \
             --notes-file "$body_file"
+
+          release_json="$(retry find_release_json)"
+          if [ "$release_json" = "null" ]; then
+            echo "GitHub did not expose the draft release $RELEASE_TAG after creation." >&2
+            return 1
+          fi
+          if ! jq -e '.draft == true' <<<"$release_json" >/dev/null; then
+            echo "Release $RELEASE_TAG was not created as a draft." >&2
+            return 1
+          fi
+          target_sha="$(jq -er '.target_commitish' <<<"$release_json")"
+          if [ "$target_sha" != "$RELEASE_SHA" ]; then
+            echo "Release $RELEASE_TAG was created at $target_sha, expected $RELEASE_SHA; refusing to publish." >&2
+            return 1
+          fi
+          RELEASE_ID="$(jq -er '.id' <<<"$release_json")"
         }
 
         retry ensure_draft
+        test -n "${RELEASE_ID:-}"
 
         retry gh release upload "$RELEASE_TAG" \
           jellyfin-plugin-hue-release.zip \
@@ -564,7 +588,7 @@ jobs:
         printf '%s\n' "$local_zip_digest" | grep -Eq '^[0-9a-f]{64}$'
         printf '%s\n' "$local_checksum_digest" | grep -Eq '^[0-9a-f]{64}$'
         test -n "${GITHUB_REPOSITORY:-}"
-        remote_release="$(retry gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+        remote_release="$(retry gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
         remote_zip_digest="$(jq -er --arg name jellyfin-plugin-hue-release.zip '
           [.assets[] | select((.name == $name) and (.state == "uploaded")) | .digest] as $digests
           | if ($digests | length) != 1 then error("release ZIP asset must have exactly one digest")
@@ -588,18 +612,18 @@ jobs:
         # Refuse to publish a draft that contains anything other than the
         # two verified release assets. This check intentionally runs before
         # the draft is made public, and is repeated after publication below.
-        release_assets="$(retry gh release view "$RELEASE_TAG" --json assets)"
+        release_assets="$(retry gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
         jq -e '([.assets[] | select(.state == "uploaded") | .name] | sort == ["jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"])' \
           <<<"$release_assets" >/dev/null
 
-        retry gh release edit "$RELEASE_TAG" \
-          --draft=false \
-          --prerelease=false \
-          --title "Jellyfin Hue Sync v${RELEASE_VERSION}" \
-          --notes-file "$body_file"
+        retry gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+          -F draft=false \
+          -F prerelease=false \
+          -f "name=Jellyfin Hue Sync v${RELEASE_VERSION}" \
+          -f "body=$(cat "$body_file")" >/dev/null
 
-        final_release="$(retry gh release view "$RELEASE_TAG" --json tagName,targetCommitish,isDraft,isPrerelease,assets)"
+        final_release="$(retry gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
         jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" \
-          '(.tagName == $tag) and (.targetCommitish == $sha) and (.isDraft == false) and (.isPrerelease == false) and ([.assets[].name] | sort == ["jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"])' \
+          '(.tag_name == $tag) and (.target_commitish == $sha) and (.draft == false) and (.prerelease == false) and ([.assets[].name] | sort == ["jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"])' \
           <<<"$final_release" >/dev/null
         echo "Published $RELEASE_TAG at $RELEASE_SHA with the ZIP and checksum assets."

@@ -25,7 +25,8 @@ for (const marker of [
   "jq -er '.version | strings | select(test(\"^[0-9]+\\\\.[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"))'",
   'local_tag_ref="refs/tags/${TAG}"',
   'git show-ref --verify --quiet "$local_tag_ref"',
-  "jq -e '.isDraft == true' <<<\"$release_json\"",
+  "find_release_json()",
+  "jq -e '.draft == true' <<<\"$release_json\"",
   'if [ "$target_sha" != "$RELEASE_SHA" ]; then',
   "CODECOV_TOKEN_PRESENT: ${{ secrets.CODECOV_TOKEN != '' }}",
   "Codecov upload skipped: CODECOV_TOKEN is not configured",
@@ -43,13 +44,17 @@ for (const marker of [
   "local_checksum_digest=",
   "expected_zip_digest=",
   "test \"$expected_zip_digest\" = \"$local_zip_digest\"",
-  "gh api \"repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}\"",
+  "RELEASE_ID=",
+  "gh api \"repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}\"",
   "remote_zip_digest=",
   "remote_checksum_digest=",
   "release ZIP asset must have exactly one digest",
   "release checksum asset must have exactly one digest",
   "test \"$remote_zip_digest\" = \"sha256:${local_zip_digest}\"",
   "test \"$remote_checksum_digest\" = \"sha256:${local_checksum_digest}\"",
+  "-F draft=false",
+  "-F prerelease=false",
+  "target_commitish == $sha",
 ]) {
   if (!ci.includes(marker)) {
     throw new Error(`${ciPath} is missing trusted-workflow marker: ${marker}`);

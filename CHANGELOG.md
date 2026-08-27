@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.343] - 2026-08-27
+
+### Release pipeline hardening
+- **Draft-safe release publication**: trusted automation resolves draft releases through GitHub's release API and publishes by verified release ID, so digest verification works before and after a draft becomes public.
+- **Idempotent asset handling**: release retries remain bound to the exact workflow commit and verified ZIP/checksum assets without creating duplicate releases.
+- **Regression coverage**: the trusted-workflow contract requires draft lookup, release-ID digest verification, and API-based publication markers.
+
 ## [1.5.342] - 2026-08-27
 
 ### Lifecycle and release integrity

@@ -471,7 +471,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.342 (Current)
+### Version 1.5.343 (Current)
+
+- **Draft-safe release publication**: trusted automation resolves draft releases through GitHub's release API and publishes by verified release ID, so the digest gate works before and after a draft becomes public.
+
+- **Idempotent asset handling**: release retries remain bound to the exact workflow commit and verified ZIP/checksum assets without creating duplicate releases.
+
+- **Regression coverage**: the trusted-workflow contract requires draft lookup, release-ID digest verification, and API-based publication markers.
 
 - **Cancellation-safe shutdown restoration**: if host shutdown cancellation interrupts light restoration, the bridge snapshot is retained and deferred cleanup retries restoration and entertainment-area deactivation with a fresh token.
 
