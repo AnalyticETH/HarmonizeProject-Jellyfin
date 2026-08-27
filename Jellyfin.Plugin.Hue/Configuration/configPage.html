@@ -2056,7 +2056,7 @@
                             return true;
                         });
                 },
-                runWithBridgeCertificate: function (page, bridgeIp, statusElement, action, preflightKey) {
+                runWithBridgeCertificate: function (page, bridgeIp, statusElement, action, preflightKey, preflightGuard) {
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var preflightRecord = {
                         key: String(preflightKey || 'bridgeCertificate'),
@@ -2078,7 +2078,8 @@
                             // configuration page. Do not let its eventual approval
                             // start a credential-bearing request for a stale tab.
                             if (preflightRecord.canceled ||
-                                (page && !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration))) {
+                                (page && !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) ||
+                                (typeof preflightGuard === 'function' && !preflightGuard())) {
                                 var staleError = new Error('Bridge certificate request was canceled because the configuration page is no longer active.');
                                 staleError.huePageLifecycleStale = true;
                                 throw staleError;
@@ -2099,7 +2100,7 @@
                     });
                     return request;
                 },
-                getCredentialLifecycleRequest: function (page, generation, key, bridgeIp, statusElement, url, requestOptions, target) {
+                getCredentialLifecycleRequest: function (page, generation, key, bridgeIp, statusElement, url, requestOptions, target, preflightGuard) {
                     // Keep the certificate probe inside the same lifecycle slot as the
                     // bridge request. This lets a second refresh or pagehide invalidate
                     // a pending trust prompt before it can send credentials.
@@ -2127,7 +2128,7 @@
                             target);
                         request._huePageRequestRecord = trackedRequest._huePageRequestRecord;
                         return trackedRequest;
-                    }, key);
+                    }, key, preflightGuard);
                     preflightRecord.request = request;
                     request._huePageRequestRecord = preflightRecord;
                     HueConfigurationPage.ensurePageLifecycle(page);
@@ -2450,6 +2451,11 @@
                     var button = document.getElementById('mappingLoadDeviceRouteAreasBtn');
                     if (button) button.disabled = true;
                     HueConfigurationPage.setMappingDeviceRouteEditorStatus('Loading route entertainment areas...');
+                    var preflightFingerprint = HueConfigurationPage.getMappingTargetFingerprint(target);
+                    var isCredentialInputCurrent = function () {
+                        return HueConfigurationPage.getMappingTargetFingerprint(
+                            HueConfigurationPage.getMappingDeviceRouteTarget()) === preflightFingerprint;
+                    };
                     var request = HueConfigurationPage.getCredentialLifecycleRequest(
                         page,
                         pageGeneration,
@@ -2468,7 +2474,8 @@
                             contentType: 'application/json',
                             dataType: 'json'
                         },
-                        target);
+                        target,
+                        isCredentialInputCurrent);
                     request
                         .then(function (areas) {
                             if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
@@ -4224,13 +4231,44 @@
                             false,
                             targetSelection);
                     };
+                    var preflightTarget = {
+                        bridgeIp: bridgeIp,
+                        appKey: appKey,
+                        clientKey: clientKey,
+                        areaId: areaId,
+                        channelIds: channelIds
+                    };
+                    var preflightFingerprint = HueConfigurationPage.getMappingTargetFingerprint(preflightTarget) + '|' +
+                        JSON.stringify({ targetSelection: targetSelection, values: values });
+                    var isCredentialInputCurrent = function () {
+                        var currentValues;
+                        try {
+                            currentValues = HueConfigurationPage.getPreviewValues(page);
+                        } catch (err) {
+                            return false;
+                        }
+                        var currentTargetSelection = HueConfigurationPage.getColorPreviewTargetSelection(page);
+                        var currentUsesMultiTargetSelection = currentTargetSelection.targetAllEnabledMappings ||
+                            currentTargetSelection.includeDefaultTarget || currentTargetSelection.targetUserIds.length > 0 ||
+                            currentTargetSelection.targetRoutes.length > 0;
+                        if (currentUsesMultiTargetSelection) return false;
+                        var currentTarget = {
+                            bridgeIp: page.querySelector('#hueBridgeIp').value.trim(),
+                            appKey: page.querySelector('#hueAppKey').value.trim(),
+                            clientKey: page.querySelector('#hueClientKey').value.trim(),
+                            areaId: HueConfigurationPage.getSelectedAreaId(page),
+                            channelIds: page.querySelector('#channelIds').value.trim()
+                        };
+                        return HueConfigurationPage.getMappingTargetFingerprint(currentTarget) + '|' +
+                            JSON.stringify({ targetSelection: currentTargetSelection, values: currentValues }) === preflightFingerprint;
+                    };
                     // A multi-target preview resolves credentials server-side for
                     // each configured target. A single default-target preview uses
                     // the entered/stored bridge credentials and must pin its bridge
                     // before the request is sent.
                     var request = usesMultiTargetSelection
                         ? startPreview()
-                        : HueConfigurationPage.runWithBridgeCertificate(page, bridgeIp, statusEl, startPreview, 'preview');
+                        : HueConfigurationPage.runWithBridgeCertificate(page, bridgeIp, statusEl, startPreview, 'preview', isCredentialInputCurrent);
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request
@@ -10013,7 +10051,8 @@
                             contentType: 'application/json',
                             dataType: 'json'
                         },
-                        requestTarget);
+                        requestTarget,
+                        isCurrent);
                     return request.then(function (response) {
                         if (!isCurrent()) return;
                         console.log("Entertainment areas response:", response);
@@ -11207,6 +11246,10 @@
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var button = page.querySelector('#registerBtn');
                     var ip = page.querySelector('#hueBridgeIp').value.trim();
+                    var isCurrentRegistrationTarget = function () {
+                        var currentInput = page.querySelector('#hueBridgeIp');
+                        return !!currentInput && HueConfigurationPage.isSameBridgeTarget(currentInput.value, ip);
+                    };
                     if (!ip) {
                         Dashboard.alert("Please enter a bridge address first.");
                         return;
@@ -11219,7 +11262,7 @@
                     var preflight = { generation: pageGeneration, canceled: false };
                     page._hueRegistrationPreflight = preflight;
                     HueConfigurationPage.ensureBridgeCertificate(page, ip).then(function () {
-                        if (preflight.canceled || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        if (preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                             page._hueRegistrationPreflight !== preflight) return false;
                         return new Promise(function (resolve) {
                             Dashboard.confirm("Please press the large LINK BUTTON on your Hue Bridge now, then click OK.", "Link Bridge", function (result) {
@@ -11227,7 +11270,7 @@
                             });
                         });
                     }).then(function (result) {
-                        if (!result || preflight.canceled || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        if (!result || preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                             page._hueRegistrationPreflight !== preflight || page._hueRegistrationRequest) {
                             if (page._hueRegistrationPreflight === preflight) page._hueRegistrationPreflight = null;
                             return;
@@ -11254,7 +11297,7 @@
 
                         page._hueRegistrationRequest = request;
                         request.then(function (response) {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                            if (!isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                                 page._hueRegistrationRequest !== request) return;
                             // Handle both camelCase and PascalCase property names
                             var appKey = response.username || response.Username || "";
@@ -11270,7 +11313,7 @@
                                 Dashboard.alert("Registration returned without both required credentials. Press the bridge link button and try again.");
                             }
                         }).catch(function () {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                            if (!isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                                 page._hueRegistrationRequest !== request) return;
                             Dashboard.alert("Registration failed. Verify the bridge address and link-button prompt, then try again.");
                         }).finally(function () {
@@ -11282,7 +11325,7 @@
                             Dashboard.hideLoadingMsg();
                         });
                     }).catch(function (err) {
-                        if (preflight.canceled || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                        if (preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                         if (page._hueRegistrationPreflight === preflight) page._hueRegistrationPreflight = null;
                         Dashboard.alert(err && err.message ? err.message : "Bridge certificate verification failed. Review and trust the fingerprint before linking.");
                     });
@@ -11309,13 +11352,35 @@
                     button.disabled = true;
                     HueConfigurationPage.refreshStatus(page, "Testing bridge connection...", "info");
                     Dashboard.showLoadingMsg();
+                    var preflightTarget = {
+                        bridgeIp: bridgeIp,
+                        appKey: appKey,
+                        clientKey: clientKey,
+                        areaId: areaId,
+                        channelIds: channelIds
+                    };
+                    var preflightFingerprint = HueConfigurationPage.getMappingTargetFingerprint(preflightTarget);
+                    var isCredentialInputCurrent = function () {
+                        var currentBridgeInput = page.querySelector('#hueBridgeIp');
+                        var currentAppKeyInput = page.querySelector('#hueAppKey');
+                        var currentClientKeyInput = page.querySelector('#hueClientKey');
+                        var currentChannelInput = page.querySelector('#channelIds');
+                        var currentTarget = {
+                            bridgeIp: currentBridgeInput ? currentBridgeInput.value.trim() : '',
+                            appKey: currentAppKeyInput ? currentAppKeyInput.value.trim() : '',
+                            clientKey: currentClientKeyInput ? currentClientKeyInput.value.trim() : '',
+                            areaId: HueConfigurationPage.getSelectedAreaId(page),
+                            channelIds: currentChannelInput ? currentChannelInput.value.trim() : ''
+                        };
+                        return HueConfigurationPage.getMappingTargetFingerprint(currentTarget) === preflightFingerprint;
+                    };
                     var request = HueConfigurationPage.runWithBridgeCertificate(
                         page,
                         bridgeIp,
                         page.querySelector('#bridgeStatus'),
                         function () {
                             return HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey, channelIds);
-                        }, 'preview');
+                        }, 'preview', isCredentialInputCurrent);
                     page._huePreviewRequest = request;
                     page._huePreviewStatusElement = page.querySelector('#bridgeStatus');
                     HueConfigurationPage.setDiagnosticBusy(page, true);
@@ -12302,13 +12367,20 @@
                         statusEl.style.background = "#3f51b5";
                     }
                     Dashboard.showLoadingMsg();
+                    var preflightTarget = Object.assign({}, target, { channelIds: channelIds });
+                    var preflightFingerprint = HueConfigurationPage.getMappingTargetFingerprint(preflightTarget);
+                    var isCredentialInputCurrent = function () {
+                        var currentTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
+                        currentTarget.channelIds = HueConfigurationPage.getEffectiveMappingChannelIds(page, currentTarget);
+                        return HueConfigurationPage.getMappingTargetFingerprint(currentTarget) === preflightFingerprint;
+                    };
                     var request = HueConfigurationPage.runWithBridgeCertificate(
                         page,
                         target.bridgeIp,
                         statusEl,
                         function () {
                             return HueConfigurationPage.fetchConnectionTest(target.bridgeIp, target.appKey, target.areaId, target.clientKey, channelIds, target.userId, target.deviceId);
-                        }, 'preview');
+                        }, 'preview', isCredentialInputCurrent);
                     page._huePreviewRequest = request;
                     page._huePreviewStatusElement = statusEl;
                     HueConfigurationPage.setDiagnosticBusy(page, true);
@@ -12378,6 +12450,19 @@
                         statusEl.style.background = "#3f51b5";
                     }
                     Dashboard.showLoadingMsg();
+                    var preflightTarget = Object.assign({}, target, { channelIds: channelIds });
+                    var preflightFingerprint = HueConfigurationPage.getMappingTargetFingerprint(preflightTarget) + '|' + JSON.stringify(values);
+                    var isCredentialInputCurrent = function () {
+                        var currentTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
+                        currentTarget.channelIds = HueConfigurationPage.getEffectiveMappingChannelIds(page, currentTarget);
+                        var currentValues;
+                        try {
+                            currentValues = HueConfigurationPage.getPreviewValues(page);
+                        } catch (err) {
+                            return false;
+                        }
+                        return HueConfigurationPage.getMappingTargetFingerprint(currentTarget) + '|' + JSON.stringify(currentValues) === preflightFingerprint;
+                    };
                     var request = HueConfigurationPage.runWithBridgeCertificate(
                         page,
                         target.bridgeIp,
@@ -12403,7 +12488,7 @@
                                 false,
                                 undefined,
                                 target.deviceId);
-                        }, 'preview');
+                        }, 'preview', isCredentialInputCurrent);
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request
@@ -12440,6 +12525,18 @@
                     var button = document.getElementById('mappingLinkBridgeBtn');
                     var page = document.querySelector('.pluginConfigurationPage');
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    var userSelect = page && page.querySelector ? page.querySelector('#mappingUserSelect') : null;
+                    var registrationUserId = userSelect ? String(userSelect.value || '').trim() : '';
+                    var registrationMappingId = String(HueConfigurationPage.mappingEditingMappingId || '').trim();
+                    var isCurrentRegistrationTarget = function () {
+                        var currentUserSelect = page && page.querySelector ? page.querySelector('#mappingUserSelect') : null;
+                        var currentBridgeInput = document.getElementById('mappingBridgeIp');
+                        return !!currentBridgeInput && HueConfigurationPage.isSameBridgeTarget(currentBridgeInput.value, ip) &&
+                            HueConfigurationPage.areSameJellyfinUserId(
+                                currentUserSelect ? currentUserSelect.value : '',
+                                registrationUserId) &&
+                            String(HueConfigurationPage.mappingEditingMappingId || '').trim() === registrationMappingId;
+                    };
 
                     if (!ip) {
                         Dashboard.alert("Please enter a bridge address first.");
@@ -12453,7 +12550,7 @@
                     var preflight = { generation: pageGeneration, canceled: false };
                     HueConfigurationPage._hueMappingRegistrationPreflight = preflight;
                     HueConfigurationPage.ensureBridgeCertificate(page, ip, statusEl).then(function () {
-                        if (preflight.canceled || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        if (preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                             HueConfigurationPage._hueMappingRegistrationPreflight !== preflight) return false;
                         return new Promise(function (resolve) {
                             Dashboard.confirm("Please press the large LINK BUTTON on your Hue Bridge now, then click OK.", "Link Bridge", function (result) {
@@ -12461,7 +12558,7 @@
                             });
                         });
                     }).then(function (result) {
-                        if (!result || preflight.canceled || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        if (!result || preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                             HueConfigurationPage._hueMappingRegistrationPreflight !== preflight || HueConfigurationPage._hueMappingRegistrationRequest) {
                             if (HueConfigurationPage._hueMappingRegistrationPreflight === preflight) HueConfigurationPage._hueMappingRegistrationPreflight = null;
                             return;
@@ -12493,7 +12590,7 @@
 
                         HueConfigurationPage._hueMappingRegistrationRequest = request;
                         request.then(function (response) {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                            if (!isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                                 HueConfigurationPage._hueMappingRegistrationRequest !== request) return;
                             var appKey = response.username || response.Username || "";
                             var clientKey = response.clientKey || response.ClientKey || "";
@@ -12515,7 +12612,7 @@
                                 }
                             }
                         }).catch(function () {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                            if (!isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                                 HueConfigurationPage._hueMappingRegistrationRequest !== request) return;
                             if (statusEl) {
                                 statusEl.textContent = "Registration failed. Verify the bridge address and link-button prompt, then try again.";
@@ -12529,7 +12626,7 @@
                             if (HueConfigurationPage._hueMappingRegistrationPreflight === preflight) HueConfigurationPage._hueMappingRegistrationPreflight = null;
                         });
                     }).catch(function (err) {
-                        if (preflight.canceled || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                        if (preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                         if (HueConfigurationPage._hueMappingRegistrationPreflight === preflight) HueConfigurationPage._hueMappingRegistrationPreflight = null;
                         if (statusEl) {
                             statusEl.textContent = err && err.message ? err.message : "Certificate verification failed. Review and trust the fingerprint before linking.";
@@ -12581,6 +12678,13 @@
                     selectEl.disabled = true;
 
                     console.log("Fetching entertainment areas from bridge:", bridgeIp);
+                    var preflightFingerprint = HueConfigurationPage.getMappingTargetFingerprint(requestTarget);
+                    var isCredentialInputCurrent = function () {
+                        var currentTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
+                        currentTarget.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
+                        currentTarget.areaId = '';
+                        return HueConfigurationPage.getMappingTargetFingerprint(currentTarget) === preflightFingerprint;
+                    };
                     var request = HueConfigurationPage.getCredentialLifecycleRequest(
                         page,
                         pageGeneration,
@@ -12599,7 +12703,8 @@
                             contentType: 'application/json',
                             dataType: 'json'
                         },
-                        requestTarget);
+                        requestTarget,
+                        isCredentialInputCurrent);
                     request.then(function (areas) {
                         var currentTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
                         currentTarget.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
@@ -12781,7 +12886,8 @@
                             contentType: "application/json",
                             dataType: "json"
                         },
-                        target);
+                        target,
+                        isCurrent);
                     return request.then(function (response) {
                         if (!isCurrent()) return;
                         var channels = Array.isArray(response)

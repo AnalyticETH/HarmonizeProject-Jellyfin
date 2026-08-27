@@ -893,12 +893,12 @@ for (const [functionName, markers] of [
 }
 
 for (const [functionName, markers] of [
-    ["testDefaultConnection", ["runWithBridgeCertificate", "fetchConnectionTest", "isPageLifecycleCurrent"]],
-    ["testMappingConnection", ["runWithBridgeCertificate", "fetchConnectionTest", "isPageLifecycleCurrent"]],
-    ["previewDefaultColor", ["runWithBridgeCertificate", "fetchColorPreview", "usesMultiTargetSelection", "isPageLifecycleCurrent"]],
-    ["previewMappingColor", ["runWithBridgeCertificate", "fetchColorPreview", "isPageLifecycleCurrent"]],
-    ["registerBridge", ["_hueRegistrationPreflight", "isPageLifecycleCurrent"]],
-    ["registerMappingBridge", ["_hueMappingRegistrationPreflight", "isPageLifecycleCurrent"]]
+    ["testDefaultConnection", ["runWithBridgeCertificate", "fetchConnectionTest", "isPageLifecycleCurrent", "isCredentialInputCurrent"]],
+    ["testMappingConnection", ["runWithBridgeCertificate", "fetchConnectionTest", "isPageLifecycleCurrent", "isCredentialInputCurrent"]],
+    ["previewDefaultColor", ["runWithBridgeCertificate", "fetchColorPreview", "usesMultiTargetSelection", "isPageLifecycleCurrent", "isCredentialInputCurrent"]],
+    ["previewMappingColor", ["runWithBridgeCertificate", "fetchColorPreview", "isPageLifecycleCurrent", "isCredentialInputCurrent"]],
+    ["registerBridge", ["_hueRegistrationPreflight", "isPageLifecycleCurrent", "isCurrentRegistrationTarget"]],
+    ["registerMappingBridge", ["_hueMappingRegistrationPreflight", "isPageLifecycleCurrent", "isCurrentRegistrationTarget"]]
 ]) {
     const start = scriptMatch[1].indexOf(`${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
@@ -918,10 +918,25 @@ for (const [functionName, markers] of [
         "var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);",
         "isPageLifecycleCurrent(page, pageGeneration)",
         "huePageLifecycleStale",
-        "preflightRecord.canceled"
+        "preflightRecord.canceled",
+        "typeof preflightGuard === 'function'"
     ]) {
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} runWithBridgeCertificate must suppress stale credential-bearing actions: ${marker}`);
+        }
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("getCredentialLifecycleRequest: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "preflightGuard",
+        "}, key, preflightGuard);"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} getCredentialLifecycleRequest must carry target freshness into the certificate preflight: ${marker}`);
         }
     }
 }
@@ -1384,6 +1399,7 @@ for (const contract of [
         contract.buttonMarker,
         contract.inFlightMarker,
         contract.preflightMarker,
+        "isCurrentRegistrationTarget()",
         "if (!result || preflight.canceled",
         "var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);",
         "isPageLifecycleCurrent(page, pageGeneration)",

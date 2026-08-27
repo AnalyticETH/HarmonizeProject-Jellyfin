@@ -807,6 +807,26 @@ async function testCredentialPreflightCancelGuard() {
     assert.equal(actionCalls, 0, "explicit diagnostic cancellation cannot start a credential request after approval");
 }
 
+async function testCredentialPreflightTargetMutationGuard() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    let resolvePreflight;
+    api.ensureBridgeCertificate = () => new Promise(resolve => { resolvePreflight = resolve; });
+    page.querySelector("#hueBridgeIp").value = "192.168.1.50";
+    page.querySelector("#hueAppKey").value = "old-app-key";
+    page.querySelector("#hueClientKey").value = "old-client-key";
+    page.querySelector("#channelIds").value = "1, 2";
+
+    api.testDefaultConnection(page);
+    const request = page._huePreviewRequest;
+    assert.ok(request && typeof request.then === "function", "connection test tracks the pending certificate preflight");
+    page.querySelector("#hueBridgeIp").value = "192.168.1.51";
+    resolvePreflight(true);
+
+    await assert.rejects(request, error => error && error.huePageLifecycleStale === true, "edited credential target rejects a stale preflight");
+    assert.equal(requests.length, 0, "editing the bridge while trust is pending cannot send the captured credentials");
+}
+
 async function testCredentialLifecyclePreflightPagehideGuard() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -853,6 +873,30 @@ async function testRegistrationLifecycleGuards() {
     resolveMappingPreflight(true);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(mappingHarness.requests.length, 0, "a mapping registration preflight completed after pagehide cannot start the link request");
+
+    const targetHarness = makeHarness();
+    const targetApi = targetHarness.api;
+    const targetPage = targetHarness.page;
+    let resolveTargetPreflight;
+    targetApi.ensureBridgeCertificate = () => new Promise(resolve => { resolveTargetPreflight = resolve; });
+    targetPage.querySelector("#hueBridgeIp").value = "192.168.1.52";
+    targetApi.registerBridge(targetPage);
+    targetPage.querySelector("#hueBridgeIp").value = "192.168.1.53";
+    resolveTargetPreflight(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(targetHarness.requests.length, 0, "editing the global bridge while trust is pending cannot start registration");
+
+    const mappingTargetHarness = makeHarness();
+    const mappingTargetApi = mappingTargetHarness.api;
+    const mappingTargetPage = mappingTargetHarness.page;
+    let resolveMappingTargetPreflight;
+    mappingTargetApi.ensureBridgeCertificate = () => new Promise(resolve => { resolveMappingTargetPreflight = resolve; });
+    mappingTargetPage.querySelector("#mappingBridgeIp").value = "192.168.1.54";
+    mappingTargetApi.registerMappingBridge();
+    mappingTargetPage.querySelector("#mappingBridgeIp").value = "192.168.1.55";
+    resolveMappingTargetPreflight(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(mappingTargetHarness.requests.length, 0, "editing the mapping bridge while trust is pending cannot start registration");
 }
 
 async function testMappingDeviceRouteChannelIsolation() {
@@ -1211,6 +1255,7 @@ await testMappingDeviceRouteCredentialScope();
 await testStoredDeviceRouteCredentialFlags();
 await testCredentialPreflightPagehideGuard();
 await testCredentialPreflightCancelGuard();
+await testCredentialPreflightTargetMutationGuard();
 await testCredentialLifecyclePreflightPagehideGuard();
 await testRegistrationLifecycleGuards();
 await testMappingDeviceRouteChannelIsolation();
@@ -1221,4 +1266,4 @@ await testConfigurationSaveDuplicateSubmitIsBounded();
 await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide, registration lifecycle, import file/validation/submit, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);
