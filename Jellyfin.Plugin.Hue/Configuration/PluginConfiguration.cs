@@ -3144,17 +3144,20 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 }
                 seenTargetUserIds.Add(selectedUserId);
 
-                var matchingMappings = (configuration?.UserMappings ?? new List<UserBridgeMapping>())
-                    .Where(candidate => candidate != null &&
-                        AreSameJellyfinUserId(candidate.UserId, selectedUserId))
-                    .Cast<UserBridgeMapping>()
-                    .ToArray();
-                if (matchingMappings.Length == 0)
-                    errors.Add($"{label} references a selected user mapping that does not exist: {selectedUserId}");
-                else if (matchingMappings.Length > 1)
-                    errors.Add($"{label} references a user mapping with multiple rows: {selectedUserId}; resolve duplicate mappings before running scene automation");
-                else if (!matchingMappings[0].SyncEnabled)
-                    errors.Add($"{label} references a disabled selected user mapping: {selectedUserId}");
+                if (configuration != null)
+                {
+                    var matchingMappings = (configuration.UserMappings ?? new List<UserBridgeMapping>())
+                        .Where(candidate => candidate != null &&
+                            AreSameJellyfinUserId(candidate.UserId, selectedUserId))
+                        .Cast<UserBridgeMapping>()
+                        .ToArray();
+                    if (matchingMappings.Length == 0)
+                        errors.Add($"{label} references a selected user mapping that does not exist: {selectedUserId}");
+                    else if (matchingMappings.Length > 1)
+                        errors.Add($"{label} references a user mapping with multiple rows: {selectedUserId}; resolve duplicate mappings before running scene automation");
+                    else if (!matchingMappings[0].SyncEnabled)
+                        errors.Add($"{label} references a disabled selected user mapping: {selectedUserId}");
+                }
             }
 
             var hasSelectedTargets = playlist.IncludeDefaultTarget || targetUserIds.Count > 0;
