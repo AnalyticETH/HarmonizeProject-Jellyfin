@@ -92,6 +92,21 @@ if (
         `${configPageExcludesPath} must contain exactly 35 unique Express/React framework-rule exclusions`
     );
 }
+const scriptExcludesPath = ".github/semgrep/script-excludes.txt";
+const scriptExcludes = fs
+    .readFileSync(scriptExcludesPath, "utf8")
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith("#"));
+if (
+    scriptExcludes.length !== 1 ||
+    new Set(scriptExcludes).size !== scriptExcludes.length ||
+    !/^javascript\.express\./.test(scriptExcludes[0])
+) {
+    throw new Error(
+        `${scriptExcludesPath} must contain exactly one unique Express framework-rule exclusion`
+    );
+}
 const timeoutCountExpression = "jq '(.time.fixpoint_timeouts // []) | length'";
 const timeoutSummaryMarker = "Analysis timeouts:";
 const timeoutGateMarker = "|| [ \"$TIMEOUTS\" -gt 0 ]";
@@ -117,7 +132,11 @@ const pinnedConfigRuntimeMarkers = [
     'config_rule_prefix="${RUNNER_TEMP#/}"',
     'config_rule_prefix="${config_rule_prefix//\\//.}"',
     "done < .github/semgrep/config-page-excludes.txt",
-    'test "${#config_page_rule_excludes[@]}" -eq 35'
+    'test "${#config_page_rule_excludes[@]}" -eq 35',
+    'script_rule_prefix="${RUNNER_TEMP#/}"',
+    'script_rule_prefix="${script_rule_prefix//\\//.}"',
+    "done < .github/semgrep/script-excludes.txt",
+    'test "${#script_rule_excludes[@]}" -eq 1'
 ];
 const productionScanMarkers = [
     "--config \"$RUNNER_TEMP/semgrep-default.yml\" --metrics off --timeout 120",

@@ -190,10 +190,21 @@ jobs:
           SEMGREP_SEND_METRICS: 'off'
         run: |
           set -euo pipefail
+          script_rule_prefix="${RUNNER_TEMP#/}"
+          script_rule_prefix="${script_rule_prefix//\//.}"
+          script_rule_excludes=()
+          while IFS= read -r rule; do
+            case "$rule" in
+              ""|\#*) continue ;;
+            esac
+            script_rule_excludes+=(--exclude-rule="${script_rule_prefix}.${rule}")
+          done < .github/semgrep/script-excludes.txt
+          test "${#script_rule_excludes[@]}" -eq 1
           set +e
           "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
             --config "$RUNNER_TEMP/semgrep-javascript.yml" --metrics off --timeout 120 \
             --include='*.mjs' \
+            "${script_rule_excludes[@]}" \
             --json --output semgrep-scripts.json scripts
           scan_status=$?
           set -e

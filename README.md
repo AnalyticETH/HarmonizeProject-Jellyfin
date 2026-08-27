@@ -479,6 +479,8 @@ Benchmarks measure:
 
 - **Regression coverage**: the trusted-workflow contract covers empty lookup normalization, draft state, target identity, asset digests, and API publication.
 
+- **Runner-stable Semgrep script gate**: repository-validator scans explicitly exclude only the non-applicable Express raw-HTML rule; all other JavaScript findings, scanner errors, and fixpoint timeouts remain blocking.
+
 - **Draft-safe release publication**: trusted automation resolves draft releases through GitHub's release API and publishes by verified release ID, so the digest gate works before and after a draft becomes public.
 
 - **Idempotent asset handling**: release retries remain bound to the exact workflow commit and verified ZIP/checksum assets without creating duplicate releases.

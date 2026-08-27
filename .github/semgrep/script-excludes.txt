@@ -1,0 +1,3 @@
+# p/javascript's Express raw-HTML rule does not apply to Node-based repository validators.
+# Keep this single non-applicable framework rule explicit; all other JavaScript rules remain blocking.
+javascript.express.security.injection.raw-html-format.raw-html-format

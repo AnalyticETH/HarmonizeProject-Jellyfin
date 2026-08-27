@@ -15,6 +15,7 @@ No unreleased changes.
 - **Null-safe draft lookup**: trusted release publication treats GitHub CLI's empty no-release response as an explicit null and does not confuse a missing draft with a published release.
 - **Release-ID integrity gate**: draft discovery, asset digest verification, and publication remain bound to one verified release record and workflow commit.
 - **Regression coverage**: the trusted-workflow contract covers empty lookup normalization, draft state, target identity, asset digests, and API publication.
+- **Runner-stable Semgrep script gate**: explicitly exclude only the non-applicable Express raw-HTML rule for Node-based repository validators so framework-analysis timeouts cannot mask the remaining JavaScript rules.
 
 ## [1.5.343] - 2026-08-27
 
