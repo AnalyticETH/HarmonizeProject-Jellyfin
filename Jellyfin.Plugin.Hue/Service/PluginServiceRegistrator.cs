@@ -139,7 +139,19 @@ internal static class HueBridgeCertificateValidation
     /// </summary>
     internal static string? GetConfiguredCertificateFingerprint(string? bridgeHost)
     {
-        var config = Plugin.Instance?.Configuration;
+        return GetConfiguredCertificateFingerprint(Plugin.Instance?.Configuration, bridgeHost);
+    }
+
+    /// <summary>
+    /// Resolves a configured bridge pin from an explicit configuration snapshot.
+    /// Target resolution and report generation can operate on a candidate snapshot
+    /// before it is assigned to <see cref="Plugin.Instance"/>, so they must not
+    /// consult a potentially different live configuration when deriving identity.
+    /// </summary>
+    internal static string? GetConfiguredCertificateFingerprint(
+        Configuration.PluginConfiguration? config,
+        string? bridgeHost)
+    {
         if (config?.HueBridgeCertificatePins == null || string.IsNullOrWhiteSpace(bridgeHost))
             return null;
 

@@ -28,6 +28,21 @@ const previewEndpoints = [
     "POST /HueSync/ScenePlaylists/BulkPreview"
 ];
 
+for (const marker of [
+    '"targetUserIds": ["jellyfin-user-id-1"',
+    "Target IDs are Jellyfin user IDs",
+    "stable `mappingId` values are used only by exact-row mapping administration",
+    "stable `mappingId` values are reserved for exact-row mapping operations"
+]) {
+    if (!readme.includes(marker)) {
+        throw new Error(`README.md target identity contract is missing marker: ${marker}`);
+    }
+}
+if (/"targetUserIds"\s*:\s*\[\s*"mapping-id/i.test(readme) ||
+    /targetRoutes[^\n]*"userId"\s*:\s*"mapping-id/i.test(readme)) {
+    throw new Error("README.md must not describe stable mapping-row IDs as target user IDs");
+}
+
 const registerRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Register` |"));
 if (!registerRow) {
     throw new Error("README.md is missing the bridge registration endpoint contract");

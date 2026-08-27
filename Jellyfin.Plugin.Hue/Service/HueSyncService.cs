@@ -1265,8 +1265,21 @@ namespace Jellyfin.Plugin.Hue.Service
         /// </summary>
         internal static string GetPlaybackResourceKey(string bridgeIp, string areaId)
         {
+            return GetPlaybackResourceKey(Plugin.Instance?.Configuration, bridgeIp, areaId);
+        }
+
+        /// <summary>
+        /// Builds a playback resource identity from an explicit configuration snapshot.
+        /// This overload keeps candidate target resolution consistent with live playback
+        /// arbitration without consulting a different global configuration instance.
+        /// </summary>
+        internal static string GetPlaybackResourceKey(
+            PluginConfiguration? config,
+            string bridgeIp,
+            string areaId)
+        {
             var bridgeIdentity = Jellyfin.Plugin.Hue.HueBridgeCertificateValidation
-                .GetConfiguredCertificateFingerprint(bridgeIp);
+                .GetConfiguredCertificateFingerprint(config, bridgeIp);
             if (string.IsNullOrWhiteSpace(bridgeIdentity))
             {
                 bridgeIdentity = bridgeIp.Trim().TrimEnd('.').ToLowerInvariant();

@@ -156,6 +156,57 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ApplyUserMappingReconciliationPersistsGeneratedRowIdentityForHealthyUser()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        var userId = Guid.Parse("5a5a5a5a-5a5a-5a5a-5a5a-5a5a5a5a5a5a");
+        var liveUser = new Jellyfin.Data.Entities.User("Healthy Viewer", "auth", "reset") { Id = userId };
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(userId)).Returns(liveUser);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString("D"), UserName = "Healthy Viewer" }
+            }
+        }, serializer.Object);
+
+        var action = CreateController(userManager: userManager.Object).ApplyUserMappingReconciliation();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingReconciliationResult>(response.Value);
+        Assert.True(result.Applied);
+        Assert.Equal(0, result.UpdatedCount);
+        Assert.NotEqual(string.Empty, Assert.Single(configuration.UserMappings).MappingId);
+        serializer.Verify(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public void ApplyUserMappingReconciliationGeneratedRowIdentityRollsBackWhenPersistenceFails()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("mapping identity persistence failed"));
+        var userId = Guid.Parse("5b5b5b5b-5b5b-5b5b-5b5b-5b5b5b5b5b5b");
+        var liveUser = new Jellyfin.Data.Entities.User("Healthy Viewer", "auth", "reset") { Id = userId };
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(userId)).Returns(liveUser);
+        var mapping = new UserBridgeMapping { UserId = userId.ToString("D"), UserName = "Healthy Viewer" };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { mapping }
+        }, serializer.Object);
+
+        var action = CreateController(userManager: userManager.Object).ApplyUserMappingReconciliation();
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Equal(string.Empty, mapping.MappingId);
+        Assert.Same(mapping, Assert.Single(configuration.UserMappings));
+    }
+
+    [Fact]
     public void ResolveDuplicateUserMappingsRetainsExactKeeperAndMakesRuntimeUnique()
     {
         var userId = Guid.Parse("56565656-5656-5656-5656-565656565656");
@@ -2501,8 +2552,14 @@ public sealed class HueApiControllerTests : IDisposable
         {
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "default-app-secret",
+            HueClientKey = "default-client-secret",
             EntertainmentAreaId = "area-1",
             ChannelIds = "1",
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["192.168.1.100"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                ["hue-bridge.local"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
             UserMappings = new List<UserBridgeMapping>
             {
                 new()
@@ -2510,6 +2567,17 @@ public sealed class HueApiControllerTests : IDisposable
                     UserId = "user-inherited",
                     UserName = "Inherited",
                     SyncEnabled = true
+                },
+                new()
+                {
+                    UserId = "user-alias",
+                    UserName = "Alias",
+                    SyncEnabled = true,
+                    HueBridgeIp = "hue-bridge.local",
+                    HueAppKey = "alias-app-secret",
+                    HueClientKey = "alias-client-secret",
+                    EntertainmentAreaId = "area-1",
+                    ChannelIdsOverride = "1"
                 },
                 new()
                 {

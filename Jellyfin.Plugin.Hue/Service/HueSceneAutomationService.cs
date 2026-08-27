@@ -4012,7 +4012,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 }
 
                 resolved.Add(selectedGlobalTarget);
-                seenTargets.Add(GetTargetIdentity(selectedGlobalTarget));
+                seenTargets.Add(GetTargetIdentity(config, selectedGlobalTarget));
             }
 
             var seenUserIds = new List<string>();
@@ -4048,7 +4048,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     return false;
                 }
 
-                if (seenTargets.Add(GetTargetIdentity(selectedTarget)))
+                if (seenTargets.Add(GetTargetIdentity(config, selectedTarget)))
                     resolved.Add(selectedTarget);
             }
 
@@ -4076,7 +4076,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     return false;
                 }
 
-                if (seenTargets.Add(GetTargetIdentity(selectedRouteTarget)))
+                if (seenTargets.Add(GetTargetIdentity(config, selectedRouteTarget)))
                     resolved.Add(selectedRouteTarget);
             }
 
@@ -4105,7 +4105,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (globalResolved)
         {
             resolved.Add(globalTarget);
-            seenTargets.Add(GetTargetIdentity(globalTarget));
+            seenTargets.Add(GetTargetIdentity(config, globalTarget));
         }
         else if (globalConfigured)
         {
@@ -4133,7 +4133,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 return false;
             }
 
-            if (seenTargets.Add(GetTargetIdentity(mappingTarget)))
+            if (seenTargets.Add(GetTargetIdentity(config, mappingTarget)))
                 resolved.Add(mappingTarget);
         }
 
@@ -4289,14 +4289,14 @@ public sealed class HueSceneAutomationService : BackgroundService
         return true;
     }
 
-    private static string GetTargetIdentity(HueSceneAutomationTargetDescription target)
+    private static string GetTargetIdentity(
+        PluginConfiguration config,
+        HueSceneAutomationTargetDescription target)
     {
         var channelProfile = target.ChannelIds == null
             ? string.Empty
             : string.Join(",", target.ChannelIds.OrderBy(channelId => channelId));
-
-        return $"{target.BridgeIp.Trim().TrimEnd('.').ToLowerInvariant()}|" +
-               $"{target.EntertainmentAreaId.Trim().ToLowerInvariant()}|" +
+        return $"{HueSyncService.GetPlaybackResourceKey(config, target.BridgeIp, target.EntertainmentAreaId)}|" +
                channelProfile;
     }
 

@@ -4,9 +4,11 @@
 
 version: 2
 updates:
-  # NuGet packages for .NET projects
+  # NuGet packages for the plugin, test, and benchmark projects. Dependabot's
+  # directory is not recursive, so keep one update block per project instead
+  # of pointing at the repository root (which contains no .csproj file).
   - package-ecosystem: "nuget"
-    directory: "/"
+    directory: "/Jellyfin.Plugin.Hue"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -22,7 +24,49 @@ updates:
       - "dependencies"
       - "nuget"
     groups:
-      minor-and-patch:
+      minor-and-patch-plugin:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "nuget"
+    directory: "/Jellyfin.Plugin.Hue.Tests"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "nuget"
+    groups:
+      minor-and-patch-tests:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "nuget"
+    directory: "/Jellyfin.Plugin.Hue.Benchmarks"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "nuget"
+    groups:
+      minor-and-patch-benchmarks:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 

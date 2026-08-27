@@ -4427,6 +4427,48 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TryResolveTargets_BroadcastDeduplicatesPinnedBridgeAliases()
+    {
+        var sharedFingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "shared-area",
+            ChannelIds = "1,2",
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["192.168.1.100"] = sharedFingerprint,
+                ["hue-bridge.local"] = sharedFingerprint
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "alias-user",
+                    UserName = "Alias target",
+                    SyncEnabled = true,
+                    HueBridgeIp = "hue-bridge.local",
+                    HueAppKey = "alias-app-secret",
+                    HueClientKey = "alias-client-secret",
+                    EntertainmentAreaId = "shared-area",
+                    ChannelIdsOverride = "1,2"
+                }
+            }
+        };
+
+        Assert.True(HueSceneAutomationService.TryResolveTargets(
+            config,
+            new HueSceneSchedule { TargetAllEnabledMappings = true },
+            out var targets,
+            out var error));
+        Assert.Empty(error);
+        Assert.Single(targets);
+        Assert.Equal("Default bridge target", targets[0].TargetLabel);
+    }
+
+    [Fact]
     public void TryResolveTargets_SelectedTargetsIncludeOnlyRequestedMappingsAndOptionalDefault()
     {
         var config = new PluginConfiguration
@@ -4477,6 +4519,44 @@ public sealed class HueSceneAutomationServiceTests
         var serialized = JsonSerializer.Serialize(selected);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("office-app-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TryResolveTargets_SelectedTargetsUseJellyfinUserIdsNotStableMappingRowIds()
+    {
+        var config = new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "stable-row-id",
+                    UserId = "jellyfin-user-id",
+                    UserName = "Living room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.100",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "area-1"
+                }
+            }
+        };
+
+        Assert.True(HueSceneAutomationService.TryResolveTargets(
+            config,
+            new HueSceneSchedule { TargetUserIds = new List<string> { "jellyfin-user-id" } },
+            out var targets,
+            out var userIdError));
+        Assert.Empty(userIdError);
+        Assert.Equal("Living room", Assert.Single(targets).TargetLabel);
+
+        Assert.False(HueSceneAutomationService.TryResolveTargets(
+            config,
+            new HueSceneSchedule { TargetUserIds = new List<string> { "stable-row-id" } },
+            out _,
+            out var mappingIdError));
+        Assert.Contains("not ready", mappingIdError, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no longer exists", mappingIdError, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

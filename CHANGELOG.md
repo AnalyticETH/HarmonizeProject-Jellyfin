@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.334] - 2026-08-27
+
+### Dependency update coverage
+- **Complete NuGet Dependabot coverage**: monitor the plugin, test, and benchmark project directories explicitly so nested package manifests cannot be skipped by a repository-root configuration.
+- **Configuration regression contract**: validate every tracked NuGet project directory plus the GitHub Actions and hash-locked Semgrep update blocks in both trusted and pull-request workflows.
+- **Release verification**: keep locked restore, vulnerability scanning, immutable-action checks, and the self-hosted release gates authoritative for the expanded dependency configuration.
+- **Alias-safe target fan-out**: scheduler and current-light capture deduplicate IP and `.local` target aliases with the configured certificate identity and channel profile, preventing duplicate work against one physical Hue area.
+- **Target ID contract**: selected target fields use Jellyfin user IDs, while stable `mappingId` values remain reserved for exact-row administration; API/UI examples and regression coverage enforce the distinction.
+- **Reconciliation persistence**: generated legacy mapping-row identities now save atomically for healthy users and roll back on unavailable directories or persistence failures.
+
 ## [1.5.333] - 2026-08-27
 
 ### Lifecycle identity and scheduler barrier hardening

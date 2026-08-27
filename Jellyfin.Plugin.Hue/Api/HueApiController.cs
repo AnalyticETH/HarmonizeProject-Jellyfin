@@ -7662,7 +7662,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var seenTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var target in resolved)
             {
-                if (seenTargets.Add(BuildCaptureTargetIdentity(target)))
+                if (seenTargets.Add(BuildCaptureTargetIdentity(config, target)))
                     deduplicated.Add(target);
             }
 
@@ -7678,15 +7678,14 @@ namespace Jellyfin.Plugin.Hue.Api
             return true;
         }
 
-        private static string BuildCaptureTargetIdentity(HueTarget target)
+        private static string BuildCaptureTargetIdentity(PluginConfiguration config, HueTarget target)
         {
             var channelProfile = PluginConfiguration.TryParseChannelIds(target.ChannelIds, out var channelIds)
                 ? string.Join(",", channelIds.OrderBy(channelId => channelId))
                 : target.ChannelIds.Trim();
             return string.Join(
                 "|",
-                target.BridgeIp.Trim().TrimEnd('.'),
-                target.AreaId.Trim(),
+                HueSyncService.GetPlaybackResourceKey(config, target.BridgeIp, target.AreaId),
                 channelProfile);
         }
 
@@ -9355,15 +9354,32 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public ActionResult<HueUserMappingReconciliationResult> ApplyUserMappingReconciliation()
         {
-            PluginConfiguration.EnsureUserMappingIds(Plugin.Instance?.Configuration?.UserMappings);
-            var initial = BuildUserMappingReconciliationResult();
-            if (!initial.UserDirectoryAvailable)
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, initial);
-
             var config = Plugin.Instance?.Configuration;
             var mappings = config?.UserMappings;
+            var previousMappingIds = mappings?
+                .Where(mapping => mapping != null)
+                .Select(mapping => (Mapping: mapping!, MappingId: mapping.MappingId))
+                .ToArray() ?? Array.Empty<(UserBridgeMapping Mapping, string MappingId)>();
+            var mappingIdsChanged = PluginConfiguration.EnsureUserMappingIds(mappings);
+
+            void RestoreMappingIds()
+            {
+                foreach (var previous in previousMappingIds)
+                    previous.Mapping.MappingId = previous.MappingId;
+            }
+
+            var initial = BuildUserMappingReconciliationResult();
+            if (!initial.UserDirectoryAvailable)
+            {
+                if (mappingIdsChanged)
+                    RestoreMappingIds();
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, initial);
+            }
+
             if (config == null || mappings == null)
             {
+                if (mappingIdsChanged)
+                    RestoreMappingIds();
                 initial.Message = "Plugin configuration is not available.";
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, initial);
             }
@@ -9375,8 +9391,24 @@ namespace Jellyfin.Plugin.Hue.Api
                 StringComparer.OrdinalIgnoreCase);
             if (repairableIds.Count == 0)
             {
+                if (mappingIdsChanged)
+                {
+                    try
+                    {
+                        Plugin.Instance!.SaveConfiguration();
+                    }
+                    catch (Exception ex)
+                    {
+                        RestoreMappingIds();
+                        _logger?.LogError(ex, "Could not persist generated Hue user mapping row identities");
+                        return StatusCode(StatusCodes.Status500InternalServerError, "User mapping reconciliation could not be saved.");
+                    }
+                }
+
                 initial.Applied = true;
-                initial.Message = "User mappings are already reconciled. Missing, malformed, and duplicate mappings were left unchanged.";
+                initial.Message = mappingIdsChanged
+                    ? "User mapping row identities were generated and persisted. Missing, malformed, and duplicate mappings were left unchanged."
+                    : "User mappings are already reconciled. Missing, malformed, and duplicate mappings were left unchanged.";
                 return Ok(initial);
             }
 
@@ -9409,6 +9441,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     changed.Mapping.UserId = changed.UserId;
                     changed.Mapping.UserName = changed.UserName;
                 }
+                if (mappingIdsChanged)
+                    RestoreMappingIds();
 
                 _logger?.LogError(ex, "Could not apply reconciled Hue user mappings");
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, "Jellyfin's user directory could not be queried.");
@@ -9432,6 +9466,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     changed.Mapping.UserId = changed.UserId;
                     changed.Mapping.UserName = changed.UserName;
                 }
+                if (mappingIdsChanged)
+                    RestoreMappingIds();
 
                 _logger?.LogError(ex, "Could not persist reconciled Hue user mappings");
                 return StatusCode(StatusCodes.Status500InternalServerError, "User mapping reconciliation could not be saved.");
