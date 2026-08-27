@@ -12784,6 +12784,12 @@ public sealed class HueApiControllerTests : IDisposable
             await runTask.WaitAsync(TimeSpan.FromSeconds(5));
         }
 
+        var finalValidation = controller.ValidateConfigurationImport(importRequest);
+        var finalValidationResponse = Assert.IsType<OkObjectResult>(finalValidation.Result);
+        var finalValidationResult = Assert.IsType<HueConfigurationImportValidationResult>(finalValidationResponse.Value);
+        Assert.True(finalValidationResult.Valid);
+        Assert.True(finalValidationResult.CanImport);
+        importRequest.ExpectedConfigurationVersion = finalValidationResult.ConfigurationVersion;
         var inactiveImport = controller.ImportConfiguration(importRequest);
         Assert.IsType<OkObjectResult>(inactiveImport.Result);
         Assert.Empty(configuration.SceneSchedules);
