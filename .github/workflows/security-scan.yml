@@ -31,7 +31,7 @@ env:
   SEMGREP_JAVASCRIPT_CONFIG_URL: 'https://semgrep.dev/c/p/javascript'
   SEMGREP_JAVASCRIPT_CONFIG_SHA256: 'e65e8449157ef5d587f2c2a0c17ed388910ca90336e514d27941ccd25543cf4e'
   SEMGREP_PYTHON_CONFIG_URL: 'https://semgrep.dev/c/p/python'
-  SEMGREP_PYTHON_CONFIG_SHA256: '31c1dfa46e8ddd97f9ac98c607ddd77b20a2c3356d7ec987359961d47ec27035'
+  SEMGREP_PYTHON_CONFIG_SHA256: 'bec482e6fbbe20c76ec6f805e57176932c9dd10d12ea72b9019aa95cc03852cb'
 
 concurrency:
   group: security-scan-${{ github.workflow }}-${{ github.ref }}
