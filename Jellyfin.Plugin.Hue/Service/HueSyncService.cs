@@ -160,6 +160,10 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _activePauseBehavior;
         private int? _activePauseBrightnessPercent;
         private string? _manuallyStoppedPlaySessionId;
+        // Natural playback-stop cleanup can temporarily leave the current session ID
+        // populated while its sync resources are being torn down. Suppress progress for
+        // that exact session until cleanup has atomically cleared the lifecycle state.
+        private string? _playbackStopInFlightSessionId;
         private bool _externalPlaybackStartPending;
         private bool _externalPlaybackStopRequested;
         private string _runtimeState = "Idle";
@@ -412,6 +416,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _startupCts?.Cancel();
                 _syncCts?.Cancel();
                 _manuallyStoppedPlaySessionId = null;
+                _playbackStopInFlightSessionId = null;
                 _externalPlaybackStartPending = false;
                 _externalPlaybackStopRequested = false;
                 ResetPlaybackProgressTrackingLocked();
@@ -1865,11 +1870,9 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
             }
 
-            _logger.LogInformation("Playback stopped for item {0}", e.Item?.Name ?? "Unknown");
-            SetRuntimeStatus("Stopping", "Playback stopped; cleaning up.");
-
             // Cancel a startup before waiting for the lifecycle lock. The startup token is
             // assigned before it waits, so this also covers the window before _syncCts exists.
+            var stopMarkerSet = false;
             lock (_syncLock)
             {
                 if (_currentPlaySessionId != null &&
@@ -1879,82 +1882,111 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 }
 
+                // Only mark the active primary session. A stop notification for a queued
+                // newer startup must be allowed to cancel that startup without replacing
+                // the marker that protects the older session's cleanup.
+                if (string.Equals(_playbackStopInFlightSessionId, e.PlaySessionId, StringComparison.Ordinal))
+                    return;
+
+                if (string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                {
+                    _playbackStopInFlightSessionId = e.PlaySessionId;
+                    stopMarkerSet = true;
+                }
+
                 if (string.Equals(_startingPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
                     _startupCts?.Cancel();
                 if (string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
                     _syncCts?.Cancel();
             }
 
+            _logger.LogInformation("Playback stopped for item {0}", e.Item?.Name ?? "Unknown");
+            SetRuntimeStatus("Stopping", "Playback stopped; cleaning up.");
+
             // Serialize capture, process shutdown, restoration, and area deactivation with
             // the next startup. No state is captured before this lock is acquired.
-            await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
             try
             {
-                lock (_syncLock)
-                {
-                    if (_isStopping ||
-                        (_currentPlaySessionId != null &&
-                         !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal)))
-                    {
-                        return;
-                    }
-                }
-
-                var config = Plugin.Instance?.Configuration;
-                var bridgeConfig = _currentBridgeConfig;
-                var savedLightStates = _savedLightStates;
-                await StopSyncAsync(
-                    deactivateArea: false,
-                    expectedPlaySessionId: e.PlaySessionId,
-                    clearSession: false).ConfigureAwait(false);
-                _currentBridgeConfig = null;
-                _currentFrameResolution = null;
-                _currentVideoScalingMode = null;
-                _currentVideoDeinterlaceMode = null;
-                _currentTargetFps = null;
-                _currentAudioSensitivityPercent = null;
-                _currentAudioNoiseGatePercent = null;
-                _currentAudioFrequencies = null;
-                _currentAudioBandGains = null;
-                _currentAudioResponseSmoothingPercent = null;
-                _currentAudioBandSpreadPercent = null;
-                _currentAudioBeatPulsePercent = null;
-                _currentAudioBeatPulseDecayPercent = null;
-                _currentAudioBeatPulseThresholdPercent = null;
-                _currentAudioColorPalette = null;
-                _currentAudioSpatialMode = null;
-                _currentAudioChannelMode = null;
-                _currentSamplingBreadthPercent = null;
-                _currentSamplingMode = null;
-                _currentSpatialOrientation = null;
-                _currentColorSmoothingPercent = null;
-
+                await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
                 try
-                {
-                    await RestoreAndDeactivateAsync(
-                        config,
-                        bridgeConfig,
-                        savedLightStates,
-                        sessionOutcome: "Stopped");
-                }
-                finally
                 {
                     lock (_syncLock)
                     {
-                        if (string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                        if (_isStopping ||
+                            (_currentPlaySessionId != null &&
+                             !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal)))
                         {
-                            _currentPlaySessionId = null;
-                            _recoveredSessionId = null;
-                            _externalPlaybackStartPending = false;
-                            _externalPlaybackStopRequested = false;
-                            ResetPlaybackProgressTrackingLocked();
+                            return;
                         }
                     }
+
+                    var config = Plugin.Instance?.Configuration;
+                    var bridgeConfig = _currentBridgeConfig;
+                    var savedLightStates = _savedLightStates;
+                    await StopSyncAsync(
+                        deactivateArea: false,
+                        expectedPlaySessionId: e.PlaySessionId,
+                        clearSession: false).ConfigureAwait(false);
+                    _currentBridgeConfig = null;
+                    _currentFrameResolution = null;
+                    _currentVideoScalingMode = null;
+                    _currentVideoDeinterlaceMode = null;
+                    _currentTargetFps = null;
+                    _currentAudioSensitivityPercent = null;
+                    _currentAudioNoiseGatePercent = null;
+                    _currentAudioFrequencies = null;
+                    _currentAudioBandGains = null;
+                    _currentAudioResponseSmoothingPercent = null;
+                    _currentAudioBandSpreadPercent = null;
+                    _currentAudioBeatPulsePercent = null;
+                    _currentAudioBeatPulseDecayPercent = null;
+                    _currentAudioBeatPulseThresholdPercent = null;
+                    _currentAudioColorPalette = null;
+                    _currentAudioSpatialMode = null;
+                    _currentAudioChannelMode = null;
+                    _currentSamplingBreadthPercent = null;
+                    _currentSamplingMode = null;
+                    _currentSpatialOrientation = null;
+                    _currentColorSmoothingPercent = null;
+
+                    try
+                    {
+                        await RestoreAndDeactivateAsync(
+                            config,
+                            bridgeConfig,
+                            savedLightStates,
+                            sessionOutcome: "Stopped");
+                    }
+                    finally
+                    {
+                        lock (_syncLock)
+                        {
+                            if (string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                            {
+                                _currentPlaySessionId = null;
+                                _recoveredSessionId = null;
+                                _externalPlaybackStartPending = false;
+                                _externalPlaybackStopRequested = false;
+                                ResetPlaybackProgressTrackingLocked();
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    _syncLifecycleLock.Release();
                 }
             }
             finally
             {
-                _syncLifecycleLock.Release();
+                if (stopMarkerSet)
+                {
+                    lock (_syncLock)
+                    {
+                        if (string.Equals(_playbackStopInFlightSessionId, e.PlaySessionId, StringComparison.Ordinal))
+                            _playbackStopInFlightSessionId = null;
+                    }
+                }
             }
         }
 
@@ -1979,7 +2011,8 @@ namespace Jellyfin.Plugin.Hue.Service
 
             lock (_syncLock)
             {
-                if (string.Equals(_manuallyStoppedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                if (string.Equals(_manuallyStoppedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal) ||
+                    string.Equals(_playbackStopInFlightSessionId, e.PlaySessionId, StringComparison.Ordinal))
                     return;
             }
 
@@ -2121,7 +2154,13 @@ namespace Jellyfin.Plugin.Hue.Service
                 _logger.LogInformation("Playback resumed, restarting light sync");
                 lock (_syncLock)
                 {
-                    if (_isStopping)
+                    // A natural stop clears the session only after the serialized
+                    // cleanup finishes. Re-check the identity under the same lock as
+                    // the restart decision so a late progress event cannot resurrect
+                    // the just-stopped session (or race a newer session transition).
+                    if (_isStopping ||
+                        string.Equals(_playbackStopInFlightSessionId, e.PlaySessionId, StringComparison.Ordinal) ||
+                        !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
                         return;
 
                     _currentPlaySessionId = e.PlaySessionId;

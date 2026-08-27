@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.325] - 2026-08-27
+
+### Playback lifecycle and workflow policy hardening
+- **Stale-progress stop safety**: natural playback-stop cleanup now marks the exact session as in-flight and rejects delayed progress/resume events until cleanup completes, preventing lights from restarting after playback has ended while preserving newer-session queueing.
+- **Lifecycle-safe configuration imports**: pending `FileReader` operations are aborted on page teardown or replacement, and callbacks require both the current page generation and reader identity before changing import state.
+- **Selected Actions policy**: repository Actions now permits only the six action repositories used by the workflows, keeps broad owner/verified allowances disabled, and requires full commit-SHA references.
+- **Regression coverage**: service lifecycle tests cover stale progress during and after stop cleanup; administrator page contracts cover deferred file-reader success and error callbacks after invalidation.
+
 ## [1.5.324] - 2026-08-26
 
 ### Exact-session lifecycle and CI coverage safety

@@ -2,6 +2,14 @@ import fs from "node:fs";
 
 const file = ".github/workflows/pull-request-validation.yml";
 const workflow = fs.readFileSync(file, "utf8");
+const allowedActionRepositories = new Set([
+  "actions/checkout",
+  "actions/setup-dotnet",
+  "actions/cache",
+  "actions/upload-artifact",
+  "actions/download-artifact",
+  "codecov/codecov-action"
+]);
 
 for (const marker of [
   "pull_request:",
@@ -46,6 +54,10 @@ if (runnerLines.length === 0 || runnerLines.some(runner => runner !== "ubuntu-24
 }
 
 for (const match of workflow.matchAll(/^\s*uses:\s*([^\s#]+)$/gm)) {
+  const repository = match[1].slice(0, match[1].lastIndexOf("@"));
+  if (!allowedActionRepositories.has(repository)) {
+    throw new Error(`${file} uses an action outside the repository selected-action policy: ${match[1]}`);
+  }
   if (!/@[0-9a-f]{40}$/.test(match[1])) {
     throw new Error(`${file} uses an action without an immutable commit SHA: ${match[1]}`);
   }

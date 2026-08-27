@@ -1053,6 +1053,93 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task PlaybackProgressAfterNaturalStopDoesNotRestartSync()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+
+        await service.StartAsync(CancellationToken.None);
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+
+        var stopMethod = typeof(HueSyncService).GetMethod(
+            "HandlePlaybackStoppedAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var stopTask = Assert.IsAssignableFrom<Task>(stopMethod.Invoke(
+            service,
+            new object?[] { CreateStop("session-a") }));
+        await stopTask;
+
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Null(GetPrivateField(service, "_playbackStopInFlightSessionId"));
+
+        var progressMethod = typeof(HueSyncService).GetMethod(
+            "OnPlaybackProgress",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        progressMethod.Invoke(service, new object?[] { null, CreateProgress("session-a") });
+
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.False(handler.FirstConfigurationRequest.Task.IsCompleted);
+
+        // If a regression queues a startup, release its blocking request before teardown.
+        handler.ReleaseFirstConfiguration();
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PlaybackProgressDuringNaturalStopDoesNotQueueRestart()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+
+        await service.StartAsync(CancellationToken.None);
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+
+        var lifecycleLock = Assert.IsType<SemaphoreSlim>(GetPrivateField(service, "_syncLifecycleLock"));
+        await lifecycleLock.WaitAsync();
+        Task? stopTask = null;
+        try
+        {
+            var stopMethod = typeof(HueSyncService).GetMethod(
+                "HandlePlaybackStoppedAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            stopTask = Assert.IsAssignableFrom<Task>(stopMethod.Invoke(
+                service,
+                new object?[] { CreateStop("session-a") }));
+
+            Assert.True(SpinWait.SpinUntil(
+                () => string.Equals(
+                    GetPrivateField(service, "_playbackStopInFlightSessionId"),
+                    "session-a",
+                    StringComparison.Ordinal),
+                TimeSpan.FromSeconds(5)));
+
+            var progressMethod = typeof(HueSyncService).GetMethod(
+                "OnPlaybackProgress",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            progressMethod.Invoke(service, new object?[] { null, CreateProgress("session-a") });
+
+            Assert.Equal("session-a", GetPrivateField(service, "_currentPlaySessionId"));
+            Assert.Null(GetPrivateField(service, "_startingPlaySessionId"));
+            Assert.False(handler.FirstConfigurationRequest.Task.IsCompleted);
+        }
+        finally
+        {
+            lifecycleLock.Release();
+        }
+
+        Assert.NotNull(stopTask);
+        await stopTask!;
+        Assert.Null(GetPrivateField(service, "_playbackStopInFlightSessionId"));
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PlaybackStop_CancelsQueuedStartAndCleansCancelledPredecessor()
     {
         var handler = new BlockingHueHandler();

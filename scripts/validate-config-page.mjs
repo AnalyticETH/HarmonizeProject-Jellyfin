@@ -1296,6 +1296,54 @@ for (const contract of [
 }
 
 {
+    const functionName = "clearConfigurationImport";
+    const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var importReader = page._hueImportReader;",
+        "page._hueImportReader = null;",
+        "typeof importReader.abort === 'function'",
+        "importReader.abort()"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} must abort and clear pending file readers`);
+        }
+    }
+}
+
+{
+    const functionName = "importConfigurationFile";
+    const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);",
+        "if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;",
+        "HueConfigurationPage.clearConfigurationImport(page);",
+        "page._hueImportReader = reader;",
+        "var isCurrent = function ()",
+        "HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)",
+        "page._hueImportReader === reader",
+        "reader.onload = function ()",
+        "reader.onerror = function ()",
+        "if (!isCurrent()) return;",
+        "reader.readAsText(file);"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} must guard file-reader callbacks with the page lifecycle`);
+        }
+    }
+    const onloadStart = functionBody.indexOf("reader.onload = function ()");
+    const onerrorStart = functionBody.indexOf("reader.onerror = function ()");
+    const onloadGuard = functionBody.indexOf("if (!isCurrent()) return;", onloadStart);
+    const onerrorGuard = functionBody.indexOf("if (!isCurrent()) return;", onerrorStart);
+    if (onloadGuard < onloadStart || onerrorGuard < onerrorStart) {
+        throw new Error(`${file} ${functionName} must guard both reader callbacks before parsing or status writes`);
+    }
+}
+
+{
     const functionName = "submitConfigurationImport";
     const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);

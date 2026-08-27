@@ -4,6 +4,14 @@ const ciPath = ".github/workflows/dotnet-ci.yml";
 const securityPath = ".github/workflows/security-scan.yml";
 const ci = fs.readFileSync(ciPath, "utf8");
 const security = fs.readFileSync(securityPath, "utf8");
+const allowedActionRepositories = new Set([
+  "actions/checkout",
+  "actions/setup-dotnet",
+  "actions/cache",
+  "actions/upload-artifact",
+  "actions/download-artifact",
+  "codecov/codecov-action"
+]);
 
 for (const marker of [
   "on:\n  push:\n    branches: [ main ]",
@@ -58,6 +66,10 @@ for (const [file, workflow] of [[ciPath, ci], [securityPath, security]]) {
     const reference = match[1];
     if (reference.startsWith("./")) {
       continue;
+    }
+    const repository = reference.slice(0, reference.lastIndexOf("@"));
+    if (!allowedActionRepositories.has(repository)) {
+      throw new Error(`${file} uses an action outside the repository selected-action policy: ${reference}`);
     }
     if (!/@[0-9a-f]{40}$/.test(reference)) {
       throw new Error(`${file} uses an action without an immutable commit SHA: ${reference}`);

@@ -181,6 +181,7 @@ function makeHarness() {
     const downloads = [];
     const blobs = new Map();
     const requests = [];
+    const readers = [];
     let blobNumber = 0;
 
     const body = makeElement("body");
@@ -229,6 +230,35 @@ function makeHarness() {
         }
     }
 
+    class TestFileReader {
+        constructor() {
+            this.result = "";
+            this.error = null;
+            this.onload = null;
+            this.onerror = null;
+            this.aborted = false;
+            readers.push(this);
+        }
+
+        readAsText(file) {
+            this.file = file;
+        }
+
+        abort() {
+            this.aborted = true;
+        }
+
+        resolve(result) {
+            this.result = result;
+            if (typeof this.onload === "function") this.onload();
+        }
+
+        reject(error) {
+            this.error = error;
+            if (typeof this.onerror === "function") this.onerror();
+        }
+    }
+
     const dashboard = {
         alerts: [],
         hideLoadingMsg() {},
@@ -273,6 +303,7 @@ function makeHarness() {
     const context = vm.createContext({
         ApiClient: apiClient,
         Blob: TestBlob,
+        FileReader: TestFileReader,
         Dashboard: dashboard,
         URL: url,
         console: {
@@ -335,6 +366,7 @@ function makeHarness() {
         page,
         api: context.HueConfigurationPage,
         requests,
+        readers,
         downloads,
         blobs,
         dashboard
@@ -567,6 +599,70 @@ async function testConfigurationImportValidationLifecycleGuards() {
         page.querySelector("#configurationPortabilityStatus").textContent,
         "unchanged after pagehide",
         "invalidated import validation cannot update the hidden page");
+}
+
+async function testConfigurationImportFileLifecycleGuards() {
+    const staleHarness = makeHarness();
+    const { page, api, readers } = staleHarness;
+    let prepareCalls = 0;
+    api.prepareConfigurationImport = () => { prepareCalls += 1; };
+    api.importConfigurationFile(page, { name: "stale-config.json" });
+    assert.equal(readers.length, 1, "configuration import creates one file reader");
+    const staleReader = readers[0];
+    page.querySelector("#configurationPortabilityStatus").textContent = "unchanged after pagehide";
+    api.invalidatePageLifecycle(page);
+    assert.equal(staleReader.aborted, true, "pagehide aborts a pending configuration file reader");
+    assert.equal(page._hueImportReader, null, "pagehide clears the pending configuration file reader");
+    staleReader.resolve(JSON.stringify({
+        SchemaVersion: 1,
+        Configuration: { HueBridgeIp: "stale-bridge" }
+    }));
+    assert.equal(page._hueImportDocument, null, "a stale file read cannot repopulate the import document");
+    assert.equal(
+        page.querySelector("#configurationPortabilityStatus").textContent,
+        "unchanged after pagehide",
+        "a stale file read cannot update hidden-page status"
+    );
+    assert.equal(prepareCalls, 0, "a stale file read cannot prepare an import");
+
+    const errorHarness = makeHarness();
+    const errorPage = errorHarness.page;
+    const errorApi = errorHarness.api;
+    let errorPrepareCalls = 0;
+    errorApi.prepareConfigurationImport = () => { errorPrepareCalls += 1; };
+    errorApi.importConfigurationFile(errorPage, { name: "error-config.json" });
+    assert.equal(errorHarness.readers.length, 1, "error-path import creates one file reader");
+    const errorReader = errorHarness.readers[0];
+    errorPage.querySelector("#configurationPortabilityStatus").textContent = "error sentinel after pagehide";
+    errorApi.invalidatePageLifecycle(errorPage);
+    errorReader.reject(new Error("stale file read failure"));
+    assert.equal(
+        errorPage.querySelector("#configurationPortabilityStatus").textContent,
+        "error sentinel after pagehide",
+        "a stale file-read error cannot update hidden-page status"
+    );
+    assert.equal(errorPrepareCalls, 0, "a stale file-read error cannot prepare an import");
+
+    const activeHarness = makeHarness();
+    const activePage = activeHarness.page;
+    const activeApi = activeHarness.api;
+    let preparedDocument;
+    activeApi.prepareConfigurationImport = (_page, importDocument) => {
+        preparedDocument = importDocument;
+    };
+    activeApi.importConfigurationFile(activePage, { name: "active-config.json" });
+    assert.equal(activeHarness.readers.length, 1, "active import creates one file reader");
+    activeHarness.readers[0].resolve(JSON.stringify({
+        SchemaVersion: 1,
+        Configuration: { HueBridgeIp: "active-bridge" }
+    }));
+    assert.equal(preparedDocument.SchemaVersion, 1, "a current file read preserves the export schema version");
+    assert.equal(
+        preparedDocument.Configuration.HueBridgeIp,
+        "active-bridge",
+        "a current file read prepares the selected import"
+    );
+    assert.equal(activePage._hueImportReader, null, "a completed file read clears its reader state");
 }
 
 async function testConfigurationImportSubmitLifecycleGuards() {
@@ -813,6 +909,7 @@ for (const testCase of exportCases) {
 
 await testEditMappingLifecycleGuards();
 await testConfigurationImportValidationLifecycleGuards();
+await testConfigurationImportFileLifecycleGuards();
 await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
@@ -820,4 +917,4 @@ await testConfigurationSaveDuplicateSubmitIsBounded();
 await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, import, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, import file/validation/submit, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);

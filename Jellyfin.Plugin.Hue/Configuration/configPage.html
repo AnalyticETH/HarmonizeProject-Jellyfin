@@ -3197,6 +3197,15 @@
                 },
                 clearConfigurationImport: function (page) {
                     if (!page) return;
+                    var importReader = page._hueImportReader;
+                    page._hueImportReader = null;
+                    if (importReader && typeof importReader.abort === 'function') {
+                        try {
+                            importReader.abort();
+                        } catch (err) {
+                            console.warn('Unable to abort Hue configuration import reader:', err);
+                        }
+                    }
                     page._hueImportDocument = null;
                     HueConfigurationPage.invalidateConfigurationImport(page);
                     var diff = page.querySelector('#configurationImportDiff');
@@ -3555,8 +3564,18 @@
                 importConfigurationFile: function (page, file) {
                     var status = page && page.querySelector('#configurationPortabilityStatus');
                     if (!page || !file) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                    HueConfigurationPage.clearConfigurationImport(page);
                     var reader = new FileReader();
+                    page._hueImportReader = reader;
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) &&
+                            page._hueImportReader === reader;
+                    };
                     reader.onload = function () {
+                        if (!isCurrent()) return;
+                        if (page._hueImportReader === reader) page._hueImportReader = null;
                         var importDocument;
                         try {
                             importDocument = JSON.parse(String(reader.result || ""));
@@ -3583,6 +3602,8 @@
                         HueConfigurationPage.prepareConfigurationImport(page, importDocument);
                     };
                     reader.onerror = function () {
+                        if (!isCurrent()) return;
+                        if (page._hueImportReader === reader) page._hueImportReader = null;
                         if (status) {
                             status.textContent = "Unable to read the selected configuration file.";
                             status.style.color = "#d9534f";
