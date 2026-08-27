@@ -471,7 +471,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.339 (Current)
+### Version 1.5.340 (Current)
+
+- **Deferred scheduler durability**: expired deferred one-time cues now clear stale Skip Next markers together with their completed disabled state, and deferred queue/removal/expiry/normalization writes retry from the authoritative runtime snapshot after transient persistence failures.
+
+- **Regression coverage**: scheduler tests verify expired-marker cleanup, queue and removal persistence retries, no duplicate bridge activity, and no deferred replay after a failed write.
 
 - **Deferred one-time cue cancellation**: mark a one-time cue that is waiting behind active playback with **Skip Next Cue**; the scheduler consumes the pending occurrence without touching the bridge, disables the cue, clears its durable defer state, and records skipped/deferred telemetry. The atomic bulk Skip Next action has the same bounded behavior while retaining active-run, execution-limit, and stale-state protections.
 

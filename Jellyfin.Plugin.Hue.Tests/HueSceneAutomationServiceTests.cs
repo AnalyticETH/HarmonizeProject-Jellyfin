@@ -3218,6 +3218,124 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_ExpiredDeferredOneTimeCue_ClearsSkipNextOccurrence()
+    {
+        var configuration = CreatePendingDeferredOneTimeConfiguration(
+            "expired-deferred-one-time-skip",
+            new DateTime(2026, 8, 18, 7, 5, 0, DateTimeKind.Utc),
+            DateTime.UtcNow.AddMinutes(-2));
+        configuration.SceneAutomationDeferMinutes = 1;
+        configuration.SceneSchedules[0].SkipNextOccurrence = true;
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+
+        using var playbackLease = lifecycleGate.TryEnterPlayback("expired-deferred-one-time-target");
+        Assert.NotNull(playbackLease);
+        await service.RunDueSchedulesAsync(DateTime.Now, CancellationToken.None);
+
+        streamTester.VerifyNoOtherCalls();
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.False(saved.Enabled);
+        Assert.False(saved.SkipNextOccurrence);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.Skipped);
+        Assert.True(history.WasDeferred);
+        Assert.Contains("defer window", history.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_RetriesDeferredPersistenceAfterQueueFailure()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .SetupSequence(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated deferred queue persistence failure"))
+            .Pass();
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+        var configuration = CreateDeferredPersistenceConfiguration("deferred-queue-retry-cue");
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+
+        using var playbackLease = lifecycleGate.TryEnterPlayback("deferred-queue-retry-target");
+        Assert.NotNull(playbackLease);
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.True(Assert.Single(service.GetStatus().Schedules).DeferredPending);
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Once);
+
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Exactly(2));
+        Assert.True(Assert.Single(service.GetStatus().Schedules).DeferredPending);
+        Assert.Equal("deferred-queue-retry-cue", Assert.Single(configuration.PersistedSceneAutomationDeferredRuns).ScheduleId);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_RetriesDeferredPersistenceAfterRemovalFailure()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .SetupSequence(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Pass()
+            .Throws(new InvalidOperationException("simulated deferred removal persistence failure"))
+            .Pass();
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+        var configuration = CreateDeferredPersistenceConfiguration("deferred-removal-retry-cue");
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+
+        using (var playbackLease = lifecycleGate.TryEnterPlayback("deferred-removal-retry-target"))
+        {
+            Assert.NotNull(playbackLease);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+        }
+
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Single(streamTester.Reds);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Exactly(2));
+
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(2), CancellationToken.None);
+
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Exactly(3));
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal(1, Assert.Single(configuration.SceneSchedules).RunCount);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_ExpiresDeferredCueUsingUtcAcrossLocalClockFallback()
     {
         var occurrenceUtc = new DateTime(2026, 8, 18, 0, 0, 0, DateTimeKind.Utc);
@@ -6192,6 +6310,39 @@ public sealed class HueSceneAutomationServiceTests
                     OccurrenceSlot = occurrenceSlotUtc,
                     DeferredAtLocal = TimeZoneInfo.ConvertTimeFromUtc(deferredAtUtc, TimeZoneInfo.Local),
                     DeferredAtUtc = deferredAtUtc
+                }
+            }
+        };
+    }
+
+    private static PluginConfiguration CreateDeferredPersistenceConfiguration(string scheduleId)
+    {
+        return new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "deferred-persistence-app-secret",
+            HueClientKey = "deferred-persistence-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Deferred persistence scene", Red = 25, Green = 50, Blue = 75, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = scheduleId,
+                    Name = "Deferred persistence cue",
+                    PresetName = "Deferred persistence scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
                 }
             }
         };

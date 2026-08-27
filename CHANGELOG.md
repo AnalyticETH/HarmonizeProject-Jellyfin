@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.340] - 2026-08-27
+
+### Deferred scheduler durability
+- **Expired one-time cleanup**: clear a stale Skip Next marker when a deferred one-time cue expires, atomically with disabling the completed cue, and restore both values if persistence fails.
+- **Deferred-state retry**: retain a dirty persistence marker after queue, removal, expiry, or normalization writes fail, then force-save the authoritative deferred runtime snapshot on a later scheduler or status pass.
+- **Regression coverage**: verify expired-marker cleanup plus queue/removal persistence retries without duplicate bridge activity or deferred replay.
+
 ## [1.5.339] - 2026-08-27
 
 ### Deferred one-time cue control

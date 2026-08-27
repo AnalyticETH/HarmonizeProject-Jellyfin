@@ -4820,15 +4820,21 @@ public sealed class HueSceneAutomationService : BackgroundService
             return;
 
         var previousEnabled = configuredSchedule.Enabled;
-        configuredSchedule.Enabled = false;
-        try
+        var previousSkipNextOccurrence = configuredSchedule.SkipNextOccurrence;
+        lock (_runtimeStateLock)
         {
-            Plugin.Instance?.SaveConfiguration();
-        }
-        catch (Exception ex)
-        {
-            configuredSchedule.Enabled = previousEnabled;
-            _logger.LogWarning(ex, "One-time Hue scene schedule {0} ran but could not persist its completed state", schedule.Name);
+            configuredSchedule.Enabled = false;
+            configuredSchedule.SkipNextOccurrence = false;
+            try
+            {
+                Plugin.Instance?.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                configuredSchedule.Enabled = previousEnabled;
+                configuredSchedule.SkipNextOccurrence = previousSkipNextOccurrence;
+                _logger.LogWarning(ex, "One-time Hue scene schedule {0} ran but could not persist its completed state", schedule.Name);
+            }
         }
     }
 
@@ -6507,6 +6513,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                 _deferredRunsPersistencePending = false;
             }
         }
+        else if (shouldSave && persistRepairs)
+        {
+            MarkDeferredRunsPersistencePending();
+        }
 
         if (loaded.Count > 0)
         {
@@ -6593,27 +6603,36 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (config == null)
             return;
 
-        var configuredEntries = config.PersistedSceneAutomationDeferredRuns ??
-            new List<HueSceneDeferredRunEntry>();
-        var normalizedEntries = NormalizeDeferredRunEntries(config, configuredEntries, out var shouldSave);
-        if (!shouldSave)
+        List<HueSceneDeferredRunEntry> entries;
+        lock (_deferredRunLock)
         {
-            lock (_deferredRunLock)
-            {
-                _deferredRunsPersistencePending = false;
-            }
-            return;
+            entries = _deferredRuns
+                .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(entry => new HueSceneDeferredRunEntry
+                {
+                    ScheduleId = entry.Key,
+                    OccurrenceSlot = entry.Value.OccurrenceSlot,
+                    DeferredAtLocal = entry.Value.DeferredAtLocal,
+                    DeferredAtUtc = entry.Value.DeferredAtUtc
+                })
+                .ToList();
         }
 
-        config.PersistedSceneAutomationDeferredRuns = normalizedEntries
-            .Select(CloneDeferredRunEntry)
-            .ToList();
+        // A failed normal write already copied the attempted snapshot into the live
+        // configuration object, so comparing against that list cannot tell whether the
+        // XML file was updated. Persist the authoritative runtime snapshot whenever the
+        // dirty flag is set, even when it appears equal to the in-memory configuration.
+        config.PersistedSceneAutomationDeferredRuns = entries;
         if (SavePersistedDeferredRunsConfiguration())
         {
             lock (_deferredRunLock)
             {
                 _deferredRunsPersistencePending = false;
             }
+        }
+        else
+        {
+            MarkDeferredRunsPersistencePending();
         }
     }
 
@@ -6765,6 +6784,18 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 _deferredRunsPersistencePending = false;
             }
+        }
+        else
+        {
+            MarkDeferredRunsPersistencePending();
+        }
+    }
+
+    private void MarkDeferredRunsPersistencePending()
+    {
+        lock (_deferredRunLock)
+        {
+            _deferredRunsPersistencePending = true;
         }
     }
 
