@@ -1640,6 +1640,7 @@
                                     </div>
                                     <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: .75em;">
                                         <button is="emby-button" type="button" class="raised" id="mappingLoadDeviceRouteAreasBtn"><span>Load Route Areas</span></button>
+                                        <button is="emby-button" type="button" class="raised" id="mappingLoadDeviceRouteChannelsBtn"><span>Load Route Channel IDs</span></button>
                                         <button is="emby-button" type="button" class="raised" id="mappingAddDeviceRouteBtn"><span>Add / Update Route</span></button>
                                         <button is="emby-button" type="button" class="raised" id="mappingRemoveDeviceRouteBtn"><span>Remove Route</span></button>
                                         <button is="emby-button" type="button" class="raised" id="mappingClearDeviceRouteBtn"><span>Clear Route Editor</span></button>
@@ -2549,7 +2550,8 @@
                         appKey: String(target.appKey || '').trim(),
                         clientKey: String(target.clientKey || '').trim(),
                         areaId: String(target.areaId || '').trim(),
-                        mappingId: String(target.mappingId || '').trim()
+                        mappingId: String(target.mappingId || '').trim(),
+                        channelIds: String(target.channelIds || '').trim()
                     });
                 },
                 isPageLifecycleTargetRequestCurrent: function (page, generation, request, target) {
@@ -11880,6 +11882,7 @@
                         '#mappingAddDeviceRouteBtn',
                         '#mappingRemoveDeviceRouteBtn',
                         '#mappingClearDeviceRouteBtn',
+                        '#mappingLoadDeviceRouteChannelsBtn',
                         '#mappingUseCinemaModeOverride',
                         '#mappingPlaybackMediaFilterOverride',
                         '#mappingAudioSensitivityPercentOverride',
@@ -11984,7 +11987,7 @@
                         });
                 },
 
-                getEffectiveMappingTarget: function (page) {
+                getEffectiveMappingTarget: function (page, includeDeviceRoute) {
                     page = page || document.querySelector('.pluginConfigurationPage');
                     var bridgeIpEl = document.getElementById('mappingBridgeIp');
                     var appKeyEl = document.getElementById('mappingAppKey');
@@ -12016,7 +12019,7 @@
                         areaId = HueConfigurationPage.getSelectedAreaId(page);
                     }
 
-                    if (deviceRoute && deviceRoute.target) {
+                    if (includeDeviceRoute !== false && deviceRoute && deviceRoute.target) {
                         var route = deviceRoute.target;
                         var readRouteValue = function (pascalName, camelName) {
                             return HueConfigurationPage.getMappingDeviceTargetValue(route, pascalName, camelName);
@@ -12033,8 +12036,43 @@
                         clientKey: clientKey,
                         areaId: areaId,
                         userId: userId,
-                        deviceId: deviceRoute ? deviceRoute.deviceId : ""
+                        deviceId: includeDeviceRoute !== false && deviceRoute ? deviceRoute.deviceId : ""
                     };
+                },
+                getEffectiveMappingChannelIds: function (page, target) {
+                    page = page || document.querySelector('.pluginConfigurationPage');
+                    target = target || HueConfigurationPage.getEffectiveMappingTarget(page);
+
+                    // A configured route owns its own channel profile. Prefer the
+                    // in-editor value when that exact route is selected so an
+                    // administrator can test a staged edit before saving it; a blank
+                    // route value intentionally inherits the outer mapping profile.
+                    var selectedRoute = HueConfigurationPage.getSelectedMappingDeviceRoute();
+                    if (target.deviceId && (!selectedRoute || selectedRoute.deviceId !== String(target.deviceId).trim())) {
+                        selectedRoute = null;
+                    }
+                    var editorDeviceId = HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingDeviceRouteId');
+                    if (selectedRoute && selectedRoute.deviceId === editorDeviceId) {
+                        var editorChannels = HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingDeviceRouteChannels');
+                        if (editorChannels) return editorChannels;
+                        // The editor is authoritative for the selected route, including
+                        // an intentional blank that stages inheritance from the outer
+                        // mapping/global profile before the route is saved. Do not fall
+                        // through to the previously persisted route value.
+                        selectedRoute = null;
+                    }
+                    if (selectedRoute && selectedRoute.target) {
+                        var routeChannels = HueConfigurationPage.getMappingDeviceTargetValue(
+                            selectedRoute.target,
+                            'ChannelIdsOverride',
+                            'channelIdsOverride');
+                        if (routeChannels) return routeChannels;
+                    }
+
+                    var mappingChannels = page && page.querySelector('#mappingChannelIdsOverride');
+                    if (mappingChannels && mappingChannels.value.trim()) return mappingChannels.value.trim();
+                    var globalChannels = page && page.querySelector('#channelIds');
+                    return globalChannels ? globalChannels.value.trim() : '';
                 },
 
                 testMappingConnection: function () {
@@ -12048,12 +12086,7 @@
                     var button = document.getElementById('mappingTestConnectionBtn');
                     var statusEl = document.getElementById('mappingBridgeStatus');
                     var target = HueConfigurationPage.getEffectiveMappingTarget(page);
-                    var channelIdsEl = document.getElementById('mappingChannelIdsOverride');
-                    var channelIds = channelIdsEl ? channelIdsEl.value.trim() : '';
-                    if (!channelIds) {
-                        var globalChannelIdsEl = document.getElementById('channelIds');
-                        channelIds = globalChannelIdsEl ? globalChannelIdsEl.value.trim() : '';
-                    }
+                    var channelIds = HueConfigurationPage.getEffectiveMappingChannelIds(page, target);
                     var canUseStoredCredentials = HueConfigurationPage.canUseStoredTargetCredentials(page, target, false);
                     if (!target.bridgeIp || (!target.appKey && !canUseStoredCredentials)) {
                         Dashboard.alert("Enter a mapping or global bridge address and app key first.");
@@ -12107,15 +12140,10 @@
                         return;
                     }
                     var target = HueConfigurationPage.getEffectiveMappingTarget(page);
-                    var channelIdsEl = document.getElementById('mappingChannelIdsOverride');
-                    var globalChannelIdsEl = document.getElementById('channelIds');
                     var button = document.getElementById('mappingPreviewColorBtn');
                     var statusEl = document.getElementById('mappingBridgeStatus');
-                    var channelIds = channelIdsEl ? channelIdsEl.value.trim() : '';
                     var values;
-                    if (!channelIds && globalChannelIdsEl) {
-                        channelIds = globalChannelIdsEl.value.trim();
-                    }
+                    var channelIds = HueConfigurationPage.getEffectiveMappingChannelIds(page, target);
 
                     var canUseStoredCredentials = HueConfigurationPage.canUseStoredTargetCredentials(page, target, true);
                     if (!target.bridgeIp || (!target.appKey && !canUseStoredCredentials) ||
@@ -12435,7 +12463,10 @@
                         areaId: areaId || "",
                         userId: userId || "",
                         deviceId: deviceId || "",
-                        mappingId: requestKey === 'mappingChannels' ? HueConfigurationPage.mappingEditingMappingId || '' : ''
+                        mappingId: (requestKey === 'mappingChannels' || requestKey === 'mappingDeviceRouteChannels')
+                            ? HueConfigurationPage.mappingEditingMappingId || ''
+                            : '',
+                        channelIds: channelInput ? String(channelInput.value || '').trim() : ''
                     };
                     var canUseStoredCredentials = HueConfigurationPage.canUseStoredTargetCredentials(page, target, false);
                     if (!bridgeIp || (!appKey && !canUseStoredCredentials) || !areaId) {
@@ -12451,9 +12482,16 @@
 
                     var getCurrentTarget = function () {
                         if (requestKey === 'mappingChannels') {
-                            var mappingTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
+                            var mappingTarget = HueConfigurationPage.getEffectiveMappingTarget(page, false);
                             mappingTarget.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
+                            mappingTarget.channelIds = channelInput ? String(channelInput.value || '').trim() : '';
                             return mappingTarget;
+                        }
+                        if (requestKey === 'mappingDeviceRouteChannels') {
+                            var routeTarget = HueConfigurationPage.getMappingDeviceRouteTarget();
+                            routeTarget.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
+                            routeTarget.channelIds = channelInput ? String(channelInput.value || '').trim() : '';
+                            return routeTarget;
                         }
 
                         return {
@@ -12462,7 +12500,8 @@
                             clientKey: page.querySelector('#hueClientKey').value.trim(),
                             areaId: HueConfigurationPage.getSelectedAreaId(page),
                             userId: '',
-                            deviceId: ''
+                            deviceId: '',
+                            channelIds: channelInput ? String(channelInput.value || '').trim() : ''
                         };
                     };
                     var isCurrent = function () {
@@ -12554,7 +12593,7 @@
 
                 loadMappingChannels: function (page) {
                     page = page || document.querySelector('.pluginConfigurationPage');
-                    var target = HueConfigurationPage.getEffectiveMappingTarget(page);
+                    var target = HueConfigurationPage.getEffectiveMappingTarget(page, false);
                     target.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
 
                     return HueConfigurationPage.loadChannelIds(
@@ -12569,6 +12608,25 @@
                         target.clientKey,
                         page,
                         'mappingChannels');
+                },
+
+                loadMappingDeviceRouteChannels: function () {
+                    var page = document.querySelector('.pluginConfigurationPage');
+                    if (!page) return Promise.resolve();
+                    var target = HueConfigurationPage.getMappingDeviceRouteTarget();
+                    target.mappingId = HueConfigurationPage.mappingEditingMappingId || '';
+                    return HueConfigurationPage.loadChannelIds(
+                        target.bridgeIp,
+                        target.appKey,
+                        target.areaId,
+                        document.getElementById('mappingLoadDeviceRouteChannelsBtn'),
+                        document.getElementById('mappingDeviceRouteChannels'),
+                        document.getElementById('mappingDeviceRouteEditorStatus'),
+                        target.userId,
+                        target.deviceId,
+                        target.clientKey,
+                        page,
+                        'mappingDeviceRouteChannels');
                 },
 
                 addUserMapping: function () {
@@ -13698,6 +13756,10 @@
 
             document.querySelector('#mappingLoadDeviceRouteAreasBtn').addEventListener('click', function () {
                 HueConfigurationPage.loadMappingDeviceRouteAreas();
+            });
+
+            document.querySelector('#mappingLoadDeviceRouteChannelsBtn').addEventListener('click', function () {
+                HueConfigurationPage.loadMappingDeviceRouteChannels();
             });
 
             document.querySelector('#mappingAddDeviceRouteBtn').addEventListener('click', function () {

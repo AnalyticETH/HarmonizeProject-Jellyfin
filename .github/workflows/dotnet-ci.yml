@@ -305,11 +305,61 @@ jobs:
         path: release-notes.md
         retention-days: 90
 
+  validate-release-helper:
+    name: Validate Linux Release Helper
+    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
+    needs: create-release-package
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Download canonical release package
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: release-package
+        path: trusted-release-package
+
+    - name: Run documented Linux release helper
+      run: |
+        set -euo pipefail
+        chmod +x ./build-release.sh
+        ./build-release.sh
+
+    - name: Verify helper package parity
+      run: |
+        set -euo pipefail
+        VERSION=$(jq -er '.version | strings | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"))' meta.json)
+        HELPER_ZIP="jellyfin-plugin-hue-v${VERSION}.zip"
+        HELPER_CHECKSUM="${HELPER_ZIP}.sha256"
+        test -f "$HELPER_ZIP"
+        test -f "$HELPER_CHECKSUM"
+        sha256sum --check --strict "$HELPER_CHECKSUM"
+        EXPECTED_ENTRIES="BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "
+        test "$(unzip -Z1 "$HELPER_ZIP" | sort | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
+        test "$(unzip -Z1 trusted-release-package/jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
+        unzip -p "$HELPER_ZIP" meta.json > helper-meta.json
+        unzip -p trusted-release-package/jellyfin-plugin-hue-release.zip meta.json > canonical-meta.json
+        test "$(jq -er '.version' helper-meta.json)" = "$VERSION"
+        test "$(jq -er '.version' canonical-meta.json)" = "$VERSION"
+        cmp -s helper-meta.json canonical-meta.json
+        (cd trusted-release-package && sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256)
+        echo "Linux release helper produced a verified ${VERSION} package matching the canonical manifest."
+
   create-github-release:
     name: Create GitHub Release
     # Keep the contents:write token off the persistent build/test identity.
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]
-    needs: create-release-package
+    needs: [create-release-package, validate-release-helper]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 10
     permissions:

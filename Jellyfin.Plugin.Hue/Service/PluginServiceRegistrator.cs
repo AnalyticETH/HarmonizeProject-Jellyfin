@@ -24,6 +24,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // HTTPS endpoint still use the platform certificate trust store.
         // Note: AddHttpClient<T>() registers T as transient by default, using the configured handler
         serviceCollection.AddHttpClient<Hue.HueClient>()
+            .ConfigureHttpClient(httpClient => httpClient.Timeout = TimeSpan.FromSeconds(10))
             .ConfigurePrimaryHttpMessageHandler(CreateHueHttpClientHandler);
         serviceCollection.AddSingleton<HueBridgeLifecycleGate>();
         serviceCollection.AddScoped<HueConfigurationMutationFilter>();

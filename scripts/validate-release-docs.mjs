@@ -6,6 +6,7 @@ const releaseShell = fs.readFileSync("build-release.sh", "utf8");
 const releasePowerShell = fs.readFileSync("build-release.ps1", "utf8");
 const releasePackager = fs.readFileSync("scripts/create-deterministic-release-zip.py", "utf8");
 const releasePackageValidator = fs.readFileSync("scripts/validate-release-package.mjs", "utf8");
+const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
 const meta = JSON.parse(fs.readFileSync("meta.json", "utf8"));
 
 const requiredReadmeMarkers = [
@@ -39,6 +40,35 @@ const currentHeadings = [...readme.matchAll(/^### Version ([^\n]+) \(Current\)$/
 if (currentHeadings.length !== 1 || currentHeadings[0] !== currentVersion) {
   throw new Error(
     `README.md must have exactly one current release heading matching meta.json (${currentVersion}); found: ${currentHeadings.join(", ") || "none"}`
+  );
+}
+
+const releaseHeading = `## [${currentVersion}]`;
+const releaseStart = changelog.indexOf(releaseHeading);
+if (releaseStart < 0) {
+  throw new Error(`CHANGELOG.md is missing the current release section: ${releaseHeading}`);
+}
+const releaseHeadingEnd = changelog.indexOf("\n", releaseStart);
+const releaseBodyStart = releaseHeadingEnd < 0 ? changelog.length : releaseHeadingEnd + 1;
+const nextRelease = changelog.slice(releaseBodyStart).search(/^## \[/m);
+const currentReleaseBody = changelog.slice(
+  releaseBodyStart,
+  nextRelease < 0 ? changelog.length : releaseBodyStart + nextRelease
+);
+const currentReleaseBullets = [...currentReleaseBody.matchAll(/^\s*-\s+(.+)$/gm)]
+  .map(match => match[1].replace(/\*\*/g, "").replace(/`/g, "").trim())
+  .filter(Boolean);
+if (currentReleaseBullets.length === 0) {
+  throw new Error(`CHANGELOG.md current release section has no release bullets: ${currentVersion}`);
+}
+const metadataChangelog = String(meta.changelog || "");
+if (metadataChangelog.includes("\\n")) {
+  throw new Error("meta.json changelog contains a literal \\n escape; use newline-separated release entries");
+}
+const missingMetadataBullets = currentReleaseBullets.filter(bullet => !metadataChangelog.includes(bullet));
+if (missingMetadataBullets.length > 0) {
+  throw new Error(
+    `meta.json changelog is missing current ${currentVersion} release entries: ${missingMetadataBullets.join(" | ")}`
   );
 }
 

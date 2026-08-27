@@ -251,6 +251,20 @@ public class HueClientTests : IDisposable
     #region GetEntertainmentAreas Tests
 
     [Fact]
+    public async Task CreatePlaybackClient_AfterSharedClientRequest_DoesNotMutateHttpClientTimeout()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "{\"data\":[]}");
+        var primary = new HueClient(_httpClient, Mock.Of<ILogger<HueClient>>());
+
+        await primary.GetEntertainmentAreas("192.168.1.100", "test-app-key");
+
+        var playback = primary.CreatePlaybackClient();
+
+        Assert.NotNull(playback);
+        Assert.Equal(TimeSpan.FromSeconds(10), _httpClient.Timeout);
+    }
+
+    [Fact]
     public async Task GetEntertainmentAreas_ValidResponse_ReturnsAreaList()
     {
         // Arrange

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.328] - 2026-08-27
+
+### Playback and route profile lifecycle hardening
+- **Concurrent playback transport**: the shared HTTP timeout is configured once by the typed client factory, so creating a concurrent playback client never mutates a client after request startup.
+- **Route-specific channel profiles**: administrators can load channel IDs directly into the selected device route; route Test Connection and Preview use route channels and fall back to outer/global profiles when blank.
+- **Regression coverage**: transport and configuration-page tests cover shared-client concurrency and route/outer channel isolation.
+- **Release-helper parity**: the trusted self-hosted pipeline executes the documented Linux release helper and verifies its archive and checksum against the canonical package contract.
+
 ## [1.5.327] - 2026-08-27
 
 ### Scheduler and route-credential lifecycle hardening

@@ -30,6 +30,11 @@ for (const marker of [
   "if: env.CODECOV_TOKEN_PRESENT == 'true'",
   "CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}",
   "fail_ci_if_error: true",
+  "validate-release-helper:",
+  "Run documented Linux release helper",
+  "chmod +x ./build-release.sh",
+  "./build-release.sh",
+  "needs: [create-release-package, validate-release-helper]",
 ]) {
   if (!ci.includes(marker)) {
     throw new Error(`${ciPath} is missing trusted-workflow marker: ${marker}`);
@@ -50,8 +55,8 @@ for (const marker of [
 }
 
 const selfHostedJobCount = (ci.match(/runs-on: \["self-hosted"/g) || []).length;
-if (selfHostedJobCount !== 4) {
-  throw new Error(`${ciPath} must keep exactly four self-hosted jobs (found ${selfHostedJobCount})`);
+if (selfHostedJobCount !== 5) {
+  throw new Error(`${ciPath} must keep exactly five self-hosted jobs (found ${selfHostedJobCount})`);
 }
 const mainGuardCount = (ci.match(/if: github\.ref == 'refs\/heads\/main'/g) || []).length;
 if (mainGuardCount !== 3) {

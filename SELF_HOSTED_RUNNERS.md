@@ -6,7 +6,7 @@ separate build state from release authority.
 
 | Purpose | Runner label | Service account | Writable state |
 | --- | --- | --- | --- |
-| Build, tests, formatting, package audit, Gitleaks, Semgrep, packaging | `harmonizeproject-jellyfin` | `harmonize-runner` | `/var/lib/harmonize-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache |
+| Build, tests, formatting, package audit, Gitleaks, Semgrep, packaging, Linux release-helper validation | `harmonizeproject-jellyfin` | `harmonize-runner` | `/var/lib/harmonize-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache |
 | GitHub Release publication only | `harmonizeproject-jellyfin-release` | `harmonize-release-runner` | `/var/lib/harmonize-release-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache |
 
 Both identities are locked system users with `nologin`, no sudo, Docker, LXD, or
@@ -23,7 +23,8 @@ job has a `github.ref == 'refs/heads/main'` guard as defense in depth. Pull-requ
 must not be routed to either identity. The release label is reserved for the single
 `contents:write` job. Every job also has a bounded `timeout-minutes` budget (20 minutes for
 build/test, 15 minutes for quality, security, and packaging, and 10 minutes for release
-publication) so a stalled network operation or tool cannot hold a persistent runner forever.
+publication; 20 minutes for the Linux release-helper validation) so a stalled network operation or tool cannot
+hold a persistent runner forever.
 
 Untrusted pull requests, including Dependabot update branches, are validated by
 `.github/workflows/pull-request-validation.yml` on the ephemeral GitHub-hosted

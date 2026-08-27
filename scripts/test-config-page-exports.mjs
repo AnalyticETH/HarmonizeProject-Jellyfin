@@ -183,12 +183,21 @@ function makeHarness() {
     const requests = [];
     const readers = [];
     let blobNumber = 0;
+    const pageElements = new Map();
+    let activePage = null;
 
     const body = makeElement("body");
     const document = {
         body,
-        querySelector() {
+        querySelector(selector) {
+            if (selector === '.pluginConfigurationPage' && activePage) return activePage;
             return makeElement();
+        },
+        getElementById(id) {
+            if (!pageElements.has(id)) {
+                pageElements.set(id, makeElement());
+            }
+            return pageElements.get(id);
         },
         querySelectorAll() {
             return [];
@@ -331,7 +340,6 @@ function makeHarness() {
 
     new vm.Script(`"use strict";\n${scriptMatch[1]}`, { filename: file }).runInContext(context);
 
-    const pageElements = new Map();
     const page = {
         _huePageActive: true,
         _huePageGeneration: 7,
@@ -342,8 +350,12 @@ function makeHarness() {
                 pageElements.set(id, makeElement());
             }
             return pageElements.get(id);
+        },
+        querySelectorAll() {
+            return [];
         }
     };
+    activePage = page;
 
     for (const [id, value] of [
         ["sceneScheduleConflictFilter", "cue-1"],
@@ -465,7 +477,7 @@ async function testCurrentFailure(testCase) {
 
 async function testDuplicateClickIsBounded(testCase) {
     const harness = makeHarness();
-    const { page, api, requests } = harness;
+    const { page, api, requests, dashboard } = harness;
     const first = api[testCase.method](page);
     const second = api[testCase.method](page);
     assert.ok(first && typeof first.then === "function", `${testCase.method} first click returns a promise`);
@@ -721,6 +733,104 @@ async function testMappingDeviceRouteCredentialScope() {
     );
 }
 
+async function testMappingDeviceRouteChannelIsolation() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    const userId = "12345678-1234-1234-1234-1234567890ab";
+    const deviceId = "living-room-tv";
+
+    api.mappingEditingUserId = userId;
+    api.mappingEditingMappingId = "mapping-one";
+    page.querySelector("#mappingUserSelect").value = userId;
+    page.querySelector("#mappingDeviceRouteSelect").value = deviceId;
+    page.querySelector("#mappingDeviceTargets").value = JSON.stringify([
+        {
+            DeviceId: deviceId,
+            DeviceName: "Living room TV",
+            HueBridgeIp: "192.168.1.50",
+            EntertainmentAreaId: "route-area",
+            ChannelIdsOverride: "7, 8"
+        }
+    ]);
+    page.querySelector("#mappingDeviceRouteId").value = deviceId;
+    page.querySelector("#mappingDeviceRouteBridge").value = "192.168.1.50";
+    page.querySelector("#mappingDeviceRouteAppKey").value = "route-app-key";
+    page.querySelector("#mappingDeviceRouteClientKey").value = "route-client-key";
+    page.querySelector("#mappingDeviceRouteAreaId").value = "route-area";
+    page.querySelector("#mappingDeviceRouteChannels").value = "7, 8";
+    page.querySelector("#mappingChannelIdsOverride").value = "1, 2";
+    page.querySelector("#channelIds").value = "3, 4";
+
+    assert.equal(
+        api.getEffectiveMappingChannelIds(page),
+        "7, 8",
+        "a selected route uses its route-specific channel profile"
+    );
+
+    const routeLoad = api.loadMappingDeviceRouteChannels();
+    assert.equal(requests.length, 1, "route channel loading starts one request");
+    assert.equal(requests[0].options.url, "HueSync/EntertainmentChannels", "route channel loading uses the channel endpoint");
+    const routePayload = JSON.parse(requests[0].options.data);
+    assert.deepEqual(
+        routePayload,
+        {
+            ipAddress: "192.168.1.50",
+            appKey: "route-app-key",
+            entertainmentAreaId: "route-area",
+            userId,
+            deviceId
+        },
+        "route channel loading sends the selected route identity"
+    );
+    requests[0].resolve([{ channelId: 9 }, { ChannelId: 4 }]);
+    await routeLoad;
+    assert.equal(page.querySelector("#mappingDeviceRouteChannels").value, "4, 9", "route loading writes only the route channel field");
+    assert.equal(page.querySelector("#mappingChannelIdsOverride").value, "1, 2", "route loading does not mutate the outer user profile");
+
+    api.testMappingConnection();
+    assert.equal(requests.length, 2, "mapping connection test starts one request");
+    const connectionPayload = JSON.parse(requests[1].options.data);
+    assert.equal(connectionPayload.channelIds, "4, 9", "mapping connection test uses the selected route channels");
+    assert.equal(connectionPayload.deviceId, deviceId, "mapping connection test keeps the selected route identity");
+    const connectionRequest = page._huePreviewRequest;
+    requests[1].resolve({ areaFound: true, channelProfileValid: true, streamTested: false });
+    await connectionRequest;
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    page._huePreviewTargetMetadataReady = true;
+    api.previewMappingColor(page);
+    assert.equal(requests.length, 3, "mapping preview starts one request");
+    const previewPayload = JSON.parse(requests[2].options.data);
+    assert.equal(previewPayload.channelIds, "4, 9", "mapping preview uses the selected route channels");
+    assert.equal(previewPayload.deviceId, deviceId, "mapping preview keeps the selected route identity");
+    const previewRequest = page._huePreviewRequest;
+    requests[2].resolve({ succeeded: true, message: "preview complete" });
+    await previewRequest;
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    page.querySelector("#mappingDeviceRouteChannels").value = "";
+    assert.equal(
+        api.getEffectiveMappingChannelIds(page),
+        "1, 2",
+        "a blank staged route profile inherits the outer user profile"
+    );
+
+    page.querySelector("#mappingBridgeIp").value = "192.168.1.60";
+    page.querySelector("#mappingAppKey").value = "outer-app-key";
+    page.querySelector("#mappingAreaSelect").value = "outer-area";
+    page.querySelector("#mappingDeviceRouteChannels").value = "4, 9";
+    const outerLoad = api.loadMappingChannels(page);
+    assert.equal(requests.length, 4, "outer mapping channel loading starts a separate request");
+    const outerPayload = JSON.parse(requests[3].options.data);
+    assert.equal(outerPayload.ipAddress, "192.168.1.60", "outer channel loading ignores the selected route bridge");
+    assert.equal(outerPayload.entertainmentAreaId, "outer-area", "outer channel loading ignores the selected route area");
+    assert.equal(outerPayload.deviceId, "", "outer channel loading does not send a device route");
+    requests[3].resolve([{ channelId: 2 }]);
+    await outerLoad;
+    assert.equal(page.querySelector("#mappingChannelIdsOverride").value, "2", "outer loading writes the outer user profile");
+    assert.equal(page.querySelector("#mappingDeviceRouteChannels").value, "4, 9", "outer loading preserves the route profile");
+}
+
 async function testConfigurationImportSubmitLifecycleGuards() {
     const harness = makeHarness();
     const { page, api, requests, dashboard } = harness;
@@ -967,6 +1077,7 @@ await testEditMappingLifecycleGuards();
 await testConfigurationImportValidationLifecycleGuards();
 await testConfigurationImportFileLifecycleGuards();
 await testMappingDeviceRouteCredentialScope();
+await testMappingDeviceRouteChannelIsolation();
 await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
@@ -974,4 +1085,4 @@ await testConfigurationSaveDuplicateSubmitIsBounded();
 await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials, import file/validation/submit, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, import file/validation/submit, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);

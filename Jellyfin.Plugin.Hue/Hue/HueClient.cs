@@ -55,7 +55,6 @@ namespace Jellyfin.Plugin.Hue.Hue
             IHueBridgeLocalDiscovery? localDiscovery = null)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-            _httpClient.Timeout = TimeSpan.FromSeconds(10);
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _localDiscovery = localDiscovery;
         }
