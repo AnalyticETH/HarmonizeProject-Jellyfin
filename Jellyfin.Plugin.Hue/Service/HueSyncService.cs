@@ -113,6 +113,7 @@ namespace Jellyfin.Plugin.Hue.Service
         private bool _bridgeAreaDeactivated;
         private volatile bool _isStopping;
         private string? _currentItemName;
+        private string? _currentPlaybackMediaFilter;
         private string? _currentFrameResolution;
         private string? _currentVideoScalingMode;
         private string? _currentVideoDeinterlaceMode;
@@ -545,6 +546,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     CurrentItemName = null;
                     lock (_syncLock)
                     {
+                        _currentPlaybackMediaFilter = null;
                         _currentUserId = null;
                         _currentUserName = null;
                         _currentDeviceId = null;
@@ -683,6 +685,7 @@ namespace Jellyfin.Plugin.Hue.Service
             string? currentItem;
             Guid? currentUserId;
             string? currentUserName;
+            string? currentPlaybackMediaFilter;
             string? currentFrameResolution;
             string? currentVideoScalingMode;
             string? currentVideoDeinterlaceMode;
@@ -754,6 +757,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 currentDeviceId = _currentDeviceId;
                 currentDeviceName = _currentDeviceName;
                 currentDeviceRouteMatched = _currentDeviceRouteMatched;
+                currentPlaybackMediaFilter = _currentPlaybackMediaFilter;
                 currentFrameResolution = _currentFrameResolution;
                 currentVideoScalingMode = _currentVideoScalingMode;
                 currentVideoDeinterlaceMode = _currentVideoDeinterlaceMode;
@@ -831,9 +835,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 ActiveDeviceId = isSyncing ? currentDeviceId : null,
                 ActiveDeviceName = isSyncing ? currentDeviceName : null,
                 ActiveDeviceRouteMatched = isSyncing ? currentDeviceRouteMatched : null,
-                ActivePlaybackMediaFilter = isSyncing
-                    ? Plugin.Instance?.Configuration?.GetPlaybackMediaFilterForUser(currentUserId ?? Guid.Empty)
-                    : null,
+                ActivePlaybackMediaFilter = isSyncing ? currentPlaybackMediaFilter : null,
                 ActiveFrameResolution = isSyncing ? currentFrameResolution : null,
                 ActiveVideoScalingMode = isSyncing ? currentVideoScalingMode : null,
                 ActiveVideoDeinterlaceMode = isSyncing ? currentVideoDeinterlaceMode : null,
@@ -1475,7 +1477,7 @@ namespace Jellyfin.Plugin.Hue.Service
             return false;
         }
 
-        private bool TryStartConcurrentPlayback(PlaybackProgressEventArgs e)
+        private bool TryStartConcurrentPlayback(PlaybackProgressEventArgs e, string playbackMediaFilter)
         {
             if (!_managesPlaybackEvents || string.IsNullOrWhiteSpace(e.PlaySessionId))
                 return false;
@@ -1547,7 +1549,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 // lifecycle identity before publishing the worker so a stop event that
                 // arrives during this tiny handoff can cancel the pending start safely.
                 worker.Service.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
-                if (!worker.Service.PrepareExternalPlaybackStart(e))
+                if (!worker.Service.PrepareExternalPlaybackStart(e, playbackMediaFilter))
                     return true;
 
                 _concurrentPlaybackWorkers[e.PlaySessionId] = worker;
@@ -1605,11 +1607,12 @@ namespace Jellyfin.Plugin.Hue.Service
                 return;
 
             e = NormalizeRecoveredPlaybackEvent(e);
+            var playbackMediaFilter = GetPlaybackMediaFilter(e);
             if (!IsPlaybackUserSyncEnabled(e) ||
-                !MatchesPlaybackMediaFilter(e.Item, GetPlaybackMediaFilter(e)))
+                !MatchesPlaybackMediaFilter(e.Item, playbackMediaFilter))
                 return;
 
-            if (!PrepareExternalPlaybackStart(e))
+            if (!PrepareExternalPlaybackStart(e, playbackMediaFilter))
                 return;
 
             await HandlePreparedExternalPlaybackStartAsync(e).ConfigureAwait(false);
@@ -1633,8 +1636,9 @@ namespace Jellyfin.Plugin.Hue.Service
             await StartSyncForItem(e).ConfigureAwait(false);
         }
 
-        private bool PrepareExternalPlaybackStart(PlaybackProgressEventArgs e)
+        private bool PrepareExternalPlaybackStart(PlaybackProgressEventArgs e, string? capturedPlaybackMediaFilter = null)
         {
+            var playbackMediaFilter = capturedPlaybackMediaFilter ?? GetPlaybackMediaFilter(e);
             lock (_syncLock)
             {
                 if (_isStopping ||
@@ -1658,6 +1662,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentUserName = string.IsNullOrWhiteSpace(e.Session?.UserName)
                     ? null
                     : e.Session!.UserName.Trim();
+                _currentPlaybackMediaFilter = playbackMediaFilter;
                 _lastPlaybackPositionTicks = e.PlaybackPositionTicks;
                 var observedAtUtc = DateTime.UtcNow;
                 _lastPlaybackPositionObservedUtc = observedAtUtc;
@@ -1734,7 +1739,7 @@ namespace Jellyfin.Plugin.Hue.Service
             // A distinct bridge/area target gets an isolated worker instead of replacing
             // the primary session. Same-target playback retains the existing replacement
             // behavior because Hue cannot stream two sessions through one area.
-            if (TryStartConcurrentPlayback(e))
+            if (TryStartConcurrentPlayback(e, playbackMediaFilter))
                 return;
 
             // Skip duplicate notifications for the same session, but allow a new session
@@ -1771,6 +1776,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentUserName = string.IsNullOrWhiteSpace(e.Session?.UserName)
                         ? null
                         : e.Session!.UserName.Trim();
+                    _currentPlaybackMediaFilter = playbackMediaFilter;
                     ResetPlaybackProgressTrackingLocked();
                 }
                 else if (string.Equals(_pausedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
@@ -1866,6 +1872,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         _currentPlaySessionId = null;
                         _recoveredSessionId = null;
                         _currentItemName = null;
+                        _currentPlaybackMediaFilter = null;
                         ResetPlaybackProgressTrackingLocked();
                     }
                 }
@@ -4593,6 +4600,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     {
                         _currentPlaySessionId = null;
                         _recoveredSessionId = null;
+                        _currentPlaybackMediaFilter = null;
                     }
                 }
             }
@@ -4672,10 +4680,18 @@ namespace Jellyfin.Plugin.Hue.Service
             CancellationToken startupToken,
             bool preserveSessionMetadata)
         {
+            string? capturedPlaybackMediaFilter;
             lock (_syncLock)
             {
                 if (_isStopping || startupToken.IsCancellationRequested)
                     return;
+
+                capturedPlaybackMediaFilter = string.Equals(
+                    _currentPlaySessionId,
+                    e.PlaySessionId,
+                    StringComparison.Ordinal)
+                    ? _currentPlaybackMediaFilter
+                    : null;
             }
 
             var config = Plugin.Instance?.Configuration;
@@ -4713,7 +4729,7 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             var isAudioPlayback = IsAudioPlaybackItem(e.Item);
-            var playbackMediaFilter = GetPlaybackMediaFilter(e);
+            var playbackMediaFilter = capturedPlaybackMediaFilter ?? GetPlaybackMediaFilter(e);
             if (!MatchesPlaybackMediaFilter(e.Item, playbackMediaFilter))
             {
                 _logger.LogDebug(
@@ -4777,18 +4793,38 @@ namespace Jellyfin.Plugin.Hue.Service
 
             IDisposable? playbackLifecycleLease = null;
             var reusingPlaybackLease = false;
+            var preserveSavedLightState = false;
+            var playbackResourceKey = GetPlaybackResourceKey(bridgeIp, areaId);
             if (preserveSessionMetadata)
             {
                 lock (_syncLock)
                 {
-                    reusingPlaybackLease = string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal) &&
-                        _playbackLifecycleLease != null;
+                    reusingPlaybackLease = _playbackLifecycleLease != null &&
+                        string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal);
+                }
+            }
+
+            if (!reusingPlaybackLease)
+            {
+                lock (_syncLock)
+                {
+                    // A new playback event for the same bridge/area replaces the
+                    // current stream. Keep its lease through StopSyncAsync so the
+                    // transition cannot race a diagnostic or another start request.
+                    var sameTargetReplacement = _playbackLifecycleLease != null &&
+                        _currentBridgeConfig is { } currentBridgeConfig &&
+                        string.Equals(
+                            GetPlaybackResourceKey(currentBridgeConfig.BridgeIp, currentBridgeConfig.AreaId),
+                            playbackResourceKey,
+                            StringComparison.OrdinalIgnoreCase);
+                    reusingPlaybackLease = sameTargetReplacement;
+                    preserveSavedLightState = sameTargetReplacement && _savedLightStates != null;
                 }
             }
 
             if (!reusingPlaybackLease)
                 playbackLifecycleLease = _bridgeLifecycleGate.TryEnterPlayback(
-                    GetPlaybackResourceKey(bridgeIp, areaId));
+                    playbackResourceKey);
 
             if (!reusingPlaybackLease && playbackLifecycleLease == null)
             {
@@ -4839,6 +4875,9 @@ namespace Jellyfin.Plugin.Hue.Service
                     _bridgeAreaDeactivated = false;
                     _syncStartTime = preservedSyncStartTime ?? DateTime.UtcNow;
                     _currentItemName = e.Item?.Name;
+                    _currentPlaybackMediaFilter = playbackMediaFilter;
+                    if (preserveSavedLightState && _savedLightStates != null)
+                        _savedLightStatePlaySessionId = e.PlaySessionId;
                     UpdatePlaybackTimelineLocked(e, DateTime.UtcNow);
                     _currentFrameResolution = isAudioPlayback ? null : frameResolution;
                     _currentVideoScalingMode = isAudioPlayback ? null : videoScalingMode;
@@ -4954,12 +4993,18 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 // Save current light states if configured. A channel profile limits the
                 // capture to the same subset that playback will control.
+                // A same-target replacement carries the predecessor's snapshot forward.
+                // The predecessor stream has been stopped but its original light state
+                // has not been restored, so recapturing here would save playback colors
+                // and lose the state that must be restored when the replacement ends.
+                // If no snapshot exists, capture this session's initial state as usual.
                 var shouldCaptureLightState = ShouldCaptureLightState(
                     restoreLightState,
                     _savedLightStates != null,
                     _savedLightStatePlaySessionId,
                     e.PlaySessionId,
-                    captureForPause: IsPauseBehaviorDimToCinemaLevel(pauseBehavior));
+                    captureForPause: IsPauseBehaviorDimToCinemaLevel(pauseBehavior)) &&
+                    !preserveSavedLightState;
                 if (shouldCaptureLightState)
                 {
                     _logger.LogInformation("Saving current light states for restoration");
@@ -5305,6 +5350,8 @@ namespace Jellyfin.Plugin.Hue.Service
                 }
                 lock (_syncLock)
                 {
+                    if (clearCurrentItem)
+                        _currentPlaybackMediaFilter = null;
                     _currentUserId = null;
                     _currentUserName = null;
                     _currentDeviceId = null;

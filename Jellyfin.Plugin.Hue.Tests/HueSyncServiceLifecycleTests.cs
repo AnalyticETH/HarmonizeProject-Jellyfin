@@ -103,6 +103,7 @@ public sealed class HueSyncServiceLifecycleTests
             PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterEpisodes
         });
         SetPrivateField(service, "_currentUserId", activeUserId);
+        SetPrivateField(service, "_currentPlaybackMediaFilter", PluginConfiguration.PlaybackMediaFilterEpisodes);
         SetPrivateField(service, "_currentUserName", "Living Room Viewer");
         SetPrivateField(service, "_currentDeviceId", "device-living-room");
         SetPrivateField(service, "_currentDeviceName", "Living Room TV");
@@ -119,6 +120,11 @@ public sealed class HueSyncServiceLifecycleTests
         SetPrivateField(service, "_currentPlaybackIsPaused", true);
         var playbackObservedAtUtc = DateTime.UtcNow.AddSeconds(-1);
         SetPrivateField(service, "_currentPlaybackObservedAtUtc", playbackObservedAtUtc);
+
+        // Runtime status must report the policy captured for this playback session,
+        // even when an administrator changes the global or per-user scope afterward.
+        Plugin.Instance.Configuration.PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterAudio;
+        Plugin.Instance.Configuration.UserMappings[0].PlaybackMediaFilterOverride = PluginConfiguration.PlaybackMediaFilterMovies;
         var hueStreamer = Assert.IsType<HueStreamer>(GetPrivateField(service, "_hueStreamer"));
         SetPrivateField(hueStreamer, "_packetsSent", 42L);
         SetPrivateField(hueStreamer, "_packetsSkippedByThreshold", 7L);
@@ -1050,6 +1056,140 @@ public sealed class HueSyncServiceLifecycleTests
 
         Assert.True(handler.StopRequest.Task.IsCompletedSuccessfully);
         Assert.True(handler.SecondConfigurationRequest.Task.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task PlaybackStart_CapturesMediaScopeForRuntimeStatus()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        Plugin.Instance!.Configuration.PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterAllVideo;
+
+        await service.StartAsync(CancellationToken.None);
+
+        var onStartMethod = typeof(HueSyncService).GetMethod("OnPlaybackStart", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        onStartMethod.Invoke(service, new object?[] { null, CreateProgress("scope-session") });
+        await handler.FirstConfigurationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Changing the administrator policy must not rewrite the policy captured by
+        // the active playback session or the status snapshot shown to the administrator.
+        Plugin.Instance.Configuration.PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterAudio;
+        var status = service.GetRuntimeStatus();
+        Assert.True(status.IsSyncing);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterAllVideo, status.ActivePlaybackMediaFilter);
+
+        Plugin.Instance.Configuration.PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterAllVideo;
+        handler.ReleaseFirstConfiguration();
+        handler.ReleaseStopRequest();
+        await service.StopAsync(CancellationToken.None);
+        Assert.Null(GetPrivateField(service, "_currentPlaybackMediaFilter"));
+    }
+
+    [Fact]
+    public async Task SameTargetPlaybackReplacement_ReusesLeaseDuringTransition()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var gate = new HueBridgeLifecycleGate();
+        var service = CreateService(httpClient, gate);
+        await service.StartAsync(CancellationToken.None);
+
+        const string bridgeIp = "192.168.1.100";
+        const string areaId = "area-id";
+        var playbackLease = gate.TryEnterPlayback(HueSyncService.GetPlaybackResourceKey(bridgeIp, areaId));
+        Assert.NotNull(playbackLease);
+        SetPrivateField(service, "_playbackLifecycleLease", playbackLease);
+        SetPrivateField(service, "_currentPlaySessionId", "session-old");
+        SetPrivateField(
+            service,
+            "_currentBridgeConfig",
+            new ValueTuple<string, string, string, string>(bridgeIp, "app-key", "client-key", areaId));
+        SetPrivateField(service, "_bridgeAreaDeactivated", true);
+
+        var startMethod = typeof(HueSyncService).GetMethod(
+            "StartSyncForItemCore",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var startTask = Assert.IsAssignableFrom<Task>(startMethod.Invoke(service, new object?[]
+        {
+            CreateProgress("session-new"),
+            CancellationToken.None
+        }));
+
+        // The replacement must get past lifecycle arbitration while the old lease is
+        // still held. The original ordering rejected the replacement before stopping
+        // the predecessor and never issued this configuration request.
+        await handler.FirstConfigurationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("session-new", GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.True(gate.IsPlaybackActiveForResource(HueSyncService.GetPlaybackResourceKey(bridgeIp, areaId)));
+
+        handler.ReleaseFirstConfiguration();
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await startTask;
+
+        Assert.False(gate.IsPlaybackActive);
+        Assert.Null(GetPrivateField(service, "_playbackLifecycleLease"));
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SameTargetPlaybackReplacement_PreservesSavedLightStateSnapshot()
+    {
+        var handler = new BlockingHueHandler
+        {
+            ConfigurationJson = "{\"data\":[{\"channels\":[{\"channel_id\":1,\"position\":{\"x\":0,\"z\":0},\"members\":[{\"service\":{\"rid\":\"light-id\"}}]}]}]}"
+        };
+        using var httpClient = new HttpClient(handler);
+        var gate = new HueBridgeLifecycleGate();
+        var service = CreateService(httpClient, gate);
+        await service.StartAsync(CancellationToken.None);
+
+        Plugin.Instance!.Configuration.RestoreLightState = true;
+        Plugin.Instance.Configuration.UseCinemaMode = false;
+        var savedLightStates = new List<HueClient.LightState>
+        {
+            new("light-id", true, 50, 0.1, 0.2)
+        };
+        SetPrivateField(service, "_savedLightStates", savedLightStates);
+        SetPrivateField(service, "_savedLightStatePlaySessionId", "session-old");
+        var playbackLease = gate.TryEnterPlayback(HueSyncService.GetPlaybackResourceKey("192.168.1.100", "area-id"));
+        Assert.NotNull(playbackLease);
+        SetPrivateField(service, "_playbackLifecycleLease", playbackLease);
+        SetPrivateField(service, "_currentPlaySessionId", "session-old");
+        SetPrivateField(
+            service,
+            "_currentBridgeConfig",
+            new ValueTuple<string, string, string, string>("192.168.1.100", "app-key", "client-key", "area-id"));
+        SetPrivateField(service, "_bridgeAreaDeactivated", true);
+
+        using var startupCancellation = new CancellationTokenSource();
+        var startMethod = typeof(HueSyncService).GetMethod(
+            "StartSyncForItemCore",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var startTask = Assert.IsAssignableFrom<Task>(startMethod.Invoke(service, new object?[]
+        {
+            CreateProgress("session-new"),
+            startupCancellation.Token
+        }));
+
+        await handler.FirstConfigurationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Same(savedLightStates, GetPrivateField(service, "_savedLightStates"));
+        Assert.Equal("session-new", GetPrivateField(service, "_savedLightStatePlaySessionId"));
+
+        handler.ReleaseFirstConfiguration();
+        await Task.Delay(100);
+        Assert.False(handler.LightCaptureRequest.Task.IsCompleted);
+
+        startupCancellation.Cancel();
+        await handler.RestorationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await startTask;
+
+        Assert.Null(GetPrivateField(service, "_savedLightStates"));
+        Assert.False(gate.IsPlaybackActive);
+        await service.StopAsync(CancellationToken.None);
     }
 
     [Fact]

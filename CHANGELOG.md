@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.332] - 2026-08-27
+
+### Playback scope and target handoff hardening
+- **Captured playback scope**: Live Sync Status now reports the effective media scope captured when playback starts, even if global or per-user settings change while the session is active; seek restarts retain the same policy.
+- **Same-target playback handoff**: a replacement session for the same bridge and entertainment area now waits for the predecessor stream, reuses its lifecycle lease, and preserves the original light-state snapshot for safe restoration.
+- **Bracketed IPv6 bridge support**: pinned private and link-local IPv6 bridge URLs now pass local-host certificate validation when written in the standard bracketed URI form.
+- **Regression coverage**: lifecycle and certificate-validation tests cover scope mutation, same-target replacement, saved-state retention, and bracketed IPv6 pins.
+
 ## [1.5.331] - 2026-08-27
 
 ### Credential target freshness hardening

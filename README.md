@@ -471,7 +471,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.331 (Current)
+### Version 1.5.332 (Current)
+
+- **Captured playback scope**: Live Sync Status now reports the effective media scope captured when playback starts, even if global or per-user settings change while the session is active; seek restarts retain the same policy.
+
+- **Same-target playback handoff**: a replacement session for the same bridge and entertainment area now waits for the predecessor stream, reuses its lifecycle lease, and preserves the original light-state snapshot for safe restoration.
+
+- **Bracketed IPv6 bridge support**: pinned private and link-local IPv6 bridge URLs now pass local-host certificate validation when written in the standard bracketed URI form.
+
+- **Regression coverage**: lifecycle and certificate-validation tests cover scope mutation, same-target replacement, saved-state retention, and bracketed IPv6 pins.
 
 - **Credential-bearing administrator preflight**: bridge area/channel loading, connection tests, and single-target previews now require an explicit certificate pin before sending App Keys, with stale page lifecycle guards that cannot start a request after navigation.
 

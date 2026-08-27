@@ -86,6 +86,7 @@ public class PluginServiceRegistratorTests
     [InlineData("172.16.20.4")]
     [InlineData("169.254.1.20")]
     [InlineData("fc00::1234")]
+    [InlineData("[fc00::1234]")]
     [InlineData("fe80::1234")]
     [InlineData("hue-bridge.local")]
     public void IsLocalBridgeHost_PrivateAddressesAreAllowed(string host)
@@ -223,6 +224,33 @@ public class PluginServiceRegistratorTests
             DateTimeOffset.UtcNow.AddMinutes(-1),
             DateTimeOffset.UtcNow.AddMinutes(5));
         using var request = new HttpRequestMessage(HttpMethod.Get, "https://192.168.1.100/api");
+        request.Headers.Add(
+            HueBridgeCertificateValidation.CertificateFingerprintHeader,
+            HueBridgeCertificateValidation.ComputeCertificateFingerprint(certificate));
+
+        const SslPolicyErrors certificateErrors =
+            SslPolicyErrors.RemoteCertificateNameMismatch |
+            SslPolicyErrors.RemoteCertificateChainErrors;
+        Assert.True(HueBridgeCertificateValidation.ValidateServerCertificate(
+            request,
+            certificate,
+            null,
+            certificateErrors));
+    }
+
+    [Fact]
+    public void ValidateServerCertificate_AcceptsExactPinnedBracketedIpv6Certificate()
+    {
+        using var rsa = RSA.Create(2048);
+        var certificateRequest = new CertificateRequest(
+            "CN=hue-bridge",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        using var certificate = certificateRequest.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow.AddMinutes(5));
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://[fc00::1234]/api");
         request.Headers.Add(
             HueBridgeCertificateValidation.CertificateFingerprintHeader,
             HueBridgeCertificateValidation.ComputeCertificateFingerprint(certificate));

@@ -183,14 +183,22 @@ internal static class HueBridgeCertificateValidation
 
     internal static bool IsLocalBridgeHost(string host)
     {
-        if (IPAddress.TryParse(host, out var address))
+        var normalizedHost = host.Trim();
+        if (normalizedHost.Length >= 2 &&
+            normalizedHost[0] == '[' &&
+            normalizedHost[^1] == ']')
+        {
+            normalizedHost = normalizedHost[1..^1];
+        }
+
+        if (IPAddress.TryParse(normalizedHost, out var address))
         {
             return IsLocalAddress(address);
         }
 
         // mDNS names are a supported local-bridge configuration and are not public DNS
         // names. Any other hostname must present a normally trusted certificate.
-        return host.EndsWith(".local", StringComparison.OrdinalIgnoreCase);
+        return normalizedHost.EndsWith(".local", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
