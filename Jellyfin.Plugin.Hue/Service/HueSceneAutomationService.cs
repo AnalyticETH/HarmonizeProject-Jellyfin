@@ -1339,7 +1339,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             return _bridgeLifecycleGate.IsPlaybackActive;
 
         return targets.Any(target => _bridgeLifecycleGate.IsPlaybackActiveForResource(
-            HueSyncService.GetPlaybackResourceKey(target.BridgeIp, target.EntertainmentAreaId)));
+            HueSyncService.GetPlaybackResourceKey(config, target.BridgeIp, target.EntertainmentAreaId)));
     }
 
     internal static int GetEffectiveTransitionSeconds(HueSceneSchedule schedule, HueColorPreset? preset)
@@ -4546,13 +4546,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                 continue;
             }
 
-            if (hasDeferredRun)
-                RemoveDeferredRun(schedule.Id);
-
             var result = await RunScheduleTrackedAsync(
                 config,
                 schedule,
                 cancellationToken,
+                automaticRun: true,
                 wasCatchUp: wasCatchUp,
                 wasDeferred: hasDeferredRun,
                 wasDeferredRestored: wasDeferredRestored,
@@ -4562,6 +4560,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     StringComparison.OrdinalIgnoreCase),
                 runAtUtcOverride: slot,
                 schedulerBarrierHeld: true).ConfigureAwait(false);
+            if (hasDeferredRun)
+                RemoveDeferredRun(schedule.Id);
+
             if (result.Succeeded)
             {
                 DisableCompletedOneTimeSchedule(config, schedule);
@@ -5220,6 +5221,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         PluginConfiguration config,
         HueSceneSchedule schedule,
         CancellationToken cancellationToken,
+        bool automaticRun = false,
         bool wasCatchUp = false,
         bool wasDeferred = false,
         bool wasDeferredRestored = false,
@@ -5264,6 +5266,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         HueSceneAutomationRunResult? result = null;
+        var runCompleted = false;
         try
         {
             result = await RunScheduleCoreAsync(
@@ -5272,6 +5275,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 cancellationToken,
                 targetScopedPlayback,
                 runAtUtcOverride).ConfigureAwait(false);
+            runCompleted = true;
             result.WasCatchUp = wasCatchUp;
             result.WasDeferred = wasDeferred;
             result.WasDeferredRestored = wasDeferredRestored;
@@ -5296,7 +5300,20 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
         finally
         {
-            CompleteRun(config, schedule, result);
+            // A host-stopped automatic cue must remain eligible for the next scheduler
+            // instance; manual cancellation keeps its existing attempted-run accounting.
+            var automaticCancellationBeforeCompletion = automaticRun &&
+                !runCompleted &&
+                cancellationToken.IsCancellationRequested;
+            if (automaticCancellationBeforeCompletion && runAtUtcOverride.HasValue)
+                ReleaseRunSlot(schedule.Id, runAtUtcOverride.Value);
+
+            CompleteRun(
+                config,
+                schedule,
+                result,
+                countRun: !automaticCancellationBeforeCompletion,
+                preserveDeferred: automaticCancellationBeforeCompletion && wasDeferred);
         }
     }
 
@@ -5470,7 +5487,9 @@ public sealed class HueSceneAutomationService : BackgroundService
     private void CompleteRun(
         PluginConfiguration config,
         HueSceneSchedule schedule,
-        HueSceneAutomationRunResult? result)
+        HueSceneAutomationRunResult? result,
+        bool countRun,
+        bool preserveDeferred)
     {
         EnsureHistoryLoaded();
         var key = schedule.Id?.Trim() ?? string.Empty;
@@ -5487,7 +5506,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             }
 
             state.ActiveRuns = Math.Max(0, state.ActiveRuns - 1);
-            state.RunCount++;
+            if (countRun)
+                state.RunCount++;
             state.LastRunAtUtc = result?.RunAtUtc ?? DateTime.UtcNow;
             state.LastSucceeded = result?.Succeeded ?? false;
             state.LastSkipped = result?.Skipped ?? false;
@@ -5498,11 +5518,14 @@ public sealed class HueSceneAutomationService : BackgroundService
             state.LastCleanupWarning = result?.CleanupWarning;
             state.LastTargetResults = result?.TargetResults?.Select(CloneTargetResult).ToArray()
                 ?? Array.Empty<HueSceneScheduleTargetResult>();
-            state.DeferredPending = false;
-            state.DeferredOccurrenceSlot = null;
-            state.DeferredAtLocal = null;
-            state.DeferredUntilLocal = null;
-            state.DeferredRestored = false;
+            if (!preserveDeferred)
+            {
+                state.DeferredPending = false;
+                state.DeferredOccurrenceSlot = null;
+                state.DeferredAtLocal = null;
+                state.DeferredUntilLocal = null;
+                state.DeferredRestored = false;
+            }
             if (result != null)
                 result.RunCount = state.RunCount;
 
@@ -5512,9 +5535,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             if (configuredSchedule != null)
             {
                 configuredSchedule.RunCount = state.RunCount;
-                if (configuredSchedule.MaxRuns > 0 && state.RunCount >= configuredSchedule.MaxRuns)
+                if (countRun && configuredSchedule.MaxRuns > 0 && state.RunCount >= configuredSchedule.MaxRuns)
                     configuredSchedule.Enabled = false;
-                shouldPersistRunState = configuredSchedule.MaxRuns > 0;
+                shouldPersistRunState = countRun && configuredSchedule.MaxRuns > 0;
             }
         }
 

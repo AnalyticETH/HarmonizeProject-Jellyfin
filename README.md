@@ -471,7 +471,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.335 (Current)
+### Version 1.5.336 (Current)
+
+- **Cancellation-safe deferred schedules**: host-shutdown cancellation retains deferred occurrences, releases occurrence slots, and leaves finite run counters unchanged until a cue completes.
+
+- **Snapshot-consistent scheduler conflicts**: matching-target playback arbitration uses the evaluated configuration snapshot's certificate identity.
+
+- **Regression coverage**: cancellation/retry and snapshot-identity tests protect deferred persistence and target arbitration.
 
 - **.NET 8 ABI guard**: Dependabot ignores major `System.Text.Json` and `System.Text.Encodings.Web` updates because the plugin does not ship framework assemblies; security and minor/patch monitoring remain enabled.
 

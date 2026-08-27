@@ -2583,6 +2583,86 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_CanceledDeferredCueRetainsOccurrenceWithoutConsumingRun()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "canceled-deferred-app-secret",
+            HueClientKey = "canceled-deferred-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Canceled deferred scene", Red = 15, Green = 25, Blue = 35, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "canceled-deferred-cue",
+                    Name = "Canceled deferred cue",
+                    PresetName = "Canceled deferred scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    MaxRuns = 1,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new CancelThenSucceedStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using (var playbackLease = lifecycleGate.TryEnterPlayback("canceled-deferred-target"))
+        {
+            Assert.NotNull(playbackLease);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+        }
+
+        var deferredBeforeRun = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal("canceled-deferred-cue", deferredBeforeRun.ScheduleId);
+        Assert.Equal(dueUtc.AddSeconds(-30), deferredBeforeRun.OccurrenceSlot);
+
+        using var cancellationSource = new CancellationTokenSource();
+        var automaticTask = service.RunDueSchedulesAsync(
+            dueUtc.AddMinutes(1),
+            cancellationSource.Token);
+        await streamTester.FirstPreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        cancellationSource.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => automaticTask);
+
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        var canceledStatus = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(0, canceledStatus.RunCount);
+        Assert.True(canceledStatus.DeferredPending);
+        var retainedDeferred = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal(deferredBeforeRun.OccurrenceSlot, retainedDeferred.OccurrenceSlot);
+
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Equal(2, streamTester.PreviewCount);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_DropsDeferredCueWhenItsTimingDefinitionChanges()
     {
         var configuration = new PluginConfiguration
@@ -2872,6 +2952,61 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
         Assert.True(Assert.Single(service.GetStatus().Schedules).DeferredPending);
         Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+    }
+
+    [Fact]
+    public void IsPlaybackActiveForSchedule_UsesExplicitConfigurationSnapshotForPinnedResourceIdentity()
+    {
+        const string snapshotFingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string globalFingerprint = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        var snapshotConfiguration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "snapshot-app-secret",
+            HueClientKey = "snapshot-client-secret",
+            EntertainmentAreaId = "area-1",
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["192.168.1.100"] = snapshotFingerprint
+            }
+        };
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = snapshotConfiguration.HueBridgeIp,
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = snapshotConfiguration.EntertainmentAreaId,
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["192.168.1.100"] = globalFingerprint
+            }
+        });
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            new RecordingStreamTester(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        using var playbackLease = lifecycleGate.TryEnterPlayback(
+            HueSyncService.GetPlaybackResourceKey(snapshotConfiguration, "192.168.1.100", "area-1"));
+        Assert.NotNull(playbackLease);
+
+        var method = typeof(HueSceneAutomationService).GetMethod(
+            "IsPlaybackActiveForSchedule",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var isActive = method!.Invoke(
+            service,
+            new object[]
+            {
+                snapshotConfiguration,
+                new HueSceneSchedule(),
+                PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget
+            });
+
+        Assert.True(Assert.IsType<bool>(isActive));
     }
 
     [Fact]
@@ -6099,6 +6234,63 @@ public sealed class HueSceneAutomationServiceTests
                 Message = "Unexpected completion."
             };
         }
+    }
+
+    private sealed class CancelThenSucceedStreamTester : IHueStreamTester
+    {
+        private int _previewCount;
+
+        public TaskCompletionSource<bool> FirstPreviewStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int PreviewCount => Volatile.Read(ref _previewCount);
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "Not used by this test."
+            });
+
+        public async Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        {
+            if (Interlocked.Increment(ref _previewCount) == 1)
+            {
+                FirstPreviewStarted.TrySetResult(true);
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
+            return new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Displayed deferred scene after retry."
+            };
+        }
+
+        public bool CancelActiveDiagnostic() => false;
     }
 
     private sealed class OverlapRecoveryStreamTester : IHueStreamTester

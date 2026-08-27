@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.336] - 2026-08-27
+
+### Scheduler lifecycle hardening
+- **Cancellation-safe deferred schedules**: host-shutdown cancellation now retains deferred occurrences, releases occurrence slots, and leaves finite run counters unchanged until a cue completes.
+- **Snapshot-consistent scheduler conflicts**: matching-target playback arbitration now uses the evaluated configuration snapshot's certificate identity.
+- **Regression coverage**: cancellation/retry and snapshot-identity tests protect deferred persistence and target arbitration.
+
 ## [1.5.335] - 2026-08-27
 
 ### Dependency policy hardening
