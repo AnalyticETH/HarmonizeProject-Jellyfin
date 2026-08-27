@@ -160,6 +160,10 @@ namespace Jellyfin.Plugin.Hue.Service
         private string? _activePauseBehavior;
         private int? _activePauseBrightnessPercent;
         private string? _manuallyStoppedPlaySessionId;
+        // Preserve the paused playback identity while pause cleanup clears the active
+        // sync session. A later resume for this exact session may restart sync, while
+        // progress from a naturally stopped session remains rejected after cleanup.
+        private string? _pausedPlaySessionId;
         // Natural playback-stop cleanup can temporarily leave the current session ID
         // populated while its sync resources are being torn down. Suppress progress for
         // that exact session until cleanup has atomically cleared the lifecycle state.
@@ -416,6 +420,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _startupCts?.Cancel();
                 _syncCts?.Cancel();
                 _manuallyStoppedPlaySessionId = null;
+                _pausedPlaySessionId = null;
                 _playbackStopInFlightSessionId = null;
                 _externalPlaybackStartPending = false;
                 _externalPlaybackStopRequested = false;
@@ -616,6 +621,8 @@ namespace Jellyfin.Plugin.Hue.Service
 
                     activePlaySessionId = _currentPlaySessionId ?? _startingPlaySessionId;
                     _manuallyStoppedPlaySessionId = activePlaySessionId;
+                    if (string.Equals(_pausedPlaySessionId, activePlaySessionId, StringComparison.Ordinal))
+                        _pausedPlaySessionId = null;
                     if (_externalPlaybackStartPending)
                         _externalPlaybackStopRequested = true;
                     _startupCts?.Cancel();
@@ -1753,6 +1760,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 if (_currentPlaySessionId == null)
                 {
                     _currentPlaySessionId = e.PlaySessionId;
+                    _pausedPlaySessionId = null;
                     if (e.PlaySessionId.StartsWith(RecoveredPlaySessionPrefix, StringComparison.Ordinal))
                         _recoveredSessionId = e.Session?.Id;
                     else
@@ -1764,6 +1772,10 @@ namespace Jellyfin.Plugin.Hue.Service
                         ? null
                         : e.Session!.UserName.Trim();
                     ResetPlaybackProgressTrackingLocked();
+                }
+                else if (string.Equals(_pausedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                {
+                    _pausedPlaySessionId = null;
                 }
 
                 _lastPlaybackPositionTicks = e.PlaybackPositionTicks;
@@ -1836,6 +1848,9 @@ namespace Jellyfin.Plugin.Hue.Service
             var manualStopNotification = false;
             lock (_syncLock)
             {
+                if (string.Equals(_pausedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                    _pausedPlaySessionId = null;
+
                 if (string.Equals(_manuallyStoppedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
                 {
                     manualStopNotification = true;
@@ -2126,6 +2141,7 @@ namespace Jellyfin.Plugin.Hue.Service
                         return;
 
                     _pauseCleanupSessionId = e.PlaySessionId;
+                    _pausedPlaySessionId = e.PlaySessionId;
                     pauseCleanup = StopSyncForPauseAsync(e.PlaySessionId);
                     _pauseCleanupTask = pauseCleanup;
                 }
@@ -2160,10 +2176,14 @@ namespace Jellyfin.Plugin.Hue.Service
                     // the just-stopped session (or race a newer session transition).
                     if (_isStopping ||
                         string.Equals(_playbackStopInFlightSessionId, e.PlaySessionId, StringComparison.Ordinal) ||
-                        !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
+                        (_currentPlaySessionId != null &&
+                         !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal)) ||
+                        (_currentPlaySessionId == null &&
+                         !string.Equals(_pausedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal)))
                         return;
 
                     _currentPlaySessionId = e.PlaySessionId;
+                    _pausedPlaySessionId = null;
                 }
                 ObserveTask(StartSyncForItem(e));
             }
