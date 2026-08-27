@@ -1258,10 +1258,25 @@ namespace Jellyfin.Plugin.Hue.Service
         /// Builds the non-secret resource identity used to arbitrate independent playback
         /// lifecycles. A bridge entertainment area can only have one active stream, while
         /// separate areas (including areas on separate bridges) can run concurrently.
+        /// When the configured bridge certificate pin is available, use that stable
+        /// physical-bridge identity instead of the spelling of the configured host. This
+        /// makes an IP target and its .local alias contend for the same area without doing
+        /// blocking DNS/mDNS work while a playback event is being handled.
         /// </summary>
         internal static string GetPlaybackResourceKey(string bridgeIp, string areaId)
         {
-            return $"{bridgeIp.Trim().TrimEnd('.').ToLowerInvariant()}|{areaId.Trim().ToLowerInvariant()}";
+            var bridgeIdentity = Jellyfin.Plugin.Hue.HueBridgeCertificateValidation
+                .GetConfiguredCertificateFingerprint(bridgeIp);
+            if (string.IsNullOrWhiteSpace(bridgeIdentity))
+            {
+                bridgeIdentity = bridgeIp.Trim().TrimEnd('.').ToLowerInvariant();
+            }
+            else
+            {
+                bridgeIdentity = $"certificate:{bridgeIdentity.Trim().ToLowerInvariant()}";
+            }
+
+            return $"{bridgeIdentity}|{areaId.Trim().ToLowerInvariant()}";
         }
 
         private bool IsPlaybackUserSyncEnabled(PlaybackProgressEventArgs e)

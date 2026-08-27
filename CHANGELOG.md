@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.333] - 2026-08-27
+
+### Lifecycle identity and scheduler barrier hardening
+- **Alias-safe playback arbitration**: trusted bridge certificate fingerprints provide a stable physical-bridge identity, so an IP address and its `.local` alias cannot acquire concurrent playback leases while separate pinned bridges remain independent.
+- **Manual scheduler snapshot barrier**: manual Run now acquires scheduler evaluation before resolving configuration and holds it through the tracked lifecycle, preventing edits or deletes from racing a stale schedule snapshot.
+- **Regression coverage**: lifecycle, scheduler, and import-validation tests cover certificate-identity aliasing and barrier lifetime.
+
 ## [1.5.332] - 2026-08-27
 
 ### Playback scope and target handoff hardening

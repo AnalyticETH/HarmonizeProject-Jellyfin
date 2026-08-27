@@ -3958,6 +3958,59 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunScheduleAsync_HoldsSchedulerBarrierThroughTrackedRun()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "manual-barrier-app-secret",
+            HueClientKey = "manual-barrier-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Manual barrier scene", DurationSeconds = 8 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "manual-barrier-cue",
+                    Name = "Manual barrier cue",
+                    PresetName = "Manual barrier scene",
+                    MaxRuns = 2
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new BlockingStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+
+        var runTask = service.RunScheduleAsync("manual-barrier-cue");
+        await streamTester.PreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(service.HasActiveScheduleEvaluation);
+        Assert.True(lifecycleGate.IsSchedulerEvaluationActive);
+        Assert.False(service.TryAcquireConfigurationMutation(out var mutationLease, out var message));
+        Assert.Null(mutationLease);
+        Assert.Contains("running", message, StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(service.CancelSchedule("manual-barrier-cue"));
+        var result = await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("canceled", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(service.HasActiveScheduleEvaluation);
+        Assert.False(lifecycleGate.IsSchedulerEvaluationActive);
+    }
+
+    [Fact]
     public async Task AutomaticCueRun_BlocksOverlappingManualRunForSameCue()
     {
         var configuration = new PluginConfiguration

@@ -1134,6 +1134,40 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task PlaybackResourceKey_UsesPinnedBridgeIdentityAcrossIpAndLocalAliases()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        const string bridgeFingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string otherBridgeFingerprint = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        Plugin.Instance!.Configuration.HueBridgeCertificatePins = new Dictionary<string, string>
+        {
+            ["192.168.1.100"] = bridgeFingerprint,
+            ["hue-bridge.local"] = bridgeFingerprint,
+            ["192.168.1.101"] = otherBridgeFingerprint
+        };
+
+        var ipKey = HueSyncService.GetPlaybackResourceKey("192.168.1.100", "area-id");
+        var localKey = HueSyncService.GetPlaybackResourceKey("hue-bridge.local", "area-id");
+        var otherBridgeKey = HueSyncService.GetPlaybackResourceKey("192.168.1.101", "area-id");
+
+        Assert.Equal(ipKey, localKey);
+        Assert.NotEqual(ipKey, otherBridgeKey);
+
+        var gate = new HueBridgeLifecycleGate();
+        using var ipLease = gate.TryEnterPlayback(ipKey);
+        Assert.NotNull(ipLease);
+        Assert.Null(gate.TryEnterPlayback(localKey));
+        using var otherBridgeLease = gate.TryEnterPlayback(otherBridgeKey);
+        Assert.NotNull(otherBridgeLease);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task SameTargetPlaybackReplacement_PreservesSavedLightStateSnapshot()
     {
         var handler = new BlockingHueHandler

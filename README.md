@@ -471,7 +471,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.332 (Current)
+### Version 1.5.333 (Current)
+
+- **Alias-safe playback arbitration**: trusted bridge certificate fingerprints provide a stable physical-bridge identity, so an IP address and its `.local` alias cannot acquire concurrent playback leases while separate pinned bridges remain independent.
+
+- **Manual scheduler snapshot barrier**: manual Run now acquires scheduler evaluation before resolving configuration and holds it through the tracked lifecycle, preventing edits or deletes from racing a stale schedule snapshot.
+
+- **Regression coverage**: lifecycle, scheduler, and import-validation tests cover certificate-identity aliasing and barrier lifetime.
 
 - **Captured playback scope**: Live Sync Status now reports the effective media scope captured when playback starts, even if global or per-user settings change while the session is active; seek restarts retain the same policy.
 

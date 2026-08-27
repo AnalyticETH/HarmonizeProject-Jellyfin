@@ -13060,8 +13060,8 @@ public sealed class HueApiControllerTests : IDisposable
             Assert.True(validationResult.Valid);
             Assert.False(validationResult.CanImport);
             Assert.True(validationResult.ActiveScheduledCue);
-            Assert.False(validationResult.ActiveScheduleEvaluation);
-            Assert.Contains("scheduled scene cues", validationResult.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.True(validationResult.ActiveScheduleEvaluation);
+            Assert.Contains("scheduled scene evaluation", validationResult.Message, StringComparison.OrdinalIgnoreCase);
             importRequest.ExpectedConfigurationVersion = validationResult.ConfigurationVersion;
 
             var action = controller.ImportConfiguration(importRequest);

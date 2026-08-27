@@ -1942,6 +1942,17 @@ public sealed class HueSceneAutomationService : BackgroundService
         string scheduleId,
         CancellationToken cancellationToken = default)
     {
+        // Capture the scheduler side of the configuration barrier before resolving
+        // the schedule. A configuration mutation must not commit after this lookup
+        // and before the tracked run owns its lifecycle state.
+        using var schedulerEvaluation = BeginSchedulerEvaluation();
+        if (schedulerEvaluation == null)
+        {
+            return Failure(
+                scheduleId,
+                "The scheduled scene could not start while configuration is changing.");
+        }
+
         var config = Plugin.Instance?.Configuration;
         var schedule = config?.SceneSchedules?.FirstOrDefault(candidate =>
             candidate != null &&
@@ -1982,7 +1993,11 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             try
             {
-                return await RunScheduleTrackedAsync(config!, schedule, runCancellation.Token).ConfigureAwait(false);
+                return await RunScheduleTrackedAsync(
+                    config!,
+                    schedule,
+                    runCancellation.Token,
+                    schedulerBarrierHeld: true).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (
                 runCancellation.IsCancellationRequested &&
