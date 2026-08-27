@@ -1921,108 +1921,108 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (plugin == null || config == null)
                     return NotFound("Plugin configuration not available.");
 
-            presetNames = (request.PresetNames ?? new List<string>())
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Select(name => name.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            if (presetNames.Length == 0)
-                return BadRequest("Select at least one saved scene.");
-            if (presetNames.Length > PluginConfiguration.MaxColorPresets)
-            {
-                return BadRequest(
-                    $"Select no more than {PluginConfiguration.MaxColorPresets} saved scenes at once.");
-            }
-
-            config.ColorPresets ??= new List<HueColorPreset>();
-            var selectedSources = presetNames
-                .Select(name => config.ColorPresets.FirstOrDefault(preset =>
-                    preset != null &&
-                    string.Equals(preset.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
-                .ToArray();
-            var missingNames = presetNames
-                .Where((_, index) => selectedSources[index] == null)
-                .ToArray();
-            if (missingNames.Length > 0)
-            {
-                return NotFound(new HueColorPresetBulkPreviewResult
+                presetNames = (request.PresetNames ?? new List<string>())
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Select(name => name.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                if (presetNames.Length == 0)
+                    return BadRequest("Select at least one saved scene.");
+                if (presetNames.Length > PluginConfiguration.MaxColorPresets)
                 {
-                    RequestedCount = presetNames.Length,
-                    MissingNames = missingNames,
-                    Message = $"The requested saved scene(s) were not found: {string.Join(", ", missingNames)}."
-                });
-            }
+                    return BadRequest(
+                        $"Select no more than {PluginConfiguration.MaxColorPresets} saved scenes at once.");
+                }
 
-            var validationErrors = selectedSources
-                .Cast<HueColorPreset>()
-                .SelectMany(preset => PluginConfiguration.ValidateColorPreset(
-                    preset,
-                    $"Saved scene '{preset.Name?.Trim() ?? string.Empty}'"))
-                .ToArray();
-            if (validationErrors.Length > 0)
-            {
-                return BadRequest(new HueColorPresetBulkPreviewResult
+                config.ColorPresets ??= new List<HueColorPreset>();
+                var selectedSources = presetNames
+                    .Select(name => config.ColorPresets.FirstOrDefault(preset =>
+                        preset != null &&
+                        string.Equals(preset.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+                    .ToArray();
+                var missingNames = presetNames
+                    .Where((_, index) => selectedSources[index] == null)
+                    .ToArray();
+                if (missingNames.Length > 0)
                 {
-                    RequestedCount = presetNames.Length,
-                    ValidationErrors = validationErrors,
-                    Message = "One or more selected saved scenes are invalid; no preview was started."
-                });
-            }
+                    return NotFound(new HueColorPresetBulkPreviewResult
+                    {
+                        RequestedCount = presetNames.Length,
+                        MissingNames = missingNames,
+                        Message = $"The requested saved scene(s) were not found: {string.Join(", ", missingNames)}."
+                    });
+                }
 
-            if (ContainsBlankTargetUserId(request.TargetUserIds))
-                return BadRequest("Selected bulk saved-scene target IDs must contain user mapping IDs.");
+                var validationErrors = selectedSources
+                    .Cast<HueColorPreset>()
+                    .SelectMany(preset => PluginConfiguration.ValidateColorPreset(
+                        preset,
+                        $"Saved scene '{preset.Name?.Trim() ?? string.Empty}'"))
+                    .ToArray();
+                if (validationErrors.Length > 0)
+                {
+                    return BadRequest(new HueColorPresetBulkPreviewResult
+                    {
+                        RequestedCount = presetNames.Length,
+                        ValidationErrors = validationErrors,
+                        Message = "One or more selected saved scenes are invalid; no preview was started."
+                    });
+                }
 
-            var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
-            var targetUserIds = request.TargetUserIds?
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim())
-                .ToList();
-            targetRoutes = NormalizeSceneAutomationTargetRoutes(request.TargetRoutes);
-            if (TryGetInvalidSceneAutomationTargetRouteError(targetRoutes) is { } targetRouteError)
-                return BadRequest(targetRouteError);
-            var includeDefaultTarget = request.IncludeDefaultTarget == true;
-            var hasSelectedTargetOverride = includeDefaultTarget ||
-                (targetUserIds?.Count > 0) ||
-                targetRoutes.Count > 0;
-            if (request.TargetAllEnabledMappings && (!string.IsNullOrWhiteSpace(targetUserId) || hasSelectedTargetOverride))
-            {
-                return BadRequest(
-                    "A bulk saved-scene preview cannot select all enabled targets and a specific user mapping together.");
-            }
-            if (!string.IsNullOrWhiteSpace(targetUserId) && hasSelectedTargetOverride)
-            {
-                return BadRequest(
-                    "A bulk saved-scene preview cannot combine a specific user mapping with selected targets.");
-            }
+                if (ContainsBlankTargetUserId(request.TargetUserIds))
+                    return BadRequest("Selected bulk saved-scene target IDs must contain user mapping IDs.");
 
-            if (_streamTester == null)
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
-            if (_sceneAutomationService == null)
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
-            if (_syncService?.IsSyncing == true)
-                return Conflict("Stop active playback before running a bulk Hue scene preview.");
+                var targetUserId = request.TargetUserId?.Trim() ?? string.Empty;
+                var targetUserIds = request.TargetUserIds?
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value.Trim())
+                    .ToList();
+                targetRoutes = NormalizeSceneAutomationTargetRoutes(request.TargetRoutes);
+                if (TryGetInvalidSceneAutomationTargetRouteError(targetRoutes) is { } targetRouteError)
+                    return BadRequest(targetRouteError);
+                var includeDefaultTarget = request.IncludeDefaultTarget == true;
+                var hasSelectedTargetOverride = includeDefaultTarget ||
+                    (targetUserIds?.Count > 0) ||
+                    targetRoutes.Count > 0;
+                if (request.TargetAllEnabledMappings && (!string.IsNullOrWhiteSpace(targetUserId) || hasSelectedTargetOverride))
+                {
+                    return BadRequest(
+                        "A bulk saved-scene preview cannot select all enabled targets and a specific user mapping together.");
+                }
+                if (!string.IsNullOrWhiteSpace(targetUserId) && hasSelectedTargetOverride)
+                {
+                    return BadRequest(
+                        "A bulk saved-scene preview cannot combine a specific user mapping with selected targets.");
+                }
 
-            targetSchedule = new HueSceneSchedule
-            {
-                Id = "bulk-saved-scene-preview",
-                Name = "Bulk saved-scene preview",
-                TargetUserId = hasSelectedTargetOverride || request.TargetAllEnabledMappings ? string.Empty : targetUserId,
-                TargetUserIds = targetUserIds ?? new List<string>(),
-                IncludeDefaultTarget = includeDefaultTarget,
-                TargetAllEnabledMappings = request.TargetAllEnabledMappings && !hasSelectedTargetOverride
-            };
-            if (!HueSceneAutomationService.TryResolveTargets(
-                    config,
-                    targetSchedule,
-                    out resolvedTargets,
-                    out var targetError,
-                    targetRoutes))
-                return BadRequest(targetError);
+                if (_streamTester == null)
+                    return StatusCode(StatusCodes.Status503ServiceUnavailable, "Hue preview service is not available.");
+                if (_sceneAutomationService == null)
+                    return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
+                if (_syncService?.IsSyncing == true)
+                    return Conflict("Stop active playback before running a bulk Hue scene preview.");
 
-            selectedPresets = selectedSources
-                .Cast<HueColorPreset>()
-                .Select(CloneColorPreset)
-                .ToArray();
+                targetSchedule = new HueSceneSchedule
+                {
+                    Id = "bulk-saved-scene-preview",
+                    Name = "Bulk saved-scene preview",
+                    TargetUserId = hasSelectedTargetOverride || request.TargetAllEnabledMappings ? string.Empty : targetUserId,
+                    TargetUserIds = targetUserIds ?? new List<string>(),
+                    IncludeDefaultTarget = includeDefaultTarget,
+                    TargetAllEnabledMappings = request.TargetAllEnabledMappings && !hasSelectedTargetOverride
+                };
+                if (!HueSceneAutomationService.TryResolveTargets(
+                        config,
+                        targetSchedule,
+                        out resolvedTargets,
+                        out var targetError,
+                        targetRoutes))
+                    return BadRequest(targetError);
+
+                selectedPresets = selectedSources
+                    .Cast<HueColorPreset>()
+                    .Select(CloneColorPreset)
+                    .ToArray();
             }
 
             var previews = new List<HueColorPresetBulkPreviewItem>(selectedPresets.Count);
@@ -13445,10 +13445,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 TargetUserIds = (TargetUserIds ?? new List<string>())
                     .Select(PluginConfiguration.NormalizeJellyfinUserId)
                     .ToList(),
+                // Keep null entries until schedule validation. Dropping a malformed
+                // route would make the API accept a request while silently changing
+                // the requested target set.
                 TargetRoutes = (TargetRoutes ?? new List<HueSceneScheduleTargetRoute>())
-                    // Keep null entries until schedule validation. Dropping a malformed
-                    // route would make the API accept a request while silently changing
-                    // the requested target set.
                     .Select(route => route == null
                         ? null!
                         : new HueSceneScheduleTargetRoute
