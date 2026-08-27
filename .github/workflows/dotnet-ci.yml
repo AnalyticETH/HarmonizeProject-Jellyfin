@@ -520,6 +520,10 @@ jobs:
         ensure_draft() {
           local release_json target_sha
           if release_json="$(gh release view "$RELEASE_TAG" --json targetCommitish,isDraft 2>/dev/null)"; then
+            if ! jq -e '.isDraft == true' <<<"$release_json" >/dev/null; then
+              echo "Release $RELEASE_TAG is already published; refusing to overwrite it." >&2
+              return 1
+            fi
             target_sha="$(jq -er '.targetCommitish' <<<"$release_json")"
             if [ "$target_sha" != "$RELEASE_SHA" ]; then
               echo "Release $RELEASE_TAG already targets $target_sha, expected $RELEASE_SHA; refusing to publish." >&2

@@ -12243,11 +12243,18 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         private static string? ReadString(JsonElement value)
-            => value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined
-                ? null
-                : value.ValueKind == JsonValueKind.String
-                    ? value.GetString()
-                    : value.ToString();
+        {
+            if (value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+                return null;
+
+            if (value.ValueKind == JsonValueKind.String)
+                return value.GetString();
+
+            // Bridge credentials are opaque strings. Do not coerce JSON numbers,
+            // booleans, arrays, or objects into text and persist an invalid secret.
+            // SaveUserMapping already translates JsonException into a 400 response.
+            throw new JsonException("Bridge credentials must be JSON strings.");
+        }
 
         private static string? ReadString(JsonElement value, string propertyName)
         {

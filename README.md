@@ -471,7 +471,17 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.329 (Current)
+### Version 1.5.330 (Current)
+
+- **Credential-bearing administrator preflight**: bridge area/channel loading, connection tests, and single-target previews now require an explicit certificate pin before sending App Keys, with stale page lifecycle guards that cannot start a request after navigation.
+
+- **Strict mapping credential input**: non-string App Key and Client Key JSON values are rejected atomically, and device-route stored-credential flags must prove the required key pair before reuse.
+
+- **Fail-closed release retries**: the trusted release job resumes only a matching draft and refuses to overwrite an already-published release.
+
+- **Regression coverage**: API, configuration-page lifecycle, route credential, and trusted-workflow contracts cover the new safety boundaries.
+
+### Version 1.5.329
 
 - **Local bridge certificate pinning**: credential-free probes expose a SHA-256 fingerprint and explicit administrator trust/re-pin is required before registration or any App Key request; unpinned, changed, malformed, or conflicting certificates fail closed.
 

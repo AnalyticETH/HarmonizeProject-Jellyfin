@@ -25,6 +25,8 @@ for (const marker of [
   "jq -er '.version | strings | select(test(\"^[0-9]+\\\\.[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"))'",
   'local_tag_ref="refs/tags/${TAG}"',
   'git show-ref --verify --quiet "$local_tag_ref"',
+  "jq -e '.isDraft == true' <<<\"$release_json\"",
+  'if [ "$target_sha" != "$RELEASE_SHA" ]; then',
   "CODECOV_TOKEN_PRESENT: ${{ secrets.CODECOV_TOKEN != '' }}",
   "Codecov upload skipped: CODECOV_TOKEN is not configured",
   "if: env.CODECOV_TOKEN_PRESENT == 'true'",

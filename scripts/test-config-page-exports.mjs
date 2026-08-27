@@ -733,9 +733,134 @@ async function testMappingDeviceRouteCredentialScope() {
     );
 }
 
+async function testStoredDeviceRouteCredentialFlags() {
+    const harness = makeHarness();
+    const { page, api } = harness;
+    const userId = "12345678-1234-1234-1234-1234567890ab";
+    const deviceId = "living-room-tv";
+    api.mappingEditingUserId = userId;
+    api.mappingEditingMappingId = "mapping-one";
+    page.querySelector("#mappingUserSelect").value = userId;
+    page.querySelector("#mappingDeviceRouteSelect").value = deviceId;
+    page.querySelector("#mappingDeviceTargets").value = JSON.stringify([{
+        DeviceId: deviceId,
+        HasAppKey: true,
+        HasClientKey: true
+    }]);
+
+    const target = { userId, deviceId };
+    assert.equal(api.canUseStoredDeviceRouteCredentials(target, false), true, "a matching route with an App Key can use stored credentials");
+    assert.equal(api.canUseStoredDeviceRouteCredentials(target, true), true, "a matching route with both keys can satisfy client-key actions");
+
+    page.querySelector("#mappingDeviceTargets").value = JSON.stringify([{
+        DeviceId: deviceId,
+        HasAppKey: true,
+        HasClientKey: false
+    }]);
+    assert.equal(api.canUseStoredDeviceRouteCredentials(target, false), true, "a route without a Client Key remains usable for REST-only actions");
+    assert.equal(api.canUseStoredDeviceRouteCredentials(target, true), false, "a route without a Client Key fails closed for DTLS actions");
+
+    page.querySelector("#mappingDeviceTargets").value = JSON.stringify([{
+        DeviceId: deviceId,
+        HasAppKey: false,
+        HasClientKey: true
+    }]);
+    assert.equal(api.canUseStoredDeviceRouteCredentials(target, false), false, "a route without an App Key fails closed");
+}
+
+async function testCredentialPreflightPagehideGuard() {
+    const harness = makeHarness();
+    const { page, api } = harness;
+    let resolvePreflight;
+    api.ensureBridgeCertificate = () => new Promise(resolve => { resolvePreflight = resolve; });
+    let actionCalls = 0;
+
+    const request = api.runWithBridgeCertificate(page, "192.168.1.50", null, () => {
+        actionCalls += 1;
+        return Promise.resolve("credential request started");
+    }, "preview");
+    api.invalidatePageLifecycle(page);
+    resolvePreflight(true);
+
+    await assert.rejects(request, error => error && error.huePageLifecycleStale === true, "stale preflight rejects with a lifecycle marker");
+    assert.equal(actionCalls, 0, "a certificate approval completed after pagehide cannot start a credential request");
+}
+
+async function testCredentialPreflightCancelGuard() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    let resolvePreflight;
+    api.ensureBridgeCertificate = () => new Promise(resolve => { resolvePreflight = resolve; });
+    let actionCalls = 0;
+
+    const request = api.runWithBridgeCertificate(page, "192.168.1.50", null, () => {
+        actionCalls += 1;
+        return Promise.resolve("credential request started");
+    }, "preview");
+    page._huePreviewRequest = request;
+    api.cancelPreview(page);
+    assert.equal(requests.length, 1, "canceling a preflight requests server-side diagnostic cleanup");
+    requests[0].resolve({ canceled: false });
+    resolvePreflight(true);
+
+    await assert.rejects(request, error => error && error.huePageLifecycleStale === true, "canceled preflight rejects with a lifecycle marker");
+    assert.equal(actionCalls, 0, "explicit diagnostic cancellation cannot start a credential request after approval");
+}
+
+async function testCredentialLifecyclePreflightPagehideGuard() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    let resolvePreflight;
+    api.ensureBridgeCertificate = () => new Promise(resolve => { resolvePreflight = resolve; });
+
+    const request = api.getCredentialLifecycleRequest(
+        page,
+        page._huePageGeneration,
+        "credentialLifecycle",
+        "192.168.1.50",
+        null,
+        "HueSync/EntertainmentAreas",
+        { type: "POST", data: JSON.stringify({ ipAddress: "192.168.1.50", appKey: "secret" }) },
+        { bridgeIp: "192.168.1.50", appKey: "secret" });
+    api.invalidatePageLifecycle(page);
+    resolvePreflight(true);
+
+    await assert.rejects(request, error => error && error.huePageLifecycleStale === true, "stale lifecycle preflight rejects with a lifecycle marker");
+    assert.equal(requests.length, 0, "a stale lifecycle preflight cannot start the credential-bearing API request");
+}
+
+async function testRegistrationLifecycleGuards() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    let resolvePreflight;
+    api.ensureBridgeCertificate = () => new Promise(resolve => { resolvePreflight = resolve; });
+    page.querySelector("#hueBridgeIp").value = "192.168.1.50";
+
+    api.registerBridge(page);
+    api.invalidatePageLifecycle(page);
+    resolvePreflight(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.length, 0, "a registration preflight completed after pagehide cannot start the link request");
+
+    const mappingHarness = makeHarness();
+    const mappingApi = mappingHarness.api;
+    const mappingPage = mappingHarness.page;
+    let resolveMappingPreflight;
+    mappingApi.ensureBridgeCertificate = () => new Promise(resolve => { resolveMappingPreflight = resolve; });
+    mappingHarness.page.querySelector("#mappingBridgeIp").value = "192.168.1.51";
+    mappingApi.registerMappingBridge();
+    mappingApi.invalidatePageLifecycle(mappingPage);
+    resolveMappingPreflight(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(mappingHarness.requests.length, 0, "a mapping registration preflight completed after pagehide cannot start the link request");
+}
+
 async function testMappingDeviceRouteChannelIsolation() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
+    // Keep this existing request-contract test focused on route payloads; the
+    // certificate preflight has its own static contract checks.
+    api.ensureBridgeCertificate = () => Promise.resolve(true);
     const userId = "12345678-1234-1234-1234-1234567890ab";
     const deviceId = "living-room-tv";
 
@@ -748,6 +873,8 @@ async function testMappingDeviceRouteChannelIsolation() {
             DeviceId: deviceId,
             DeviceName: "Living room TV",
             HueBridgeIp: "192.168.1.50",
+            HasAppKey: true,
+            HasClientKey: true,
             EntertainmentAreaId: "route-area",
             ChannelIdsOverride: "7, 8"
         }
@@ -768,6 +895,7 @@ async function testMappingDeviceRouteChannelIsolation() {
     );
 
     const routeLoad = api.loadMappingDeviceRouteChannels();
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(requests.length, 1, "route channel loading starts one request");
     assert.equal(requests[0].options.url, "HueSync/EntertainmentChannels", "route channel loading uses the channel endpoint");
     const routePayload = JSON.parse(requests[0].options.data);
@@ -788,6 +916,7 @@ async function testMappingDeviceRouteChannelIsolation() {
     assert.equal(page.querySelector("#mappingChannelIdsOverride").value, "1, 2", "route loading does not mutate the outer user profile");
 
     api.testMappingConnection();
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(requests.length, 2, "mapping connection test starts one request");
     const connectionPayload = JSON.parse(requests[1].options.data);
     assert.equal(connectionPayload.channelIds, "4, 9", "mapping connection test uses the selected route channels");
@@ -799,6 +928,7 @@ async function testMappingDeviceRouteChannelIsolation() {
 
     page._huePreviewTargetMetadataReady = true;
     api.previewMappingColor(page);
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(requests.length, 3, "mapping preview starts one request");
     const previewPayload = JSON.parse(requests[2].options.data);
     assert.equal(previewPayload.channelIds, "4, 9", "mapping preview uses the selected route channels");
@@ -820,6 +950,7 @@ async function testMappingDeviceRouteChannelIsolation() {
     page.querySelector("#mappingAreaSelect").value = "outer-area";
     page.querySelector("#mappingDeviceRouteChannels").value = "4, 9";
     const outerLoad = api.loadMappingChannels(page);
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(requests.length, 4, "outer mapping channel loading starts a separate request");
     const outerPayload = JSON.parse(requests[3].options.data);
     assert.equal(outerPayload.ipAddress, "192.168.1.60", "outer channel loading ignores the selected route bridge");
@@ -1077,6 +1208,11 @@ await testEditMappingLifecycleGuards();
 await testConfigurationImportValidationLifecycleGuards();
 await testConfigurationImportFileLifecycleGuards();
 await testMappingDeviceRouteCredentialScope();
+await testStoredDeviceRouteCredentialFlags();
+await testCredentialPreflightPagehideGuard();
+await testCredentialPreflightCancelGuard();
+await testCredentialLifecyclePreflightPagehideGuard();
+await testRegistrationLifecycleGuards();
 await testMappingDeviceRouteChannelIsolation();
 await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
@@ -1085,4 +1221,4 @@ await testConfigurationSaveDuplicateSubmitIsBounded();
 await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, import file/validation/submit, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide, registration lifecycle, import file/validation/submit, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);

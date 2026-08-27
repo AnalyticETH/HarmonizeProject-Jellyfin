@@ -415,6 +415,9 @@ const requiredScript = [
     "abortPageLifecycleRequest: function",
     "invalidatePageLifecycle: function",
     "getPageLifecycleRequest: function",
+    "ensureBridgeCertificate: function",
+    "runWithBridgeCertificate: function",
+    "getCredentialLifecycleRequest: function",
     "var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);",
     "page._hueConfigurationSaving",
     "HueConfigurationPage.cancelPageLifecycleRequest(page, 'configuration')",
@@ -841,7 +844,7 @@ for (const [functionName, markers] of [
         "var page",
         "var pageGeneration",
         "cancelPageLifecycleRequest(page, 'mappingAreas')",
-        "getPageLifecycleRequest",
+        "getCredentialLifecycleRequest",
         "isPageLifecycleTargetRequestCurrent"
     ]],
     ["loadMappingDeviceRouteAreas", [
@@ -849,7 +852,7 @@ for (const [functionName, markers] of [
         "var pageGeneration",
         "cancelPageLifecycleRequest(page, 'mappingDeviceRouteAreas')",
         "getMappingDeviceRouteTarget",
-        "getPageLifecycleRequest",
+        "getCredentialLifecycleRequest",
         "isPageLifecycleTargetRequestCurrent"
     ]],
     ["discoverMappingDevices", [
@@ -863,7 +866,7 @@ for (const [functionName, markers] of [
     ["loadChannelIds", [
         "var pageGeneration",
         "cancelPageLifecycleRequest(page, requestKey)",
-        "getPageLifecycleRequest",
+        "getCredentialLifecycleRequest",
         "isPageLifecycleTargetRequestCurrent",
         "channelInput.value = channelIds.join(', ')",
         "if (!isCurrent()) return;"
@@ -872,7 +875,7 @@ for (const [functionName, markers] of [
         "var pageGeneration",
         "cancelPageLifecycleRequest(page, 'entertainmentAreas')",
         "isPageLifecycleCurrent(page, pageGeneration)",
-        "getPageLifecycleRequest",
+        "getCredentialLifecycleRequest",
         "isPageLifecycleTargetRequestCurrent",
         "type: 'POST'",
         "HueSync/EntertainmentAreas",
@@ -885,6 +888,64 @@ for (const [functionName, markers] of [
     for (const marker of markers) {
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} ${functionName} is missing target-scoped stale-request protection: ${marker}`);
+        }
+    }
+}
+
+for (const [functionName, markers] of [
+    ["testDefaultConnection", ["runWithBridgeCertificate", "fetchConnectionTest", "isPageLifecycleCurrent"]],
+    ["testMappingConnection", ["runWithBridgeCertificate", "fetchConnectionTest", "isPageLifecycleCurrent"]],
+    ["previewDefaultColor", ["runWithBridgeCertificate", "fetchColorPreview", "usesMultiTargetSelection", "isPageLifecycleCurrent"]],
+    ["previewMappingColor", ["runWithBridgeCertificate", "fetchColorPreview", "isPageLifecycleCurrent"]],
+    ["registerBridge", ["_hueRegistrationPreflight", "isPageLifecycleCurrent"]],
+    ["registerMappingBridge", ["_hueMappingRegistrationPreflight", "isPageLifecycleCurrent"]]
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of markers) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} must trust the bridge certificate before credential-bearing requests: ${marker}`);
+        }
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("runWithBridgeCertificate: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);",
+        "isPageLifecycleCurrent(page, pageGeneration)",
+        "huePageLifecycleStale",
+        "preflightRecord.canceled"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} runWithBridgeCertificate must suppress stale credential-bearing actions: ${marker}`);
+        }
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("cancelPreview: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!functionBody.includes("_hueCertificatePreflights") || !functionBody.includes("preflights.preview.canceled = true")) {
+        throw new Error(`${file} cancelPreview must cancel a pending certificate preflight before requesting server cleanup`);
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("canUseStoredDeviceRouteCredentials: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "hasStoredCredential('HasAppKey', 'hasAppKey')",
+        "hasStoredCredential('HasClientKey', 'hasClientKey')",
+        "return !requireClientKey || hasStoredCredential('HasClientKey', 'hasClientKey');"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} canUseStoredDeviceRouteCredentials must require stored credential presence flags: ${marker}`);
         }
     }
 }
@@ -1302,12 +1363,14 @@ for (const contract of [
     {
         functionName: "registerBridge",
         buttonMarker: "page.querySelector('#registerBtn')",
-        inFlightMarker: "page._hueRegistrationRequest"
+        inFlightMarker: "page._hueRegistrationRequest",
+        preflightMarker: "page._hueRegistrationPreflight"
     },
     {
         functionName: "registerMappingBridge",
         buttonMarker: "document.getElementById('mappingLinkBridgeBtn')",
-        inFlightMarker: "HueConfigurationPage._hueMappingRegistrationRequest"
+        inFlightMarker: "HueConfigurationPage._hueMappingRegistrationRequest",
+        preflightMarker: "HueConfigurationPage._hueMappingRegistrationPreflight"
     }
 ]) {
     const start = scriptMatch[1].indexOf(`${contract.functionName}: function`);
@@ -1320,7 +1383,10 @@ for (const contract of [
     for (const marker of [
         contract.buttonMarker,
         contract.inFlightMarker,
-        `if (!result || ${contract.inFlightMarker}) return;`,
+        contract.preflightMarker,
+        "if (!result || preflight.canceled",
+        "var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);",
+        "isPageLifecycleCurrent(page, pageGeneration)",
         "if (button) button.disabled = true;",
         "if (button) button.disabled = false;",
         "Promise.resolve(ApiClient.ajax({",

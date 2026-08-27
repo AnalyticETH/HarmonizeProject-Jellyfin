@@ -852,6 +852,67 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Empty(configuration.UserMappings);
     }
 
+    [Theory]
+    [InlineData("""
+        {
+          "UserId": "11111111-1111-1111-1111-111111111111",
+          "SyncEnabled": false,
+          "HueAppKey": 42
+        }
+        """)]
+    [InlineData("""
+        {
+          "UserId": "11111111-1111-1111-1111-111111111111",
+          "SyncEnabled": false,
+          "HueClientKey": { "value": "not-a-string" }
+        }
+        """)]
+    [InlineData("""
+        {
+          "UserId": "11111111-1111-1111-1111-111111111111",
+          "SyncEnabled": false,
+          "DeviceTargets": [
+            {
+              "DeviceId": "living-room-tv",
+              "HueAppKey": 42
+            }
+          ]
+        }
+        """)]
+    [InlineData("""
+        {
+          "UserId": "11111111-1111-1111-1111-111111111111",
+          "SyncEnabled": false,
+          "DeviceTargets": [
+            {
+              "DeviceId": "living-room-tv",
+              "HueClientKey": { "value": "not-a-string" }
+            }
+          ]
+        }
+        """)]
+    public void SaveUserMappingJsonRequest_RejectsNonStringCredentialValues(string requestJson)
+    {
+        var existingMapping = new UserBridgeMapping
+        {
+            UserId = "22222222-2222-2222-2222-222222222222",
+            UserName = "Existing Viewer",
+            SyncEnabled = false
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { existingMapping }
+        });
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>(requestJson)!;
+
+        var action = CreateController().SaveUserMapping(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Equal("Mapping contains invalid property values.", response.Value);
+        Assert.Same(existingMapping, Assert.Single(configuration.UserMappings));
+    }
+
     [Fact]
     public void SaveUserMappingJsonRequest_RejectsMalformedDeviceTargetValuesWithoutMutation()
     {
