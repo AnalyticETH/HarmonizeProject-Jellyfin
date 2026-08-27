@@ -467,7 +467,9 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.325 (Current)
+### Version 1.5.326 (Current)
+
+- **Exact configuration-action classification**: configuration mutation arbitration now matches route segments and HTTP methods exactly, so saved scenes, playlists, and scheduled cues whose names contain `Preview`, `Run`, or `Cancel` cannot bypass the writer lease; only the documented preview/run/cancel actions remain pass-through.
 
 - **Stale-progress stop safety**: natural playback-stop cleanup now marks the exact session as in-flight and rejects delayed progress/resume events until cleanup completes, preventing lights from restarting after playback has ended while preserving newer-session queueing.
 

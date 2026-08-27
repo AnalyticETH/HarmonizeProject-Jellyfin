@@ -110,6 +110,73 @@ public sealed class HueConfigurationMutationFilterTests
         Assert.False(gate.IsConfigurationMutationActive);
     }
 
+    [Theory]
+    [InlineData("POST", "/HueSync/ColorPresets/PreviewLights/Rename")]
+    [InlineData("POST", "/HueSync/ColorPresets/PreviewLights/Duplicate")]
+    [InlineData("DELETE", "/HueSync/ColorPresets/PreviewLights")]
+    [InlineData("DELETE", "/HueSync/ColorPresets/Preview")]
+    [InlineData("POST", "/HueSync/ScenePlaylists/PreviewPlaylist/Rename")]
+    [InlineData("POST", "/HueSync/ScenePlaylists/PreviewPlaylist/Duplicate")]
+    [InlineData("DELETE", "/HueSync/ScenePlaylists/PreviewPlaylist")]
+    [InlineData("POST", "/HueSync/SceneSchedules/RunCue/Enabled")]
+    [InlineData("POST", "/HueSync/SceneSchedules/CancelCue/Duplicate")]
+    [InlineData("DELETE", "/HueSync/SceneSchedules/CancelCue")]
+    [InlineData("DELETE", "/HueSync/SceneSchedules/Run")]
+    [InlineData("DELETE", "/HueSync/SceneSchedules/BulkRun")]
+    [InlineData("DELETE", "/HueSync/SceneSchedules/BulkCancel")]
+    public async Task ResourceNamesContainingPreviewRunOrCancelStillAcquireConfigurationMutation(
+        string method,
+        string path)
+    {
+        var gate = new HueBridgeLifecycleGate();
+        var filter = new HueConfigurationMutationFilter(gate);
+        var context = CreateExecutingContext(method, path);
+        var actionExecuted = false;
+
+        await filter.OnActionExecutionAsync(
+            context,
+            () =>
+            {
+                actionExecuted = true;
+                Assert.True(gate.IsConfigurationMutationActive);
+                return Task.FromResult(CreateExecutedContext(context));
+            });
+
+        Assert.True(actionExecuted);
+        Assert.False(gate.IsConfigurationMutationActive);
+    }
+
+    [Theory]
+    [InlineData("POST", "/HueSync/ColorPresets/PreviewLights/Preview")]
+    [InlineData("POST", "/HueSync/ColorPresets/BulkPreview")]
+    [InlineData("POST", "/HueSync/ScenePlaylists/PreviewPlaylist/Preview")]
+    [InlineData("POST", "/HueSync/ScenePlaylists/BulkPreview")]
+    [InlineData("POST", "/HueSync/SceneSchedules/RunCue/Run")]
+    [InlineData("POST", "/HueSync/SceneSchedules/CancelCue/Cancel")]
+    [InlineData("POST", "/HueSync/SceneSchedules/BulkRun")]
+    [InlineData("POST", "/HueSync/SceneSchedules/BulkCancel")]
+    public async Task ExactPreviewRunAndCancelActionsDoNotAcquireConfigurationMutation(
+        string method,
+        string path)
+    {
+        var gate = new HueBridgeLifecycleGate();
+        var filter = new HueConfigurationMutationFilter(gate);
+        var context = CreateExecutingContext(method, path);
+        var actionExecuted = false;
+
+        await filter.OnActionExecutionAsync(
+            context,
+            () =>
+            {
+                actionExecuted = true;
+                Assert.False(gate.IsConfigurationMutationActive);
+                return Task.FromResult(CreateExecutedContext(context));
+            });
+
+        Assert.True(actionExecuted);
+        Assert.False(gate.IsConfigurationMutationActive);
+    }
+
     private static ActionExecutingContext CreateExecutingContext(
         string method,
         string path)

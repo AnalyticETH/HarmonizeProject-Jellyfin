@@ -53,40 +53,69 @@ public sealed class HueConfigurationMutationFilter : IAsyncActionFilter
             return false;
         }
 
-        var route = path?.TrimEnd('/') ?? string.Empty;
-        if (route.Equals("/HueSync/Configuration", StringComparison.OrdinalIgnoreCase) ||
-            route.Equals("/HueSync/History", StringComparison.OrdinalIgnoreCase) ||
-            route.Equals("/HueSync/SceneSchedules/History", StringComparison.OrdinalIgnoreCase))
+        var route = path?.Trim('/') ?? string.Empty;
+        var segments = route.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2 ||
+            !segments[0].Equals("HueSync", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (segments.Length == 2 &&
+            (segments[1].Equals("Configuration", StringComparison.OrdinalIgnoreCase) ||
+             segments[1].Equals("History", StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }
 
-        if (route.StartsWith("/HueSync/Configuration/", StringComparison.OrdinalIgnoreCase))
+        if (segments[1].Equals("SceneSchedules", StringComparison.OrdinalIgnoreCase) &&
+            segments.Length == 3 &&
+            segments[2].Equals("History", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (segments[1].Equals("Configuration", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        if (route.StartsWith("/HueSync/UserMappings", StringComparison.OrdinalIgnoreCase))
+        if (segments[1].Equals("UserMappings", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (route.StartsWith("/HueSync/ColorPresets", StringComparison.OrdinalIgnoreCase))
+        if (segments[1].Equals("ColorPresets", StringComparison.OrdinalIgnoreCase))
         {
-            return !route.Contains("/Preview", StringComparison.OrdinalIgnoreCase);
+            // Preview is an action segment, not a reserved substring in a user-selected
+            // scene name. DELETE /ColorPresets/{name} remains a writer even when the name
+            // itself is "Preview" or contains that word.
+            return !string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) ||
+                !(segments.Length == 3 &&
+                  segments[2].Equals("BulkPreview", StringComparison.OrdinalIgnoreCase)) &&
+                !(segments.Length == 4 &&
+                  segments[3].Equals("Preview", StringComparison.OrdinalIgnoreCase));
         }
 
-        if (route.StartsWith("/HueSync/ScenePlaylists", StringComparison.OrdinalIgnoreCase))
+        if (segments[1].Equals("ScenePlaylists", StringComparison.OrdinalIgnoreCase))
         {
-            return !route.Contains("/Preview", StringComparison.OrdinalIgnoreCase);
+            return !string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) ||
+                !(segments.Length == 3 &&
+                  segments[2].Equals("BulkPreview", StringComparison.OrdinalIgnoreCase)) &&
+                !(segments.Length == 4 &&
+                  segments[3].Equals("Preview", StringComparison.OrdinalIgnoreCase));
         }
 
-        if (route.StartsWith("/HueSync/SceneSchedules", StringComparison.OrdinalIgnoreCase))
+        if (segments[1].Equals("SceneSchedules", StringComparison.OrdinalIgnoreCase))
         {
-            if (route.Equals("/HueSync/SceneSchedules/BulkRun", StringComparison.OrdinalIgnoreCase) ||
-                route.Equals("/HueSync/SceneSchedules/BulkCancel", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) &&
+                segments.Length == 3 &&
+                (segments[2].Equals("BulkRun", StringComparison.OrdinalIgnoreCase) ||
+                 segments[2].Equals("BulkCancel", StringComparison.OrdinalIgnoreCase)))
             {
                 return false;
             }
 
-            return !route.Contains("/Run", StringComparison.OrdinalIgnoreCase) &&
-                !route.Contains("/Cancel", StringComparison.OrdinalIgnoreCase);
+            return !(string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) &&
+                segments.Length == 4 &&
+                (segments[3].Equals("Run", StringComparison.OrdinalIgnoreCase) ||
+                 segments[3].Equals("Cancel", StringComparison.OrdinalIgnoreCase)));
         }
 
         return false;

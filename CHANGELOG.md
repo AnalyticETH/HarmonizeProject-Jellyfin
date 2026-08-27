@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.326] - 2026-08-27
+
+### Exact configuration-action classification
+- **Writer-lease safety**: configuration mutation arbitration now matches route segments and HTTP methods exactly, so saved scenes, playlists, and scheduled cues whose names contain `Preview`, `Run`, or `Cancel` cannot bypass the configuration writer lease.
+- **Action parity**: only the documented preview, bulk-preview, run, and bulk-run/cancel actions remain outside the writer lease; delete and other mutating routes continue to serialize with configuration changes.
+- **Regression coverage**: API filter tests cover substring-containing resource names and exact pass-through actions.
+
 ## [1.5.325] - 2026-08-27
 
 ### Playback lifecycle and workflow policy hardening
