@@ -545,13 +545,28 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 if (bridgeConfig != null && (!areaAlreadyDeactivated || savedLightStates != null))
                 {
-                    await RestoreAndDeactivateAsync(
+                    var cleanupCompleted = await RestoreAndDeactivateAsync(
                         config,
                         bridgeConfig,
                         savedLightStates,
                         publishIdleStatus: false,
                         sessionOutcome: "ServiceStopped",
                         cancellationToken: cancellationToken).ConfigureAwait(false);
+                    if (!cleanupCompleted)
+                    {
+                        // RestoreAndDeactivateAsync deliberately retains the saved state
+                        // and active restoration policy when host shutdown cancellation
+                        // interrupts bridge work. Put the target back so the deferred stop
+                        // can retry with a fresh cleanup token after the host deadline.
+                        lock (_syncLock)
+                        {
+                            if (_currentBridgeConfig == null)
+                                _currentBridgeConfig = bridgeConfig;
+                        }
+
+                        deferredCleanupRequired = true;
+                        return;
+                    }
                 }
                 else
                 {
@@ -5310,7 +5325,7 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private async Task RestoreAndDeactivateAsync(
+        private async Task<bool> RestoreAndDeactivateAsync(
             PluginConfiguration? config,
             (string BridgeIp, string AppKey, string ClientKey, string AreaId)? bridgeConfig,
             List<HueClient.LightState>? savedLightStates,
@@ -5329,6 +5344,12 @@ namespace Jellyfin.Plugin.Hue.Service
             var sessionSummarySeed = recordSessionSummary
                 ? CaptureSessionSummarySeed(bridgeConfig, sessionOutcome)
                 : null;
+            var savedLightStateOwned = savedLightStates != null &&
+                ReferenceEquals(_savedLightStates, savedLightStates);
+            var restorationCompleted = true;
+            var deactivationCompleted = bridgeConfig == null;
+            var hostCancellationInterrupted = false;
+            var cleanupInterruptedByHost = false;
             bool effectiveUseCinemaMode;
             bool cinemaModeAttempted;
             bool effectiveRestoreLightState;
@@ -5352,43 +5373,35 @@ namespace Jellyfin.Plugin.Hue.Service
                         bridgeConfig.Value.AppKey,
                         savedLightStates,
                         cleanupToken).ConfigureAwait(false);
+                    restorationCompleted = restoreResult.Succeeded;
+                    hostCancellationInterrupted |= cancellationToken.IsCancellationRequested;
                     if (!restoreResult.Succeeded)
                     {
                         cleanupWarning = $"Light restoration was incomplete: restored {restoreResult.RestoredCount} of {restoreResult.AttemptedCount} light(s); {restoreResult.FailedCount} failed or exceeded the cleanup deadline. Some lights may need manual recovery.";
-                    }
-
-                    if (ReferenceEquals(_savedLightStates, savedLightStates))
-                    {
-                        _savedLightStates = null;
-                        _savedLightStatePlaySessionId = null;
                     }
                 }
                 else if (effectiveUseCinemaMode && cinemaModeAttempted && bridgeConfig != null)
                 {
                     _logger.LogInformation("Restoring lights after playback");
-                    if (!await RestoreLightsAfterPlayback(
+                    restorationCompleted = await RestoreLightsAfterPlayback(
                             bridgeConfig.Value.BridgeIp,
                             bridgeConfig.Value.AppKey,
                             bridgeConfig.Value.ClientKey,
                             bridgeConfig.Value.AreaId,
                             activeChannelIds,
-                            cleanupToken).ConfigureAwait(false))
+                            cleanupToken).ConfigureAwait(false);
+                    hostCancellationInterrupted |= cancellationToken.IsCancellationRequested;
+                    if (!restorationCompleted)
                     {
                         cleanupWarning = "Cinema-mode light restoration did not complete. Some lights may need manual recovery.";
                     }
                 }
 
-                // A pause-dimming session may capture a snapshot even when final
-                // light-state restoration is disabled. Never retain that snapshot
-                // beyond the playback lifecycle.
-                if (savedLightStates != null && ReferenceEquals(_savedLightStates, savedLightStates))
-                {
-                    _savedLightStates = null;
-                    _savedLightStatePlaySessionId = null;
-                }
             }
             catch (Exception ex)
             {
+                restorationCompleted = false;
+                hostCancellationInterrupted |= cancellationToken.IsCancellationRequested;
                 _logger.LogError(ex, "Error during playback light restoration");
                 cleanupWarning = "Light restoration failed. Some lights may need manual recovery.";
             }
@@ -5423,40 +5436,69 @@ namespace Jellyfin.Plugin.Hue.Service
                         }
                     }
                 }
-                lock (_syncLock)
-                {
-                    _activeUseCinemaMode = null;
-                    _activeCinemaModeAttempted = null;
-                    _activeRestoreLightState = null;
-                    _activePauseBehavior = null;
-                    _activePauseBrightnessPercent = null;
-                    _activeColorProcessingSettings = null;
-                    _activeExecutionSettings = null;
-                    _activeChannelIds = null;
-                }
                 if (bridgeConfig != null)
                 {
-                    try
+                    if (cancellationToken.IsCancellationRequested)
                     {
-                        var deactivated = await _hueClient.StopEntertainmentAreaWithResult(
-                            bridgeConfig.Value.BridgeIp,
-                            bridgeConfig.Value.AppKey,
-                            bridgeConfig.Value.AreaId,
-                            cleanupToken).ConfigureAwait(false);
-                        _bridgeAreaDeactivated = deactivated;
-                        if (!deactivated)
+                        hostCancellationInterrupted = true;
+                    }
+                    else
+                    {
+                        try
                         {
+                            var deactivated = await _hueClient.StopEntertainmentAreaWithResult(
+                                bridgeConfig.Value.BridgeIp,
+                                bridgeConfig.Value.AppKey,
+                                bridgeConfig.Value.AreaId,
+                                cleanupToken).ConfigureAwait(false);
+                            deactivationCompleted = deactivated;
+                            _bridgeAreaDeactivated = deactivated;
+                            if (!deactivated)
+                            {
+                                cleanupWarning = cleanupWarning == null
+                                    ? "The entertainment area could not be deactivated during cleanup or exceeded the cleanup deadline."
+                                    : $"{cleanupWarning} The entertainment area could not be deactivated during cleanup or exceeded the cleanup deadline.";
+                            }
+                            hostCancellationInterrupted |= cancellationToken.IsCancellationRequested;
+                        }
+                        catch (Exception ex)
+                        {
+                            hostCancellationInterrupted |= cancellationToken.IsCancellationRequested;
+                            _logger.LogWarning(ex, "Error deactivating entertainment area during playback cleanup");
                             cleanupWarning = cleanupWarning == null
-                                ? "The entertainment area could not be deactivated during cleanup or exceeded the cleanup deadline."
-                                : $"{cleanupWarning} The entertainment area could not be deactivated during cleanup or exceeded the cleanup deadline.";
+                                ? "The entertainment area could not be deactivated during cleanup."
+                                : $"{cleanupWarning} The entertainment area could not be deactivated during cleanup.";
                         }
                     }
-                    catch (Exception ex)
+                }
+
+                var cleanupInterrupted = hostCancellationInterrupted &&
+                    (!restorationCompleted || !deactivationCompleted);
+                if (cleanupInterrupted)
+                {
+                    cleanupWarning = cleanupWarning == null
+                        ? "Hue bridge cleanup was interrupted by host shutdown cancellation; cleanup will retry."
+                        : $"{cleanupWarning} Hue bridge cleanup was interrupted by host shutdown cancellation; cleanup will retry.";
+                }
+
+                if (savedLightStateOwned && !cleanupInterrupted)
+                {
+                    _savedLightStates = null;
+                    _savedLightStatePlaySessionId = null;
+                }
+
+                if (!cleanupInterrupted)
+                {
+                    lock (_syncLock)
                     {
-                        _logger.LogWarning(ex, "Error deactivating entertainment area during playback cleanup");
-                        cleanupWarning = cleanupWarning == null
-                            ? "The entertainment area could not be deactivated during cleanup."
-                            : $"{cleanupWarning} The entertainment area could not be deactivated during cleanup.";
+                        _activeUseCinemaMode = null;
+                        _activeCinemaModeAttempted = null;
+                        _activeRestoreLightState = null;
+                        _activePauseBehavior = null;
+                        _activePauseBrightnessPercent = null;
+                        _activeColorProcessingSettings = null;
+                        _activeExecutionSettings = null;
+                        _activeChannelIds = null;
                     }
                 }
 
@@ -5466,7 +5508,11 @@ namespace Jellyfin.Plugin.Hue.Service
                     RecordSessionSummary(sessionSummarySeed, cleanupWarning);
                 }
                 ReleasePlaybackLifecycleLease();
+
+                cleanupInterruptedByHost = cleanupInterrupted;
             }
+
+            return !cleanupInterruptedByHost;
         }
 
         private SessionSummarySeed? CaptureSessionSummarySeed(

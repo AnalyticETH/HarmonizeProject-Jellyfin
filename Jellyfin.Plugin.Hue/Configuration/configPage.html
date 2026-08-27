@@ -10265,7 +10265,12 @@
                     if (stopButton) stopButton.disabled = true;
                 },
                 loadRuntimeStatus: function (page) {
-                    if (!page || page._hueRuntimeStatusLoading) {
+                    if (!page) {
+                        return Promise.resolve();
+                    }
+
+                    var lifecycleGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration) || page._hueRuntimeStatusLoading) {
                         return Promise.resolve();
                     }
 
@@ -10279,7 +10284,8 @@
                     var request = ApiClient.getJSON(ApiClient.getUrl("HueSync/Status"));
                     page._hueRuntimeStatusRequest = request;
                     var isCurrentRequest = function () {
-                        return page._hueRuntimeStatusGeneration === generation &&
+                        return HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration) &&
+                            page._hueRuntimeStatusGeneration === generation &&
                             page._hueRuntimeStatusRequest === request;
                     };
 
@@ -11131,43 +11137,73 @@
                 stopRuntimeSync: function (page) {
                     if (!page || page._hueRuntimeStopInFlight) return;
 
+                    var lifecycleGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration)) return Promise.resolve();
+
                     var stopButton = page.querySelector('#stopRuntimeSyncBtn');
                     page._hueRuntimeStopInFlight = true;
                     if (stopButton) stopButton.disabled = true;
                     Dashboard.showLoadingMsg();
 
-                    ApiClient.ajax({
+                    var request = ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/Stop"),
                         dataType: "json"
-                    }).then(function (response) {
+                    });
+                    page._hueRuntimeStopRequest = request;
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration) &&
+                            page._hueRuntimeStopRequest === request;
+                    };
+
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         HueConfigurationPage.loadRuntimeStatus(page);
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to stop Hue sync:", err);
                         HueConfigurationPage.loadRuntimeStatus(page);
                         Dashboard.alert("Unable to stop Hue sync: " + (err && err.message ? err.message : "no active sync session"));
                     }).finally(function () {
-                        page._hueRuntimeStopInFlight = false;
+                        if (page._hueRuntimeStopRequest === request) {
+                            page._hueRuntimeStopRequest = null;
+                            page._hueRuntimeStopInFlight = false;
+                        }
                         Dashboard.hideLoadingMsg();
                     });
                 },
                 stopRuntimeSession: function (page, playSessionId) {
                     if (!page || !playSessionId || page._hueRuntimeStopInFlight) return;
 
+                    var lifecycleGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration)) return Promise.resolve();
+
                     page._hueRuntimeStopInFlight = true;
                     Dashboard.showLoadingMsg();
-                    ApiClient.ajax({
+                    var request = ApiClient.ajax({
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/Stop") + "?playSessionId=" + encodeURIComponent(playSessionId),
                         dataType: "json"
-                    }).then(function () {
+                    });
+                    page._hueRuntimeStopRequest = request;
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration) &&
+                            page._hueRuntimeStopRequest === request;
+                    };
+
+                    return request.then(function () {
+                        if (!isCurrent()) return;
                         HueConfigurationPage.loadRuntimeStatus(page);
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to stop concurrent Hue sync:", err);
                         HueConfigurationPage.loadRuntimeStatus(page);
                         Dashboard.alert("Unable to stop the selected Hue sync session.");
                     }).finally(function () {
-                        page._hueRuntimeStopInFlight = false;
+                        if (page._hueRuntimeStopRequest === request) {
+                            page._hueRuntimeStopRequest = null;
+                            page._hueRuntimeStopInFlight = false;
+                        }
                         Dashboard.hideLoadingMsg();
                     });
                 },

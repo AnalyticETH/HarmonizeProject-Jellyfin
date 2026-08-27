@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.342] - 2026-08-27
+
+### Lifecycle and release integrity
+- **Cancellation-safe shutdown restoration**: if host shutdown cancellation interrupts light restoration, retain the bridge snapshot and schedule a deferred cleanup that retries restoration and entertainment-area deactivation with a fresh token.
+- **Page lifecycle-safe runtime stops**: stale Stop and per-session Stop callbacks no longer restart polling or surface alerts after navigation, while the explicit server-side stop request is allowed to complete.
+- **Release asset digest verification**: require GitHub's recorded ZIP and checksum-asset SHA-256 digests to match the locally verified bytes before publishing the release.
+- **Regression coverage**: cover host-cancellation cleanup retry, runtime Stop page teardown, release digest workflow markers, and the existing full configuration/security contracts.
+
 ## [1.5.341] - 2026-08-27
 
 ### Bridge and workflow safety

@@ -39,6 +39,17 @@ for (const marker of [
   "Validate workflow inventory and runner boundaries",
   "node scripts/validate-workflow-inventory.mjs",
   "needs: [create-release-package, validate-release-helper]",
+  "local_zip_digest=",
+  "local_checksum_digest=",
+  "expected_zip_digest=",
+  "test \"$expected_zip_digest\" = \"$local_zip_digest\"",
+  "gh api \"repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}\"",
+  "remote_zip_digest=",
+  "remote_checksum_digest=",
+  "release ZIP asset must have exactly one digest",
+  "release checksum asset must have exactly one digest",
+  "test \"$remote_zip_digest\" = \"sha256:${local_zip_digest}\"",
+  "test \"$remote_checksum_digest\" = \"sha256:${local_checksum_digest}\"",
 ]) {
   if (!ci.includes(marker)) {
     throw new Error(`${ciPath} is missing trusted-workflow marker: ${marker}`);

@@ -471,7 +471,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.341 (Current)
+### Version 1.5.342 (Current)
+
+- **Cancellation-safe shutdown restoration**: if host shutdown cancellation interrupts light restoration, the bridge snapshot is retained and deferred cleanup retries restoration and entertainment-area deactivation with a fresh token.
+
+- **Page lifecycle-safe runtime stops**: stale Stop and per-session Stop callbacks no longer restart polling or show alerts after navigation, while the explicit server-side stop request is preserved.
+
+- **Release asset digest verification**: trusted publication checks GitHub's recorded ZIP and checksum-asset SHA-256 digests against the locally verified bytes before making the release public.
+
+- **Regression coverage**: host-cancellation cleanup retry, runtime Stop page teardown, release digest markers, and the complete configuration/security contracts are exercised before release.
 
 - **Bridge response identity validation**: state capture rejects malformed or mismatched Hue light resource IDs rather than labeling another light as the requested resource, preventing unsafe restoration.
 

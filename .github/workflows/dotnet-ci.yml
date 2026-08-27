@@ -554,6 +554,37 @@ jobs:
           jellyfin-plugin-hue-release.zip.sha256 \
           --clobber
 
+        # Verify GitHub's recorded asset digests, not only the asset names. This
+        # keeps a successful publication bound to the exact locally verified ZIP
+        # and checksum bytes.
+        local_zip_digest="$(sha256sum jellyfin-plugin-hue-release.zip | awk '{ print $1 }')"
+        local_checksum_digest="$(sha256sum jellyfin-plugin-hue-release.zip.sha256 | awk '{ print $1 }')"
+        expected_zip_digest="$(awk 'NR == 1 { print $1 }' jellyfin-plugin-hue-release.zip.sha256)"
+        test "$expected_zip_digest" = "$local_zip_digest"
+        printf '%s\n' "$local_zip_digest" | grep -Eq '^[0-9a-f]{64}$'
+        printf '%s\n' "$local_checksum_digest" | grep -Eq '^[0-9a-f]{64}$'
+        test -n "${GITHUB_REPOSITORY:-}"
+        remote_release="$(retry gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+        remote_zip_digest="$(jq -er --arg name jellyfin-plugin-hue-release.zip '
+          [.assets[] | select((.name == $name) and (.state == "uploaded")) | .digest] as $digests
+          | if ($digests | length) != 1 then error("release ZIP asset must have exactly one digest")
+            elif ($digests[0] | type) != "string" then error("release ZIP asset digest is missing")
+            elif ($digests[0] | test("^sha256:[0-9a-f]{64}$") | not) then error("release ZIP asset digest is malformed")
+            else $digests[0]
+            end
+        ' <<<"$remote_release")"
+        remote_checksum_digest="$(jq -er --arg name jellyfin-plugin-hue-release.zip.sha256 '
+          [.assets[] | select((.name == $name) and (.state == "uploaded")) | .digest] as $digests
+          | if ($digests | length) != 1 then error("release checksum asset must have exactly one digest")
+            elif ($digests[0] | type) != "string" then error("release checksum asset digest is missing")
+            elif ($digests[0] | test("^sha256:[0-9a-f]{64}$") | not) then error("release checksum asset digest is malformed")
+            else $digests[0]
+            end
+        ' <<<"$remote_release")"
+        test "$remote_zip_digest" = "sha256:${local_zip_digest}"
+        test "$remote_checksum_digest" = "sha256:${local_checksum_digest}"
+        echo "GitHub release asset digests match the locally verified ZIP and checksum bytes."
+
         # Refuse to publish a draft that contains anything other than the
         # two verified release assets. This check intentionally runs before
         # the draft is made public, and is repeated after publication below.

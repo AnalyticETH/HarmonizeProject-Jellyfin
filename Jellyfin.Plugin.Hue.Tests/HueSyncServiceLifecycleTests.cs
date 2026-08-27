@@ -1341,6 +1341,11 @@ public sealed class HueSyncServiceLifecycleTests
         await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(handler.SecondConfigurationRequest.Task.IsCompleted);
+        Assert.True(SpinWait.SpinUntil(
+            () => GetPrivateField(service, "_savedLightStates") == null &&
+                  GetPrivateField(service, "_currentBridgeConfig") == null &&
+                  GetPrivateField(service, "_currentPlaySessionId") == null,
+            TimeSpan.FromSeconds(5)));
         Assert.Null(GetPrivateField(service, "_syncCts"));
         Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
         Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
@@ -1509,6 +1514,41 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
 
         await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StopAsync_WhenHostCancellationInterruptsRestoration_DefersCleanupAndRetriesBridgeState()
+    {
+        using var hostShutdown = new CancellationTokenSource();
+        var handler = new CancelDuringRestorationHueHandler(hostShutdown);
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        Plugin.Instance!.Configuration.RestoreLightState = true;
+        SetPrivateField(service, "_savedLightStates", new List<HueClient.LightState>
+        {
+            new("light-id", true, 50, 0.1, 0.2)
+        });
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "shutdown-session");
+        SetPrivateField(service, "_currentItemName", "Test item");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        var stopTask = service.StopAsync(hostShutdown.Token);
+        await handler.RestorationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await stopTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.NotNull(GetPrivateField(service, "_deferredStopTask"));
+        var deferredStopTask = Assert.IsAssignableFrom<Task>(GetPrivateField(service, "_deferredStopTask"));
+        await deferredStopTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, handler.RestorationCount);
+        Assert.Equal(1, handler.StopCount);
+        Assert.False(handler.LastStopRequestWasCanceled);
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+        Assert.Null(GetPrivateField(service, "_savedLightStates"));
     }
 
     [Fact]
@@ -1971,6 +2011,61 @@ public sealed class HueSyncServiceLifecycleTests
             }
 
             return true;
+        }
+
+        private static TaskCompletionSource<bool> NewSignal() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class CancelDuringRestorationHueHandler : HttpMessageHandler
+    {
+        private readonly CancellationTokenSource _hostShutdown;
+        private int _restorationCount;
+        private int _stopCount;
+
+        public CancelDuringRestorationHueHandler(CancellationTokenSource hostShutdown)
+        {
+            _hostShutdown = hostShutdown;
+        }
+
+        public TaskCompletionSource<bool> RestorationStarted { get; } = NewSignal();
+        public int RestorationCount => Volatile.Read(ref _restorationCount);
+        public int StopCount => Volatile.Read(ref _stopCount);
+        public bool LastStopRequestWasCanceled { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Put &&
+                request.RequestUri?.AbsolutePath.Contains("/light/", StringComparison.Ordinal) == true)
+            {
+                if (Interlocked.Increment(ref _restorationCount) == 1)
+                {
+                    RestorationStarted.TrySetResult(true);
+                    _hostShutdown.Cancel();
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                }
+
+                return OkResponse();
+            }
+
+            if (request.Method == HttpMethod.Put &&
+                request.RequestUri?.AbsolutePath.Contains("entertainment_configuration", StringComparison.Ordinal) == true)
+            {
+                LastStopRequestWasCanceled = cancellationToken.IsCancellationRequested;
+                Interlocked.Increment(ref _stopCount);
+            }
+
+            return OkResponse();
+        }
+
+        private static HttpResponseMessage OkResponse()
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
         }
 
         private static TaskCompletionSource<bool> NewSignal() =>

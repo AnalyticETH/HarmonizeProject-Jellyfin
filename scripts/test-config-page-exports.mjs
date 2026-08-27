@@ -489,6 +489,48 @@ async function testDuplicateClickIsBounded(testCase) {
     await first;
 }
 
+async function testRuntimeStopLifecycleGuards() {
+    const cases = [
+        {
+            method: "stopRuntimeSync",
+            arguments: [],
+            route: "HueSync/Stop"
+        },
+        {
+            method: "stopRuntimeSession",
+            arguments: ["play-session-1"],
+            route: "HueSync/Stop?playSessionId=play-session-1"
+        }
+    ];
+
+    for (const testCase of cases) {
+        const harness = makeHarness();
+        const { page, api, requests, dashboard } = harness;
+        let statusLoads = 0;
+        api.loadRuntimeStatus = () => {
+            statusLoads += 1;
+            return Promise.resolve();
+        };
+
+        const operation = api[testCase.method](page, ...testCase.arguments);
+        assert.ok(operation && typeof operation.then === "function", `${testCase.method} returns a promise`);
+        assert.equal(requests.length, 1, `${testCase.method} starts one request`);
+        assert.equal(requests[0].options.type, "POST", `${testCase.method} uses POST`);
+        assert.equal(requests[0].options.url, testCase.route, `${testCase.method} targets the selected stop route`);
+        assert.equal(page._hueRuntimeStopInFlight, true, `${testCase.method} marks the stop busy`);
+
+        api.invalidatePageLifecycle(page);
+        assert.equal(page._huePageActive, false, `${testCase.method} invalidates the page lifecycle`);
+        assert.equal(requests[0].promise.aborted, false, `${testCase.method} preserves the explicit server-side stop request`);
+        requests[0].resolve({ State: "Stopped" });
+        await operation;
+
+        assert.equal(statusLoads, 0, `${testCase.method} cannot restart runtime polling after pagehide`);
+        assert.equal(dashboard.alerts.length, 0, `${testCase.method} suppresses stale pagehide alerts`);
+        assert.equal(page._hueRuntimeStopInFlight, false, `${testCase.method} clears stop state after completion`);
+    }
+}
+
 async function testEditMappingLifecycleGuards() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -1287,6 +1329,7 @@ await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
 await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
+await testRuntimeStopLifecycleGuards();
 await testDisabledMappingCannotPreview();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, save stale-scope/pagehide, duplicate-target, duplicate-resolution, and disabled-mapping preview paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, save stale-scope/pagehide, duplicate-target, duplicate-resolution, runtime-stop pagehide, and disabled-mapping preview paths)`);
