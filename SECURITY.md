@@ -25,7 +25,7 @@ Every trusted `main` push runs the named self-hosted CI runner with:
 - Host shutdown cancellation leaves an observed deferred cleanup pass that retries lifecycle-lock, bridge deactivation, and concurrent-worker cleanup before a service restart can accept new playback
 - Credential-free scene, playlist, status, diagnostics, and user-mapping projections use a shared read lease and fail closed with a retryable conflict while configuration mutation or scheduler evaluation is active
 - Immutable commit-SHA references for third-party GitHub Actions
-- Repository-level GitHub Actions supply-chain policy is selected-only with `sha_pinning_required=true`: `actions/checkout`, `actions/setup-dotnet`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, and `codecov/codecov-action` are the only approved action repositories (each matched with an `@*` policy pattern and pinned to a full commit SHA in the workflows); local reusable workflows remain allowed
+- Repository-level GitHub Actions supply-chain policy is selected-only with `sha_pinning_required=true`: `actions/checkout`, `actions/setup-dotnet`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, `actions/github-script` (the pinned Codecov composite dependency), and `codecov/codecov-action` are the only approved action repositories (each matched with an `@*` policy pattern and pinned to a full commit SHA in the workflows); local reusable workflows remain allowed
 - Dependabot monitoring for the hash-locked Semgrep environment and its transitive packages
 - Bounded job timeouts that release a persistent runner when a restore, scanner, or release step stalls
 - Coverage publication keeps the immutable Codecov action optional and explicit: every trusted build retains

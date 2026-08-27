@@ -10,6 +10,7 @@ const allowedActionRepositories = new Set([
   "actions/cache",
   "actions/upload-artifact",
   "actions/download-artifact",
+  "actions/github-script",
   "codecov/codecov-action"
 ]);
 

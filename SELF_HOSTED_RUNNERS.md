@@ -34,7 +34,8 @@ add a pull-request trigger to the trusted main workflow or route pull-request co
 
 The repository Actions policy is selected-only with full-commit-SHA pinning required. Its
 allowlist contains only `actions/checkout`, `actions/setup-dotnet`, `actions/cache`,
-`actions/upload-artifact`, `actions/download-artifact`, and `codecov/codecov-action`, each
+`actions/upload-artifact`, `actions/download-artifact`, `actions/github-script`, and
+`codecov/codecov-action`, each
 matched with an `@*` policy pattern so Dependabot can refresh the pinned SHA. Local reusable
 workflows remain enabled, while broad GitHub-owned and Marketplace-verified allowances stay
 disabled. Verify the live policy before changing workflows:
