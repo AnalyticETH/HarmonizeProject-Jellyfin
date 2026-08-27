@@ -2214,6 +2214,38 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void Validate_WhenBridgeCertificatePinIsMalformed_ReturnsError()
+    {
+        var config = new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["192.168.1.100"] = "not-a-fingerprint"
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Hue bridge certificate pin for '192.168.1.100' must be a SHA-256 fingerprint", errors);
+    }
+
+    [Fact]
+    public void Validate_WhenBridgeCertificatePinUsesPublicHost_ReturnsError()
+    {
+        var config = new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["bridge.example.com"] = new string('a', 64)
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains("Hue bridge certificate pin host 'bridge.example.com' must be a valid private IP address or .local host name", errors);
+    }
+
+    [Fact]
     public void Validate_WhenHueAppKeyMissing_ReturnsError()
     {
         // Arrange

@@ -68,6 +68,13 @@ public sealed class HueConfigurationMutationFilter : IAsyncActionFilter
             return true;
         }
 
+        if (segments.Length == 3 &&
+            segments[1].Equals("BridgeCertificate", StringComparison.OrdinalIgnoreCase) &&
+            segments[2].Equals("Trust", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         if (segments[1].Equals("SceneSchedules", StringComparison.OrdinalIgnoreCase) &&
             segments.Length == 3 &&
             segments[2].Equals("History", StringComparison.OrdinalIgnoreCase))

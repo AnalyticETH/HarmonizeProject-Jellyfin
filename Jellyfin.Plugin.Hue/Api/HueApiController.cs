@@ -364,6 +364,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpPost("Register")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<ActionResult<HueRegistrationResult>> RegisterBridge(
             [FromBody] HueRegistrationRequest? request,
             CancellationToken cancellationToken = default)
@@ -373,6 +374,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("A valid private bridge IP address or .local host name is required.");
             }
 
+            if (string.IsNullOrWhiteSpace(
+                    HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(request.IpAddress)))
+            {
+                return Conflict("Trust the bridge certificate fingerprint through HueSync/BridgeCertificate before linking the bridge. This prevents App Key disclosure to an impersonating local bridge.");
+            }
+
             var result = await _hueClient.RegisterWithBridge(request.IpAddress.Trim(), cancellationToken);
             if (result == null)
             {
@@ -380,6 +387,131 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             return Ok(result);
+        }
+
+        /// <summary>
+        /// Reads the local bridge certificate without sending credentials. The returned
+        /// SHA-256 fingerprint must be reviewed by an administrator and explicitly
+        /// trusted before Link Bridge or any other credential-bearing request is allowed.
+        /// </summary>
+        [HttpGet("BridgeCertificate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        public async Task<ActionResult<HueBridgeCertificateResult>> GetBridgeCertificate(
+            [FromQuery(Name = "ipAddress")] string? ipAddress,
+            CancellationToken cancellationToken = default)
+        {
+            var bridgeIp = ipAddress?.Trim() ?? string.Empty;
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(bridgeIp))
+                return BadRequest("A valid private bridge IP address or .local host name is required.");
+
+            var fingerprint = await _hueClient.GetBridgeCertificateFingerprint(
+                bridgeIp,
+                cancellationToken).ConfigureAwait(false);
+            if (!HueBridgeCertificateValidation.TryNormalizeCertificateFingerprint(fingerprint, out var normalizedFingerprint))
+            {
+                return StatusCode(
+                    StatusCodes.Status502BadGateway,
+                    "The bridge certificate could not be read. Verify the address and local network reachability.");
+            }
+
+            return Ok(new HueBridgeCertificateResult
+            {
+                IpAddress = bridgeIp,
+                Fingerprint = normalizedFingerprint,
+                IsPinned = string.Equals(
+                    HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(bridgeIp),
+                    normalizedFingerprint,
+                    StringComparison.OrdinalIgnoreCase)
+            });
+        }
+
+        /// <summary>
+        /// Explicitly trusts the currently presented certificate for a local bridge.
+        /// The server performs a fresh credential-free probe and stores the pin only
+        /// when the supplied fingerprint matches that live certificate.
+        /// </summary>
+        [HttpPost("BridgeCertificate/Trust")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<HueBridgeCertificateResult>> TrustBridgeCertificate(
+            [FromBody] HueBridgeCertificateTrustRequest? request,
+            CancellationToken cancellationToken = default)
+        {
+            if (request == null || !request.Confirm)
+                return BadRequest("Explicit certificate confirmation is required before storing a bridge pin.");
+
+            var bridgeIp = request.IpAddress?.Trim() ?? string.Empty;
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(bridgeIp) ||
+                !HueBridgeCertificateValidation.TryNormalizeCertificateFingerprint(
+                    request.Fingerprint,
+                    out var requestedFingerprint))
+            {
+                return BadRequest("A valid private bridge address and SHA-256 certificate fingerprint are required.");
+            }
+
+            var liveFingerprint = await _hueClient.GetBridgeCertificateFingerprint(
+                bridgeIp,
+                cancellationToken).ConfigureAwait(false);
+            if (!HueBridgeCertificateValidation.TryNormalizeCertificateFingerprint(
+                    liveFingerprint,
+                    out var normalizedLiveFingerprint))
+            {
+                return StatusCode(
+                    StatusCodes.Status502BadGateway,
+                    "The bridge certificate could not be read. No pin was stored.");
+            }
+
+            if (!string.Equals(requestedFingerprint, normalizedLiveFingerprint, StringComparison.OrdinalIgnoreCase))
+            {
+                return Conflict("The bridge certificate changed before it could be trusted. Review the current fingerprint and retry explicitly.");
+            }
+
+            var config = Plugin.Instance?.Configuration;
+            var plugin = Plugin.Instance;
+            if (config == null || plugin == null)
+                return NotFound("Plugin configuration not available.");
+
+            var previousPins = HuePluginConfigurationSettings.CloneCertificatePins(
+                config.HueBridgeCertificatePins ?? new Dictionary<string, string>(),
+                skipBlankKeys: false);
+            var updatedPins = HuePluginConfigurationSettings.CloneCertificatePins(
+                previousPins,
+                skipBlankKeys: false);
+            foreach (var existingHost in updatedPins.Keys
+                         .Where(existing => HueBridgeCertificateValidation.IsSameBridgeHost(existing, bridgeIp))
+                         .ToArray())
+            {
+                updatedPins.Remove(existingHost);
+            }
+
+            // Publish a replacement dictionary in one assignment. TLS callbacks may
+            // enumerate the previous snapshot concurrently; mutating that live
+            // instance in-place would throw while a trust request replaces a pin.
+            updatedPins[bridgeIp] = normalizedLiveFingerprint;
+            config.HueBridgeCertificatePins = updatedPins;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.HueBridgeCertificatePins = previousPins;
+                _logger?.LogError(ex, "Could not persist Hue bridge certificate pin");
+                return StatusCode(StatusCodes.Status500InternalServerError, "Bridge certificate pin could not be saved.");
+            }
+
+            return Ok(new HueBridgeCertificateResult
+            {
+                IpAddress = bridgeIp,
+                Fingerprint = normalizedLiveFingerprint,
+                IsPinned = true
+            });
         }
 
         /// <summary>
@@ -10953,6 +11085,11 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool SyncEnabled { get; set; }
         public string PlaybackMediaFilter { get; set; } = PluginConfiguration.PlaybackMediaFilterAllVideo;
         public string HueBridgeIp { get; set; } = string.Empty;
+        /// <summary>
+        /// Credential-free SHA-256 certificate pins keyed by bridge host. A null value
+        /// on an older request preserves the existing server-side pin set.
+        /// </summary>
+        public Dictionary<string, string>? HueBridgeCertificatePins { get; set; }
         public string HueAppKey { get; set; } = string.Empty;
         public string HueClientKey { get; set; } = string.Empty;
         public bool HasAppKey { get; set; }
@@ -11016,6 +11153,37 @@ namespace Jellyfin.Plugin.Hue.Api
         public int ColorChangeThreshold { get; set; } = 10;
         public int NetworkRetryAttempts { get; set; } = 3;
 
+        internal static Dictionary<string, string> CloneCertificatePins(
+            IEnumerable<KeyValuePair<string, string>> source,
+            bool skipBlankKeys)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in source)
+            {
+                var key = pair.Key?.Trim() ?? string.Empty;
+                if (skipBlankKeys && string.IsNullOrWhiteSpace(key))
+                    continue;
+
+                var value = pair.Value?.Trim() ?? string.Empty;
+                if (PluginConfiguration.TryNormalizeCertificateFingerprint(value, out var normalizedFingerprint))
+                    value = normalizedFingerprint;
+                if (result.TryGetValue(key, out var existing) &&
+                    !string.Equals(existing, value, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Preserve a fail-closed marker when a hand-edited JSON object
+                    // contains aliases that differ only by case but carry conflicting
+                    // fingerprints. Configuration validation will require re-pinning.
+                    result[key] = string.Empty;
+                }
+                else
+                {
+                    result[key] = value;
+                }
+            }
+
+            return result;
+        }
+
         public static HuePluginConfigurationSettings From(PluginConfiguration config)
         {
             return new HuePluginConfigurationSettings
@@ -11023,6 +11191,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 SyncEnabled = config.SyncEnabled,
                 PlaybackMediaFilter = config.PlaybackMediaFilter,
                 HueBridgeIp = config.HueBridgeIp,
+                HueBridgeCertificatePins = CloneCertificatePins(
+                    config.HueBridgeCertificatePins ?? new Dictionary<string, string>(),
+                    skipBlankKeys: false),
                 HueAppKey = string.Empty,
                 HueClientKey = string.Empty,
                 HasAppKey = !string.IsNullOrWhiteSpace(config.HueAppKey),
@@ -11119,6 +11290,12 @@ namespace Jellyfin.Plugin.Hue.Api
             config.SyncEnabled = SyncEnabled;
             config.PlaybackMediaFilter = PlaybackMediaFilter?.Trim() ?? PluginConfiguration.PlaybackMediaFilterAllVideo;
             config.HueBridgeIp = HueBridgeIp?.Trim() ?? string.Empty;
+            if (HueBridgeCertificatePins != null)
+            {
+                config.HueBridgeCertificatePins = CloneCertificatePins(
+                    HueBridgeCertificatePins,
+                    skipBlankKeys: true);
+            }
             if (ClearStoredCredentials)
             {
                 config.HueAppKey = string.Empty;
@@ -12108,6 +12285,30 @@ namespace Jellyfin.Plugin.Hue.Api
     public class HueRegistrationRequest
     {
         public string IpAddress { get; set; } = string.Empty;
+    }
+
+    public sealed class HueBridgeCertificateResult
+    {
+        [JsonPropertyName("ipAddress")]
+        public string IpAddress { get; init; } = string.Empty;
+
+        [JsonPropertyName("fingerprint")]
+        public string Fingerprint { get; init; } = string.Empty;
+
+        [JsonPropertyName("isPinned")]
+        public bool IsPinned { get; init; }
+    }
+
+    public sealed class HueBridgeCertificateTrustRequest
+    {
+        [JsonPropertyName("ipAddress")]
+        public string IpAddress { get; init; } = string.Empty;
+
+        [JsonPropertyName("fingerprint")]
+        public string Fingerprint { get; init; } = string.Empty;
+
+        [JsonPropertyName("confirm")]
+        public bool Confirm { get; init; }
     }
 
     public class HueEntertainmentAreasRequest

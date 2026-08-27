@@ -77,6 +77,17 @@ internal interface IHueTargetScopedStreamTester
 }
 
 /// <summary>
+/// Optional capability used by scheduled cues to isolate the retry policy for each
+/// target. The public tester contract remains unchanged for older extensions and test
+/// doubles; the built-in implementation creates a lightweight tester over a cloned
+/// HueClient so concurrent rooms cannot overwrite one another's retry state.
+/// </summary>
+internal interface IHueRetryAwareStreamTester
+{
+    IHueStreamTester CreateForRetryAttempts(int retryAttempts);
+}
+
+/// <summary>
 /// Optional transition-curve preview capability. Keeping this additive preserves the
 /// original stream-tester contract for extensions and test doubles that predate easing
 /// curves; callers fall back to the original linear preview when it is unavailable.
@@ -292,7 +303,8 @@ public sealed class HueStreamTester :
     IHueStreamTester,
     IHueTargetScopedStreamTester,
     IHueTransitionCurveStreamTester,
-    IHuePlaylistStreamTester
+    IHuePlaylistStreamTester,
+    IHueRetryAwareStreamTester
 {
     private const int EntertainmentAreaActivationDelayMs = 200;
     private const int PreviewTransitionRefreshIntervalMs = 100;
@@ -335,6 +347,23 @@ public sealed class HueStreamTester :
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
         _previewStreamFactory = previewStreamFactory ?? throw new ArgumentNullException(nameof(previewStreamFactory));
+    }
+
+    /// <summary>
+    /// Creates an isolated tester for one scheduled target. The underlying transport is
+    /// still shared by HttpClient, but retry policy and diagnostic operation state are
+    /// local to the returned instance.
+    /// </summary>
+    public IHueStreamTester CreateForRetryAttempts(int retryAttempts)
+    {
+        var client = _hueClient.CreatePlaybackClient();
+        client.RetryAttempts = retryAttempts;
+        return new HueStreamTester(
+            client,
+            _loggerFactory,
+            _logger,
+            _bridgeLifecycleGate,
+            _previewStreamFactory);
     }
 
     public Task<HueStreamProbeResult> TestAsync(

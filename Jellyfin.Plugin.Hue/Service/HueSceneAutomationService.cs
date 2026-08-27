@@ -2731,8 +2731,12 @@ public sealed class HueSceneAutomationService : BackgroundService
     {
         try
         {
-            _hueClient.RetryAttempts = target.RetryAttempts;
-            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
+            // Keep retry state isolated per scheduled target. The hosted service and
+            // stream tester are singletons, so mutating their shared clients here would
+            // let concurrent rooms overwrite one another's network policy.
+            var targetHueClient = _hueClient.CreatePlaybackClient();
+            targetHueClient.RetryAttempts = target.RetryAttempts;
+            var areaConfiguration = await targetHueClient.GetEntertainmentConfiguration(
                 target.BridgeIp,
                 target.AppKey,
                 target.EntertainmentAreaId,
@@ -2764,8 +2768,15 @@ public sealed class HueSceneAutomationService : BackgroundService
                 }
             }
 
+            var targetPlaylistTester = playlistStreamTester;
+            if (playlistStreamTester is IHueRetryAwareStreamTester retryAwareTester &&
+                retryAwareTester.CreateForRetryAttempts(target.RetryAttempts) is IHuePlaylistStreamTester retryAwarePlaylistTester)
+            {
+                targetPlaylistTester = retryAwarePlaylistTester;
+            }
+
             var probe = targetScopedPlayback
-                ? await playlistStreamTester.PreviewPlaylistAsyncForTarget(
+                ? await targetPlaylistTester.PreviewPlaylistAsyncForTarget(
                     target.BridgeIp,
                     target.AppKey,
                     target.ClientKey,
@@ -2774,7 +2785,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     target.ChannelIds,
                     steps,
                     cancellationToken).ConfigureAwait(false)
-                : await playlistStreamTester.PreviewPlaylistAsync(
+                : await targetPlaylistTester.PreviewPlaylistAsync(
                     target.BridgeIp,
                     target.AppKey,
                     target.ClientKey,
@@ -3557,6 +3568,14 @@ public sealed class HueSceneAutomationService : BackgroundService
             // by a caller or test; the platform's normal conversion remains the fallback.
             return DateTime.SpecifyKind(serverLocalNow, DateTimeKind.Unspecified).ToUniversalTime();
         }
+    }
+
+    private static DateTime ConvertUtcToServerLocal(DateTime utcNow)
+    {
+        var normalizedUtc = DateTime.SpecifyKind(utcNow, DateTimeKind.Utc);
+        return DateTime.SpecifyKind(
+            TimeZoneInfo.ConvertTimeFromUtc(normalizedUtc, TimeZoneInfo.Local),
+            DateTimeKind.Local);
     }
 
     private static bool TryGetScheduleLocalNow(
@@ -4393,7 +4412,10 @@ public sealed class HueSceneAutomationService : BackgroundService
             var elapsed = DateTime.UtcNow - schedulerStartedAtUtc;
             if (elapsed < TimeSpan.Zero)
                 elapsed = TimeSpan.Zero;
-            var evaluationNow = localNow.Add(elapsed);
+            // Advance an absolute UTC instant, then convert it back to server local
+            // time for schedule matching. Adding elapsed time to a Local DateTime can
+            // manufacture invalid/ambiguous wall-clock values across DST transitions.
+            var evaluationNow = ConvertUtcToServerLocal(logicalStartUtc + elapsed);
             var inProcessCatchUpMinutes = GetInProcessCatchUpMinutes(elapsed);
             var deferDuringPlayback = string.Equals(
                 GetEffectivePlaybackPolicy(config, schedule),
@@ -4446,7 +4468,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             var slot = hasDeferredRun
                 ? deferredRun!.OccurrenceSlot
                 : isDue
-                    ? GetScheduleRunSlot(schedule, localNow)
+                    ? GetScheduleRunSlot(schedule, evaluationNow)
                     : recoveredOccurrence!.UtcTime;
             var wasCatchUp = !hasDeferredRun && !isDue;
             var wasDeferredRestored = hasDeferredRun && deferredRun!.Restored;
@@ -4477,7 +4499,7 @@ public sealed class HueSceneAutomationService : BackgroundService
 
                 if (!hasDeferredRun)
                 {
-                    QueueDeferredRun(schedule, slot, localNow, deferMinutes);
+                    QueueDeferredRun(schedule, slot, evaluationNow, deferMinutes);
                 }
                 continue;
             }
@@ -4957,8 +4979,12 @@ public sealed class HueSceneAutomationService : BackgroundService
     {
         try
         {
-            _hueClient.RetryAttempts = target.RetryAttempts;
-            var areaConfiguration = await _hueClient.GetEntertainmentConfiguration(
+            // Keep retry state isolated per scheduled target. The hosted service and
+            // stream tester are singletons, so mutating their shared clients here would
+            // let concurrent rooms overwrite one another's network policy.
+            var targetHueClient = _hueClient.CreatePlaybackClient();
+            targetHueClient.RetryAttempts = target.RetryAttempts;
+            var areaConfiguration = await targetHueClient.GetEntertainmentConfiguration(
                 target.BridgeIp,
                 target.AppKey,
                 target.EntertainmentAreaId,
@@ -4994,10 +5020,13 @@ public sealed class HueSceneAutomationService : BackgroundService
                 }
             }
 
+            var targetStreamTester = _streamTester is IHueRetryAwareStreamTester retryAwareTester
+                ? retryAwareTester.CreateForRetryAttempts(target.RetryAttempts)
+                : _streamTester;
             var scopedTester = targetScopedPlayback
-                ? _streamTester as IHueTargetScopedStreamTester
+                ? targetStreamTester as IHueTargetScopedStreamTester
                 : null;
-            var curveTester = _streamTester as IHueTransitionCurveStreamTester;
+            var curveTester = targetStreamTester as IHueTransitionCurveStreamTester;
             var transitionCurve = !string.IsNullOrWhiteSpace(transitionCurveOverride) &&
                 PluginConfiguration.TryNormalizeColorPresetTransitionCurve(
                     transitionCurveOverride,
@@ -5108,7 +5137,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     effect,
                     effectSpeedPercent,
                     transitionCurve).ConfigureAwait(false)
-                : await _streamTester.PreviewAsync(
+                : await targetStreamTester.PreviewAsync(
                     target.BridgeIp,
                     target.AppKey,
                     target.ClientKey,

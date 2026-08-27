@@ -44,6 +44,7 @@ const requiredMarkup = [
     'id="perUserMappingsSection" tabindex="-1"',
     'id="advancedSettingsSection" tabindex="-1"',
     'id="registerBtn"',
+    'id="bridgeCertificateBtn"',
     'id="mappingLinkBridgeBtn"',
     'id="cancelConnectionTestBtn"',
     'id="cancelMappingTestConnectionBtn"',
@@ -210,6 +211,19 @@ const requiredMarkup = [
     'id="mappingAreaManual" type="text" is="emby-input" aria-label="Manual entertainment area ID"',
     'id="mappingDeviceRouteSelect" is="emby-select" aria-label="Playback device route"'
 ];
+
+for (const marker of [
+    "Enable Real-time Media Sync",
+    "supported video and audio playback"
+]) {
+    if (!html.includes(marker)) {
+        throw new Error(`${file} is missing media-sync copy marker: ${marker}`);
+    }
+}
+if (html.includes("Enable Real-time Video Sync") ||
+    html.includes("lights will sync to the video in real-time")) {
+    throw new Error(`${file} still contains stale video-only sync wording`);
+}
 
 for (const marker of requiredMarkup) {
     if (!html.includes(marker)) {

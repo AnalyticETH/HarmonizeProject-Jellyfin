@@ -809,6 +809,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxColorPresets = 50;
         public const int MaxColorPresetNameLength = 64;
         public const int MaxUserMappings = 100;
+        public const int MaxHueBridgeCertificatePins = 100;
         public const int MaxBulkUserMappingDeletes = 50;
         public const int MaxBulkUserMappingUpdates = 50;
         public const int MaxDeviceTargetsPerUser = 25;
@@ -1614,6 +1615,37 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public static int ClampColorPresetEffectSpeedPercent(int value)
             => Math.Clamp(value, MinColorPresetEffectSpeedPercent, MaxColorPresetEffectSpeedPercent);
 
+        /// <summary>
+        /// Normalizes a SHA-256 certificate fingerprint. Colons, dashes, and spaces
+        /// are accepted for copy/paste convenience; the persisted form is lowercase
+        /// hexadecimal without separators.
+        /// </summary>
+        public static bool TryNormalizeCertificateFingerprint(
+            string? value,
+            out string normalized)
+        {
+            normalized = string.Empty;
+            if (string.IsNullOrWhiteSpace(value) || value.Length > 256)
+                return false;
+
+            var hex = new char[64];
+            var count = 0;
+            foreach (var character in value)
+            {
+                if (character is ':' or '-' or ' ' or '\t')
+                    continue;
+                if (!Uri.IsHexDigit(character) || count >= hex.Length)
+                    return false;
+                hex[count++] = char.ToLowerInvariant(character);
+            }
+
+            if (count != hex.Length)
+                return false;
+
+            normalized = new string(hex);
+            return true;
+        }
+
         public bool SyncEnabled { get; set; } = false;
         /// <summary>
         /// Limits which Jellyfin video item types can start Hue synchronization. Existing
@@ -1624,6 +1656,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
         // Default/fallback bridge settings (used when no user mapping exists)
         public string HueBridgeIp { get; set; } = string.Empty;
+        /// <summary>
+        /// SHA-256 certificate fingerprints keyed by configured bridge host. Local Hue
+        /// bridges use self-signed certificates, so a pin is required before any
+        /// credential-bearing request is allowed. The dictionary is credential-free and
+        /// can safely be included in configuration exports.
+        /// </summary>
+        public Dictionary<string, string> HueBridgeCertificatePins { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         // These keys are persisted for bridge access but must never be emitted by
         // Jellyfin's generic JSON plugin-configuration endpoint. The dedicated
         // HueSync configuration/export contracts expose only presence flags.
@@ -4020,6 +4059,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             var errors = new List<string>();
 
+            errors.AddRange(ValidateCertificatePins());
             errors.AddRange(ValidateColorPresets());
             errors.AddRange(ValidateScenePlaylists());
             errors.AddRange(ValidateSceneSchedules());
@@ -4253,6 +4293,32 @@ namespace Jellyfin.Plugin.Hue.Configuration
             // global synchronization is disabled so malformed persisted entries
             // cannot be silently accepted and carried into a later enablement.
             ValidateUserMappings(errors);
+
+            return errors;
+        }
+
+        private List<string> ValidateCertificatePins()
+        {
+            var errors = new List<string>();
+            if (HueBridgeCertificatePins == null)
+                return errors;
+
+            if (HueBridgeCertificatePins.Count > MaxHueBridgeCertificatePins)
+            {
+                errors.Add($"No more than {MaxHueBridgeCertificatePins} Hue bridge certificate pins may be saved");
+            }
+
+            foreach (var pin in HueBridgeCertificatePins)
+            {
+                if (!Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(pin.Key))
+                {
+                    errors.Add($"Hue bridge certificate pin host '{pin.Key}' must be a valid private IP address or .local host name");
+                }
+                else if (!TryNormalizeCertificateFingerprint(pin.Value, out _))
+                {
+                    errors.Add($"Hue bridge certificate pin for '{pin.Key}' must be a SHA-256 fingerprint");
+                }
+            }
 
             return errors;
         }

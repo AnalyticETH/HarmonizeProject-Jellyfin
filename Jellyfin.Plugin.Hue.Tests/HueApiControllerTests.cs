@@ -527,8 +527,210 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task RegisterBridge_RejectsUnpinnedPrivateAddressWithoutContactingBridge()
+    {
+        InstallConfiguration(new PluginConfiguration());
+        var controller = CreateController();
+
+        var action = await controller.RegisterBridge(new HueRegistrationRequest
+        {
+            IpAddress = "192.168.1.100"
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Contains("certificate", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetBridgeCertificate_RejectsPublicAddressWithoutContactingBridge()
+    {
+        var controller = CreateController();
+
+        var action = await controller.GetBridgeCertificate("8.8.8.8", CancellationToken.None);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task TrustBridgeCertificate_RequiresExplicitConfirmationWithoutContactingBridge()
+    {
+        var controller = CreateController();
+
+        var action = await controller.TrustBridgeCertificate(new HueBridgeCertificateTrustRequest
+        {
+            IpAddress = "192.168.1.100",
+            Fingerprint = new string('a', 64),
+            Confirm = false
+        }, CancellationToken.None);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetBridgeCertificate_ReturnsFingerprintWithoutSendingCredentials()
+    {
+        const string fingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        InstallConfiguration(new PluginConfiguration());
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+            {
+                capturedRequest = request;
+                request.Options.Set(HueBridgeCertificateValidation.CertificateFingerprintOption, fingerprint);
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"bridgeid\":\"001122334455\"}", Encoding.UTF8, "application/json")
+            });
+
+        var action = await CreateController().GetBridgeCertificate("192.168.1.100", CancellationToken.None);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueBridgeCertificateResult>(response.Value);
+        Assert.Equal(fingerprint, result.Fingerprint);
+        Assert.False(result.IsPinned);
+        Assert.NotNull(capturedRequest);
+        Assert.True(capturedRequest!.Headers.Contains(HueBridgeCertificateValidation.CertificateProbeHeader));
+        Assert.False(capturedRequest.Headers.Contains("hue-application-key"));
+    }
+
+    [Fact]
+    public async Task TrustBridgeCertificateStoresVerifiedFingerprintWithoutSendingCredentials()
+    {
+        const string fingerprint = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        var configuration = InstallConfiguration(new PluginConfiguration());
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+            {
+                capturedRequest = request;
+                request.Options.Set(HueBridgeCertificateValidation.CertificateFingerprintOption, fingerprint);
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"bridgeid\":\"66778899aabb\"}", Encoding.UTF8, "application/json")
+            });
+
+        var action = await CreateController().TrustBridgeCertificate(new HueBridgeCertificateTrustRequest
+        {
+            IpAddress = "192.168.1.100",
+            Fingerprint = fingerprint,
+            Confirm = true
+        }, CancellationToken.None);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueBridgeCertificateResult>(response.Value);
+        Assert.True(result.IsPinned);
+        Assert.Equal(fingerprint, configuration.HueBridgeCertificatePins["192.168.1.100"]);
+        Assert.NotNull(capturedRequest);
+        Assert.True(capturedRequest!.Headers.Contains(HueBridgeCertificateValidation.CertificateProbeHeader));
+        Assert.False(capturedRequest.Headers.Contains("hue-application-key"));
+    }
+
+    [Fact]
+    public async Task TrustBridgeCertificate_RejectsChangedFingerprintWithoutMutatingPins()
+    {
+        const string existingFingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string liveFingerprint = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["192.168.1.100"] = existingFingerprint
+            }
+        });
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                request.Options.Set(HueBridgeCertificateValidation.CertificateFingerprintOption, liveFingerprint))
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"bridgeid\":\"aabbccddeeff\"}", Encoding.UTF8, "application/json")
+            });
+
+        var action = await CreateController().TrustBridgeCertificate(new HueBridgeCertificateTrustRequest
+        {
+            IpAddress = "192.168.1.100",
+            Fingerprint = existingFingerprint,
+            Confirm = true
+        }, CancellationToken.None);
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Equal(existingFingerprint, configuration.HueBridgeCertificatePins["192.168.1.100"]);
+    }
+
+    [Fact]
+    public async Task TrustBridgeCertificate_RollsBackWhenPersistenceFails()
+    {
+        const string previousFingerprint = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+        const string liveFingerprint = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("certificate pin persistence failed"));
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["192.168.1.100"] = previousFingerprint
+            }
+        }, serializer.Object);
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                request.Options.Set(HueBridgeCertificateValidation.CertificateFingerprintOption, liveFingerprint))
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"bridgeid\":\"112233445566\"}", Encoding.UTF8, "application/json")
+            });
+
+        var action = await CreateController().TrustBridgeCertificate(new HueBridgeCertificateTrustRequest
+        {
+            IpAddress = "192.168.1.100",
+            Fingerprint = liveFingerprint,
+            Confirm = true
+        }, CancellationToken.None);
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Equal(previousFingerprint, configuration.HueBridgeCertificatePins["192.168.1.100"]);
+    }
+
+    [Fact]
     public async Task RegisterBridge_ValidPrivateAddressReturnsCredentialsAndTrimsAddress()
     {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["192.168.1.100"] = new string('a', 64)
+            }
+        });
         HttpRequestMessage? capturedRequest = null;
         _httpHandlerMock
             .Protected()
@@ -11904,6 +12106,39 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("default-client-key", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("UserMappings", serialized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ConfigurationSettings_RoundTripsCertificatePinsWithoutSharingMutableState()
+    {
+        var source = new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                [" 192.168.1.100 "] = string.Join(':', Enumerable.Repeat("AA", 32))
+            }
+        };
+        Assert.True(PluginConfiguration.TryNormalizeCertificateFingerprint(
+            source.HueBridgeCertificatePins[" 192.168.1.100 "],
+            out var normalizedInput));
+        Assert.Equal(new string('a', 64), normalizedInput);
+
+        var settings = HuePluginConfigurationSettings.From(source);
+        Assert.Equal(
+            new string('a', 64),
+            settings.HueBridgeCertificatePins!["192.168.1.100"]);
+
+        var destination = new PluginConfiguration();
+        settings.ApplyTo(destination);
+        Assert.Equal(
+            new string('a', 64),
+            destination.HueBridgeCertificatePins["192.168.1.100"]);
+
+        settings.HueBridgeCertificatePins!["192.168.1.100"] = new string('b', 64);
+        Assert.Equal(
+            string.Join(':', Enumerable.Repeat("AA", 32)),
+            source.HueBridgeCertificatePins[" 192.168.1.100 "]);
+        Assert.Equal(new string('a', 64), destination.HueBridgeCertificatePins["192.168.1.100"]);
     }
 
     [Fact]

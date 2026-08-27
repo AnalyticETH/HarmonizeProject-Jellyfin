@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Security;
@@ -19,9 +20,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 {
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
-        // Hue bridges use a locally issued/self-signed certificate. Keep that exception
-        // scoped to private bridge addresses so discovery.meethue.com and any other public
-        // HTTPS endpoint still use the platform certificate trust store.
+        // Hue bridges use a locally issued/self-signed certificate. Keep the exception
+        // scoped to private bridge addresses and require an explicit SHA-256 pin so
+        // discovery.meethue.com and any other public HTTPS endpoint still use the
+        // platform certificate trust store.
         // Note: AddHttpClient<T>() registers T as transient by default, using the configured handler
         serviceCollection.AddHttpClient<Hue.HueClient>()
             .ConfigureHttpClient(httpClient => httpClient.Timeout = TimeSpan.FromSeconds(10))
@@ -55,6 +57,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
 internal static class HueBridgeCertificateValidation
 {
+    internal const string CertificateFingerprintHeader = "x-hue-certificate-sha256";
+    internal const string CertificateProbeHeader = "x-hue-certificate-probe";
+    internal static readonly HttpRequestOptionsKey<string> CertificateFingerprintOption =
+        new("HueBridgeCertificateFingerprint");
+
     internal static bool IsValidBridgeAddress(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -73,22 +80,105 @@ internal static class HueBridgeCertificateValidation
         X509Chain? chain,
         SslPolicyErrors sslPolicyErrors)
     {
-        if (sslPolicyErrors == SslPolicyErrors.None)
+        if (request?.RequestUri is not { } requestUri)
+            return false;
+
+        var isLocalBridge = IsLocalBridgeHost(requestUri.Host);
+        if (!isLocalBridge)
         {
-            return true;
+            // Public discovery traffic must use the platform trust store and never
+            // inherits the local self-signed exception.
+            return sslPolicyErrors == SslPolicyErrors.None;
         }
 
-        // Never bypass a missing certificate or other policy failures. A Hue bridge may
-        // legitimately have name/chain errors because it uses a local certificate.
+        if (certificate == null)
+            return false;
+
+        var actualFingerprint = ComputeCertificateFingerprint(certificate);
+        request.Options.Set(CertificateFingerprintOption, actualFingerprint);
+
+        // An explicit certificate probe is credential-free and is used only by the
+        // elevated re-pinning flow. It still rejects missing certificates and policy
+        // failures other than the expected local name/chain errors.
         const SslPolicyErrors allowedLocalErrors =
             SslPolicyErrors.RemoteCertificateNameMismatch |
             SslPolicyErrors.RemoteCertificateChainErrors;
-        if ((sslPolicyErrors & ~allowedLocalErrors) != 0 || request?.RequestUri is not { } requestUri)
+        if ((sslPolicyErrors & ~allowedLocalErrors) != 0)
         {
             return false;
         }
 
-        return IsLocalBridgeHost(requestUri.Host);
+        if (request.Headers.Contains(CertificateProbeHeader))
+            return true;
+
+        var expected = request.Headers.TryGetValues(CertificateFingerprintHeader, out var values)
+            ? values.FirstOrDefault()
+            : GetConfiguredCertificateFingerprint(requestUri.Host);
+        return TryNormalizeCertificateFingerprint(expected, out var normalizedExpected) &&
+               string.Equals(actualFingerprint, normalizedExpected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string ComputeCertificateFingerprint(X509Certificate2 certificate)
+    {
+        ArgumentNullException.ThrowIfNull(certificate);
+        return Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(certificate.RawData))
+            .ToLowerInvariant();
+    }
+
+    internal static bool TryNormalizeCertificateFingerprint(
+        string? value,
+        out string normalized)
+    {
+        return Configuration.PluginConfiguration.TryNormalizeCertificateFingerprint(value, out normalized);
+    }
+
+    /// <summary>
+    /// Returns one configured pin for a bridge host. Conflicting pins across targets
+    /// fail closed by returning null, forcing an explicit administrator re-pin.
+    /// </summary>
+    internal static string? GetConfiguredCertificateFingerprint(string? bridgeHost)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config?.HueBridgeCertificatePins == null || string.IsNullOrWhiteSpace(bridgeHost))
+            return null;
+
+        var matches = new List<string>();
+        foreach (var pair in config.HueBridgeCertificatePins)
+        {
+            if (!IsSameBridgeHost(pair.Key, bridgeHost))
+                continue;
+
+            // A malformed alias must not be silently ignored when another alias has a
+            // valid pin. Force an explicit administrator re-pin instead of guessing
+            // which persisted identity should win.
+            if (!TryNormalizeCertificateFingerprint(pair.Value, out var normalized))
+                return null;
+
+            matches.Add(normalized);
+        }
+
+        var distinctMatches = matches.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return distinctMatches.Length == 1 ? distinctMatches[0] : null;
+    }
+
+    internal static bool IsSameBridgeHost(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        var leftHost = left.Trim().Trim('[', ']');
+        var rightHost = right.Trim().Trim('[', ']');
+        if (IPAddress.TryParse(leftHost, out var leftAddress) &&
+            IPAddress.TryParse(rightHost, out var rightAddress))
+        {
+            return leftAddress.Equals(rightAddress);
+        }
+
+        return string.Equals(
+            leftHost.TrimEnd('.'),
+            rightHost.TrimEnd('.'),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool IsLocalBridgeHost(string host)

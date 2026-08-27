@@ -199,6 +199,10 @@
                                 style="margin-bottom: 20px;">
                                 <span>Link Bridge</span>
                             </button>
+                            <button is="emby-button" type="button" class="raised" id="bridgeCertificateBtn"
+                                style="margin-bottom: 20px;">
+                                <span>Verify/Trust Certificate</span>
+                            </button>
                             <button is="emby-button" type="button" class="raised" id="refreshAreasBtn"
                                 style="margin-bottom: 20px;">
                                 <span>Refresh Entertainment Areas</span>
@@ -1765,9 +1769,9 @@
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label>
                             <input is="emby-checkbox" type="checkbox" id="syncEnabled" name="syncEnabled" />
-                            <span>Enable Real-time Video Sync</span>
+                            <span>Enable Real-time Media Sync</span>
                         </label>
-                        <div class="fieldDescription">If enabled, lights will sync to the video in real-time (uses CPU/GPU resources).</div>
+                        <div class="fieldDescription">If enabled, lights will react to supported video and audio playback in real-time (uses CPU/GPU resources).</div>
                     </div>
                     <br />
                     <button is="emby-button" type="submit" class="raised button-submit block" id="saveConfigurationBtn">
@@ -2016,6 +2020,51 @@
                     return HueConfigurationPage.canUseStoredGlobalCredentials(page, target && target.bridgeIp, requireClientKey) ||
                         HueConfigurationPage.canUseStoredMappingCredentials(target, requireClientKey) ||
                         HueConfigurationPage.canUseStoredDeviceRouteCredentials(target, requireClientKey);
+                },
+                ensureBridgeCertificate: function (page, bridgeIp, statusElement) {
+                    var target = String(bridgeIp || '').trim();
+                    if (!target) return Promise.reject(new Error('A bridge address is required.'));
+                    var status = statusElement || (page && page.querySelector ? page.querySelector('#bridgeStatus') : null);
+                    return ApiClient.getJSON(ApiClient.getUrl('HueSync/BridgeCertificate') + '?ipAddress=' + encodeURIComponent(target))
+                        .then(function (response) {
+                            var fingerprint = String((response && (response.fingerprint || response.Fingerprint)) || '').trim();
+                            var pinned = response && (response.isPinned === true || response.IsPinned === true);
+                            if (!fingerprint) throw new Error('The bridge did not return a certificate fingerprint.');
+                            if (pinned) return true;
+                            return new Promise(function (resolve, reject) {
+                                var message = 'Verify this bridge certificate fingerprint out of band before trusting it:\n\n' + fingerprint + '\n\nTrust this fingerprint for ' + target + '?';
+                                Dashboard.confirm(message, 'Trust Hue Bridge Certificate', function (confirmed) {
+                                    if (!confirmed) {
+                                        resolve(false);
+                                        return;
+                                    }
+                                    ApiClient.ajax({
+                                        type: 'POST',
+                                        url: ApiClient.getUrl('HueSync/BridgeCertificate/Trust'),
+                                        data: JSON.stringify({ ipAddress: target, fingerprint: fingerprint, confirm: true }),
+                                        contentType: 'application/json',
+                                        dataType: 'json'
+                                    }).then(function () { resolve(true); }).catch(reject);
+                                });
+                            });
+                        }).then(function (trusted) {
+                            if (!trusted) throw new Error('Bridge certificate was not trusted.');
+                            if (status) {
+                                status.textContent = 'Bridge certificate is pinned. Credential-bearing requests are protected.';
+                                status.style.background = '#4caf50';
+                            }
+                            return true;
+                        });
+                },
+                verifyBridgeCertificate: function (page) {
+                    var bridgeInput = page && page.querySelector ? page.querySelector('#hueBridgeIp') : null;
+                    var status = page && page.querySelector ? page.querySelector('#bridgeStatus') : null;
+                    var bridgeIp = bridgeInput ? bridgeInput.value.trim() : '';
+                    HueConfigurationPage.ensureBridgeCertificate(page, bridgeIp, status)
+                        .catch(function (err) {
+                            console.error('Bridge certificate verification error:', err);
+                            Dashboard.alert(err && err.message ? err.message : 'Bridge certificate verification failed.');
+                        });
                 },
                 readMappingDeviceTargets: function () {
                     var element = document.getElementById('mappingDeviceTargets');
@@ -11047,7 +11096,13 @@
                         return;
                     }
 
-                    Dashboard.confirm("Please press the large LINK BUTTON on your Hue Bridge now, then click OK.", "Link Bridge", function (result) {
+                    HueConfigurationPage.ensureBridgeCertificate(page, ip).then(function () {
+                        return new Promise(function (resolve) {
+                            Dashboard.confirm("Please press the large LINK BUTTON on your Hue Bridge now, then click OK.", "Link Bridge", function (result) {
+                                resolve(result === true);
+                            });
+                        });
+                    }).then(function (result) {
                         if (!result || page._hueRegistrationRequest) return;
                         if (button) button.disabled = true;
                         Dashboard.showLoadingMsg();
@@ -11092,6 +11147,8 @@
                             }
                             Dashboard.hideLoadingMsg();
                         });
+                    }).catch(function (err) {
+                        Dashboard.alert(err && err.message ? err.message : "Bridge certificate verification failed. Review and trust the fingerprint before linking.");
                     });
                 },
                 testDefaultConnection: function (page) {
@@ -12228,7 +12285,14 @@
                         return;
                     }
 
-                    Dashboard.confirm("Please press the large LINK BUTTON on your Hue Bridge now, then click OK.", "Link Bridge", function (result) {
+                    var page = document.querySelector('.pluginConfigurationPage');
+                    HueConfigurationPage.ensureBridgeCertificate(page, ip, statusEl).then(function () {
+                        return new Promise(function (resolve) {
+                            Dashboard.confirm("Please press the large LINK BUTTON on your Hue Bridge now, then click OK.", "Link Bridge", function (result) {
+                                resolve(result === true);
+                            });
+                        });
+                    }).then(function (result) {
                         if (!result || HueConfigurationPage._hueMappingRegistrationRequest) return;
                         if (button) button.disabled = true;
                         if (statusEl) {
@@ -12286,6 +12350,11 @@
                                 if (button) button.disabled = false;
                             }
                         });
+                    }).catch(function (err) {
+                        if (statusEl) {
+                            statusEl.textContent = err && err.message ? err.message : "Certificate verification failed. Review and trust the fingerprint before linking.";
+                            statusEl.style.background = "#d9534f";
+                        }
                     });
                 },
 
@@ -13255,6 +13324,10 @@
 
             document.querySelector('#registerBtn').addEventListener('click', function () {
                 HueConfigurationPage.registerBridge(this.closest('.page'));
+            });
+
+            document.querySelector('#bridgeCertificateBtn').addEventListener('click', function () {
+                HueConfigurationPage.verifyBridgeCertificate(this.closest('.page'));
             });
 
             document.querySelector('#refreshAreasBtn').addEventListener('click', function () {

@@ -179,7 +179,71 @@ namespace Jellyfin.Plugin.Hue.Hue
                 request.RequestUri = builder.Uri;
             }
 
+            // Carry the configured pin into the TLS callback even when a .local name
+            // was rewritten to its vetted private IP between validation and connect.
+            // The fingerprint is public metadata; bridge credentials remain in the
+            // existing Hue application-key header and are never logged.
+            var configuredFingerprint = HueBridgeCertificateValidation
+                .GetConfiguredCertificateFingerprint(requestUri.Host);
+            if (!string.IsNullOrWhiteSpace(configuredFingerprint))
+            {
+                request.Headers.TryAddWithoutValidation(
+                    HueBridgeCertificateValidation.CertificateFingerprintHeader,
+                    configuredFingerprint);
+            }
+
             return await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Performs a credential-free TLS handshake and returns the server certificate
+        /// fingerprint. The caller must present the result to an administrator and use
+        /// the explicit trust endpoint before bridge credentials can be sent.
+        /// </summary>
+        public async Task<string?> GetBridgeCertificateFingerprint(
+            string bridgeIp,
+            CancellationToken cancellationToken = default)
+        {
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(bridgeIp))
+                return null;
+
+            try
+            {
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    BuildBridgeUrl("https", bridgeIp, "/api/config"));
+                request.Headers.TryAddWithoutValidation(
+                    HueBridgeCertificateValidation.CertificateProbeHeader,
+                    "1");
+                using var response = await SendBridgeRequestAsync(request, cancellationToken)
+                    .ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                using var document = JsonDocument.Parse(
+                    await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                    !document.RootElement.TryGetProperty("bridgeid", out var bridgeId) ||
+                    bridgeId.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(bridgeId.GetString()))
+                {
+                    _logger.LogWarning("Hue bridge certificate probe returned an unexpected configuration response");
+                    return null;
+                }
+
+                return request.Options.TryGetValue(
+                    HueBridgeCertificateValidation.CertificateFingerprintOption,
+                    out var fingerprint)
+                    ? fingerprint
+                    : null;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to retrieve the Hue bridge certificate fingerprint");
+                return null;
+            }
         }
 
         /// <summary>

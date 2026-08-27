@@ -4,6 +4,21 @@ const readme = fs.readFileSync("README.md", "utf8");
 const controller = fs.readFileSync("Jellyfin.Plugin.Hue/Api/HueApiController.cs", "utf8");
 const pluginConfiguration = fs.readFileSync("Jellyfin.Plugin.Hue/Configuration/PluginConfiguration.cs", "utf8");
 const automationService = fs.readFileSync("Jellyfin.Plugin.Hue/Service/HueSceneAutomationService.cs", "utf8");
+const serviceRegistrator = fs.readFileSync("Jellyfin.Plugin.Hue/Service/PluginServiceRegistrator.cs", "utf8");
+
+for (const marker of [
+    "supported video and audio media",
+    "bounded audio windows",
+    "supported video and audio playback events",
+    "Audio and AllMedia scopes process supported audio playback"
+]) {
+    if (!readme.includes(marker)) {
+        throw new Error(`README.md media-sync documentation is missing marker: ${marker}`);
+    }
+}
+if (readme.includes("Audio-only and other non-video playback is ignored safely.")) {
+    throw new Error("README.md still contains stale audio-only playback guidance");
+}
 
 const previewEndpoints = [
     "POST /HueSync/Preview",
@@ -17,9 +32,19 @@ const registerRow = readme.split("\n").find(line => line.startsWith("|") && line
 if (!registerRow) {
     throw new Error("README.md is missing the bridge registration endpoint contract");
 }
-for (const marker of ["Link Button", "private", "App Key", "Client Key", "secrets"]) {
+for (const marker of ["Link Button", "private", "App Key", "Client Key", "secrets", "unpinned", "certificate"]) {
     if (!registerRow.includes(marker)) {
         throw new Error(`README.md bridge registration contract is missing safety marker: ${marker}`);
+    }
+}
+
+for (const endpoint of [
+    "GET /HueSync/BridgeCertificate?ipAddress=...",
+    "POST /HueSync/BridgeCertificate/Trust"
+]) {
+    const row = readme.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
+    if (!row || !row.includes("fingerprint") || !row.includes("credential")) {
+        throw new Error(`README.md is missing certificate pinning safety guidance: ${endpoint}`);
     }
 }
 
@@ -190,6 +215,18 @@ for (const marker of [
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API preview route support is missing source marker: ${marker}`);
+    }
+}
+
+for (const marker of [
+    '[HttpGet("BridgeCertificate")]',
+    '[HttpPost("BridgeCertificate/Trust")]',
+    "GetBridgeCertificateFingerprint",
+    "CertificateFingerprintHeader",
+    "HueBridgeCertificatePins"
+]) {
+    if (!controller.includes(marker) && !pluginConfiguration.includes(marker) && !serviceRegistrator.includes(marker)) {
+        throw new Error(`Hue API certificate pinning support is missing source marker: ${marker}`);
     }
 }
 

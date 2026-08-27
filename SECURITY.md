@@ -34,7 +34,10 @@ Every trusted `main` push runs the named self-hosted CI runner with:
 
 Bridge HTTP transport also disables automatic redirects and excludes raw bridge response bodies from
 registration/start/stop failure logs, preventing credential-shaped response fields from being sent to
-an unintended host or retained in Jellyfin logs.
+an unintended host or retained in Jellyfin logs. Local bridge certificates are pinned by SHA-256
+fingerprint before registration or any credential-bearing request; the administrator UI performs a
+credential-free probe and requires explicit confirmation, while unpinned or changed certificates fail
+closed.
 
 The repository-controlled weekly default-branch security workflow reruns the blocking Gitleaks and Semgrep gates. Both scanner jobs carry the same `refs/heads/main` guard, so pull-request and non-main code never reach the persistent runner.
 

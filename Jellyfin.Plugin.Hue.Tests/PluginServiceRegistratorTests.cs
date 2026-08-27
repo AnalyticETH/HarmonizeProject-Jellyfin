@@ -4,6 +4,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue;
@@ -194,7 +196,7 @@ public class PluginServiceRegistratorTests
     }
 
     [Fact]
-    public void ValidateServerCertificate_LocalBridgeCertificateErrorsAreScoped()
+    public void ValidateServerCertificate_LocalBridgeCertificateErrorsRequirePin()
     {
         using var bridgeRequest = new HttpRequestMessage(HttpMethod.Get, "https://192.168.1.100/api");
         using var publicRequest = new HttpRequestMessage(HttpMethod.Get, "https://discovery.meethue.com/");
@@ -202,10 +204,73 @@ public class PluginServiceRegistratorTests
             SslPolicyErrors.RemoteCertificateNameMismatch |
             SslPolicyErrors.RemoteCertificateChainErrors;
 
-        Assert.True(HueBridgeCertificateValidation.ValidateServerCertificate(
+        Assert.False(HueBridgeCertificateValidation.ValidateServerCertificate(
             bridgeRequest, null, null, bridgeCertificateErrors));
         Assert.False(HueBridgeCertificateValidation.ValidateServerCertificate(
             publicRequest, null, null, bridgeCertificateErrors));
+    }
+
+    [Fact]
+    public void ValidateServerCertificate_AcceptsExactPinnedLocalCertificate()
+    {
+        using var rsa = RSA.Create(2048);
+        var certificateRequest = new CertificateRequest(
+            "CN=hue-bridge",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        using var certificate = certificateRequest.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow.AddMinutes(5));
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://192.168.1.100/api");
+        request.Headers.Add(
+            HueBridgeCertificateValidation.CertificateFingerprintHeader,
+            HueBridgeCertificateValidation.ComputeCertificateFingerprint(certificate));
+
+        const SslPolicyErrors certificateErrors =
+            SslPolicyErrors.RemoteCertificateNameMismatch |
+            SslPolicyErrors.RemoteCertificateChainErrors;
+        Assert.True(HueBridgeCertificateValidation.ValidateServerCertificate(
+            request,
+            certificate,
+            null,
+            certificateErrors));
+    }
+
+    [Fact]
+    public void ValidateServerCertificate_RejectsWrongPinnedLocalCertificate()
+    {
+        using var rsa = RSA.Create(2048);
+        var certificateRequest = new CertificateRequest(
+            "CN=hue-bridge",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        using var certificate = certificateRequest.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow.AddMinutes(5));
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://192.168.1.100/api");
+        request.Headers.Add(
+            HueBridgeCertificateValidation.CertificateFingerprintHeader,
+            new string('0', 64));
+
+        const SslPolicyErrors certificateErrors =
+            SslPolicyErrors.RemoteCertificateNameMismatch |
+            SslPolicyErrors.RemoteCertificateChainErrors;
+        Assert.False(HueBridgeCertificateValidation.ValidateServerCertificate(
+            request,
+            certificate,
+            null,
+            certificateErrors));
+    }
+
+    [Theory]
+    [InlineData("AA:BB CC-DD", false)]
+    [InlineData("", false)]
+    [InlineData("not-a-fingerprint", false)]
+    public void TryNormalizeCertificateFingerprint_RejectsMalformedValues(string value, bool expected)
+    {
+        Assert.Equal(expected, HueBridgeCertificateValidation.TryNormalizeCertificateFingerprint(value, out _));
     }
 
     [Fact]

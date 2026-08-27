@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.329] - 2026-08-27
+
+### Bridge certificate pinning and scheduler reliability
+- **Local bridge certificate pinning**: credential-free probes expose a SHA-256 fingerprint and explicit administrator trust/re-pin is required before registration or any App Key request; unpinned, changed, malformed, or conflicting certificates fail closed.
+- **Per-target retry isolation**: scheduled scene and playlist runs clone Hue transport state so mapping retry overrides cover discovery, capture, activation, reconnect, deactivation, and restoration without cross-room races.
+- **Scheduler clock correctness**: long-running cues advance an absolute UTC logical clock and derive due slots from the advanced evaluation instant across midnight and DST transitions.
+- **Media-scope documentation parity**: administrator copy and README now accurately describe supported video/audio sync and certificate trust setup.
+- **Regression coverage**: API, configuration, certificate-validation, mutation-filter, and static documentation contracts cover the new safety boundaries.
+
 ## [1.5.328] - 2026-08-27
 
 ### Playback and route profile lifecycle hardening

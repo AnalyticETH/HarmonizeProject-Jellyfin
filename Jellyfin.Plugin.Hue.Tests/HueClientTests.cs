@@ -251,6 +251,34 @@ public class HueClientTests : IDisposable
     #region GetEntertainmentAreas Tests
 
     [Fact]
+    public async Task GetBridgeCertificateFingerprint_RequiresHueConfigurationResponse()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "{\"status\":\"ok\"}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetBridgeCertificateFingerprint("192.168.1.100");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetBridgeCertificateFingerprint_RejectsUnsuccessfulResponse()
+    {
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetBridgeCertificateFingerprint("192.168.1.100");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task CreatePlaybackClient_AfterSharedClientRequest_DoesNotMutateHttpClientTimeout()
     {
         SetupHttpResponse(HttpStatusCode.OK, "{\"data\":[]}");
