@@ -26,6 +26,7 @@ for (const marker of [
   'local_tag_ref="refs/tags/${TAG}"',
   'git show-ref --verify --quiet "$local_tag_ref"',
   "find_release_json()",
+  "jq -c --arg tag \"$RELEASE_TAG\" '[.[] | select(.tag_name == $tag)] | first'",
   "jq -e '.draft == true' <<<\"$release_json\"",
   'if [ "$target_sha" != "$RELEASE_SHA" ]; then',
   "CODECOV_TOKEN_PRESENT: ${{ secrets.CODECOV_TOKEN != '' }}",

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.344] - 2026-08-27
+
+### Release publication correctness
+- **Null-safe draft lookup**: trusted release publication treats GitHub CLI's empty no-release response as an explicit null and does not confuse a missing draft with a published release.
+- **Release-ID integrity gate**: draft discovery, asset digest verification, and publication remain bound to one verified release record and workflow commit.
+- **Regression coverage**: the trusted-workflow contract covers empty lookup normalization, draft state, target identity, asset digests, and API publication.
+
 ## [1.5.343] - 2026-08-27
 
 ### Release pipeline hardening

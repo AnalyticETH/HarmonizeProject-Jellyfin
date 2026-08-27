@@ -525,7 +525,7 @@ jobs:
 
         find_release_json() {
           gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-            --jq --arg tag "$RELEASE_TAG" '[.[] | select(.tag_name == $tag)] | first'
+            | jq -c --arg tag "$RELEASE_TAG" '[.[] | select(.tag_name == $tag)] | first'
         }
 
         ensure_draft() {
