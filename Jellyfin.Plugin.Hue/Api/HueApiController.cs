@@ -7805,6 +7805,8 @@ namespace Jellyfin.Plugin.Hue.Api
         /// contacting a Hue bridge. The same normalization, dependency, and complete
         /// configuration checks used by the atomic import are applied to an isolated
         /// candidate, so administrators can preflight a migration before confirming it.
+        /// A successful result also includes a credential-safe configuration version token
+        /// that must be supplied to the import endpoint.
         /// </summary>
         [HttpPost("Configuration/ValidateImport")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -7854,6 +7856,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 ActiveScheduleEvaluation = activeScheduleEvaluation,
                 ActiveScheduleLifecycle = activeScheduleLifecycle,
                 SchemaVersion = request.SchemaVersion,
+                ConfigurationVersion = ComputeConfigurationVersion(config),
                 ValidationErrors = plan.ValidationErrors,
                 MappingsImported = plan.ImportedMappingCount,
                 ColorPresetsImported = plan.ImportedPresetCount,
@@ -7914,6 +7917,8 @@ namespace Jellyfin.Plugin.Hue.Api
         /// scheduled scene cues atomically. Blank
         /// global or mapping keys preserve credentials already stored for the same target;
         /// secrets included explicitly in an import are accepted but never echoed back.
+        /// A matching ExpectedConfigurationVersion from a current validation is required;
+        /// stale or missing tokens fail closed before any configuration is changed.
         /// </summary>
         [HttpPost("Configuration/Import")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -7971,6 +7976,20 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (plan.ValidationErrors.Count > 0)
                 {
                     return BadRequest(new { message = "Configuration import is invalid.", errors = plan.ValidationErrors });
+                }
+
+                if (string.IsNullOrWhiteSpace(request.ExpectedConfigurationVersion))
+                {
+                    return BadRequest("A current configuration validation version is required before importing.");
+                }
+
+                var currentConfigurationVersion = ComputeConfigurationVersion(config);
+                if (!string.Equals(
+                        request.ExpectedConfigurationVersion.Trim(),
+                        currentConfigurationVersion,
+                        StringComparison.Ordinal))
+                {
+                    return Conflict("Configuration changed after validation; validate the import again before retrying.");
                 }
 
                 return ApplyConfigurationImport(plugin, config, request, plan);
@@ -8051,6 +8070,48 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             if (count > maximum)
                 errors.Add($"{label} may contain no more than {maximum} items.");
+        }
+
+        /// <summary>
+        /// Computes a credential-safe optimistic-concurrency token for every field that can
+        /// be changed by configuration import. Bridge keys are included only as SHA-256 input;
+        /// the raw values never leave this method. Runtime and retained history are excluded so
+        /// an administrator can approve an import while telemetry continues to age normally.
+        /// </summary>
+        private static string ComputeConfigurationVersion(PluginConfiguration config)
+        {
+            var payload = new
+            {
+                Settings = HuePluginConfigurationSettings.From(config),
+                HueAppKey = config.HueAppKey ?? string.Empty,
+                HueClientKey = config.HueClientKey ?? string.Empty,
+                UserMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
+                    .Select(mapping => mapping == null
+                        ? null
+                        : new
+                        {
+                            Value = mapping,
+                            HueAppKey = mapping.HueAppKey ?? string.Empty,
+                            HueClientKey = mapping.HueClientKey ?? string.Empty,
+                            DeviceTargetCredentials = (mapping.DeviceTargets ?? new List<UserDeviceBridgeTarget>())
+                                .Select(target => target == null
+                                    ? null
+                                    : new
+                                    {
+                                        Value = target,
+                                        HueAppKey = target.HueAppKey ?? string.Empty,
+                                        HueClientKey = target.HueClientKey ?? string.Empty
+                                    })
+                                .ToArray()
+                        })
+                    .ToArray(),
+                ColorPresets = (config.ColorPresets ?? new List<HueColorPreset>()).ToArray(),
+                ScenePlaylists = (config.ScenePlaylists ?? new List<HueScenePlaylist>()).ToArray(),
+                SceneSchedules = (config.SceneSchedules ?? new List<HueSceneSchedule>()).ToArray()
+            };
+
+            var serialized = JsonSerializer.SerializeToUtf8Bytes(payload);
+            return Convert.ToHexString(SHA256.HashData(serialized)).ToLowerInvariant();
         }
 
         private static HueConfigurationImportPlan BuildConfigurationImportPlan(
@@ -11785,6 +11846,13 @@ namespace Jellyfin.Plugin.Hue.Api
     public sealed class HueConfigurationImportRequest
     {
         public int SchemaVersion { get; set; } = HueConfigurationExportDocument.CurrentSchemaVersion;
+        /// <summary>
+        /// Token returned by ValidateImport. It binds an approval to the exact live
+        /// configuration snapshot that was reviewed, preventing stale admin tabs from
+        /// overwriting newer settings.
+        /// </summary>
+        [JsonPropertyName("expectedConfigurationVersion")]
+        public string ExpectedConfigurationVersion { get; set; } = string.Empty;
         public HuePluginConfigurationSettings? Configuration { get; set; }
         public List<UserBridgeMappingImport> UserMappings { get; set; } = new();
         public List<HueColorPresetRequest> ColorPresets { get; set; } = new();
@@ -11861,6 +11929,11 @@ namespace Jellyfin.Plugin.Hue.Api
         public bool ActiveScheduleEvaluation { get; set; }
         public bool ActiveScheduleLifecycle { get; set; }
         public int SchemaVersion { get; set; }
+        /// <summary>
+        /// Credential-safe SHA-256 snapshot token required by Import.
+        /// </summary>
+        [JsonPropertyName("configurationVersion")]
+        public string ConfigurationVersion { get; set; } = string.Empty;
         public IReadOnlyList<string> ValidationErrors { get; set; } = Array.Empty<string>();
         public int MappingsImported { get; set; }
         public int ColorPresetsImported { get; set; }

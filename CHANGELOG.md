@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.323] - 2026-08-26
+
+### Optimistic configuration-import concurrency
+- **Snapshot-bound migration**: `ValidateImport` now returns a credential-safe SHA-256 version token, and `Import` requires the matching token before applying any change.
+- **Fail-closed stale tabs**: missing validation tokens return `400`, while configuration changes made after validation return `409` without mutating or disclosing credentials.
+- **UI and contract coverage**: the administrator import wizard clears stale approvals, submits the token only for the confirmed request, explains revalidation conflicts, and adds API/static lifecycle regression coverage.
+
 ## [1.5.322] - 2026-08-26
 
 ### Fail-closed release publication

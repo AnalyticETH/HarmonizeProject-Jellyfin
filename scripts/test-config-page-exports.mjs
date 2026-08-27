@@ -525,6 +525,7 @@ async function testConfigurationImportValidationLifecycleGuards() {
     requests[1].resolve({
         valid: true,
         canImport: true,
+        configurationVersion: "test-configuration-version",
         message: "Import is valid",
         totalMappings: 1,
         totalColorPresets: 2,
@@ -566,11 +567,13 @@ async function testConfigurationImportSubmitLifecycleGuards() {
     dashboard.confirm = (title, message, callback) => callback(true);
     page._hueImportDocument = { Configuration: { HueBridgeIp: "bridge.local" } };
     page._hueImportValidated = true;
+    page._hueImportConfigurationVersion = "test-configuration-version";
 
     api.submitConfigurationImport(page);
     assert.equal(requests.length, 1, "configuration import starts one request after confirmation");
     assert.equal(requests[0].options.type, "POST", "configuration import uses POST");
     assert.equal(requests[0].options.url, "HueSync/Configuration/Import", "configuration import uses the import endpoint");
+    assert.equal(JSON.parse(requests[0].options.data).expectedConfigurationVersion, "test-configuration-version", "configuration import sends the validated snapshot token");
 
     page.querySelector("#configurationPortabilityStatus").textContent = "unchanged after pagehide";
     api.invalidatePageLifecycle(page);

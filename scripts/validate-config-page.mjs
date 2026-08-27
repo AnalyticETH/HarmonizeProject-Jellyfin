@@ -441,6 +441,10 @@ const requiredScript = [
     "retainMappingId",
     "removeMappingIds",
     "expectedReportVersion",
+    "configurationVersion",
+    "expectedConfigurationVersion",
+    "_hueImportConfigurationVersion",
+    "Configuration changed after validation. Validate Import again before retrying.",
     "DuplicateMappingGroups",
     "targetDiagnosticsDuplicateMappings",
     "Duplicate user mappings are blocked from bridge validation",
@@ -1252,7 +1256,8 @@ for (const contract of [
     const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
-    if (!functionBody.includes("HueConfigurationPage.setConfigurationImportValidated(page, valid && canImport)") ||
+    if (!functionBody.includes("HueConfigurationPage.setConfigurationImportValidated(") ||
+        !functionBody.includes("valid && canImport && !!page._hueImportConfigurationVersion") ||
         !functionBody.includes("applyButton.disabled = !page._hueImportValidated") ||
         !functionBody.includes("getPageLifecycleRequest") ||
         !functionBody.includes("'configurationImportValidation'") ||
@@ -1269,7 +1274,7 @@ for (const contract of [
     const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
-    if (!functionBody.includes("if (!page._hueImportValidated)") ||
+    if (!functionBody.includes("if (!page._hueImportValidated || !page._hueImportConfigurationVersion)") ||
         !functionBody.includes("Validate Import successfully before importing.") ||
         !functionBody.includes("HueConfigurationPage.applyConfigurationImportCredentials(page)") ||
         !functionBody.includes("changing the bridge requires replacement App/Client keys or explicit credential clearing") ||

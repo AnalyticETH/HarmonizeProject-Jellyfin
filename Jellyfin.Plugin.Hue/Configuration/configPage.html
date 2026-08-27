@@ -3182,6 +3182,7 @@
                 setConfigurationImportValidated: function (page, validated) {
                     if (!page) return;
                     page._hueImportValidated = !!validated;
+                    if (!page._hueImportValidated) page._hueImportConfigurationVersion = '';
                     var applyButton = page.querySelector('#applyConfigurationImportBtn');
                     if (applyButton) applyButton.disabled = !page._hueImportValidated;
                 },
@@ -3189,6 +3190,7 @@
                     if (!page) return;
                     HueConfigurationPage.cancelPageLifecycleRequest(page, 'configurationImportValidation');
                     page._hueImportValidationGeneration = (page._hueImportValidationGeneration || 0) + 1;
+                    page._hueImportConfigurationVersion = '';
                     HueConfigurationPage.setConfigurationImportValidated(page, false);
                     var validateButton = page.querySelector('#validateConfigurationImportBtn');
                     if (validateButton) validateButton.disabled = false;
@@ -3428,8 +3430,14 @@
                         HueConfigurationPage.renderConfigurationImportDiff(page, response);
                         var valid = response.valid !== undefined ? !!response.valid : !!response.Valid;
                         var canImport = response.canImport !== undefined ? !!response.canImport : !!response.CanImport;
+                        var configurationVersion = response.configurationVersion || response.ConfigurationVersion || '';
                         var errors = response.validationErrors || response.ValidationErrors || [];
-                        HueConfigurationPage.setConfigurationImportValidated(page, valid && canImport);
+                        page._hueImportConfigurationVersion = valid && canImport && configurationVersion
+                            ? String(configurationVersion)
+                            : '';
+                        HueConfigurationPage.setConfigurationImportValidated(
+                            page,
+                            valid && canImport && !!page._hueImportConfigurationVersion);
                         if (status) {
                             if (page._hueImportValidated) {
                                 var mappings = response.totalMappings !== undefined ? response.totalMappings : response.TotalMappings;
@@ -3466,7 +3474,7 @@
                     if (!page || !importDocument) return;
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
-                    if (!page._hueImportValidated) {
+                    if (!page._hueImportValidated || !page._hueImportConfigurationVersion) {
                         if (status) {
                             status.textContent = "Validate Import successfully before importing.";
                             status.style.color = "#d9534f";
@@ -3478,12 +3486,17 @@
                     Dashboard.confirm("Import this configuration? Existing settings, mappings, saved scenes, and scheduled cues will be replaced. Stored bridge keys are preserved only when the imported target matches this server's target; changing the bridge requires replacement App/Client keys or explicit credential clearing. Any values entered above are sent once for this import and are never exported.", "Import Hue Configuration", function (confirmed) {
                         if (!confirmed || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                             page._hueImportDocument !== importDocument || !page._hueImportValidated ||
+                            !page._hueImportConfigurationVersion ||
                             (page._huePageRequests && page._huePageRequests.configurationImport)) return;
                         var button = page.querySelector('#importConfigurationBtn');
                         var applyButton = page.querySelector('#applyConfigurationImportBtn');
                         if (button) button.disabled = true;
                         if (applyButton) applyButton.disabled = true;
                         Dashboard.showLoadingMsg();
+                        var importRequest = Object.assign({}, importDocument);
+                        // Keep the optimistic-concurrency token out of the exported
+                        // document and attach it only to this one import request.
+                        importRequest.expectedConfigurationVersion = page._hueImportConfigurationVersion;
                         var request = HueConfigurationPage.getPageLifecycleRequest(
                             page,
                             pageGeneration,
@@ -3491,7 +3504,7 @@
                             ApiClient.getUrl("HueSync/Configuration/Import"),
                             {
                                 type: "POST",
-                                data: JSON.stringify(importDocument),
+                                data: JSON.stringify(importRequest),
                                 contentType: "application/json",
                                 dataType: "json"
                             });
@@ -3515,11 +3528,16 @@
                             if (!isCurrent()) return;
                             HueConfigurationPage.invalidateConfigurationImport(page);
                             console.error("Failed to import Hue configuration:", err);
+                            var stale = err && (err.status === 409 || err.statusCode === 409);
                             if (status) {
-                                status.textContent = "Configuration import failed. No changes were applied. Correct the migration fields and retry.";
+                                status.textContent = stale
+                                    ? "Configuration changed after validation. Validate Import again before retrying."
+                                    : "Configuration import failed. No changes were applied. Correct the migration fields and retry.";
                                 status.style.color = "#d9534f";
                             }
-                            Dashboard.alert("Unable to import configuration: " + (err && err.message ? err.message : "invalid, incomplete, or active playback"));
+                            Dashboard.alert(stale
+                                ? "Configuration changed after validation. Validate Import again before retrying."
+                                : "Unable to import configuration: " + (err && err.message ? err.message : "invalid, incomplete, or active playback"));
                         }).finally(function () {
                             var current = isCurrent();
                             if (current) {

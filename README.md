@@ -185,6 +185,13 @@ are rejected. Use `/HueSync/Configuration` for the validated, credential-preserv
 lifecycle-aware settings contract, or `/HueSync/Configuration/Export` and `Import` for
 credential-safe migration.
 
+Configuration migration is intentionally two-phase: `ValidateImport` returns a credential-safe
+`configurationVersion` token for the exact live snapshot that was reviewed, and `Import` must send
+that value as `expectedConfigurationVersion`. A missing token returns `400`; if another
+administrator changes any importable setting, credential, mapping, saved scene, playlist, or cue
+after validation, the import returns `409` and must be validated again. Runtime and retained
+telemetry are excluded from the token so normal history updates do not invalidate an approval.
+
 `POST /HueSync/Preview` and `POST /HueSync/ColorPresets` accept `effect: "Temperature"`, `effect: "Aurora"`, `effect: "Fire"`, `effect: "Ocean"`, `effect: "Lightning"`, and `effect: "Starlight"`. They also accept `transitionCurve: "Linear"`, `"SmoothStep"`, `"EaseIn"`, `"EaseOut"`, or `"EaseInOut"`; blank/omitted legacy values remain Linear. The server validates and canonicalizes each effect and curve, and the stream tester applies the bounded easing to fade-in and fade-out transitions without changing the credential-free target-selection contract. Current-light capture can read one target or a selected/all-target set and seed the editor with a weighted aggregate sample.
 
 | Endpoint | Purpose |
@@ -457,7 +464,9 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.322 (Current)
+### Version 1.5.323 (Current)
+
+- **Optimistic configuration-import concurrency**: `ValidateImport` now returns a credential-safe snapshot token, and `Import` requires the matching token so stale administrator tabs cannot overwrite newer settings, credentials, mappings, scenes, playlists, or cues; runtime and retained telemetry changes do not invalidate an approval.
 
 - **Fail-closed release publication**: the trusted self-hosted release job verifies the exact ZIP/checksum asset set before publishing, retries final release reads, and only resumes a draft whose tag points at the current workflow commit.
 

@@ -7510,7 +7510,8 @@ public sealed class HueApiControllerTests : IDisposable
                 }
             }
         });
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var controller = CreateController();
+        var request = new HueConfigurationImportRequest
         {
             Configuration = exported.Configuration,
             ReplaceMappings = false,
@@ -7530,7 +7531,9 @@ public sealed class HueApiControllerTests : IDisposable
                     }).ToList()
                 }
             }
-        });
+        };
+        AttachConfigurationVersion(controller, request);
+        var action = controller.ImportConfiguration(request);
 
         Assert.IsType<OkObjectResult>(action.Result);
         var importedRoute = Assert.Single(Assert.Single(destination.SceneSchedules).TargetRoutes);
@@ -7538,7 +7541,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("living-room-tv", importedRoute.DeviceId);
         Assert.Equal("destination-app", destination.UserMappings[0].DeviceTargets[0].HueAppKey);
 
-        var partialImport = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var partialRequest = new HueConfigurationImportRequest
         {
             Configuration = exported.Configuration,
             ReplaceMappings = false,
@@ -7553,7 +7556,9 @@ public sealed class HueApiControllerTests : IDisposable
                     PresetName = exportedSchedule.PresetName
                 }
             }
-        });
+        };
+        AttachConfigurationVersion(controller, partialRequest);
+        var partialImport = controller.ImportConfiguration(partialRequest);
 
         Assert.IsType<OkObjectResult>(partialImport.Result);
         var retainedRoute = Assert.Single(Assert.Single(destination.SceneSchedules).TargetRoutes);
@@ -12119,6 +12124,146 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ValidateConfigurationImport_ReturnsCredentialSafeConfigurationVersion()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "version-app-secret",
+            HueClientKey = "version-client-secret",
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Versioned scene" } }
+        });
+
+        var action = CreateController().ValidateConfigurationImport(
+            CreateConfigurationImportRequest(configuration));
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConfigurationImportValidationResult>(response.Value);
+        Assert.True(result.Valid);
+        Assert.True(result.CanImport);
+        Assert.Matches("^[0-9a-f]{64}$", result.ConfigurationVersion);
+        var serialized = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("version-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("version-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ImportConfiguration_RejectsMissingConfigurationVersionWithoutMutation()
+    {
+        var existingPreset = new HueColorPreset { Name = "Existing" };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            ColorPresets = new List<HueColorPreset> { existingPreset }
+        });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ColorPresets = new List<HueColorPresetRequest>
+        {
+            new() { Name = "Imported" }
+        };
+        var previousPresets = configuration.ColorPresets;
+
+        var action = CreateController().ImportConfiguration(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(
+            "A current configuration validation version is required before importing.",
+            Assert.IsType<string>(response.Value));
+        Assert.Same(previousPresets, configuration.ColorPresets);
+        Assert.Same(existingPreset, Assert.Single(configuration.ColorPresets));
+    }
+
+    [Fact]
+    public void ImportConfiguration_RejectsStaleConfigurationVersionWithoutMutation()
+    {
+        var existingPreset = new HueColorPreset { Name = "Existing" };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            ColorPresets = new List<HueColorPreset> { existingPreset }
+        });
+        var controller = CreateController();
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ColorPresets = new List<HueColorPresetRequest>
+        {
+            new() { Name = "Imported" }
+        };
+        var validation = controller.ValidateConfigurationImport(request);
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        request.ExpectedConfigurationVersion = validationResult.ConfigurationVersion;
+        var previousPresets = configuration.ColorPresets;
+
+        configuration.SyncEnabled = true;
+        var action = controller.ImportConfiguration(request);
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Equal(
+            "Configuration changed after validation; validate the import again before retrying.",
+            Assert.IsType<string>(response.Value));
+        Assert.Same(previousPresets, configuration.ColorPresets);
+        Assert.Same(existingPreset, Assert.Single(configuration.ColorPresets));
+    }
+
+    [Fact]
+    public void ConfigurationVersion_ChangesForImportableStateButIgnoresRetainedHistory()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = false,
+            HueAppKey = "versioned-app",
+            HueClientKey = "versioned-client",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "version-row", UserId = "version-user", SyncEnabled = false }
+            },
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Version scene" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new() { Id = "version-playlist", Name = "Version playlist", PresetNames = new List<string> { "Version scene" } }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "version-schedule", Name = "Version cue", PresetName = "Version scene" }
+            },
+            PersistedSessionHistory = new List<HueSessionHistoryEntry>(),
+            PersistedSceneScheduleHistory = new List<HueSceneScheduleHistoryEntry>()
+        });
+        var controller = CreateController();
+
+        string ReadVersion()
+        {
+            var validation = controller.ValidateConfigurationImport(CreateConfigurationImportRequest(configuration));
+            var response = Assert.IsType<OkObjectResult>(validation.Result);
+            return Assert.IsType<HueConfigurationImportValidationResult>(response.Value).ConfigurationVersion;
+        }
+
+        var baseline = ReadVersion();
+        configuration.PersistedSessionHistory.Add(new HueSessionHistoryEntry { Item = "runtime-only" });
+        configuration.PersistedSceneScheduleHistory.Add(new HueSceneScheduleHistoryEntry { ScheduleId = "runtime-only" });
+        Assert.Equal(baseline, ReadVersion());
+
+        configuration.SyncEnabled = true;
+        Assert.NotEqual(baseline, ReadVersion());
+        configuration.SyncEnabled = false;
+        configuration.HueAppKey = "changed-app";
+        Assert.NotEqual(baseline, ReadVersion());
+        configuration.HueAppKey = "versioned-app";
+        configuration.UserMappings[0].UserName = "changed mapping";
+        Assert.NotEqual(baseline, ReadVersion());
+        configuration.UserMappings[0].UserName = string.Empty;
+        configuration.ColorPresets[0].Red = 42;
+        Assert.NotEqual(baseline, ReadVersion());
+        configuration.ColorPresets[0].Red = 255;
+        configuration.ScenePlaylists[0].Name = "changed playlist";
+        Assert.NotEqual(baseline, ReadVersion());
+        configuration.ScenePlaylists[0].Name = "Version playlist";
+        configuration.SceneSchedules[0].Name = "changed cue";
+        Assert.NotEqual(baseline, ReadVersion());
+    }
+
+    [Fact]
     public void ValidateConfigurationImport_RejectsActiveConfigurationMutation()
     {
         var configuration = InstallConfiguration(new PluginConfiguration());
@@ -12621,6 +12766,7 @@ public sealed class HueApiControllerTests : IDisposable
             Assert.True(validationResult.ActiveScheduledCue);
             Assert.False(validationResult.ActiveScheduleEvaluation);
             Assert.Contains("scheduled scene cues", validationResult.Message, StringComparison.OrdinalIgnoreCase);
+            importRequest.ExpectedConfigurationVersion = validationResult.ConfigurationVersion;
 
             var action = controller.ImportConfiguration(importRequest);
 
@@ -12914,7 +13060,7 @@ public sealed class HueApiControllerTests : IDisposable
                 new() { UserId = "user-1", UserName = "Viewer", SyncEnabled = true }
             }
         });
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(destination, new HueConfigurationImportRequest
         {
             SchemaVersion = exported.SchemaVersion,
             Configuration = exported.Configuration,
@@ -13009,7 +13155,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         });
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(destination, new HueConfigurationImportRequest
         {
             Configuration = HuePluginConfigurationSettings.From(destination),
             ReplaceMappings = false,
@@ -13077,7 +13223,7 @@ public sealed class HueApiControllerTests : IDisposable
             HueClientKey = "existing-client-secret",
             EntertainmentAreaId = "area-destination"
         });
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(destination, new HueConfigurationImportRequest
         {
             SchemaVersion = exported.SchemaVersion,
             Configuration = exported.Configuration,
@@ -13159,7 +13305,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal((int)DayOfWeek.Friday, exportedCue.DayOfWeek);
         Assert.Equal(0, exportedCue.DaysOfWeekMask);
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             SchemaVersion = exported.SchemaVersion,
             Configuration = exported.Configuration,
@@ -13217,7 +13363,7 @@ public sealed class HueApiControllerTests : IDisposable
         });
         var controller = CreateController();
 
-        var import = controller.ImportConfiguration(new HueConfigurationImportRequest
+        var import = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             Configuration = HuePluginConfigurationSettings.From(configuration),
             ReplaceColorPresets = false,
@@ -13232,7 +13378,7 @@ public sealed class HueApiControllerTests : IDisposable
                     TimeOfDay = "08:00"
                 }
             }
-        });
+        }, controller);
 
         Assert.IsType<OkObjectResult>(import.Result);
         Assert.Equal("America/New_York", Assert.Single(configuration.SceneSchedules).TimeZoneId);
@@ -13294,7 +13440,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(31, exportedCue.DayOfMonth);
         Assert.Equal("2026-01-01", exportedCue.StartDate);
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             SchemaVersion = exported.SchemaVersion,
             Configuration = exported.Configuration,
@@ -13369,7 +13515,7 @@ public sealed class HueApiControllerTests : IDisposable
         var exported = HueConfigurationExportDocument.From(configuration);
         var controller = CreateController();
 
-        var action = controller.ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             SchemaVersion = exported.SchemaVersion,
             Configuration = exported.Configuration,
@@ -13417,7 +13563,7 @@ public sealed class HueApiControllerTests : IDisposable
                     DaysOfWeekMask = 127
                 }
             }
-        });
+        }, controller);
 
         var response = Assert.IsType<OkObjectResult>(action.Result);
         var result = Assert.IsType<HueConfigurationImportResult>(response.Value);
@@ -13471,7 +13617,7 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "old-global-area"
         });
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             Configuration = new HuePluginConfigurationSettings
             {
@@ -13670,7 +13816,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         });
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             Configuration = HuePluginConfigurationSettings.From(configuration),
             UserMappings = new List<UserBridgeMappingImport>
@@ -13737,7 +13883,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         });
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             Configuration = HuePluginConfigurationSettings.From(configuration),
             ReplaceMappings = false,
@@ -13824,7 +13970,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         });
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             Configuration = HuePluginConfigurationSettings.From(configuration),
             UserMappings = new List<UserBridgeMappingImport>
@@ -13884,7 +14030,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         });
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             Configuration = HuePluginConfigurationSettings.From(configuration),
             ReplaceMappings = false,
@@ -13937,7 +14083,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         });
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             Configuration = HuePluginConfigurationSettings.From(configuration),
             ReplaceMappings = false,
@@ -14128,7 +14274,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         }, serializer.Object);
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             Configuration = new HuePluginConfigurationSettings
             {
@@ -14174,7 +14320,7 @@ public sealed class HueApiControllerTests : IDisposable
             UserMappings = new List<UserBridgeMapping> { legacy }
         }, serializer.Object);
 
-        var action = CreateController().ImportConfiguration(new HueConfigurationImportRequest
+        var action = ImportWithValidation(configuration, new HueConfigurationImportRequest
         {
             Configuration = new HuePluginConfigurationSettings(),
             UserMappings = new List<UserBridgeMappingImport>()
@@ -15453,7 +15599,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         };
 
-        var action = CreateController().ImportConfiguration(request);
+        var action = ImportWithValidation(configuration, request);
 
         Assert.IsType<OkObjectResult>(action.Result);
         var imported = Assert.Single(configuration.SceneSchedules);
@@ -15500,7 +15646,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         };
 
-        var action = CreateController().ImportConfiguration(request);
+        var action = ImportWithValidation(configuration, request);
 
         Assert.IsType<OkObjectResult>(action.Result);
         var imported = Assert.Single(configuration.SceneSchedules);
@@ -15544,7 +15690,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         };
 
-        var action = CreateController().ImportConfiguration(request);
+        var action = ImportWithValidation(configuration, request);
 
         Assert.IsType<OkObjectResult>(action.Result);
         var imported = Assert.Single(configuration.SceneSchedules);
@@ -15744,6 +15890,8 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(expectedPresets, validationResult.TotalColorPresets);
         Assert.Equal(expectedPlaylists, validationResult.TotalScenePlaylists);
         Assert.Equal(expectedSchedules, validationResult.TotalSceneSchedules);
+        Assert.NotEmpty(validationResult.ConfigurationVersion);
+        request.ExpectedConfigurationVersion = validationResult.ConfigurationVersion;
 
         var import = controller.ImportConfiguration(request);
         var importResponse = Assert.IsType<OkObjectResult>(import.Result);
@@ -15754,6 +15902,29 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(expectedPresets, configuration.ColorPresets.Count);
         Assert.Equal(expectedPlaylists, configuration.ScenePlaylists.Count);
         Assert.Equal(expectedSchedules, configuration.SceneSchedules.Count);
+    }
+
+    private static void AttachConfigurationVersion(
+        HueApiController controller,
+        HueConfigurationImportRequest request)
+    {
+        var validation = controller.ValidateConfigurationImport(request);
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        Assert.True(validationResult.Valid, string.Join("; ", validationResult.ValidationErrors));
+        Assert.True(validationResult.CanImport, validationResult.Message);
+        Assert.NotEmpty(validationResult.ConfigurationVersion);
+        request.ExpectedConfigurationVersion = validationResult.ConfigurationVersion;
+    }
+
+    private ActionResult<HueConfigurationImportResult> ImportWithValidation(
+        PluginConfiguration configuration,
+        HueConfigurationImportRequest request,
+        HueApiController? controller = null)
+    {
+        controller ??= CreateController();
+        AttachConfigurationVersion(controller, request);
+        return controller.ImportConfiguration(request);
     }
 
     private void AssertConfigurationImportCapacityRejected(
