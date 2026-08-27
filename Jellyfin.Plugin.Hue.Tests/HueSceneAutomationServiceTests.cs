@@ -3973,6 +3973,94 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task SetScheduleSkipNextOccurrence_CancelsPendingDeferredOneTimeCue()
+    {
+        var occurrenceSlotUtc = new DateTime(2026, 8, 18, 7, 5, 0, DateTimeKind.Utc);
+        var deferredAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        var configuration = CreatePendingDeferredOneTimeConfiguration(
+            "deferred-one-time-skip",
+            occurrenceSlotUtc,
+            deferredAtUtc);
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+
+        using var playbackLease = lifecycleGate.TryEnterPlayback("deferred-skip-target");
+        Assert.NotNull(playbackLease);
+        Assert.True(service.TrySetScheduleSkipNextOccurrence(
+            "deferred-one-time-skip",
+            true,
+            out var message));
+        Assert.Contains("skip", message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+
+        await service.RunDueSchedulesAsync(DateTime.Now, CancellationToken.None);
+
+        streamTester.VerifyNoOtherCalls();
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.False(saved.SkipNextOccurrence);
+        Assert.False(saved.Enabled);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.Skipped);
+        Assert.True(history.WasDeferred);
+        Assert.True(history.WasDeferredRestored);
+        Assert.Contains("one-time", history.Message, StringComparison.OrdinalIgnoreCase);
+        var status = Assert.Single(service.GetStatus().Schedules);
+        Assert.False(status.DeferredPending);
+        Assert.True(status.LastSkipped);
+        Assert.True(status.LastWasDeferred);
+    }
+
+    [Fact]
+    public async Task SetSchedulesSkipNextOccurrence_AllowsPendingDeferredOneTimeCue()
+    {
+        var occurrenceSlotUtc = new DateTime(2026, 8, 18, 7, 5, 0, DateTimeKind.Utc);
+        var deferredAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        var configuration = CreatePendingDeferredOneTimeConfiguration(
+            "bulk-deferred-one-time-skip",
+            occurrenceSlotUtc,
+            deferredAtUtc);
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new Mock<IHueStreamTester>();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester.Object,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+
+        using var playbackLease = lifecycleGate.TryEnterPlayback("bulk-deferred-skip-target");
+        Assert.NotNull(playbackLease);
+        Assert.True(service.TrySetSchedulesSkipNextOccurrence(
+            new[] { " bulk-deferred-one-time-skip ", "bulk-deferred-one-time-skip" },
+            true,
+            out var message));
+        Assert.Contains("1", message, StringComparison.Ordinal);
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+
+        await service.RunDueSchedulesAsync(DateTime.Now, CancellationToken.None);
+
+        streamTester.VerifyNoOtherCalls();
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.False(saved.SkipNextOccurrence);
+        Assert.False(saved.Enabled);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.Skipped);
+        Assert.True(history.WasDeferred);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_WhenSkipPersistenceFails_DoesNotRunCue()
     {
         var serializer = new Mock<IXmlSerializer>();
@@ -6070,6 +6158,43 @@ public sealed class HueSceneAutomationServiceTests
                 xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
                 Times.Never);
         }
+    }
+
+    private static PluginConfiguration CreatePendingDeferredOneTimeConfiguration(
+        string scheduleId,
+        DateTime occurrenceSlotUtc,
+        DateTime deferredAtUtc)
+    {
+        return new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = scheduleId,
+                    Name = "Deferred one-time skip cue",
+                    PresetName = "No scene required for skip",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = occurrenceSlotUtc.ToString("yyyy-MM-dd"),
+                    Enabled = true
+                }
+            },
+            PersistedSceneAutomationDeferredRuns = new List<HueSceneDeferredRunEntry>
+            {
+                new()
+                {
+                    ScheduleId = scheduleId,
+                    OccurrenceSlot = occurrenceSlotUtc,
+                    DeferredAtLocal = TimeZoneInfo.ConvertTimeFromUtc(deferredAtUtc, TimeZoneInfo.Local),
+                    DeferredAtUtc = deferredAtUtc
+                }
+            }
+        };
     }
 
     private static PluginConfiguration CreateContinuousPlaylistConfiguration(

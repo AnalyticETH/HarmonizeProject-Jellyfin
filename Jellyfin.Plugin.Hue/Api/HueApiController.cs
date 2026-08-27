@@ -6210,8 +6210,9 @@ namespace Jellyfin.Plugin.Hue.Api
         /// <summary>
         /// Marks or clears the next automatic occurrence for several scene cues in one
         /// administrator operation. The automation service validates every cue before
-        /// persisting any marker, so a disabled, exhausted, futureless, or active cue
-        /// cannot produce a partial update. Manual Run Now remains available.
+        /// persisting any marker, so a disabled, exhausted, futureless-without-deferred,
+        /// or active cue cannot produce a partial update. A still-live deferred one-time
+        /// occurrence remains cancelable. Manual Run Now remains available.
         /// </summary>
         [HttpPost("SceneSchedules/BulkSkipNext")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -6309,7 +6310,11 @@ namespace Jellyfin.Plugin.Hue.Api
                                 !schedule.SkipNextOccurrence &&
                                 schedule.Enabled &&
                                 !(schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns) &&
-                                HueSceneAutomationService.GetNextRunUtc(schedule, DateTime.Now) == null)
+                                HueSceneAutomationService.GetNextRunUtc(schedule, DateTime.Now) == null &&
+                                !HueSceneAutomationService.HasUnexpiredPersistedDeferredRun(
+                                    config,
+                                    schedule,
+                                    DateTime.Now))
                             .Select(schedule => $"{schedule.Name}: it has no upcoming automatic occurrence to skip"))
                         .ToArray();
                 }
@@ -6461,8 +6466,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Skips the next eligible automatic occurrence of one scene cue without changing
-        /// its recurrence definition. Manual Run Now remains available; one-time cues are
-        /// disabled after their skipped occurrence.
+        /// its recurrence definition. A still-live deferred one-time occurrence can also
+        /// be canceled while playback is active. Manual Run Now remains available;
+        /// one-time cues are disabled after their skipped occurrence.
         /// </summary>
         [HttpPost("SceneSchedules/{id}/SkipNext")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -6518,7 +6524,12 @@ namespace Jellyfin.Plugin.Hue.Api
                         "The scene schedule has reached its execution limit. Reset its run counter before marking an occurrence to skip.");
                 }
 
-                if (skip && HueSceneAutomationService.GetNextRunUtc(schedule, DateTime.Now) == null)
+                if (skip &&
+                    HueSceneAutomationService.GetNextRunUtc(schedule, DateTime.Now) == null &&
+                    !HueSceneAutomationService.HasUnexpiredPersistedDeferredRun(
+                        config,
+                        schedule,
+                        DateTime.Now))
                     return Conflict("The scene schedule has no upcoming automatic occurrence to skip.");
 
                 var previousSkip = schedule.SkipNextOccurrence;

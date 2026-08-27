@@ -528,7 +528,9 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// Marks or clears the next automatic occurrence for several cues as one persistence
     /// transaction. Every selected cue is validated before any skip marker changes are
     /// made, so disabled, exhausted, futureless, active, or missing cues cannot leave a
-    /// partially updated bulk operation behind. Manual Run Now remains unaffected.
+    /// partially updated bulk operation behind. A still-live deferred occurrence counts
+    /// as eligible even when a one-time cue has no future preview. Manual Run Now remains
+    /// unaffected.
     /// </summary>
     public bool TrySetSchedulesSkipNextOccurrence(
         IEnumerable<string>? scheduleIds,
@@ -584,6 +586,11 @@ public sealed class HueSceneAutomationService : BackgroundService
             schedule => schedule.SkipNextOccurrence,
             StringComparer.OrdinalIgnoreCase);
 
+        // A deferred occurrence is durable scheduler state, so load it before validating
+        // a skip request. One-time cues have no future preview after their occurrence has
+        // entered the defer window, but the administrator must still be able to cancel it.
+        EnsureDeferredRunsLoaded(persistRepairs: false);
+
         lock (_runtimeStateLock)
         {
             var blocked = new List<string>();
@@ -616,7 +623,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     continue;
                 }
 
-                if (GetNextRunUtc(schedule, DateTime.Now) == null)
+                if (GetNextRunUtc(schedule, DateTime.Now) == null &&
+                    !HasUnexpiredDeferredRun(schedule, DateTime.Now))
                     blocked.Add($"{schedule.Name}: it has no upcoming automatic occurrence to skip");
             }
 
@@ -817,7 +825,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// recurrence definition. The next occurrence is consumed by the scheduler only;
     /// manual Run Now remains available. Active, exhausted, or otherwise idle cues are
     /// rejected when a new skip is requested so an administrator cannot create a silent
-    /// state with no upcoming event to consume.
+    /// state with no upcoming event to consume. A still-live deferred occurrence is also
+    /// eligible, including a one-time cue whose original occurrence has already elapsed.
     /// </summary>
     public bool TrySetScheduleSkipNextOccurrence(string scheduleId, bool skip, out string message)
     {
@@ -834,6 +843,10 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         var previousSkip = schedule.SkipNextOccurrence;
+        // A deferred occurrence is durable scheduler state, so load it before validating
+        // a skip request. One-time cues have no future preview after their occurrence has
+        // entered the defer window, but the administrator must still be able to cancel it.
+        EnsureDeferredRunsLoaded(persistRepairs: false);
         lock (_runtimeStateLock)
         {
             if (_runtimeStates.TryGetValue(key, out var state) && state.ActiveRuns > 0)
@@ -865,7 +878,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     return false;
                 }
 
-                if (GetNextRunUtc(schedule, DateTime.Now) == null)
+                if (GetNextRunUtc(schedule, DateTime.Now) == null &&
+                    !HasUnexpiredDeferredRun(schedule, DateTime.Now))
                 {
                     message = "The scene schedule has no upcoming automatic occurrence to skip.";
                     return false;
@@ -6295,6 +6309,73 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         return !expired;
+    }
+
+    private bool HasUnexpiredDeferredRun(HueSceneSchedule? schedule, DateTime localNow)
+    {
+        var config = Plugin.Instance?.Configuration;
+        var deferMinutes = Math.Clamp(
+            config?.SceneAutomationDeferMinutes ?? PluginConfiguration.DefaultSceneAutomationDeferMinutes,
+            PluginConfiguration.MinSceneAutomationDeferMinutes,
+            PluginConfiguration.MaxSceneAutomationDeferMinutes);
+        var key = schedule?.Id?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(key) ||
+            !string.Equals(
+                GetEffectivePlaybackPolicy(config, schedule),
+                PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+                StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        lock (_deferredRunLock)
+        {
+            if (!_deferredRuns.TryGetValue(key, out var deferredRun) ||
+                !IsDeferredOccurrenceCurrent(schedule, deferredRun.OccurrenceSlot))
+            {
+                return false;
+            }
+
+            // Keep this check side-effect free: the scheduler remains responsible for
+            // pruning stale/expired entries and recording their skipped outcome. A marker
+            // can be set while the persisted defer window is still open, even when the
+            // one-time cue no longer appears in the future-occurrence preview.
+            var elapsed = ConvertServerLocalNowToUtc(localNow) - deferredRun.DeferredAtUtc;
+            return elapsed < TimeSpan.FromMinutes(deferMinutes);
+        }
+    }
+
+    internal static bool HasUnexpiredPersistedDeferredRun(
+        PluginConfiguration? config,
+        HueSceneSchedule? schedule,
+        DateTime localNow)
+    {
+        var deferMinutes = Math.Clamp(
+            config?.SceneAutomationDeferMinutes ?? PluginConfiguration.DefaultSceneAutomationDeferMinutes,
+            PluginConfiguration.MinSceneAutomationDeferMinutes,
+            PluginConfiguration.MaxSceneAutomationDeferMinutes);
+        var key = schedule?.Id?.Trim() ?? string.Empty;
+        if (config == null ||
+            string.IsNullOrWhiteSpace(key) ||
+            !string.Equals(
+                GetEffectivePlaybackPolicy(config, schedule),
+                PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var deferredRun = config.PersistedSceneAutomationDeferredRuns?
+            .FirstOrDefault(entry => entry != null &&
+                string.Equals(entry.ScheduleId?.Trim(), key, StringComparison.OrdinalIgnoreCase));
+        if (deferredRun == null ||
+            !IsDeferredOccurrenceCurrent(schedule, deferredRun.OccurrenceSlot))
+        {
+            return false;
+        }
+
+        var deferredAtUtc = deferredRun.DeferredAtUtc is { } persistedUtc && persistedUtc != default
+            ? NormalizeUtcInstant(persistedUtc)
+            : ConvertServerLocalNowToUtc(deferredRun.DeferredAtLocal);
+        return ConvertServerLocalNowToUtc(localNow) - deferredAtUtc < TimeSpan.FromMinutes(deferMinutes);
     }
 
     private static bool IsDeferredOccurrenceCurrent(

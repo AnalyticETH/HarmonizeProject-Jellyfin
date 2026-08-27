@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.339] - 2026-08-27
+
+### Deferred one-time cue control
+- **Deferred Skip Next cancellation**: allow administrators to mark a one-time scene cue that is still waiting for playback to finish; the scheduler consumes the marker without bridge activity, disables the cue, clears deferred state, and records skipped/deferred history.
+- **Bulk Skip Next parity**: allow the same bounded cancellation through the atomic multi-cue API while preserving enabled, execution-limit, active-run, and stale-deferred guards.
+- **Regression coverage**: single and bulk deferred one-time cancellation tests verify marker persistence, scheduler consumption, one-time disablement, deferred cleanup, and credential-free history/status telemetry.
+
 ## [1.5.338] - 2026-08-27
 
 ### Complete static-analysis target coverage

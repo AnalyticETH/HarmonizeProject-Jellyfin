@@ -9214,6 +9214,48 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneSchedules_SkipNextActionAllowsPendingDeferredOneTimeCueWithoutHostedService()
+    {
+        var occurrenceSlotUtc = new DateTime(2026, 8, 18, 7, 5, 0, DateTimeKind.Utc);
+        var deferredAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "fallback-deferred-one-time-skip",
+                    Name = "Fallback deferred one-time skip cue",
+                    PresetName = "No scene required for skip",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = occurrenceSlotUtc.ToString("yyyy-MM-dd"),
+                    Enabled = true
+                }
+            },
+            PersistedSceneAutomationDeferredRuns = new List<HueSceneDeferredRunEntry>
+            {
+                new()
+                {
+                    ScheduleId = "fallback-deferred-one-time-skip",
+                    OccurrenceSlot = occurrenceSlotUtc,
+                    DeferredAtLocal = TimeZoneInfo.ConvertTimeFromUtc(deferredAtUtc, TimeZoneInfo.Local),
+                    DeferredAtUtc = deferredAtUtc
+                }
+            }
+        });
+
+        var action = CreateController().SkipNextSceneSchedule("fallback-deferred-one-time-skip");
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleResult>(response.Value);
+        Assert.True(result.SkipNextOccurrence);
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
+    }
+
+    [Fact]
     public void SceneSchedules_SkipNextActionRejectsDisabledCueThroughAdministratorApi()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
