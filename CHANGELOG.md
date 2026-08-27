@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.331] - 2026-08-27
+
+### Credential target freshness hardening
+- **Credential-bearing administrator preflight**: bridge area/channel loading, connection tests, and single-target previews now require an explicit certificate pin before sending App Keys, with stale page lifecycle guards that cannot start a request after navigation.
+- **Strict mapping credential input**: non-string App Key and Client Key JSON values are rejected atomically, and device-route stored-credential flags must prove the required key pair before reuse.
+- **Fail-closed release retries**: the trusted release job resumes only a matching draft and refuses to overwrite an already-published release.
+- **Regression coverage**: API, configuration-page lifecycle, route credential, and trusted-workflow contracts cover the new safety boundaries.
+
 ## [1.5.330] - 2026-08-27
 
 ### Credential and release lifecycle hardening
