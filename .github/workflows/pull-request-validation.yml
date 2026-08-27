@@ -4,8 +4,8 @@ name: Pull Request Validation
 # with no secrets or write permissions; the persistent self-hosted identities are
 # reserved for trusted main pushes and the default-branch scheduled scan. Semgrep
 # scans all tracked production source/configuration with p/default and repository
-# scripts with p/javascript/p/python; every report blocks findings, scanner errors,
-# and timeouts.
+# scripts with p/javascript/p/python, plus embedded administrator-page JavaScript;
+# every report blocks findings, scanner errors, and timeouts.
 on:
   pull_request:
     branches: [main]
@@ -27,7 +27,7 @@ env:
   # Registry aliases are fetched as reviewed, SHA-256-pinned snapshots. A changed
   # ruleset fails closed instead of silently changing the security policy.
   SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'
-  SEMGREP_DEFAULT_CONFIG_SHA256: 'c78d9867cd29191971232da8c0b2fa440416ed8591f83ccdd762096ccddecbae'
+  SEMGREP_DEFAULT_CONFIG_SHA256: '8b0434c90da69c1312f8d674de0d86665fcae8da6307ae1821182d64083aacfd'
   SEMGREP_JAVASCRIPT_CONFIG_URL: 'https://semgrep.dev/c/p/javascript'
   SEMGREP_JAVASCRIPT_CONFIG_SHA256: 'e65e8449157ef5d587f2c2a0c17ed388910ca90336e514d27941ccd25543cf4e'
   SEMGREP_PYTHON_CONFIG_URL: 'https://semgrep.dev/c/p/python'
@@ -204,6 +204,9 @@ jobs:
           "$semgrep_venv/bin/semgrep" validate "$default_config_path" >/dev/null
           "$semgrep_venv/bin/semgrep" validate "$javascript_config_path" >/dev/null
           "$semgrep_venv/bin/semgrep" validate "$python_config_path" >/dev/null
+          node scripts/extract-inline-javascript.mjs \
+            Jellyfin.Plugin.Hue/Configuration/configPage.html \
+            "$RUNNER_TEMP/config-page-inline.js"
 
       - name: Scan production source and repository configuration with Semgrep
         run: |
@@ -212,7 +215,7 @@ jobs:
           "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
             --config "$RUNNER_TEMP/semgrep-default.yml" --metrics off --timeout 120 \
             --include='*.cs' --include='*.yml' --include='*.yaml' \
-            --include='*.json' --include='*.sh' \
+            --include='*.json' --include='*.ps1' --include='*.sh' \
             --json --output semgrep-production.json .
           scan_status=$?
           set -e
@@ -294,5 +297,46 @@ jobs:
           fi
           if [ "$COUNT" -gt 0 ] || [ "$ERRORS" -gt 0 ] || [ "$TIMEOUTS" -gt 0 ]; then
             echo "Semgrep repository-Python scan found security findings, scanner errors, or analysis timeouts." >&2
+            exit 1
+          fi
+      - name: Scan embedded administrator JavaScript with Semgrep JavaScript rules
+        if: always()
+        run: |
+          set -euo pipefail
+          config_rule_prefix="${RUNNER_TEMP#/}"
+          config_rule_prefix="${config_rule_prefix//\//.}"
+          config_page_rule_excludes=()
+          while IFS= read -r rule; do
+            case "$rule" in
+              ""|\#*) continue ;;
+            esac
+            config_page_rule_excludes+=(--exclude-rule="${config_rule_prefix}.${rule}")
+          done < .github/semgrep/config-page-excludes.txt
+          test "${#config_page_rule_excludes[@]}" -eq 35
+          set +e
+          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
+            --config "$RUNNER_TEMP/semgrep-javascript.yml" --metrics off --timeout 120 \
+            --include='*.js' \
+            "${config_page_rule_excludes[@]}" \
+            --json --output semgrep-config-page.json "$RUNNER_TEMP/config-page-inline.js"
+          scan_status=$?
+          set -e
+          test -f semgrep-config-page.json
+          COUNT=$(jq '.results | length' semgrep-config-page.json)
+          ERRORS=$(jq '.errors | length' semgrep-config-page.json)
+          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' semgrep-config-page.json)
+          {
+            echo "### Static analysis (semgrep: embedded administrator JavaScript)"
+            echo "Findings: **$COUNT** (blocking)"
+            echo "Scanner errors: **$ERRORS** (blocking)"
+            echo "Analysis timeouts: **$TIMEOUTS** (blocking)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Semgrep embedded administrator JavaScript findings: $COUNT; scanner errors: $ERRORS; analysis timeouts: $TIMEOUTS"
+          if [ "$scan_status" -ne 0 ]; then
+            echo "Semgrep embedded administrator JavaScript scan failed." >&2
+            exit "$scan_status"
+          fi
+          if [ "$COUNT" -gt 0 ] || [ "$ERRORS" -gt 0 ] || [ "$TIMEOUTS" -gt 0 ]; then
+            echo "Semgrep embedded administrator JavaScript scan found security findings, scanner errors, or analysis timeouts." >&2
             exit 1
           fi

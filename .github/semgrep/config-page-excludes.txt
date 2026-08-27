@@ -1,0 +1,37 @@
+# p/javascript contains framework packs that cannot apply to this vanilla browser page.
+# Keep the exclusions explicit and reviewable; generic/browser rules remain blocking.
+javascript.express.security.audit.express-check-directory-listing.express-check-directory-listing
+javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-domain
+javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-httponly
+javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-path
+javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-secure
+javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-expires
+javascript.express.security.audit.express-cookie-settings.express-cookie-session-default-name
+javascript.express.security.audit.express-jwt-not-revoked.express-jwt-not-revoked
+javascript.express.security.audit.express-libxml-noent.express-libxml-noent
+javascript.express.security.audit.express-open-redirect.express-open-redirect
+javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal
+javascript.express.security.audit.express-res-sendfile.express-res-sendfile
+javascript.express.security.audit.express-session-hardcoded-secret.express-session-hardcoded-secret
+javascript.express.security.audit.express-ssrf.express-ssrf
+javascript.express.security.audit.express-third-party-object-deserialization.express-third-party-object-deserialization
+javascript.express.security.audit.express-xml2json-xxe-event.express-xml2json-xxe-event
+javascript.express.security.audit.res-render-injection.res-render-injection
+javascript.express.security.audit.xss.direct-response-write.direct-response-write
+javascript.express.security.cors-misconfiguration.cors-misconfiguration
+javascript.express.security.express-expat-xxe.express-expat-xxe
+javascript.express.security.express-insecure-template-usage.express-insecure-template-usage
+javascript.express.security.express-jwt-hardcoded-secret.express-jwt-hardcoded-secret
+javascript.express.security.express-phantom-injection.express-phantom-injection
+javascript.express.security.express-puppeteer-injection.express-puppeteer-injection
+javascript.express.security.express-sandbox-injection.express-sandbox-code-injection
+javascript.express.security.express-vm-injection.express-vm-injection
+javascript.express.security.express-vm2-injection.express-vm2-injection
+javascript.express.security.express-xml2json-xxe.express-xml2json-xxe
+javascript.express.security.injection.raw-html-format.raw-html-format
+javascript.express.security.require-request.require-request
+javascript.express.security.x-frame-options-misconfiguration.x-frame-options-misconfiguration
+typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
+typescript.react.security.audit.react-unsanitized-method.react-unsanitized-method
+typescript.react.security.audit.react-unsanitized-property.react-unsanitized-property
+typescript.react.security.react-insecure-request.react-insecure-request

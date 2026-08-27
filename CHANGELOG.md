@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.338] - 2026-08-27
+
+### Complete static-analysis target coverage
+- **Embedded administrator JavaScript scanning**: extract every inline configuration-page script from the DLL-embedded HTML and block pinned Semgrep JavaScript findings, scanner errors, or analysis timeouts.
+- **Release-helper scanning**: include the PowerShell release helper in the pinned production/configuration Semgrep gate.
+- **Regression coverage**: enforce extraction, target-extension, report, and timeout-gate markers in both trusted and pull-request workflows.
+
 ## [1.5.337] - 2026-08-27
 
 ### Scheduler, lifecycle, and security-gate hardening

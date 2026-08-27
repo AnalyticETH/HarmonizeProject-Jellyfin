@@ -77,6 +77,21 @@ const semgrepWorkflows = [
     ".github/workflows/security-scan.yml",
     ".github/workflows/pull-request-validation.yml"
 ];
+const configPageExcludesPath = ".github/semgrep/config-page-excludes.txt";
+const configPageExcludes = fs
+    .readFileSync(configPageExcludesPath, "utf8")
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith("#"));
+if (
+    configPageExcludes.length !== 35 ||
+    new Set(configPageExcludes).size !== configPageExcludes.length ||
+    configPageExcludes.some(rule => !/^(javascript\.express|typescript\.react)\./.test(rule))
+) {
+    throw new Error(
+        `${configPageExcludesPath} must contain exactly 35 unique Express/React framework-rule exclusions`
+    );
+}
 const timeoutCountExpression = "jq '(.time.fixpoint_timeouts // []) | length'";
 const timeoutSummaryMarker = "Analysis timeouts:";
 const timeoutGateMarker = "|| [ \"$TIMEOUTS\" -gt 0 ]";
@@ -95,12 +110,19 @@ const pinnedConfigRuntimeMarkers = [
     '"$semgrep_venv/bin/semgrep" validate "$python_config_path"',
     "$SEMGREP_DEFAULT_CONFIG_SHA256",
     "$SEMGREP_JAVASCRIPT_CONFIG_SHA256",
-    "$SEMGREP_PYTHON_CONFIG_SHA256"
+    "$SEMGREP_PYTHON_CONFIG_SHA256",
+    "node scripts/extract-inline-javascript.mjs",
+    "Jellyfin.Plugin.Hue/Configuration/configPage.html",
+    '"$RUNNER_TEMP/config-page-inline.js"',
+    'config_rule_prefix="${RUNNER_TEMP#/}"',
+    'config_rule_prefix="${config_rule_prefix//\\//.}"',
+    "done < .github/semgrep/config-page-excludes.txt",
+    'test "${#config_page_rule_excludes[@]}" -eq 35'
 ];
 const productionScanMarkers = [
     "--config \"$RUNNER_TEMP/semgrep-default.yml\" --metrics off --timeout 120",
     "--include='*.cs' --include='*.yml' --include='*.yaml'",
-    "--include='*.json' --include='*.sh'",
+    "--include='*.json' --include='*.ps1' --include='*.sh'",
     "--json --output semgrep-production.json ."
 ];
 const scriptScanMarkers = [
@@ -113,6 +135,11 @@ const pythonScanMarkers = [
     "--include='*.py'",
     "--json --output semgrep-python.json scripts"
 ];
+const embeddedJavaScriptScanMarkers = [
+    "--config \"$RUNNER_TEMP/semgrep-javascript.yml\" --metrics off --timeout 120",
+    "--include='*.js'",
+    "--json --output semgrep-config-page.json \"$RUNNER_TEMP/config-page-inline.js\""
+];
 
 function countOccurrences(value, marker) {
     return value.split(marker).length - 1;
@@ -121,7 +148,7 @@ function countOccurrences(value, marker) {
 for (const workflowPath of semgrepWorkflows) {
     const workflow = fs.readFileSync(workflowPath, "utf8");
     for (const marker of [timeoutCountExpression, timeoutSummaryMarker, timeoutGateMarker]) {
-        if (countOccurrences(workflow, marker) < 3) {
+        if (countOccurrences(workflow, marker) < 4) {
             throw new Error(`${workflowPath}: Semgrep timeout gate is missing marker: ${marker}`);
         }
     }
@@ -139,7 +166,12 @@ for (const workflowPath of semgrepWorkflows) {
             throw new Error(`${workflowPath}: Semgrep config pinning is missing marker: ${marker}`);
         }
     }
-    for (const marker of [...productionScanMarkers, ...scriptScanMarkers, ...pythonScanMarkers]) {
+    for (const marker of [
+        ...productionScanMarkers,
+        ...scriptScanMarkers,
+        ...pythonScanMarkers,
+        ...embeddedJavaScriptScanMarkers
+    ]) {
         if (!workflow.includes(marker)) {
             throw new Error(`${workflowPath}: Semgrep target split is missing marker: ${marker}`);
         }
@@ -148,5 +180,5 @@ for (const workflowPath of semgrepWorkflows) {
 
 console.log(
     `Validated ${packages.length} hash-locked packages; semgrep==${semgrep[0].version}; ` +
-    `production source/configuration, JavaScript, and Python scans with timeout gates present in ${semgrepWorkflows.length} workflows`
+    `production source/configuration, JavaScript, embedded JavaScript, and Python scans with timeout gates present in ${semgrepWorkflows.length} workflows`
 );
