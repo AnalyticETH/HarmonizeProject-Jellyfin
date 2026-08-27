@@ -962,6 +962,10 @@ public sealed class HueSceneAutomationService : BackgroundService
     public int ClearHistory()
     {
         EnsureHistoryLoaded();
+        // Deferred occurrences are durable scheduler state, not history. Ensure the
+        // authoritative persisted/runtime set has been loaded before resetting the
+        // presentation fields below so a pending cue remains visible after this call.
+        EnsureDeferredRunsLoaded();
         var config = Plugin.Instance?.Configuration;
         int clearedCount;
         lock (_historyLock)
@@ -987,12 +991,18 @@ public sealed class HueSceneAutomationService : BackgroundService
                 state.LastWasCatchUp = false;
                 state.LastWasDeferred = false;
                 state.LastWasDeferredRestored = false;
-                state.DeferredPending = false;
-                state.DeferredOccurrenceSlot = null;
-                state.DeferredAtLocal = null;
-                state.DeferredUntilLocal = null;
-                state.DeferredRestored = false;
-                state.LastMessage = null;
+                // A pending deferred occurrence is owned by _deferredRuns and must
+                // survive a history-only clear. Keep its occurrence/expiry metadata
+                // and waiting message visible; completed cues still clear their
+                // transient deferred fields along with the rest of their telemetry.
+                if (!state.DeferredPending)
+                {
+                    state.DeferredOccurrenceSlot = null;
+                    state.DeferredAtLocal = null;
+                    state.DeferredUntilLocal = null;
+                    state.DeferredRestored = false;
+                    state.LastMessage = null;
+                }
                 state.LastCleanupWarning = null;
             }
         }

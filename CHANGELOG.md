@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.337] - 2026-08-27
+
+### Scheduler, lifecycle, and security-gate hardening
+- **History-only scheduler clears**: clearing retained cue history preserves pending deferred occurrences, their status/waiting message, and retry behavior.
+- **Cancellation-safe host shutdown cleanup**: interrupted sync-loop waits defer bridge restoration until the predecessor exits and then retry deactivation with a fresh non-canceled cleanup token.
+- **Fail-closed Semgrep analysis**: split production/non-JavaScript and repository-script scans, block fixpoint timeouts, and verify reviewed SHA-256-pinned rule snapshots before use.
+- **Regression coverage**: scheduler history, host-shutdown cleanup, and Semgrep workflow contracts cover the new safety boundaries.
+
 ## [1.5.336] - 2026-08-27
 
 ### Scheduler lifecycle hardening

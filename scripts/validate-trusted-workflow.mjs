@@ -49,7 +49,9 @@ for (const marker of [
   "if: github.ref == 'refs/heads/main'",
   "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin\"]",
   "--redact --exit-code 1",
-  "--config p/default",
+  "SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'",
+  "SEMGREP_DEFAULT_CONFIG_SHA256:",
+  "sha256sum --check --strict -",
 ]) {
   if (!security.includes(marker)) {
     throw new Error(`${securityPath} is missing blocking-security marker: ${marker}`);

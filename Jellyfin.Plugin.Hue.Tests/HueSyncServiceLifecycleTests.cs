@@ -1469,6 +1469,49 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task StopAsync_WhenSyncLoopWaitIsCanceled_DefersCleanupAndDeactivatesWithFreshToken()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var syncCts = new CancellationTokenSource();
+        var blockedLoop = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        SetPrivateField(service, "_syncCts", syncCts);
+        SetPrivateField(service, "_syncLoopTask", blockedLoop.Task);
+        SetPrivateField(service, "_currentPlaySessionId", "shutdown-session");
+        SetPrivateField(service, "_currentItemName", "Test item");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        using var hostShutdown = new CancellationTokenSource();
+        var stopTask = service.StopAsync(hostShutdown.Token);
+        await Task.Delay(50);
+        Assert.False(stopTask.IsCompleted);
+
+        hostShutdown.Cancel();
+        await stopTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var deferredStopTask = Assert.IsAssignableFrom<Task>(GetPrivateField(service, "_deferredStopTask"));
+        await Task.Delay(100);
+        Assert.Equal(0, handler.StopRequestCount);
+        Assert.False(handler.StopRequest.Task.IsCompleted);
+        blockedLoop.TrySetResult(true);
+
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await deferredStopTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, handler.StopRequestCount);
+        Assert.False(handler.LastStopRequestWasCanceled);
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task StopAsync_WhenLifecycleLockWaitIsCanceled_DefersCleanupUntilLockAvailable()
     {
         var gate = new HueBridgeLifecycleGate();
@@ -1944,6 +1987,7 @@ public sealed class HueSyncServiceLifecycleTests
         public TaskCompletionSource<bool> RestorationRequest { get; } = NewSignal();
         public TaskCompletionSource<bool> BrightnessRequest { get; } = NewSignal();
         public string? LastLightPutBody { get; private set; }
+        public bool LastStopRequestWasCanceled { get; private set; }
         public bool FailRestorationRequests { get; set; }
         public bool FailStopRequests { get; set; }
         public bool FailLightCaptureRequests { get; set; }
@@ -2006,6 +2050,7 @@ public sealed class HueSyncServiceLifecycleTests
                 }
                 if (body.Contains("\"stop\"", StringComparison.Ordinal))
                 {
+                    LastStopRequestWasCanceled = cancellationToken.IsCancellationRequested;
                     Interlocked.Increment(ref _stopRequestCount);
                     StopRequest.TrySetResult(true);
                     await _stopRelease.Task;

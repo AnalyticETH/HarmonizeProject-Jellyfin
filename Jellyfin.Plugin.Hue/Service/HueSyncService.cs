@@ -107,6 +107,10 @@ namespace Jellyfin.Plugin.Hue.Service
         // When host shutdown cancellation interrupts a lifecycle-lock wait, retain a
         // single observed completion task so cleanup can finish after the host returns.
         private Task? _deferredStopTask;
+        // StopSyncAsync detaches the active loop before waiting so no replacement can
+        // publish stale work. If the host cancels that wait, retain the detached task
+        // until the deferred stop has awaited its actual completion.
+        private Task? _deferredSyncLoopTask;
         private Task? _pauseCleanupTask;
         private string? _pauseCleanupSessionId;
         private (string BridgeIp, string AppKey, string ClientKey, string AreaId)? _currentBridgeConfig;
@@ -497,13 +501,26 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 }
 
+                // A concurrent worker or paused-playback cleanup that was interrupted
+                // above owns state that must remain available to the deferred stop. Do
+                // not clear the primary bridge/session state or attempt cleanup with an
+                // already-canceled host token in that case.
+                if (deferredCleanupRequired)
+                    return;
+
                 var config = Plugin.Instance?.Configuration;
                 var bridgeConfig = _currentBridgeConfig;
                 var areaAlreadyDeactivated = _bridgeAreaDeactivated;
                 var savedLightStates = _savedLightStates;
-                await StopSyncAsync(
+                var syncLoopCompleted = await StopSyncAsync(
                     deactivateArea: false,
                     cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (!syncLoopCompleted)
+                {
+                    deferredCleanupRequired = true;
+                    return;
+                }
+
                 _currentBridgeConfig = null;
                 _currentFrameResolution = null;
                 _currentVideoScalingMode = null;
@@ -2372,7 +2389,7 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private async Task StopSyncAsync(
+        private async Task<bool> StopSyncAsync(
             bool deactivateArea = true,
             string? expectedPlaySessionId = null,
             bool clearSession = true,
@@ -2386,13 +2403,14 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentPlaySessionId != null &&
                     !string.Equals(_currentPlaySessionId, expectedPlaySessionId, StringComparison.Ordinal))
                 {
-                    return;
+                    return true;
                 }
 
                 syncCts = _syncCts;
-                syncLoopTask = _syncLoopTask;
+                syncLoopTask = _syncLoopTask ?? _deferredSyncLoopTask;
                 _syncCts = null;
                 _syncLoopTask = null;
+                _deferredSyncLoopTask = null;
                 if (clearSession)
                 {
                     _currentPlaySessionId = null;
@@ -2436,9 +2454,15 @@ namespace Jellyfin.Plugin.Hue.Service
             {
                 syncCts?.Dispose();
             }
-            else if (syncCts != null && syncLoopTask != null)
+            else if (syncLoopTask != null)
             {
-                _ = DisposeCancellationSourceAfterTaskAsync(syncLoopTask, syncCts);
+                lock (_syncLock)
+                {
+                    _deferredSyncLoopTask = syncLoopTask;
+                }
+
+                if (syncCts != null)
+                    _ = DisposeCancellationSourceAfterTaskAsync(syncLoopTask, syncCts);
             }
 
             if (deactivateArea && _currentBridgeConfig != null && !_bridgeAreaDeactivated)
@@ -2454,6 +2478,8 @@ namespace Jellyfin.Plugin.Hue.Service
                     cfg.AreaId,
                     cleanupToken).ConfigureAwait(false);
             }
+
+            return syncLoopCompleted;
         }
 
         /// <summary>

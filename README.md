@@ -404,7 +404,7 @@ doubles. A real bridge is only needed for an end-to-end playback check after ins
 Tests are automatically run in CI/CD on:
 - Trusted pushes to `main`
 
-Full CI runs locked restores, build/tests, formatting, dependency auditing, Gitleaks, and Semgrep on the named self-hosted runner. It also executes the documented Linux release helper in a separate bounded job and compares its verified archive manifest with the canonical package before publication. A repository-controlled weekly default-branch workflow reruns the blocking Gitleaks and Semgrep gates. The main persistent-runner workflow accepts `workflow_dispatch` only for an operator recovery run on `main`; manual recovery never publishes a release, while pull-request and non-main push events remain excluded and every self-hosted job has a `refs/heads/main` guard. The trusted workflow boundary validator (`scripts/validate-trusted-workflow.mjs`) keeps those trigger, runner, permission, immutable-action, and version contracts executable. Dependabot explicitly monitors the plugin, test, and benchmark NuGet directories, the GitHub Actions workflows, and the hash-locked Semgrep environment; `scripts/validate-dependabot.mjs` fails CI if a tracked project directory is missing. The repository Actions policy is selected-only with SHA pinning required; it allows only `actions/checkout`, `actions/setup-dotnet`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, `actions/github-script`, and `codecov/codecov-action` (plus local reusable workflows). The runner is configured under the dedicated, least-privileged `harmonize-runner` service account with an isolated home. Release publication uses a separate least-privileged self-hosted identity so its short-lived `contents:write` token is never exposed to the build/test account, verifies the release ZIP's SHA-256 sidecar and exact asset set before publication, and resumes only a matching version-tag draft at the same workflow commit. See `.github/workflows/dotnet-ci.yml`, [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md), and [.github/dependabot.yml](.github/dependabot.yml) for the full workflow, runner, and dependency-maintenance contracts.
+Full CI runs locked restores, build/tests, formatting, dependency auditing, Gitleaks, and split Semgrep scans on the named self-hosted runner. The Semgrep production-source/configuration and repository-script reports fail closed on findings, scanner errors, or fixpoint-analysis timeouts, and each reviewed ruleset snapshot is SHA-256 verified and configuration-validated before use. It also executes the documented Linux release helper in a separate bounded job and compares its verified archive manifest with the canonical package before publication. A repository-controlled weekly default-branch workflow reruns the blocking Gitleaks and Semgrep gates. The main persistent-runner workflow accepts `workflow_dispatch` only for an operator recovery run on `main`; manual recovery never publishes a release, while pull-request and non-main push events remain excluded and every self-hosted job has a `refs/heads/main` guard. The trusted workflow boundary validator (`scripts/validate-trusted-workflow.mjs`) keeps those trigger, runner, permission, immutable-action, and version contracts executable. Dependabot explicitly monitors the plugin, test, and benchmark NuGet directories, the GitHub Actions workflows, and the hash-locked Semgrep environment; `scripts/validate-dependabot.mjs` fails CI if a tracked project directory is missing. The repository Actions policy is selected-only with SHA pinning required; it allows only `actions/checkout`, `actions/setup-dotnet`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, `actions/github-script`, and `codecov/codecov-action` (plus local reusable workflows). The runner is configured under the dedicated, least-privileged `harmonize-runner` service account with an isolated home. Release publication uses a separate least-privileged self-hosted identity so its short-lived `contents:write` token is never exposed to the build/test account, verifies the release ZIP's SHA-256 sidecar and exact asset set before publication, and resumes only a matching version-tag draft at the same workflow commit. See `.github/workflows/dotnet-ci.yml`, [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md), and [.github/dependabot.yml](.github/dependabot.yml) for the full workflow, runner, and dependency-maintenance contracts.
 
 Every trusted build also retains its Cobertura coverage artifact. Codecov publication is optional: when
 `CODECOV_TOKEN` is not configured, CI records an explicit skip in the run summary; when it is configured,
@@ -471,7 +471,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.336 (Current)
+### Version 1.5.337 (Current)
+
+- **History-only scheduler clears**: clearing retained cue history preserves pending deferred occurrences, their status/waiting message, and retry behavior.
+
+- **Cancellation-safe host shutdown cleanup**: interrupted sync-loop waits defer bridge restoration until the predecessor exits and then retry deactivation with a fresh non-canceled cleanup token.
+
+- **Fail-closed Semgrep analysis**: split production/non-JavaScript and repository-script scans, block fixpoint timeouts, and verify reviewed SHA-256-pinned rule snapshots before use.
+
+- **Regression coverage**: scheduler history, host-shutdown cleanup, and Semgrep workflow contracts cover the new safety boundaries.
 
 - **Cancellation-safe deferred schedules**: host-shutdown cancellation retains deferred occurrences, releases occurrence slots, and leaves finite run counters unchanged until a cue completes.
 
@@ -924,7 +932,7 @@ Benchmarks measure:
 - **Test runner refresh**: xUnit Visual Studio adapter 4.0.0 is now locked for the test project only; production dependencies remain on the .NET 8-compatible set.
 
 ### Version 1.5.230
-- **Hash-locked Semgrep**: blocking static analysis installs a reviewed Python 3.12/x86_64 dependency lock with SHA-256 hashes, platform/version validation, and `pip check`.
+- **Hash-locked Semgrep**: blocking static analysis installs a reviewed Python 3.12/x86_64 dependency lock with SHA-256 hashes, platform/version validation, and `pip check`; current rulesets are separately reviewed and SHA-256-pinned before use.
 - **Import preflight enforcement**: Review and Import stays disabled until successful validation and is invalidated when migration credentials change; submission also fails closed.
 - **Actions policy enforcement**: repository policy now requires immutable commit-SHA action references.
 - **Scanner dependency maintenance**: Dependabot now monitors the hash-locked Semgrep environment and its transitive packages.

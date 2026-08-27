@@ -3,8 +3,12 @@ name: Security Scan
 # Reusable blocking OSS secret + code scanning. The .NET CI/CD workflow calls
 # this gate for every trusted main push; weekly default-branch runs remain here.
 # gitleaks (secrets) + semgrep (SAST) publish redacted JSON artifacts and fail
-# the job on findings or scanner errors. Dependency scanning stays with the
-# free Dependabot alerts and the .NET vulnerability check in dotnet-ci.yml.
+# the job on findings, scanner errors, or analysis timeouts. Semgrep keeps the
+# all tracked production source/configuration p/default scan separate from the
+# repository-script p/javascript and p/python scans so a timeout cannot be hidden
+# by excluding a target.
+# Dependency scanning stays with the free Dependabot alerts and the .NET
+# vulnerability check in dotnet-ci.yml.
 
 on:
   workflow_call:
@@ -18,6 +22,14 @@ env:
   GITLEAKS_VERSION: '8.30.1'
   GITLEAKS_CHECKSUMS_SHA256: '061476c21adaf5441516f96f185c1a4706a83cd6329b9b38762271b3d4a52fae'
   SEMGREP_VERSION: '1.174.0'
+  # Registry aliases are fetched as reviewed, SHA-256-pinned snapshots. A changed
+  # ruleset fails closed instead of silently changing the security policy.
+  SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'
+  SEMGREP_DEFAULT_CONFIG_SHA256: 'c78d9867cd29191971232da8c0b2fa440416ed8591f83ccdd762096ccddecbae'
+  SEMGREP_JAVASCRIPT_CONFIG_URL: 'https://semgrep.dev/c/p/javascript'
+  SEMGREP_JAVASCRIPT_CONFIG_SHA256: 'e65e8449157ef5d587f2c2a0c17ed388910ca90336e514d27941ccd25543cf4e'
+  SEMGREP_PYTHON_CONFIG_URL: 'https://semgrep.dev/c/p/python'
+  SEMGREP_PYTHON_CONFIG_SHA256: '31c1dfa46e8ddd97f9ac98c607ddd77b20a2c3356d7ec987359961d47ec27035'
 
 concurrency:
   group: security-scan-${{ github.workflow }}-${{ github.ref }}
@@ -113,38 +125,132 @@ jobs:
             --requirement .github/semgrep/requirements.txt
           "$semgrep_venv/bin/python" -m pip check
           test "$("$semgrep_venv/bin/semgrep" --version)" = "$SEMGREP_VERSION"
-      - name: Scan (OSS rules)
+          default_config_path="$RUNNER_TEMP/semgrep-default.yml"
+          javascript_config_path="$RUNNER_TEMP/semgrep-javascript.yml"
+          python_config_path="$RUNNER_TEMP/semgrep-python.yml"
+          curl -sSfL --retry 3 --retry-all-errors \
+            -o "$default_config_path" "$SEMGREP_DEFAULT_CONFIG_URL"
+          curl -sSfL --retry 3 --retry-all-errors \
+            -o "$javascript_config_path" "$SEMGREP_JAVASCRIPT_CONFIG_URL"
+          curl -sSfL --retry 3 --retry-all-errors \
+            -o "$python_config_path" "$SEMGREP_PYTHON_CONFIG_URL"
+          printf '%s  %s\n' "$SEMGREP_DEFAULT_CONFIG_SHA256" "$default_config_path" \
+            | sha256sum --check --strict -
+          printf '%s  %s\n' "$SEMGREP_JAVASCRIPT_CONFIG_SHA256" "$javascript_config_path" \
+            | sha256sum --check --strict -
+          printf '%s  %s\n' "$SEMGREP_PYTHON_CONFIG_SHA256" "$python_config_path" \
+            | sha256sum --check --strict -
+          "$semgrep_venv/bin/semgrep" validate "$default_config_path" >/dev/null
+          "$semgrep_venv/bin/semgrep" validate "$javascript_config_path" >/dev/null
+          "$semgrep_venv/bin/semgrep" validate "$python_config_path" >/dev/null
+      - name: Scan production source and repository configuration (OSS rules)
         env:
           SEMGREP_SEND_METRICS: 'off'
         run: |
           set -euo pipefail
           set +e
           "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
-            --config p/default --metrics off --timeout 120 --json --output semgrep.json .
+            --config "$RUNNER_TEMP/semgrep-default.yml" --metrics off --timeout 120 \
+            --include='*.cs' --include='*.yml' --include='*.yaml' \
+            --include='*.json' --include='*.sh' \
+            --json --output semgrep-production.json .
           scan_status=$?
           set -e
-          test -f semgrep.json || {
-            echo "Semgrep did not produce a report" >&2
+          test -f semgrep-production.json || {
+            echo "Semgrep did not produce the production-source report" >&2
             exit 1
           }
-          COUNT=$(jq '.results | length' semgrep.json)
-          ERRORS=$(jq '.errors | length' semgrep.json)
+          COUNT=$(jq '.results | length' semgrep-production.json)
+          ERRORS=$(jq '.errors | length' semgrep-production.json)
+          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' semgrep-production.json)
           {
-            echo "### Static analysis (semgrep)"
+            echo "### Static analysis (semgrep: production source/configuration)"
             echo "Findings: **$COUNT** (blocking)"
             echo "Scanner errors: **$ERRORS** (blocking)"
+            echo "Analysis timeouts: **$TIMEOUTS** (blocking)"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$scan_status" -ne 0 ]; then
-            echo "Semgrep failed; see the semgrep-report artifact" >&2
+            echo "Semgrep production-source scan failed; see the semgrep-report artifact" >&2
             exit "$scan_status"
           fi
-          if [ "$COUNT" -gt 0 ] || [ "$ERRORS" -gt 0 ]; then
-            echo "Semgrep found security findings or scanner errors; see the semgrep-report artifact" >&2
+          if [ "$COUNT" -gt 0 ] || [ "$ERRORS" -gt 0 ] || [ "$TIMEOUTS" -gt 0 ]; then
+            echo "Semgrep production-source scan found security findings, scanner errors, or analysis timeouts; see the semgrep-report artifact" >&2
+            exit 1
+          fi
+      - name: Scan repository scripts (JavaScript rules)
+        if: always()
+        env:
+          SEMGREP_SEND_METRICS: 'off'
+        run: |
+          set -euo pipefail
+          set +e
+          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
+            --config "$RUNNER_TEMP/semgrep-javascript.yml" --metrics off --timeout 120 \
+            --include='*.mjs' \
+            --json --output semgrep-scripts.json scripts
+          scan_status=$?
+          set -e
+          test -f semgrep-scripts.json || {
+            echo "Semgrep did not produce the repository-scripts report" >&2
+            exit 1
+          }
+          COUNT=$(jq '.results | length' semgrep-scripts.json)
+          ERRORS=$(jq '.errors | length' semgrep-scripts.json)
+          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' semgrep-scripts.json)
+          {
+            echo "### Static analysis (semgrep: repository scripts)"
+            echo "Findings: **$COUNT** (blocking)"
+            echo "Scanner errors: **$ERRORS** (blocking)"
+            echo "Analysis timeouts: **$TIMEOUTS** (blocking)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$scan_status" -ne 0 ]; then
+            echo "Semgrep repository-scripts scan failed; see the semgrep-report artifact" >&2
+            exit "$scan_status"
+          fi
+          if [ "$COUNT" -gt 0 ] || [ "$ERRORS" -gt 0 ] || [ "$TIMEOUTS" -gt 0 ]; then
+            echo "Semgrep repository-scripts scan found security findings, scanner errors, or analysis timeouts; see the semgrep-report artifact" >&2
+            exit 1
+          fi
+      - name: Scan repository Python scripts (Python rules)
+        if: always()
+        env:
+          SEMGREP_SEND_METRICS: 'off'
+        run: |
+          set -euo pipefail
+          set +e
+          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
+            --config "$RUNNER_TEMP/semgrep-python.yml" --metrics off --timeout 120 \
+            --include='*.py' \
+            --json --output semgrep-python.json scripts
+          scan_status=$?
+          set -e
+          test -f semgrep-python.json || {
+            echo "Semgrep did not produce the repository-Python report" >&2
+            exit 1
+          }
+          COUNT=$(jq '.results | length' semgrep-python.json)
+          ERRORS=$(jq '.errors | length' semgrep-python.json)
+          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' semgrep-python.json)
+          {
+            echo "### Static analysis (semgrep: repository Python scripts)"
+            echo "Findings: **$COUNT** (blocking)"
+            echo "Scanner errors: **$ERRORS** (blocking)"
+            echo "Analysis timeouts: **$TIMEOUTS** (blocking)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$scan_status" -ne 0 ]; then
+            echo "Semgrep repository-Python scan failed; see the semgrep-report artifact" >&2
+            exit "$scan_status"
+          fi
+          if [ "$COUNT" -gt 0 ] || [ "$ERRORS" -gt 0 ] || [ "$TIMEOUTS" -gt 0 ]; then
+            echo "Semgrep repository-Python scan found security findings, scanner errors, or analysis timeouts; see the semgrep-report artifact" >&2
             exit 1
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: semgrep-report
-          path: semgrep.json
+          path: |
+            semgrep-production.json
+            semgrep-scripts.json
+            semgrep-python.json
           if-no-files-found: ignore

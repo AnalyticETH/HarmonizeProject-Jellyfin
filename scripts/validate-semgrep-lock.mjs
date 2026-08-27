@@ -73,4 +73,80 @@ if (expectedSemgrepVersion && semgrep[0].version !== expectedSemgrepVersion) {
     );
 }
 
-console.log(`Validated ${packages.length} hash-locked packages; semgrep==${semgrep[0].version}`);
+const semgrepWorkflows = [
+    ".github/workflows/security-scan.yml",
+    ".github/workflows/pull-request-validation.yml"
+];
+const timeoutCountExpression = "jq '(.time.fixpoint_timeouts // []) | length'";
+const timeoutSummaryMarker = "Analysis timeouts:";
+const timeoutGateMarker = "|| [ \"$TIMEOUTS\" -gt 0 ]";
+const pinnedConfigSources = [
+    ["SEMGREP_DEFAULT_CONFIG_URL", "https://semgrep.dev/c/p/default"],
+    ["SEMGREP_JAVASCRIPT_CONFIG_URL", "https://semgrep.dev/c/p/javascript"],
+    ["SEMGREP_PYTHON_CONFIG_URL", "https://semgrep.dev/c/p/python"]
+];
+const pinnedConfigRuntimeMarkers = [
+    'default_config_path="$RUNNER_TEMP/semgrep-default.yml"',
+    'javascript_config_path="$RUNNER_TEMP/semgrep-javascript.yml"',
+    'python_config_path="$RUNNER_TEMP/semgrep-python.yml"',
+    'curl -sSfL --retry 3 --retry-all-errors',
+    '"$semgrep_venv/bin/semgrep" validate "$default_config_path"',
+    '"$semgrep_venv/bin/semgrep" validate "$javascript_config_path"',
+    '"$semgrep_venv/bin/semgrep" validate "$python_config_path"',
+    "$SEMGREP_DEFAULT_CONFIG_SHA256",
+    "$SEMGREP_JAVASCRIPT_CONFIG_SHA256",
+    "$SEMGREP_PYTHON_CONFIG_SHA256"
+];
+const productionScanMarkers = [
+    "--config \"$RUNNER_TEMP/semgrep-default.yml\" --metrics off --timeout 120",
+    "--include='*.cs' --include='*.yml' --include='*.yaml'",
+    "--include='*.json' --include='*.sh'",
+    "--json --output semgrep-production.json ."
+];
+const scriptScanMarkers = [
+    "--config \"$RUNNER_TEMP/semgrep-javascript.yml\" --metrics off --timeout 120",
+    "--include='*.mjs'",
+    "--json --output semgrep-scripts.json scripts"
+];
+const pythonScanMarkers = [
+    "--config \"$RUNNER_TEMP/semgrep-python.yml\" --metrics off --timeout 120",
+    "--include='*.py'",
+    "--json --output semgrep-python.json scripts"
+];
+
+function countOccurrences(value, marker) {
+    return value.split(marker).length - 1;
+}
+
+for (const workflowPath of semgrepWorkflows) {
+    const workflow = fs.readFileSync(workflowPath, "utf8");
+    for (const marker of [timeoutCountExpression, timeoutSummaryMarker, timeoutGateMarker]) {
+        if (countOccurrences(workflow, marker) < 3) {
+            throw new Error(`${workflowPath}: Semgrep timeout gate is missing marker: ${marker}`);
+        }
+    }
+    for (const [variable, source] of pinnedConfigSources) {
+        if (!workflow.includes(`${variable}: '${source}'`)) {
+            throw new Error(`${workflowPath}: Semgrep config source is not pinned to ${source}`);
+        }
+        const hashVariable = `${variable.replace(/_URL$/, "")}_SHA256`;
+        if (!new RegExp(`${hashVariable}: ['\"][0-9a-f]{64}['\"]`).test(workflow)) {
+            throw new Error(`${workflowPath}: ${hashVariable} must be a 64-character SHA-256 digest`);
+        }
+    }
+    for (const marker of pinnedConfigRuntimeMarkers) {
+        if (!workflow.includes(marker)) {
+            throw new Error(`${workflowPath}: Semgrep config pinning is missing marker: ${marker}`);
+        }
+    }
+    for (const marker of [...productionScanMarkers, ...scriptScanMarkers, ...pythonScanMarkers]) {
+        if (!workflow.includes(marker)) {
+            throw new Error(`${workflowPath}: Semgrep target split is missing marker: ${marker}`);
+        }
+    }
+}
+
+console.log(
+    `Validated ${packages.length} hash-locked packages; semgrep==${semgrep[0].version}; ` +
+    `production source/configuration, JavaScript, and Python scans with timeout gates present in ${semgrepWorkflows.length} workflows`
+);

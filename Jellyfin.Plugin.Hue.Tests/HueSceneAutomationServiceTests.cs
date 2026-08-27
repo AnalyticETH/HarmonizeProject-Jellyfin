@@ -2583,6 +2583,85 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task ClearHistory_PreservesPendingDeferredCueForStatusAndRetry()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "clear-history-deferred-app-secret",
+            HueClientKey = "clear-history-deferred-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Clear-history deferred scene", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "clear-history-deferred-cue",
+                    Name = "Clear-history deferred cue",
+                    PresetName = "Clear-history deferred scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using (var playbackLease = lifecycleGate.TryEnterPlayback("clear-history-deferred-target"))
+        {
+            Assert.NotNull(playbackLease);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+            var pendingBeforeClear = Assert.Single(service.GetStatus().Schedules);
+            Assert.True(pendingBeforeClear.DeferredPending);
+            Assert.False(pendingBeforeClear.DeferredRestored);
+            Assert.Contains("Waiting for active playback", pendingBeforeClear.LastMessage, StringComparison.Ordinal);
+            var occurrenceSlot = pendingBeforeClear.DeferredOccurrenceSlot;
+            Assert.NotNull(occurrenceSlot);
+            Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+
+            Assert.Equal(0, service.ClearHistory());
+
+            var pendingAfterClear = Assert.Single(service.GetStatus().Schedules);
+            Assert.True(pendingAfterClear.DeferredPending);
+            Assert.False(pendingAfterClear.DeferredRestored);
+            Assert.Equal(occurrenceSlot, pendingAfterClear.DeferredOccurrenceSlot);
+            Assert.Contains("Waiting for active playback", pendingAfterClear.LastMessage, StringComparison.Ordinal);
+            var persistedDeferred = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+            Assert.Equal(occurrenceSlot, persistedDeferred.OccurrenceSlot);
+        }
+
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Equal(new[] { 10 }, streamTester.Reds);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        var completed = Assert.Single(service.GetStatus().Schedules);
+        Assert.False(completed.DeferredPending);
+        Assert.True(completed.LastWasDeferred);
+        Assert.True(completed.LastSucceeded);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_CanceledDeferredCueRetainsOccurrenceWithoutConsumingRun()
     {
         var configuration = new PluginConfiguration
