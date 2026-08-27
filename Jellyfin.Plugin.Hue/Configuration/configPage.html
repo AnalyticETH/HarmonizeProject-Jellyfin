@@ -2745,6 +2745,10 @@
                         var exportButton = page.querySelector && page.querySelector(exportStates.selector);
                         if (exportButton) exportButton.disabled = false;
                     }
+                    if (key === 'userMappingReconciliation') {
+                        var reconciliationButton = page.querySelector && page.querySelector('#reconcileUserMappingsBtn');
+                        if (reconciliationButton) reconciliationButton.disabled = false;
+                    }
                 },
                 invalidatePageLifecycle: function (page) {
                     if (!page) return;
@@ -11889,6 +11893,8 @@
                     container.style.display = 'block';
                 },
                 reconcileUserMappings: function (page) {
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!page || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     var button = page.querySelector('#reconcileUserMappingsBtn');
                     var statusEl = page.querySelector('#userMappingReconcileStatus');
                     if (button) button.disabled = true;
@@ -11919,8 +11925,18 @@
                         return details;
                     };
 
-                    ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings/Reconcile"))
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'userMappingReconciliation',
+                        ApiClient.getUrl("HueSync/UserMappings/Reconcile"));
+                    var reportRequest = request;
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request
                         .then(function (report) {
+                            if (!isCurrent()) return;
                             HueConfigurationPage.renderDuplicateResolutionControls(page, report);
                             var renamed = readValue(report, 'RenamedCount', 'renamedCount', 0);
                             if (!renamed) {
@@ -11936,31 +11952,43 @@
                                 "Refresh " + renamed + " existing user mapping name/ID value(s) from Jellyfin? Missing, malformed, and duplicate mappings will remain unchanged.",
                                 "Reconcile User Mappings",
                                 function (confirmed) {
+                                    if (!isCurrent()) return;
                                     if (!confirmed) {
                                         if (statusEl) statusEl.textContent = "Reconciliation report reviewed; no mapping was changed.";
                                         return;
                                     }
                                     if (statusEl) statusEl.textContent = "Applying safe identity repairs atomically...";
-                                    ApiClient.ajax({
-                                        type: "POST",
-                                        url: ApiClient.getUrl("HueSync/UserMappings/Reconcile"),
-                                        dataType: "json"
-                                    }).then(function (applied) {
+                                    if (button) button.disabled = true;
+                                    request = HueConfigurationPage.getPageLifecycleRequest(
+                                        page,
+                                        pageGeneration,
+                                        'userMappingReconciliation',
+                                        ApiClient.getUrl("HueSync/UserMappings/Reconcile"),
+                                        {
+                                            type: "POST",
+                                            dataType: "json"
+                                        });
+                                    request.then(function (applied) {
+                                        if (!isCurrent()) return;
                                         if (statusEl) {
                                             statusEl.textContent = formatReport(applied, "User mapping reconciliation applied.");
                                             statusEl.style.color = "#8bc34a";
                                         }
                                         HueConfigurationPage.loadUserMappings(page);
                                     }).catch(function (err) {
+                                        if (!isCurrent()) return;
                                         console.error("Failed to apply user mapping reconciliation:", err);
                                         if (statusEl) {
                                             statusEl.textContent = "No mapping identity changed. Reconciliation was not persisted.";
                                             statusEl.style.color = "#d9534f";
                                         }
+                                    }).finally(function () {
+                                        if (isCurrent() && button) button.disabled = false;
                                     });
                                 });
                         })
                         .catch(function (err) {
+                            if (!isCurrent()) return;
                             console.error("Failed to reconcile user mappings:", err);
                             if (statusEl) {
                                 statusEl.textContent = "Unable to reconcile user mappings. Jellyfin's user directory may be unavailable.";
@@ -11968,7 +11996,7 @@
                             }
                         })
                         .finally(function () {
-                            if (button) button.disabled = false;
+                            if (request === reportRequest && isCurrent() && button) button.disabled = false;
                         });
                 },
                 cleanupStaleUserMappings: function (page) {

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.345] - 2026-08-27
+
+### Lifecycle and release integrity
+- **User-mapping reconciliation lifecycle safety**: stale report and apply callbacks are cancelled or ignored after page teardown, so hidden pages cannot show obsolete confirmations, status, or mapping reloads.
+- **Retry-preserving shutdown cleanup**: failed entertainment-area deactivation retains its target snapshot so deferred cleanup can retry safely with a fresh cancellation token.
+- **Post-publication asset integrity**: the trusted release gate rechecks GitHub-recorded ZIP and checksum digests after publication, closing replacement races after pre-publication verification.
+- **Regression coverage**: configuration lifecycle, shutdown deactivation retry, and final release-digest contracts cover the new safety boundaries.
+
 ## [1.5.344] - 2026-08-27
 
 ### Release publication correctness

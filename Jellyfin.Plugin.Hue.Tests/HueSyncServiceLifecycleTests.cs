@@ -1552,6 +1552,29 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task StopAsync_WhenAreaDeactivationFails_RetainsTargetForDeferredRetry()
+    {
+        var handler = new FailFirstDeactivationHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        ((HueClient)GetPrivateField(service, "_hueClient")!).RetryAttempts = 0;
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "shutdown-session");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        await service.StopAsync(CancellationToken.None);
+
+        var deferredStopTask = Assert.IsAssignableFrom<Task>(GetPrivateField(service, "_deferredStopTask"));
+        await deferredStopTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, handler.StopRequestCount);
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+    }
+
+    [Fact]
     public async Task StopAsync_WhenLifecycleLockWaitIsCanceled_DefersCleanupUntilLockAvailable()
     {
         var gate = new HueBridgeLifecycleGate();
@@ -2070,6 +2093,35 @@ public sealed class HueSyncServiceLifecycleTests
 
         private static TaskCompletionSource<bool> NewSignal() =>
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class FailFirstDeactivationHueHandler : HttpMessageHandler
+    {
+        private int _stopRequestCount;
+
+        public int StopRequestCount => Volatile.Read(ref _stopRequestCount);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Put &&
+                request.RequestUri?.AbsolutePath.Contains("entertainment_configuration", StringComparison.Ordinal) == true)
+            {
+                var requestNumber = Interlocked.Increment(ref _stopRequestCount);
+                if (requestNumber == 1)
+                {
+                    // Return a retriable status once; the test disables client retries so
+                    // the service's deferred cleanup is the second attempt.
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+                }
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+        }
     }
 
     private sealed class BlockingHueHandler : HttpMessageHandler

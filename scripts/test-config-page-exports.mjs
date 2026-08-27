@@ -1282,6 +1282,71 @@ async function testDuplicateMappingResolutionLifecycleGuards() {
     assert.equal(confirmationHarness.requests.length, 0, "a confirmation completed after pagehide cannot start duplicate resolution");
 }
 
+async function testUserMappingReconciliationLifecycleGuards() {
+    const report = {
+        HealthyCount: 1,
+        RenamedCount: 1,
+        MissingCount: 0,
+        InvalidCount: 0,
+        DuplicateCount: 0
+    };
+
+    const staleHarness = makeHarness();
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    let staleConfirmations = 0;
+    staleHarness.dashboard.confirm = () => { staleConfirmations += 1; };
+    const staleOperation = staleApi.reconcileUserMappings(stalePage);
+    assert.equal(staleHarness.requests.length, 1, "reconciliation starts one tracked report request");
+    assert.equal(staleHarness.requests[0].options.type, "GET", "reconciliation report uses GET");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/UserMappings/Reconcile", "reconciliation report uses the reconciliation endpoint");
+    stalePage.querySelector("#userMappingReconcileStatus").textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts the reconciliation report request");
+    assert.equal(stalePage._huePageRequests.userMappingReconciliation, undefined, "pagehide removes reconciliation request state");
+    assert.equal(stalePage.querySelector("#reconcileUserMappingsBtn").disabled, false, "pagehide restores the reconciliation button");
+    staleHarness.requests[0].resolve(report);
+    await staleOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(
+        stalePage.querySelector("#userMappingReconcileStatus").textContent,
+        "unchanged after pagehide",
+        "invalidated reconciliation report cannot update hidden-page status"
+    );
+    assert.equal(staleConfirmations, 0, "invalidated reconciliation report cannot open a stale confirmation");
+
+    const applyHarness = makeHarness();
+    const applyPage = applyHarness.page;
+    const applyApi = applyHarness.api;
+    const followUps = [];
+    let confirmation;
+    applyHarness.dashboard.confirm = (_message, _title, callback) => { confirmation = callback; };
+    applyApi.loadUserMappings = () => { followUps.push("mappings"); };
+    const applyOperation = applyApi.reconcileUserMappings(applyPage);
+    assert.equal(applyHarness.requests.length, 1, "apply flow starts with one report request");
+    applyHarness.requests[0].resolve(report);
+    await applyOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(typeof confirmation, "function", "a current renamed report asks for confirmation");
+    confirmation(true);
+    assert.equal(applyHarness.requests.length, 2, "confirmed reconciliation starts one apply request");
+    assert.equal(applyHarness.requests[1].options.type, "POST", "reconciliation apply uses POST");
+    assert.equal(applyHarness.requests[1].options.url, "HueSync/UserMappings/Reconcile", "reconciliation apply uses the reconciliation endpoint");
+    assert.equal(applyPage.querySelector("#reconcileUserMappingsBtn").disabled, true, "reconciliation apply disables its button");
+    applyPage.querySelector("#userMappingReconcileStatus").textContent = "unchanged after pagehide";
+    applyApi.invalidatePageLifecycle(applyPage);
+    assert.equal(applyHarness.requests[1].promise.aborted, true, "pagehide aborts the reconciliation apply request");
+    assert.equal(applyPage.querySelector("#reconcileUserMappingsBtn").disabled, false, "pagehide restores the reconciliation button after apply");
+    applyHarness.requests[1].resolve({ UpdatedCount: 1 });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(
+        applyPage.querySelector("#userMappingReconcileStatus").textContent,
+        "unchanged after pagehide",
+        "invalidated reconciliation apply cannot update hidden-page status"
+    );
+    assert.deepEqual(followUps, [], "invalidated reconciliation apply cannot trigger stale mapping reloads");
+}
+
 async function testDisabledMappingCannotPreview() {
     const harness = makeHarness();
     const { page, api } = harness;
@@ -1329,7 +1394,8 @@ await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
 await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
+await testUserMappingReconciliationLifecycleGuards();
 await testRuntimeStopLifecycleGuards();
 await testDisabledMappingCannotPreview();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, save stale-scope/pagehide, duplicate-target, duplicate-resolution, runtime-stop pagehide, and disabled-mapping preview paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, and disabled-mapping preview paths)`);

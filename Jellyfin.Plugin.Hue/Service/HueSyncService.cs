@@ -5349,7 +5349,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var restorationCompleted = true;
             var deactivationCompleted = bridgeConfig == null;
             var hostCancellationInterrupted = false;
-            var cleanupInterruptedByHost = false;
+            var cleanupRequiresRetry = false;
             bool effectiveUseCinemaMode;
             bool cinemaModeAttempted;
             bool effectiveRestoreLightState;
@@ -5472,8 +5472,19 @@ namespace Jellyfin.Plugin.Hue.Service
                     }
                 }
 
-                var cleanupInterrupted = hostCancellationInterrupted &&
-                    (!restorationCompleted || !deactivationCompleted);
+                cleanupRequiresRetry = !deactivationCompleted;
+                if (cleanupRequiresRetry && bridgeConfig != null)
+                {
+                    // The caller may have cleared its active target before cleanup. Keep
+                    // the target available so a later shutdown can retry deactivation.
+                    lock (_syncLock)
+                    {
+                        if (_currentBridgeConfig == null)
+                            _currentBridgeConfig = bridgeConfig;
+                    }
+                }
+
+                var cleanupInterrupted = hostCancellationInterrupted && cleanupRequiresRetry;
                 if (cleanupInterrupted)
                 {
                     cleanupWarning = cleanupWarning == null
@@ -5508,11 +5519,9 @@ namespace Jellyfin.Plugin.Hue.Service
                     RecordSessionSummary(sessionSummarySeed, cleanupWarning);
                 }
                 ReleasePlaybackLifecycleLease();
-
-                cleanupInterruptedByHost = cleanupInterrupted;
             }
 
-            return !cleanupInterruptedByHost;
+            return !cleanupRequiresRetry;
         }
 
         private SessionSummarySeed? CaptureSessionSummarySeed(

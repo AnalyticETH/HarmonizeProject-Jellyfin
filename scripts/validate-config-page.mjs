@@ -467,7 +467,7 @@ const requiredScript = [
     "targetDiagnosticsDuplicateMappings",
     "Duplicate user mappings are blocked from bridge validation",
     'ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings/Reconcile"))',
-    'url: ApiClient.getUrl("HueSync/UserMappings/Reconcile")',
+    "userMappingReconciliation",
     "PlaybackMediaFilterOverride: readOptionalString('mappingPlaybackMediaFilterOverride')",
     "ContrastPercentOverride: readOptionalNumber('mappingContrastPercentOverride')",
     "ColorTemperatureKelvinOverride: readOptionalNumber('mappingColorTemperatureKelvinOverride')",
@@ -834,6 +834,16 @@ for (const marker of requiredScript) {
 }
 
 for (const [functionName, markers] of [
+    ["reconcileUserMappings", [
+        "var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);",
+        "getPageLifecycleRequest",
+        "'userMappingReconciliation'",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, request)",
+        "if (!isCurrent()) return;",
+        "type: \"POST\"",
+        "if (button) button.disabled = true;",
+        "request === reportRequest"
+    ]],
     ["editUserMapping", [
         "var pageGeneration",
         "cancelPageLifecycleRequest(page, 'editUserMapping')",

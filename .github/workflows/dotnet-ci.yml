@@ -624,6 +624,8 @@ jobs:
 
         final_release="$(retry gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
         jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" \
-          '(.tag_name == $tag) and (.target_commitish == $sha) and (.draft == false) and (.prerelease == false) and ([.assets[].name] | sort == ["jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"])' \
+          --arg zip_digest "sha256:${local_zip_digest}" \
+          --arg checksum_digest "sha256:${local_checksum_digest}" \
+          '(.tag_name == $tag) and (.target_commitish == $sha) and (.draft == false) and (.prerelease == false) and ([.assets[].name] | sort == ["jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"]) and ([.assets[] | select((.name == "jellyfin-plugin-hue-release.zip") and (.state == "uploaded") and (.digest == $zip_digest))] | length == 1) and ([.assets[] | select((.name == "jellyfin-plugin-hue-release.zip.sha256") and (.state == "uploaded") and (.digest == $checksum_digest))] | length == 1)' \
           <<<"$final_release" >/dev/null
-        echo "Published $RELEASE_TAG at $RELEASE_SHA with the ZIP and checksum assets."
+        echo "Published $RELEASE_TAG at $RELEASE_SHA with the verified ZIP and checksum asset digests."
