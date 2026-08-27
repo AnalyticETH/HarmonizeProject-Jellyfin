@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.324] - 2026-08-26
+
+### Exact-session lifecycle and CI coverage safety
+- **Exact-session stop safety**: explicit `playSessionId` stop requests now fail closed when a listed worker is stale or unknown, preventing an unrelated primary playback session from being stopped; matching primary IDs remain supported.
+- **Lifecycle-safe duplicate resolution**: administrator duplicate-mapping confirmation now participates in page-generation cancellation, suppresses late callbacks after navigation, and cannot start a destructive request after `pagehide`.
+- **Explicit coverage publication**: trusted CI retains Cobertura artifacts, records when optional Codecov publication is skipped because no token is configured, and fails closed when a configured upload cannot complete.
+
 ## [1.5.323] - 2026-08-26
 
 ### Optimistic configuration-import concurrency

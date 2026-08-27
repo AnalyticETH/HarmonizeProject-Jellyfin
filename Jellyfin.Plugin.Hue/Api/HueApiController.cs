@@ -7729,6 +7729,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
         /// <summary>
         /// Stops Hue output for the current playback session without stopping Jellyfin playback.
+        /// An explicit <c>playSessionId</c> must identify the current primary or listed concurrent
+        /// session; unknown or stale IDs return a conflict instead of falling back to another session.
         /// </summary>
         [HttpPost("Stop")]
         [ProducesResponseType(StatusCodes.Status200OK)]

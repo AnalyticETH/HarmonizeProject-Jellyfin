@@ -573,12 +573,17 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Stops Hue output for the current playback session while leaving Jellyfin playback running.
         /// The session is suppressed until its playback-stop event, so progress notifications cannot
-        /// immediately restart synchronization.
+        /// immediately restart synchronization. When <paramref name="playSessionId"/> is supplied,
+        /// only the matching concurrent worker or primary lifecycle may be stopped; stale IDs fail
+        /// closed without affecting another playback session.
         /// </summary>
         public async Task<bool> StopCurrentSyncAsync(string? playSessionId = null)
         {
-            if (!string.IsNullOrWhiteSpace(playSessionId) &&
-                TryGetConcurrentPlaybackWorker(playSessionId, clientSessionId: null, out var concurrentWorker))
+            var requestedPlaySessionId = string.IsNullOrWhiteSpace(playSessionId)
+                ? null
+                : playSessionId.Trim();
+            if (requestedPlaySessionId != null &&
+                TryGetConcurrentPlaybackWorker(requestedPlaySessionId, clientSessionId: null, out var concurrentWorker))
             {
                 return await concurrentWorker.Service.StopCurrentSyncAsync().ConfigureAwait(false);
             }
@@ -591,6 +596,18 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     if (!CanStopSync)
                         return false;
+
+                    // An explicit session ID must identify the primary lifecycle at
+                    // the point where the lifecycle lock is held. Otherwise a stale
+                    // worker ID could fall through and stop an unrelated primary
+                    // session after the worker has already been removed.
+                    if (requestedPlaySessionId != null &&
+                        !string.Equals(_currentPlaySessionId, requestedPlaySessionId, StringComparison.Ordinal) &&
+                        !(_currentPlaySessionId == null &&
+                          string.Equals(_startingPlaySessionId, requestedPlaySessionId, StringComparison.Ordinal)))
+                    {
+                        return false;
+                    }
 
                     activePlaySessionId = _currentPlaySessionId ?? _startingPlaySessionId;
                     _manuallyStoppedPlaySessionId = activePlaySessionId;

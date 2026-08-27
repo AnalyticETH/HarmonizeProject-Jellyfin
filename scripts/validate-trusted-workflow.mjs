@@ -16,6 +16,11 @@ for (const marker of [
   "jq -er '.version | strings | select(test(\"^[0-9]+\\\\.[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"))'",
   'local_tag_ref="refs/tags/${TAG}"',
   'git show-ref --verify --quiet "$local_tag_ref"',
+  "CODECOV_TOKEN_PRESENT: ${{ secrets.CODECOV_TOKEN != '' }}",
+  "Codecov upload skipped: CODECOV_TOKEN is not configured",
+  "if: env.CODECOV_TOKEN_PRESENT == 'true'",
+  "CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}",
+  "fail_ci_if_error: true",
 ]) {
   if (!ci.includes(marker)) {
     throw new Error(`${ciPath} is missing trusted-workflow marker: ${marker}`);

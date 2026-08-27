@@ -816,6 +816,69 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task StopCurrentSync_WithUnknownSessionIdDoesNotStopPrimarySession()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+
+        await service.StartAsync(CancellationToken.None);
+        using var syncCts = new CancellationTokenSource();
+        SetPrivateField(service, "_syncCts", syncCts);
+        SetPrivateField(service, "_currentPlaySessionId", "primary-session");
+        SetPrivateField(service, "_currentItemName", "Feature film");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+        SetPrivateField(service, "_runtimeState", "Syncing");
+        SetPrivateField(service, "_runtimeMessage", "Streaming video colors to Hue.");
+
+        Assert.False(await service.StopCurrentSyncAsync("stale-worker-session"));
+
+        Assert.Same(syncCts, GetPrivateField(service, "_syncCts"));
+        Assert.False(syncCts.IsCancellationRequested);
+        Assert.Equal("primary-session", GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Equal(
+            ("192.168.1.100", "app-key", "client-key", "area-id"),
+            GetPrivateField(service, "_currentBridgeConfig"));
+        Assert.Null(GetPrivateField(service, "_manuallyStoppedPlaySessionId"));
+        Assert.Equal("Syncing", service.GetRuntimeStatus().State);
+        Assert.True(service.CanStopSync);
+        Assert.False(handler.StopRequest.Task.IsCompleted);
+
+        // Avoid making service shutdown perform bridge cleanup for this synthetic state.
+        SetPrivateField(service, "_bridgeAreaDeactivated", true);
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StopCurrentSync_WithMatchingPrimarySessionIdStopsPrimarySession()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+
+        await service.StartAsync(CancellationToken.None);
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "primary-session");
+        SetPrivateField(service, "_currentItemName", "Feature film");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+        SetPrivateField(service, "_syncStartTime", DateTime.UtcNow.AddSeconds(-10));
+
+        var stopTask = service.StopCurrentSyncAsync("primary-session");
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(service.CanStopSync);
+
+        handler.ReleaseStopRequest();
+        Assert.True(await stopTask);
+        Assert.False(service.IsSyncing);
+        Assert.False(service.CanStopSync);
+        Assert.Equal("Stopped", service.GetRuntimeStatus().State);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task StopAsync_RestoresSavedStateBeforeServiceShutdown()
     {
         var handler = new BlockingHueHandler();

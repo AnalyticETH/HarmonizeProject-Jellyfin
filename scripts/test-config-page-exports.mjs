@@ -132,6 +132,7 @@ function makeElement(tagName = "div") {
         selectedIndex: 0,
         options: [],
         dataset: {},
+        attributes: {},
         style: {},
         children: [],
         listeners: {},
@@ -143,8 +144,21 @@ function makeElement(tagName = "div") {
         addEventListener(eventName, handler) {
             this.listeners[eventName] = handler;
         },
+        setAttribute(name, value) {
+            this.attributes[name] = String(value);
+        },
+        getAttribute(name) {
+            return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+        },
         appendChild(child) {
             this.children.push(child);
+            if (this.tagName === "SELECT" && child && child.tagName === "OPTION") {
+                this.options.push(child);
+                if (this.options.length === 1) {
+                    this.value = child.value;
+                    this.selectedIndex = 0;
+                }
+            }
             return child;
         },
         removeChild(child) {
@@ -715,6 +729,80 @@ async function testDuplicateTargetNormalizationAndGuard() {
     assert.equal(dashboard.alerts.length, 1, "broadcast guard announces the duplicate mapping block");
 }
 
+async function testDuplicateMappingResolutionLifecycleGuards() {
+    const duplicateUserId = "12345678-1234-1234-1234-1234567890ab";
+    const report = {
+        ReportVersion: "report-version-1",
+        Mappings: [
+            {
+                Status: "DuplicateMapping",
+                MappingId: "mapping-keeper",
+                CanonicalUserId: duplicateUserId,
+                PersistedUserName: "Keeper"
+            },
+            {
+                Status: "DuplicateMapping",
+                MappingId: "mapping-sibling",
+                CanonicalUserId: duplicateUserId,
+                PersistedUserName: "Sibling"
+            }
+        ]
+    };
+
+    const harness = makeHarness();
+    const { page, api, requests, dashboard } = harness;
+    const followUps = [];
+    let confirmation;
+    dashboard.confirm = (_message, _title, callback) => { confirmation = callback; };
+    api.loadUserMappings = () => { followUps.push("mappings"); };
+    api.reconcileUserMappings = () => { followUps.push("reconcile"); };
+    api.refreshTargetMetadata = () => {
+        followUps.push("metadata");
+        return Promise.resolve();
+    };
+
+    api.renderDuplicateResolutionControls(page, report);
+    const container = page.querySelector("#userMappingDuplicateResolutionControls");
+    const resolveButton = container.children.find(child => child.tagName === "BUTTON");
+    assert.ok(resolveButton, "duplicate resolution renders an action button");
+    resolveButton.listeners.click();
+    assert.equal(typeof confirmation, "function", "duplicate resolution asks for confirmation");
+    confirmation(true);
+    assert.equal(requests.length, 1, "confirmed duplicate resolution starts one request");
+    assert.equal(requests[0].options.type, "POST", "duplicate resolution uses POST");
+    assert.equal(requests[0].options.url, "HueSync/UserMappings/ResolveDuplicates", "duplicate resolution uses the API route");
+    assert.deepEqual(JSON.parse(requests[0].options.data), {
+        retainMappingId: "mapping-keeper",
+        removeMappingIds: ["mapping-sibling"],
+        expectedReportVersion: "report-version-1"
+    }, "duplicate resolution sends the exact selected rows and report version");
+
+    page.querySelector("#userMappingReconcileStatus").textContent = "unchanged after pagehide";
+    api.invalidatePageLifecycle(page);
+    assert.equal(requests[0].promise.aborted, true, "pagehide aborts duplicate resolution");
+    assert.equal(page._huePageRequests.userMappingDuplicateResolution, undefined, "pagehide removes duplicate resolution request state");
+    requests[0].resolve({ RemovedCount: 1 });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(
+        page.querySelector("#userMappingReconcileStatus").textContent,
+        "unchanged after pagehide",
+        "invalidated duplicate resolution cannot update hidden-page status"
+    );
+    assert.deepEqual(followUps, [], "invalidated duplicate resolution cannot trigger stale follow-up loads");
+
+    const confirmationHarness = makeHarness();
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => { confirmation = callback; };
+    confirmationApi.renderDuplicateResolutionControls(confirmationPage, report);
+    const confirmationContainer = confirmationPage.querySelector("#userMappingDuplicateResolutionControls");
+    const confirmationButton = confirmationContainer.children.find(child => child.tagName === "BUTTON");
+    confirmationButton.listeners.click();
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 0, "a confirmation completed after pagehide cannot start duplicate resolution");
+}
+
 for (const testCase of exportCases) {
     await testSuccessfulExport(testCase);
     await testStaleQuerySuppressesExport(testCase);
@@ -730,5 +818,6 @@ await testConfigurationSaveSuppressesStaleConfigurationLoad();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
 await testDuplicateTargetNormalizationAndGuard();
+await testDuplicateMappingResolutionLifecycleGuards();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, import, save stale-scope/pagehide, and duplicate-target paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, import, save stale-scope/pagehide, duplicate-target, and duplicate-resolution paths)`);

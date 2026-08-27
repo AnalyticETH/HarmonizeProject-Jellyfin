@@ -28,6 +28,9 @@ Every trusted `main` push runs the named self-hosted CI runner with:
 - Repository-level GitHub Actions SHA-pinning enforcement (`sha_pinning_required=true`); the repository currently permits all action owners, so every workflow reference is also reviewed and pinned to an immutable commit SHA
 - Dependabot monitoring for the hash-locked Semgrep environment and its transitive packages
 - Bounded job timeouts that release a persistent runner when a restore, scanner, or release step stalls
+- Coverage publication keeps the immutable Codecov action optional and explicit: every trusted build retains
+  its Cobertura artifact, reports when `CODECOV_TOKEN` is absent, and fails closed when a configured upload
+  cannot be authenticated or completed
 
 Bridge HTTP transport also disables automatic redirects and excludes raw bridge response bodies from
 registration/start/stop failure logs, preventing credential-shaped response fields from being sent to

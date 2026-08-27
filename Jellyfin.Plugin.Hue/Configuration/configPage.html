@@ -11319,12 +11319,17 @@
                     if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
                 },
                 clearDuplicateResolutionControls: function (page) {
+                    if (!page) return;
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingDuplicateResolution');
                     var container = page.querySelector('#userMappingDuplicateResolutionControls');
                     if (!container) return;
                     container.innerHTML = '';
                     container.style.display = 'none';
                 },
                 renderDuplicateResolutionControls: function (page, report) {
+                    if (!page) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingDuplicateResolution');
                     var container = page.querySelector('#userMappingDuplicateResolutionControls');
                     if (!container) return;
                     container.innerHTML = '';
@@ -11433,24 +11438,33 @@
                             'Retain ' + retainedLabel + ' and remove ' + removeMappingIds.length + ' sibling row(s)? Saved scenes and schedules will continue using this user after the atomic cleanup.',
                             'Resolve Duplicate Mappings',
                             function (confirmed) {
-                                if (!confirmed) return;
+                                if (!confirmed || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                                 resolveButton.disabled = true;
                                 var statusEl = page.querySelector('#userMappingReconcileStatus');
                                 if (statusEl) {
                                     statusEl.textContent = 'Resolving the selected duplicate mapping group atomically...';
                                     statusEl.style.color = '';
                                 }
-                                ApiClient.ajax({
-                                    type: 'POST',
-                                    url: ApiClient.getUrl('HueSync/UserMappings/ResolveDuplicates'),
-                                    data: JSON.stringify({
-                                        retainMappingId: retainMappingId,
-                                        removeMappingIds: removeMappingIds,
-                                        expectedReportVersion: readValue(report, 'ReportVersion', 'reportVersion', '')
-                                    }),
-                                    contentType: 'application/json',
-                                    dataType: 'json'
-                                }).then(function (result) {
+                                var request = HueConfigurationPage.getPageLifecycleRequest(
+                                    page,
+                                    pageGeneration,
+                                    'userMappingDuplicateResolution',
+                                    ApiClient.getUrl('HueSync/UserMappings/ResolveDuplicates'),
+                                    {
+                                        type: 'POST',
+                                        data: JSON.stringify({
+                                            retainMappingId: retainMappingId,
+                                            removeMappingIds: removeMappingIds,
+                                            expectedReportVersion: readValue(report, 'ReportVersion', 'reportVersion', '')
+                                        }),
+                                        contentType: 'application/json',
+                                        dataType: 'json'
+                                    });
+                                var isCurrent = function () {
+                                    return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                                };
+                                request.then(function (result) {
+                                    if (!isCurrent()) return;
                                     var removed = readValue(result, 'RemovedCount', 'removedCount', 0);
                                     if (statusEl) {
                                         statusEl.textContent = 'Duplicate mapping resolved. Removed ' + removed + ' sibling row(s); runtime and scene automation now have one deterministic mapping.';
@@ -11462,12 +11476,22 @@
                                         console.error('Failed to refresh target metadata after duplicate resolution:', refreshError);
                                     });
                                 }).catch(function (err) {
+                                    if (!isCurrent()) return;
                                     console.error('Failed to resolve duplicate user mappings:', err);
                                     if (statusEl) {
                                         statusEl.textContent = 'No duplicate mapping changed. Refresh reconciliation; the keeper, report version, validation, or persistence gate blocked the atomic operation.';
                                         statusEl.style.color = '#d9534f';
                                     }
                                     resolveButton.disabled = false;
+                                }).finally(function () {
+                                    var current = isCurrent();
+                                    var requestRecord = request && request._huePageRequestRecord;
+                                    var tracked = page && page._huePageRequests &&
+                                        page._huePageRequests.userMappingDuplicateResolution === requestRecord;
+                                    if (current || tracked) {
+                                        if (current) resolveButton.disabled = false;
+                                        if (!current) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingDuplicateResolution');
+                                    }
                                 });
                             });
                     });

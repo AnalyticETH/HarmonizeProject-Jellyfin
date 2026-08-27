@@ -882,6 +882,32 @@ for (const functionName of [
     }
 }
 
+{
+    const functionName = "renderDuplicateResolutionControls";
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);",
+        "cancelPageLifecycleRequest(page, 'userMappingDuplicateResolution')",
+        "if (!confirmed || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;",
+        "getPageLifecycleRequest(",
+        "'userMappingDuplicateResolution'",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, request)",
+        "if (!isCurrent()) return;",
+        ".finally(function ()",
+        "HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingDuplicateResolution')"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing duplicate-resolution lifecycle protection: ${marker}`);
+        }
+    }
+    const staleGuards = functionBody.match(/if \(!isCurrent\(\)\) return;/g) || [];
+    if (staleGuards.length < 2) {
+        throw new Error(`${file} ${functionName} must guard success and failure callbacks`);
+    }
+}
+
 for (const [functionName, requestKey, loadingProperty, queryMarker] of [
     ["loadSceneScheduleRuntimeStatus", "sceneScheduleRuntimeStatus", "_hueSceneScheduleRuntimeStatusLoading", ""],
     ["loadSceneScheduleConflicts", "sceneScheduleConflicts", "_hueSceneScheduleConflictsLoading", "getSceneScheduleConflictQuery(page)"],

@@ -28,6 +28,11 @@ jobs:
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
     # Bound persistent-runner occupancy if a restore, test, or external tool stalls.
     timeout-minutes: 20
+    env:
+      # Codecov is optional for installations that do not provision an upload token.
+      # Keep only a non-secret presence flag at job scope so build and test steps never
+      # inherit the upload credential; the token is injected into the upload action only.
+      CODECOV_TOKEN_PRESENT: ${{ secrets.CODECOV_TOKEN != '' }}
 
     steps:
     - name: Checkout code
@@ -119,13 +124,23 @@ jobs:
         path: ./TestResults/**/coverage.cobertura.xml
         retention-days: 30
 
+    - name: Report coverage publication status
+      if: always()
+      run: |
+        if [ "${CODECOV_TOKEN_PRESENT:-false}" = "true" ]; then
+          echo "Codecov upload enabled; the coverage artifact is also retained for download." >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "Codecov upload skipped: CODECOV_TOKEN is not configured; the coverage artifact is retained for download." >> "$GITHUB_STEP_SUMMARY"
+        fi
+
     - name: Upload coverage to Codecov
+      if: env.CODECOV_TOKEN_PRESENT == 'true'
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f
       with:
         files: ./TestResults/**/coverage.cobertura.xml
         flags: unittests
         name: jellyfin-hue-coverage
-        fail_ci_if_error: false
+        fail_ci_if_error: true
         verbose: true
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
