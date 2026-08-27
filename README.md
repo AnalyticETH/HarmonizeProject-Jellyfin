@@ -471,7 +471,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.346 (Current)
+### Version 1.5.347 (Current)
+
+- **Finite-schedule persistence retry**: failed finite run-count and auto-disable writes remain dirty and retry on the next scheduler pass even when retained schedule history is disabled.
+
+- **Regression coverage**: serializer-backed scheduler tests verify authoritative finite state survives transient persistence failures without duplicate bridge activity.
 
 - **Weekday-mask update parity**: partial schedule updates preserve an existing valid weekly weekday mask when the field is omitted, while new cues retain the all-days default and malformed legacy masks fall back safely.
 

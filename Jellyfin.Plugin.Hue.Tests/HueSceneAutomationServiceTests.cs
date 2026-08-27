@@ -2364,6 +2364,71 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_RetriesFiniteStatePersistenceAfterFailureWhenHistoryDisabled()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .SetupSequence(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated finite-state persistence failure"))
+            .Throws(new InvalidOperationException("simulated history persistence failure"))
+            .Pass();
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            PersistSceneScheduleHistory = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "finite-retry-app-secret",
+            HueClientKey = "finite-retry-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Finite retry scene", DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "finite-retry-cue",
+                    Name = "Finite retry cue",
+                    PresetName = "Finite retry scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    MaxRuns = 1,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            new RecordingStreamTester(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Exactly(2));
+
+        // The next scheduler pass retries the authoritative finite state even though
+        // history retention is disabled and the cue is no longer enabled.
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Exactly(3));
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
     public void GetMostRecentMissedOccurrence_UsesWindowAndReturnsNewestOccurrenceOnly()
     {
         var schedule = new HueSceneSchedule

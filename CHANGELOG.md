@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.347] - 2026-08-27
+
+### Schedule durability
+- **Finite-schedule persistence retry**: failed finite run-count and auto-disable writes remain dirty and retry on the next scheduler pass even when retained schedule history is disabled.
+- **Regression coverage**: serializer-backed scheduler tests verify authoritative finite state survives transient persistence failures without duplicate bridge activity.
+
 ## [1.5.346] - 2026-08-27
 
 ### Schedule and release durability

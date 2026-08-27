@@ -4405,6 +4405,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (schedulerEvaluation == null)
             return;
 
+        // Scheduler passes are also persistence-repair opportunities. This retries
+        // finite run-state writes that failed after the previous pass completed.
+        EnsureHistoryLoaded();
         EnsureDeferredRunsLoaded();
         var config = Plugin.Instance?.Configuration;
         if (config == null || !config.SceneAutomationEnabled)
@@ -5594,6 +5597,10 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
         catch (Exception ex)
         {
+            // The in-memory finite-run state is authoritative, but the failed write
+            // must remain dirty so the next scheduler/read-repair pass retries it even
+            // when history retention is disabled and there is no history payload to save.
+            MarkHistoryPersistencePending();
             _logger.LogWarning(
                 ex,
                 "Hue scene schedule {0} completed but its finite run count could not be persisted",
