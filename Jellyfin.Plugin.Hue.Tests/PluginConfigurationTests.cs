@@ -284,6 +284,7 @@ public class PluginConfigurationTests
             PluginConfiguration.ColorPresetEffectOcean,
             PluginConfiguration.ColorPresetEffectLightning,
             PluginConfiguration.ColorPresetEffectStarlight,
+            PluginConfiguration.ColorPresetEffectMatrix,
             " rainbow "
         })
         {
@@ -350,7 +351,7 @@ public class PluginConfigurationTests
             Effect = "Strobe"
         });
 
-        Assert.Contains("Color preset effect must be one of Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight", errors);
+        Assert.Contains("Color preset effect must be one of Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight, Matrix", errors);
     }
 
     [Fact]
@@ -722,7 +723,7 @@ public class PluginConfigurationTests
         config.ScenePlaylists[0].StepEffects = new List<string?> { "Strobe", null };
         var effectErrors = config.ValidateScenePlaylists();
         Assert.Contains(
-            "Scene playlist 1 step 1 effect must be one of Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight, or null/blank (inherit)",
+            "Scene playlist 1 step 1 effect must be one of Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight, Matrix, or null/blank (inherit)",
             effectErrors);
     }
 

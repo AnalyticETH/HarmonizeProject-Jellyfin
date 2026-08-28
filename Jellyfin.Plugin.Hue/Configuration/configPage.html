@@ -280,7 +280,7 @@
 
                     <fieldset class="verticalSection" id="sceneEffectPreviewSection" tabindex="-1">
                         <legend>Scene Effect Preview</legend>
-                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, hue-cycling Rainbow, warm flickering Candle, cycling warm-to-cool Temperature, drifting green-to-violet Aurora, high-energy Fire, rolling blue/cyan Ocean, electric blue/white Lightning, or cool white/blue Starlight effect on the default bridge target—or every distinct enabled target—for a few seconds. Set animation speed from 25% to 400% for non-solid effects. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect, speed, and transitions into scheduled cues. All-target preview uses each target's saved channel profile and runs sequentially, reporting independent outcomes. Capture Current Light Color reads one target or a selected/all-target set, reports each room independently, and seeds this editor with a weighted aggregate RGB/brightness sample, making it easy to save a multi-room snapshot as a reusable scene. Saved Scene Playlists can chain these reusable scenes in a chosen order. Stop active playback before previewing or capturing.</div>
+                        <div class="fieldDescription" style="margin-bottom: 1em;">Preview a solid color, breathing Pulse, hue-cycling Rainbow, warm flickering Candle, cycling warm-to-cool Temperature, drifting green-to-violet Aurora, high-energy Fire, rolling blue/cyan Ocean, electric blue/white Lightning, cool white/blue Starlight, or green/cyan cascading Matrix effect on the default bridge target—or every distinct enabled target—for a few seconds. Set animation speed from 25% to 400% for non-solid effects. The selected lights are saved and restored automatically. Use Fade in and Fade out for smooth scene boundaries; saved scenes carry the effect, speed, and transitions into scheduled cues. All-target preview uses each target’s saved channel profile and runs sequentially, reporting independent outcomes. Capture Current Light Color reads one target or a selected/all-target set, reports each room independently, and seeds this editor with a weighted aggregate RGB/brightness sample, making it easy to save a multi-room snapshot as a reusable scene. Saved Scene Playlists can chain these reusable scenes in a chosen order. Stop active playback before previewing or capturing.</div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
                             <div>
                                 <label class="inputLabel inputLabelUnfocused" for="previewColor">Color</label>
@@ -299,6 +299,7 @@
                                     <option value="Ocean">Ocean</option>
                                     <option value="Lightning">Lightning</option>
                                     <option value="Starlight">Starlight</option>
+                                    <option value="Matrix">Matrix</option>
                                 </select>
                             </div>
                             <div style="min-width: 130px;">
@@ -3996,8 +3997,8 @@
                     var transitionCurve = transitionCurveEl && transitionCurveEl.value ? transitionCurveEl.value : "Linear";
                     var effectEl = page.querySelector('#previewEffect');
                     var effect = effectEl && effectEl.value ? effectEl.value : "Solid";
-                    if (["Solid", "Pulse", "Rainbow", "Candle", "Temperature", "Aurora", "Fire", "Ocean", "Lightning", "Starlight"].indexOf(effect) < 0) {
-                        throw new Error("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, or Starlight.");
+                    if (["Solid", "Pulse", "Rainbow", "Candle", "Temperature", "Aurora", "Fire", "Ocean", "Lightning", "Starlight", "Matrix"].indexOf(effect) < 0) {
+                        throw new Error("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight, or Matrix.");
                     }
                     if (["Linear", "SmoothStep", "EaseIn", "EaseOut", "EaseInOut"].indexOf(transitionCurve) < 0) {
                         throw new Error("Fade curve must be Linear, SmoothStep, EaseIn, EaseOut, or EaseInOut.");
@@ -5712,7 +5713,7 @@
                     effects = effects.map(function (raw) {
                         if (raw === null || raw === undefined || String(raw).trim() === '') return null;
                         var normalized = String(raw).trim();
-                        var supported = ['Solid', 'Pulse', 'Rainbow', 'Candle', 'Temperature', 'Aurora', 'Fire', 'Ocean', 'Lightning', 'Starlight'];
+                        var supported = ['Solid', 'Pulse', 'Rainbow', 'Candle', 'Temperature', 'Aurora', 'Fire', 'Ocean', 'Lightning', 'Starlight', 'Matrix'];
                         return supported.find(function (effect) { return effect.toLowerCase() === normalized.toLowerCase(); }) || null;
                     });
                     page._hueScenePlaylistEffects = effects;
@@ -5868,7 +5869,8 @@
                             ['Fire', 'Fire'],
                             ['Ocean', 'Ocean'],
                             ['Lightning', 'Lightning'],
-                            ['Starlight', 'Starlight']
+                            ['Starlight', 'Starlight'],
+                            ['Matrix', 'Matrix']
                         ].forEach(function (optionDefinition) {
                             var option = document.createElement('option');
                             option.value = optionDefinition[0];
@@ -6246,7 +6248,7 @@
                         var raw = stepEffects[index];
                         if (raw === null || raw === undefined || String(raw).trim() === '') return null;
                         var normalized = String(raw).trim();
-                        var supported = ['Solid', 'Pulse', 'Rainbow', 'Candle', 'Temperature', 'Aurora', 'Fire', 'Ocean', 'Lightning', 'Starlight'];
+                        var supported = ['Solid', 'Pulse', 'Rainbow', 'Candle', 'Temperature', 'Aurora', 'Fire', 'Ocean', 'Lightning', 'Starlight', 'Matrix'];
                         return supported.find(function (effect) { return effect.toLowerCase() === normalized.toLowerCase(); }) || null;
                     });
                     var stepEffectSpeeds = playlist.stepEffectSpeedPercent !== undefined ? playlist.stepEffectSpeedPercent : (playlist.StepEffectSpeedPercent || []);
@@ -6912,7 +6914,7 @@
                         var raw = effects[index];
                         if (raw === null || raw === undefined || String(raw).trim() === '') return null;
                         var normalized = String(raw).trim();
-                        var supported = ['Solid', 'Pulse', 'Rainbow', 'Candle', 'Temperature', 'Aurora', 'Fire', 'Ocean', 'Lightning', 'Starlight'];
+                        var supported = ['Solid', 'Pulse', 'Rainbow', 'Candle', 'Temperature', 'Aurora', 'Fire', 'Ocean', 'Lightning', 'Starlight', 'Matrix'];
                         return supported.find(function (effect) { return effect.toLowerCase() === normalized.toLowerCase(); }) || null;
                     });
                     var effectSpeeds = Array.isArray(page._hueScenePlaylistEffectSpeeds) ? page._hueScenePlaylistEffectSpeeds : [];

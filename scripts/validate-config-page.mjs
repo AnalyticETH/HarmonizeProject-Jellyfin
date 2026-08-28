@@ -103,6 +103,7 @@ const requiredMarkup = [
     'value="Ocean">Ocean',
     'value="Lightning">Lightning',
     'value="Starlight">Starlight',
+    'value="Matrix">Matrix',
     'id="captureCurrentColorBtn"',
     'id="captureColorTarget"',
     'id="clearStoredCredentials"',
@@ -498,7 +499,7 @@ const requiredScript = [
     "var activeCancelButton = page.querySelector('#cancelPreviewBtn')",
     "ClearStoredCredentials: !!(clearCredentialsCheckbox && clearCredentialsCheckbox.checked)",
     "Clear Stored Credentials",
-    '["Solid", "Pulse", "Rainbow", "Candle", "Temperature", "Aurora", "Fire", "Ocean", "Lightning", "Starlight"]',
+    '["Solid", "Pulse", "Rainbow", "Candle", "Temperature", "Aurora", "Fire", "Ocean", "Lightning", "Starlight", "Matrix"]',
     'effect: effect || "Solid"',
     'effectSpeedPercent: effectSpeedPercent || 100',
     'transitionCurve: transitionCurve || "Linear"',
@@ -1373,7 +1374,7 @@ for (const channel of ["Red", "Green", "Blue"]) {
     const start = scriptMatch[1].indexOf("renderScenePlaylistItems: function");
     const end = scriptMatch[1].indexOf("updateScenePlaylistButtons: function", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
-    for (const effect of ["Solid", "Pulse", "Rainbow", "Candle", "Temperature", "Aurora", "Fire", "Ocean", "Lightning", "Starlight"]) {
+    for (const effect of ["Solid", "Pulse", "Rainbow", "Candle", "Temperature", "Aurora", "Fire", "Ocean", "Lightning", "Starlight", "Matrix"]) {
         if (!functionBody.includes(`['${effect}', '${effect}']`)) {
             throw new Error(`${file} playlist step effect selector is missing canonical effect: ${effect}`);
         }

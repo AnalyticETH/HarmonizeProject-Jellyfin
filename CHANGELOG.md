@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.358] - 2026-08-28
+
+### Matrix scene effect
+- **Matrix scene effect**: add a deterministic green/cyan cascading data-rain pattern with smooth trails and independent channel phases across previews, saved scenes, playlists, scheduled cues, and credential-free portability.
+- **End-to-end effect parity**: carry Matrix through canonical validation, administrator controls, API previews, playlist overrides, scheduler telemetry, exports, and backup/restore without changing legacy scene defaults.
+- **Regression coverage**: verify Matrix frames remain deterministic, bounded to RGB16 targets, channel-phased, and accepted through the canonical preview API and configuration contracts.
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated again.
+
 ## [1.5.357] - 2026-08-28
 
 ### Scheduled cleanup identity parity

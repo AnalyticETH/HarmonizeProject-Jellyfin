@@ -878,7 +878,7 @@ public sealed class HueStreamTester :
         CancellationToken cancellationToken)
     {
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, or Starlight.");
+            return Failure("Preview effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight, or Matrix.");
 
         effect = normalizedEffect;
         if (!PluginConfiguration.TryNormalizeColorPresetTransitionCurve(transitionCurve, out var normalizedTransitionCurve))
@@ -1515,7 +1515,7 @@ public sealed class HueStreamTester :
             {
                 failure = PlaylistStepFailure(
                     index,
-                    "Playlist step effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, or Starlight.");
+                    "Playlist step effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight, or Matrix.");
                 return false;
             }
 
@@ -2195,7 +2195,7 @@ public sealed class HueStreamTester :
     {
         ArgumentNullException.ThrowIfNull(targetColors);
         if (!PluginConfiguration.TryNormalizeColorPresetEffect(effect, out var normalizedEffect))
-            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, or Starlight.", nameof(effect));
+            throw new ArgumentException("Effect must be Solid, Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight, or Matrix.", nameof(effect));
 
         var elapsed = Math.Max(0d, elapsedSeconds);
         var duration = Math.Max(1d, durationSeconds);
@@ -2426,6 +2426,35 @@ public sealed class HueStreamTester :
                     ToRgb16Byte(starlightRed), ToRgb16Byte(starlightRed),
                     ToRgb16Byte(starlightGreen), ToRgb16Byte(starlightGreen),
                     ToRgb16Byte(starlightBlue), ToRgb16Byte(starlightBlue)
+                };
+                continue;
+            }
+
+            if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectMatrix, StringComparison.Ordinal))
+            {
+                // Matrix uses a calm green-to-cyan data-rain palette. A broad trail
+                // envelope keeps the motion readable without strobing, while the
+                // channel phase gives each light an independent cascading cadence.
+                var matrixPeriod = 9d / speedMultiplier;
+                var matrixPhase = ((elapsed + (channelId * 0.37d)) % matrixPeriod) / matrixPeriod;
+                var trail = 0.5d + (0.5d * Math.Sin(matrixPhase * 2d * Math.PI));
+                var shimmer = 0.5d + (0.5d * Math.Sin((matrixPhase * 6d * Math.PI) + (channelId * 0.83d)));
+                var matrixHue = 112d + (42d * trail);
+                var matrixSaturation = 0.78d + (0.16d * shimmer);
+                var matrixSeedValue = Math.Clamp(
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    0d,
+                    1d);
+                var matrixValue = matrixSeedValue * (0.24d + (0.76d * (0.72d * trail + (0.28d * shimmer))));
+                var (matrixRed, matrixGreen, matrixBlue) = HsvToRgb(
+                    matrixHue,
+                    Math.Clamp(matrixSaturation, 0d, 1d),
+                    Math.Clamp(matrixValue, 0d, 1d));
+                colors[channelId] = new[]
+                {
+                    ToRgb16Byte(matrixRed), ToRgb16Byte(matrixRed),
+                    ToRgb16Byte(matrixGreen), ToRgb16Byte(matrixGreen),
+                    ToRgb16Byte(matrixBlue), ToRgb16Byte(matrixBlue)
                 };
                 continue;
             }

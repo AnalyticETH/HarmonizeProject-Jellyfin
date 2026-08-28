@@ -131,7 +131,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public string Effect { get; set; } = PluginConfiguration.ColorPresetEffectSolid;
         /// <summary>
-        /// Animation speed for Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, and Starlight effects. Missing values in
+        /// Animation speed for Pulse, Rainbow, Candle, Temperature, Aurora, Fire, Ocean, Lightning, Starlight, and Matrix effects. Missing values in
         /// older configurations deserialize to the neutral 100 percent rate.
         /// </summary>
         public int EffectSpeedPercent { get; set; } = PluginConfiguration.DefaultColorPresetEffectSpeedPercent;
@@ -825,6 +825,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const string ColorPresetEffectOcean = "Ocean";
         public const string ColorPresetEffectLightning = "Lightning";
         public const string ColorPresetEffectStarlight = "Starlight";
+        public const string ColorPresetEffectMatrix = "Matrix";
         public const string SceneScheduleEffectPlaylist = "Playlist";
         public const string SceneAutomationPlaybackPolicySkip = "Skip";
         public const string SceneAutomationPlaybackPolicyDefer = "Defer";
@@ -949,7 +950,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
             ColorPresetEffectFire,
             ColorPresetEffectOcean,
             ColorPresetEffectLightning,
-            ColorPresetEffectStarlight
+            ColorPresetEffectStarlight,
+            ColorPresetEffectMatrix
         };
 
         private static readonly string[] ColorPresetTransitionCurves =
