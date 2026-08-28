@@ -324,6 +324,7 @@ public sealed class HueStreamTester :
     private readonly ILogger<HueStreamTester> _logger;
     private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
     private readonly IHuePreviewStreamFactory _previewStreamFactory;
+    private readonly HueScheduledCleanupJournal? _scheduledCleanupJournal;
     private readonly object _activeOperationLock = new();
     private readonly HashSet<CancellationTokenSource> _activeOperationCancellations = new();
 
@@ -337,7 +338,24 @@ public sealed class HueStreamTester :
             loggerFactory,
             logger,
             bridgeLifecycleGate,
-            new HuePreviewStreamFactory(loggerFactory))
+            new HuePreviewStreamFactory(loggerFactory),
+            scheduledCleanupJournal: null)
+    {
+    }
+
+    public HueStreamTester(
+        HueClient hueClient,
+        ILoggerFactory loggerFactory,
+        ILogger<HueStreamTester> logger,
+        HueBridgeLifecycleGate? bridgeLifecycleGate,
+        HueScheduledCleanupJournal? scheduledCleanupJournal)
+        : this(
+            hueClient,
+            loggerFactory,
+            logger,
+            bridgeLifecycleGate,
+            new HuePreviewStreamFactory(loggerFactory),
+            scheduledCleanupJournal)
     {
     }
 
@@ -347,12 +365,30 @@ public sealed class HueStreamTester :
         ILogger<HueStreamTester> logger,
         HueBridgeLifecycleGate? bridgeLifecycleGate,
         IHuePreviewStreamFactory previewStreamFactory)
+        : this(
+            hueClient,
+            loggerFactory,
+            logger,
+            bridgeLifecycleGate,
+            previewStreamFactory,
+            scheduledCleanupJournal: null)
+    {
+    }
+
+    internal HueStreamTester(
+        HueClient hueClient,
+        ILoggerFactory loggerFactory,
+        ILogger<HueStreamTester> logger,
+        HueBridgeLifecycleGate? bridgeLifecycleGate,
+        IHuePreviewStreamFactory previewStreamFactory,
+        HueScheduledCleanupJournal? scheduledCleanupJournal)
     {
         _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
         _previewStreamFactory = previewStreamFactory ?? throw new ArgumentNullException(nameof(previewStreamFactory));
+        _scheduledCleanupJournal = scheduledCleanupJournal;
     }
 
     /// <summary>
@@ -369,7 +405,8 @@ public sealed class HueStreamTester :
             _loggerFactory,
             _logger,
             _bridgeLifecycleGate,
-            _previewStreamFactory);
+            _previewStreamFactory,
+            _scheduledCleanupJournal);
     }
 
     public Task<HueStreamProbeResult> TestAsync(
@@ -434,6 +471,10 @@ public sealed class HueStreamTester :
             }
 
             savedLightStates = captureResult.States;
+            if (_scheduledCleanupJournal != null && !_scheduledCleanupJournal.Capture(savedLightStates))
+            {
+                return Failure("The probe could not persist a durable cleanup snapshot; the bridge was not activated.");
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -916,6 +957,10 @@ public sealed class HueStreamTester :
             }
 
             savedLightStates = captureResult.States;
+            if (_scheduledCleanupJournal != null && !_scheduledCleanupJournal.Capture(savedLightStates))
+            {
+                return Failure("The preview could not persist a durable cleanup snapshot; the bridge was not activated.");
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1255,6 +1300,10 @@ public sealed class HueStreamTester :
             }
 
             savedLightStates = captureResult.States;
+            if (_scheduledCleanupJournal != null && !_scheduledCleanupJournal.Capture(savedLightStates))
+            {
+                return PlaylistFailure("The playlist preview could not persist a durable cleanup snapshot; the bridge was not activated.");
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -2051,10 +2100,19 @@ public sealed class HueStreamTester :
             }
         }
 
+        var cleanupWarning = warnings.Count == 0
+            ? null
+            : string.Join(" ", warnings);
+        if (_scheduledCleanupJournal != null &&
+            !_scheduledCleanupJournal.Complete(cleanupWarning))
+        {
+            warnings.Add("The durable cleanup record could not be updated; restoration will retry automatically.");
+            cleanupWarning = string.Join(" ", warnings);
+        }
+
         if (warnings.Count == 0)
             return probeResult;
 
-        var cleanupWarning = string.Join(" ", warnings);
         _logger.LogWarning("Hue stream probe cleanup warning for area {0}: {1}", areaId, cleanupWarning);
         return new HueStreamProbeResult
         {

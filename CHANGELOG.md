@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.356] - 2026-08-28
+
+### Scheduled cleanup durability
+- **Restart-safe cleanup journal**: scheduled scene and playlist previews now persist bounded, credential-free light-state snapshots before bridge activation and retry deactivation/restoration with exponential backoff after transient failures or Jellyfin restarts.
+- **Fail-closed activation and recovery**: a snapshot persistence failure prevents bridge activation; changed or unavailable targets remain pending instead of discarding a state that may still need restoration, while playback and diagnostics continue to arbitrate the same target lifecycle.
+- **Credential-free status telemetry**: `GET /HueSync/SceneSchedules/Status` reports pending cleanup IDs, target references, timestamps, retry counts, and bounded errors without exposing bridge addresses, credentials, or captured state JSON.
+- **Regression coverage**: journal serialization, nested light snapshots, bounded retry metadata, persistence failure, disabled-automation recovery, and status redaction are covered by scheduler tests.
+- **Pinned Semgrep snapshot**: the reviewed default ruleset SHA-256 pin is refreshed in both blocking workflows after the registry snapshot changed; production, repository-script, Python, and embedded administrator scans remain fail-closed.
+
 ## [1.5.355] - 2026-08-28
 
 ### Scheduler durability

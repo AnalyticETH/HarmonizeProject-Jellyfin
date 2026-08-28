@@ -7407,6 +7407,204 @@ public sealed class HueSceneAutomationServiceTests
         };
     }
 
+    [Fact]
+    public void ScheduledCleanupJournal_PersistsAndCompletesCredentialFreeSnapshot()
+    {
+        var configuration = new PluginConfiguration();
+        InstallConfiguration(configuration);
+        var journal = new HueScheduledCleanupJournal(new HueBridgeLifecycleGate());
+        using (journal.BeginScope(new HueScheduledCleanupScope
+        {
+            CleanupId = "cleanup-test-1",
+            ScheduleId = "schedule-test-1",
+            TargetUserId = "user-test-1",
+            TargetDeviceId = "living-room",
+            BridgeIp = "192.168.1.100",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = new HashSet<int> { 2, 0 }
+        }))
+        {
+            var state = new HueClient.LightState(
+                "light-1",
+                true,
+                65,
+                0.25,
+                0.75,
+                250,
+                true,
+                new HueClient.LightStateSnapshot(
+                    Gradient: new HueClient.LightGradientSnapshot(
+                        new[]
+                        {
+                            new HueClient.LightGradientPoint(0.1, 0.2),
+                            new HueClient.LightGradientPoint(0.3, 0.4)
+                        },
+                        "interpolated")));
+            Assert.True(journal.Capture(new[] { state }));
+
+            var entry = Assert.Single(configuration.PersistedSceneAutomationPendingCleanups);
+            Assert.Equal("cleanup-test-1", entry.CleanupId);
+            Assert.Equal("0,2", entry.ChannelIds);
+            Assert.DoesNotContain("app-secret", entry.LightStatesJson, StringComparison.Ordinal);
+            Assert.True(HueScheduledCleanupJournal.TryDeserializeStates(entry, out var restored, out var error), error);
+            var restoredState = Assert.Single(restored);
+            Assert.Equal(state.Id, restoredState.Id);
+            Assert.Equal(state.Brightness, restoredState.Brightness);
+            Assert.Equal(state.Mirek, restoredState.Mirek);
+            Assert.NotNull(restoredState.Snapshot?.Gradient);
+            Assert.Equal(2, restoredState.Snapshot!.Gradient!.Points.Count);
+
+            Assert.True(journal.Complete(null));
+        }
+
+        Assert.Empty(configuration.PersistedSceneAutomationPendingCleanups);
+    }
+
+    [Fact]
+    public void ScheduledCleanupJournal_RecordsBoundedRetryBackoff()
+    {
+        var configuration = new PluginConfiguration();
+        InstallConfiguration(configuration);
+        var journal = new HueScheduledCleanupJournal(new HueBridgeLifecycleGate());
+        using (journal.BeginScope(new HueScheduledCleanupScope
+        {
+            CleanupId = "cleanup-test-2",
+            ScheduleId = "schedule-test-2",
+            BridgeIp = "192.168.1.100",
+            EntertainmentAreaId = "area-1"
+        }))
+        {
+            Assert.True(journal.Capture(new[]
+            {
+                new HueClient.LightState("light-1", false, 10, 0.1, 0.2)
+            }));
+        }
+
+        var now = new DateTime(2026, 8, 28, 12, 0, 0, DateTimeKind.Utc);
+        Assert.True(journal.RecordFailure("cleanup-test-2", new string('x', 2_000), now));
+        var entry = Assert.Single(configuration.PersistedSceneAutomationPendingCleanups);
+        Assert.Equal(1, entry.AttemptCount);
+        Assert.Equal(now, entry.LastAttemptAtUtc);
+        Assert.Equal(now.AddMinutes(1), entry.NextAttemptAtUtc);
+        Assert.Equal(PluginConfiguration.MaxSceneAutomationPendingCleanupErrorLength, entry.LastError!.Length);
+    }
+
+    [Fact]
+    public void ScheduledCleanupJournal_FailsClosedWhenSnapshotPersistenceFails()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated snapshot persistence failure"));
+        var configuration = new PluginConfiguration();
+        InstallConfiguration(configuration, serializer.Object);
+        var journal = new HueScheduledCleanupJournal(new HueBridgeLifecycleGate());
+        using (journal.BeginScope(new HueScheduledCleanupScope
+        {
+            CleanupId = "cleanup-test-3",
+            ScheduleId = "schedule-test-3",
+            BridgeIp = "192.168.1.100",
+            EntertainmentAreaId = "area-1"
+        }))
+        {
+            Assert.False(journal.Capture(new[]
+            {
+                new HueClient.LightState("light-1", true, 50, 0.3, 0.4)
+            }));
+        }
+
+        Assert.Empty(configuration.PersistedSceneAutomationPendingCleanups);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_ReplaysPendingCleanupBeforeDisabledAutomation()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "recovery-app-secret",
+            EntertainmentAreaId = "area-1"
+        };
+        InstallConfiguration(configuration);
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var journal = new HueScheduledCleanupJournal(lifecycleGate);
+        using (journal.BeginScope(new HueScheduledCleanupScope
+        {
+            CleanupId = "cleanup-recovery-1",
+            ScheduleId = "schedule-recovery-1",
+            BridgeIp = configuration.HueBridgeIp,
+            EntertainmentAreaId = configuration.EntertainmentAreaId
+        }))
+        {
+            Assert.True(journal.Capture(new[]
+            {
+                new HueClient.LightState("light-1", true, 45, 0.2, 0.3)
+            }));
+        }
+
+        configuration.PersistedSceneAutomationPendingCleanups[0].NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        var handler = new CleanupRecoveryHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate,
+            journal);
+
+        await service.RunDueSchedulesAsync(DateTime.Now, CancellationToken.None);
+
+        Assert.Empty(configuration.PersistedSceneAutomationPendingCleanups);
+        Assert.Equal(2, handler.SuccessfulPutCount);
+        Assert.Contains(handler.RequestUris, uri => uri.Contains("entertainment_configuration/area-1", StringComparison.Ordinal));
+        Assert.Contains(handler.RequestUris, uri => uri.Contains("light/light-1", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void StatusExposesPendingCleanupTelemetryWithoutBridgeSecretsOrSnapshots()
+    {
+        var configuration = new PluginConfiguration
+        {
+            PersistedSceneAutomationPendingCleanups = new List<HueSceneAutomationPendingCleanupEntry>
+            {
+                new()
+                {
+                    CleanupId = "cleanup-status-1",
+                    ScheduleId = "schedule-status-1",
+                    TargetUserId = "user-status-1",
+                    TargetDeviceId = "device-status-1",
+                    BridgeIp = "192.168.1.100",
+                    EntertainmentAreaId = "area-1",
+                    LightStatesJson = "{\"secret\":\"must-not-leak\"}",
+                    CapturedAtUtc = DateTime.UtcNow,
+                    NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(1),
+                    LastError = "bridge unavailable"
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var journal = new HueScheduledCleanupJournal(lifecycleGate);
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate,
+            journal);
+
+        var status = service.GetStatus(persistRepairs: false);
+        var pending = Assert.Single(status.PendingCleanups);
+        Assert.Equal(1, status.PendingCleanupCount);
+        Assert.Equal("cleanup-status-1", pending.CleanupId);
+        Assert.Equal("user-status-1", pending.TargetUserId);
+        var json = JsonSerializer.Serialize(status);
+        Assert.DoesNotContain("192.168.1.100", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("must-not-leak", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("LightStatesJson", json, StringComparison.Ordinal);
+    }
+
     private static void InstallConfiguration(
         PluginConfiguration configuration,
         IXmlSerializer? xmlSerializer = null)
@@ -7443,6 +7641,25 @@ public sealed class HueSceneAutomationServiceTests
                     "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}",
                     Encoding.UTF8,
                     "application/json")
+            });
+        }
+    }
+
+    private sealed class CleanupRecoveryHandler : HttpMessageHandler
+    {
+        public List<string> RequestUris { get; } = new();
+
+        public int SuccessfulPutCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestUris.Add(request.RequestUri?.ToString() ?? string.Empty);
+            if (request.Method == HttpMethod.Put)
+                SuccessfulPutCount++;
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
             });
         }
     }

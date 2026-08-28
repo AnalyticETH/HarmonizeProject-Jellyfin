@@ -818,6 +818,7 @@
                             <div id="sceneScheduleRuntimeStatusSummary" class="fieldDescription" role="status" aria-live="off" aria-atomic="true">Loading scheduler status...</div>
                         </div>
                         <div id="sceneScheduleRuntimeStatus" style="margin-top: 0.5em; overflow-x: auto;"></div>
+                        <div id="sceneSchedulePendingCleanupStatus" style="margin-top: 0.75em; overflow-x: auto;"></div>
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleConflictsBtn"><span>Check Schedule Conflicts</span></button>
                             <button is="emby-button" type="button" class="raised" id="exportSceneScheduleConflictsBtn"><span>Export Conflicts JSON</span></button>
@@ -7926,12 +7927,17 @@
                         var playbackActive = HueConfigurationPage.readStatusField(response, "PlaybackActive", false) === true;
                         var schedules = HueConfigurationPage.readStatusField(response, "Schedules", []);
                         schedules = Array.isArray(schedules) ? schedules : [];
+                        var pendingCleanups = HueConfigurationPage.readStatusField(response, "PendingCleanups", []);
+                        pendingCleanups = Array.isArray(pendingCleanups) ? pendingCleanups : [];
+                        var pendingCleanupCount = Math.max(0, Number(HueConfigurationPage.readStatusField(response, "PendingCleanupCount", pendingCleanups.length) || 0));
+                        var pendingContainer = page.querySelector('#sceneSchedulePendingCleanupStatus');
                         if (!serviceAvailable) {
                             if (summary) {
                                 summary.textContent = "The scheduled-cue service is unavailable; configuration is still editable.";
                                 summary.style.color = "#f0ad4e";
                             }
                             if (container) container.textContent = "";
+                            if (pendingContainer) pendingContainer.textContent = "";
                             return;
                         }
 
@@ -7958,9 +7964,46 @@
                                 " · conflict scope " + (String(playbackScope).toLowerCase() === "matchingtarget" ? "matching target" : String(playbackScope)) +
                                 (String(playbackPolicy).toLowerCase() === "defer" ? " (" + String(deferMinutes) + "m)" : "") +
                                 (restoredDeferredCount ? " · " + restoredDeferredCount + " deferred cue" + (restoredDeferredCount === 1 ? "" : "s") + " restored after restart" : "") +
+                                (pendingCleanupCount ? " · " + pendingCleanupCount + " cleanup recover" + (pendingCleanupCount === 1 ? "y" : "ies") + " pending" : "") +
                                 (playbackActive ? " · playback active" : "") +
                                 " · updated " + generatedText;
                             summary.style.color = automationEnabled ? "" : "#f0ad4e";
+                        }
+                        if (pendingContainer) {
+                            pendingContainer.textContent = "";
+                            if (pendingCleanupCount > 0 || pendingCleanups.length > 0) {
+                                var pendingHeading = document.createElement('div');
+                                pendingHeading.textContent = "Pending cleanup recovery (" + String(pendingCleanupCount || pendingCleanups.length) + ")";
+                                pendingHeading.style.color = "#f0ad4e";
+                                pendingHeading.style.fontWeight = "500";
+                                pendingContainer.appendChild(pendingHeading);
+                                var pendingDescription = document.createElement('div');
+                                pendingDescription.textContent = "The scheduler will retry deactivation and light restoration with bounded backoff. Captured state and bridge credentials are not shown here.";
+                                pendingDescription.className = "fieldDescription";
+                                pendingContainer.appendChild(pendingDescription);
+                                pendingCleanups.forEach(function (pending) {
+                                    var cleanupId = HueConfigurationPage.readStatusField(pending, "CleanupId", "unknown");
+                                    var scheduleId = HueConfigurationPage.readStatusField(pending, "ScheduleId", "");
+                                    var targetUserId = HueConfigurationPage.readStatusField(pending, "TargetUserId", "");
+                                    var targetDeviceId = HueConfigurationPage.readStatusField(pending, "TargetDeviceId", "");
+                                    var attemptCount = Number(HueConfigurationPage.readStatusField(pending, "AttemptCount", 0) || 0);
+                                    var nextAttempt = HueConfigurationPage.readStatusField(pending, "NextAttemptAtUtc", null);
+                                    var lastError = HueConfigurationPage.readStatusField(pending, "LastError", "");
+                                    var item = document.createElement('div');
+                                    item.style.padding = '4px 0';
+                                    item.style.borderBottom = '1px solid rgba(255,255,255,.08)';
+                                    var targetLabel = targetUserId
+                                        ? targetUserId + (targetDeviceId ? " / " + targetDeviceId : "")
+                                        : "Default bridge target";
+                                    item.textContent = String(cleanupId) +
+                                        (scheduleId ? " · cue " + String(scheduleId) : "") +
+                                        " · " + targetLabel +
+                                        " · attempt " + String(attemptCount) +
+                                        (nextAttempt ? " · next " + formatLocal(nextAttempt) : "") +
+                                        (lastError ? " · " + String(lastError) : "");
+                                    pendingContainer.appendChild(item);
+                                });
+                            }
                         }
                         if (!container) return;
                         container.textContent = "";

@@ -29,6 +29,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             .ConfigureHttpClient(httpClient => httpClient.Timeout = TimeSpan.FromSeconds(10))
             .ConfigurePrimaryHttpMessageHandler(CreateHueHttpClientHandler);
         serviceCollection.AddSingleton<HueBridgeLifecycleGate>();
+        serviceCollection.AddSingleton<HueScheduledCleanupJournal>();
         serviceCollection.AddScoped<HueConfigurationMutationFilter>();
         serviceCollection.AddSingleton<HueDiagnosticsCancellationGate>();
         serviceCollection.AddSingleton<IHueBridgeLocalDiscovery, HueBridgeMdnsDiscovery>();

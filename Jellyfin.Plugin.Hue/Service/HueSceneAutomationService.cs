@@ -21,10 +21,12 @@ namespace Jellyfin.Plugin.Hue.Service;
 public sealed class HueSceneAutomationService : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(15);
+    private const int MaxPendingCleanupRecoveriesPerPass = 4;
     private readonly IHueStreamTester _streamTester;
     private readonly HueClient _hueClient;
     private readonly ILogger<HueSceneAutomationService> _logger;
     private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
+    private readonly HueScheduledCleanupJournal? _scheduledCleanupJournal;
     private readonly object _runSlotLock = new();
     private readonly Dictionary<string, DateTime> _lastRunSlots = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _deferredRunLock = new();
@@ -64,11 +66,22 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueClient hueClient,
         ILogger<HueSceneAutomationService> logger,
         HueBridgeLifecycleGate? bridgeLifecycleGate = null)
+        : this(streamTester, hueClient, logger, bridgeLifecycleGate, scheduledCleanupJournal: null)
+    {
+    }
+
+    public HueSceneAutomationService(
+        IHueStreamTester streamTester,
+        HueClient hueClient,
+        ILogger<HueSceneAutomationService> logger,
+        HueBridgeLifecycleGate? bridgeLifecycleGate,
+        HueScheduledCleanupJournal? scheduledCleanupJournal)
     {
         _streamTester = streamTester ?? throw new ArgumentNullException(nameof(streamTester));
         _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
+        _scheduledCleanupJournal = scheduledCleanupJournal;
     }
 
     /// <summary>
@@ -1284,6 +1297,23 @@ public sealed class HueSceneAutomationService : BackgroundService
             };
         }).ToArray();
 
+        var pendingCleanupStatuses = _scheduledCleanupJournal?.Snapshot()
+            .OrderBy(entry => entry.NextAttemptAtUtc ?? DateTime.MinValue)
+            .ThenBy(entry => entry.CapturedAtUtc)
+            .Select(entry => new HueSceneAutomationPendingCleanupStatus
+            {
+                CleanupId = entry.CleanupId,
+                ScheduleId = entry.ScheduleId,
+                TargetUserId = entry.TargetUserId,
+                TargetDeviceId = entry.TargetDeviceId,
+                CapturedAtUtc = entry.CapturedAtUtc,
+                AttemptCount = entry.AttemptCount,
+                LastAttemptAtUtc = entry.LastAttemptAtUtc,
+                NextAttemptAtUtc = entry.NextAttemptAtUtc,
+                LastError = entry.LastError
+            })
+            .ToArray() ?? Array.Empty<HueSceneAutomationPendingCleanupStatus>();
+
         return new HueSceneAutomationStatus
         {
             ServiceAvailable = true,
@@ -1300,6 +1330,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             ServerLocalNow = DateTime.SpecifyKind(localNow, DateTimeKind.Unspecified),
             ServerTimeZoneId = TimeZoneInfo.Local.Id,
             Schedules = statuses,
+            PendingCleanupCount = pendingCleanupStatuses.Length,
+            PendingCleanups = pendingCleanupStatuses,
             Conflicts = GetUpcomingConflicts(
                 config,
                 localNow,
@@ -2221,7 +2253,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? blueOverride,
         string? effectOverride,
         IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride,
-        IReadOnlyList<HueSceneAutomationTargetDescription>? resolvedTargetsOverride)
+        IReadOnlyList<HueSceneAutomationTargetDescription>? resolvedTargetsOverride,
+        bool durableCleanup = false)
     {
         var normalizedTargetRoutesOverride = NormalizeTargetRoutes(targetRoutesOverride);
         var config = Plugin.Instance?.Configuration;
@@ -2282,7 +2315,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 effect,
                 redOverride,
                 greenOverride,
-                blueOverride).ConfigureAwait(false);
+                blueOverride,
+                durableCleanup: durableCleanup).ConfigureAwait(false);
             targetResults.Add(targetResult);
             if (!targetResult.Succeeded &&
                 targetResult.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
@@ -2377,7 +2411,37 @@ public sealed class HueSceneAutomationService : BackgroundService
             runAtUtcOverride,
             targetRoutesOverride,
             resolvedTargetsOverride: null,
-            resolvedPresetsOverride: null);
+            resolvedPresetsOverride: null,
+            durableCleanup: false,
+            scheduleId: null);
+
+    /// <summary>
+    /// Runs a scheduled playlist with a durable cleanup journal scope. This overload is
+    /// intentionally internal so the long-standing public preview signature remains
+    /// binary compatible for existing plugin consumers.
+    /// </summary>
+    internal Task<HueScenePlaylistRunResult> RunPlaylistPreviewDurableAsync(
+        HueScenePlaylist playlist,
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? targetUserIdsOverride,
+        bool includeDefaultTargetOverride,
+        bool targetScopedPlayback,
+        DateTime? runAtUtcOverride,
+        IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride,
+        bool durableCleanup,
+        string? scheduleId)
+        => RunPlaylistPreviewCoreAsync(
+            playlist,
+            cancellationToken,
+            targetUserIdsOverride,
+            includeDefaultTargetOverride,
+            targetScopedPlayback,
+            runAtUtcOverride,
+            targetRoutesOverride,
+            resolvedTargetsOverride: null,
+            resolvedPresetsOverride: null,
+            durableCleanup: durableCleanup,
+            scheduleId: scheduleId);
 
     /// <summary>
     /// Runs a saved-scene playlist from detached target and preset snapshots captured
@@ -2403,7 +2467,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             runAtUtcOverride,
             targetRoutesOverride,
             resolvedTargets,
-            resolvedPresets);
+            resolvedPresets,
+            durableCleanup: false,
+            scheduleId: null);
 
     private async Task<HueScenePlaylistRunResult> RunPlaylistPreviewCoreAsync(
         HueScenePlaylist playlist,
@@ -2414,7 +2480,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         DateTime? runAtUtcOverride = null,
         IReadOnlyList<HueSceneAutomationTargetRoute>? targetRoutesOverride = null,
         IReadOnlyList<HueSceneAutomationTargetDescription>? resolvedTargetsOverride = null,
-        IReadOnlyList<HueColorPreset>? resolvedPresetsOverride = null)
+        IReadOnlyList<HueColorPreset>? resolvedPresetsOverride = null,
+        bool durableCleanup = false,
+        string? scheduleId = null)
     {
         var normalizedTargetRoutesOverride = NormalizeTargetRoutes(targetRoutesOverride);
         var config = Plugin.Instance?.Configuration;
@@ -2475,7 +2543,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             : playlist.IncludeDefaultTarget;
         var targetSchedule = new HueSceneSchedule
         {
-            Id = "scene-playlist-preview",
+            Id = scheduleId?.Trim() ?? "scene-playlist-preview",
             Name = playlist.Name?.Trim() ?? string.Empty,
             PresetName = resolvedPresets[0].Name?.Trim() ?? string.Empty,
             TargetUserId = hasTargetOverride || effectiveIncludeDefaultTarget || effectiveTargetUserIds.Count > 0
@@ -2537,7 +2605,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 playbackOrder,
                 executionStartedAtUtc,
                 targetScopedPlayback,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                durableCleanup).ConfigureAwait(false);
         }
 
         var steps = new List<HueScenePlaylistStepResult>();
@@ -2546,7 +2615,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             var preset = resolvedPresets[plannedStep.OriginalIndex - 1];
             var schedule = new HueSceneSchedule
             {
-                Id = $"scene-playlist-preview-{plannedStep.RepeatIndex}-{plannedStep.Index}",
+                Id = string.IsNullOrWhiteSpace(scheduleId)
+                    ? $"scene-playlist-preview-{plannedStep.RepeatIndex}-{plannedStep.Index}"
+                    : scheduleId.Trim(),
                 Name = playlist.Name?.Trim() ?? string.Empty,
                 PresetName = plannedStep.PresetName,
                 DurationSeconds = plannedStep.DurationSeconds,
@@ -2575,7 +2646,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 plannedStep.Blue,
                 plannedStep.Effect,
                 normalizedTargetRoutesOverride,
-                resolvedTargetsOverride: resolvedTargets).ConfigureAwait(false);
+                resolvedTargetsOverride: resolvedTargets,
+                durableCleanup: durableCleanup).ConfigureAwait(false);
             steps.Add(new HueScenePlaylistStepResult
             {
                 Index = plannedStep.Index,
@@ -2683,7 +2755,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         string playbackOrder,
         DateTime executionStartedAtUtc,
         bool targetScopedPlayback,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool durableCleanup)
     {
         var streamSteps = plannedSteps
             .Select(step =>
@@ -2725,7 +2798,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                 streamSteps,
                 playlistStreamTester,
                 targetScopedPlayback,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                durableCleanup,
+                targetSchedule.Id).ConfigureAwait(false);
             targetExecutions.Add(execution);
             canceled = !execution.Result.Succeeded &&
                 (IndicatesCancellation(execution.Result.Message) ||
@@ -2842,7 +2917,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         IReadOnlyList<HuePlaylistPreviewStep> steps,
         IHuePlaylistStreamTester playlistStreamTester,
         bool targetScopedPlayback,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool durableCleanup,
+        string? scheduleId)
     {
         try
         {
@@ -2890,6 +2967,18 @@ public sealed class HueSceneAutomationService : BackgroundService
                 targetPlaylistTester = retryAwarePlaylistTester;
             }
 
+            using var cleanupScope = durableCleanup && _scheduledCleanupJournal != null
+                ? _scheduledCleanupJournal.BeginScope(new HueScheduledCleanupScope
+                {
+                    CleanupId = Guid.NewGuid().ToString("N"),
+                    ScheduleId = scheduleId?.Trim() ?? string.Empty,
+                    TargetUserId = target.TargetUserId,
+                    TargetDeviceId = target.TargetDeviceId,
+                    BridgeIp = target.BridgeIp,
+                    EntertainmentAreaId = target.EntertainmentAreaId,
+                    ChannelIds = target.ChannelIds
+                })
+                : null;
             var probe = targetScopedPlayback
                 ? await targetPlaylistTester.PreviewPlaylistAsyncForTarget(
                     target.BridgeIp,
@@ -4278,7 +4367,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         string? requestedTargetUserId,
         string? requestedTargetDeviceId,
         out HueSceneAutomationTargetDescription description,
-        out string error)
+        out string error,
+        bool requireClientKey = true)
     {
         description = new HueSceneAutomationTargetDescription();
         error = string.Empty;
@@ -4383,9 +4473,12 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(appKey) || string.IsNullOrWhiteSpace(clientKey))
+        if (string.IsNullOrWhiteSpace(appKey) ||
+            (requireClientKey && string.IsNullOrWhiteSpace(clientKey)))
         {
-            error = "The scene target requires both a Hue App Key and Client Key.";
+            error = requireClientKey
+                ? "The scene target requires both a Hue App Key and Client Key."
+                : "The scene target requires a Hue App Key for cleanup recovery.";
             return false;
         }
 
@@ -4404,6 +4497,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         description = new HueSceneAutomationTargetDescription
         {
             TargetLabel = targetLabel,
+            TargetUserId = targetUserId,
+            TargetDeviceId = targetDeviceId,
             BridgeIp = bridgeIp,
             AppKey = appKey,
             ClientKey = clientKey,
@@ -4545,6 +4640,159 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
+    private async Task RetryPendingScheduledCleanupsAsync(
+        PluginConfiguration config,
+        CancellationToken cancellationToken)
+    {
+        if (_scheduledCleanupJournal == null)
+            return;
+
+        var nowUtc = DateTime.UtcNow;
+        var pendingEntries = _scheduledCleanupJournal
+            .Snapshot()
+            .Where(entry => !entry.NextAttemptAtUtc.HasValue ||
+                NormalizeUtcInstant(entry.NextAttemptAtUtc.Value) <= nowUtc)
+            .OrderBy(entry => entry.NextAttemptAtUtc ?? DateTime.MinValue)
+            .ThenBy(entry => entry.CapturedAtUtc)
+            .Take(MaxPendingCleanupRecoveriesPerPass)
+            .ToArray();
+
+        foreach (var entry in pendingEntries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!TryResolvePendingCleanupTarget(config, entry, out var target, out var targetError))
+            {
+                _scheduledCleanupJournal.RecordFailure(entry.CleanupId, targetError, nowUtc);
+                continue;
+            }
+
+            if (!HueScheduledCleanupJournal.TryDeserializeStates(entry, out var savedLightStates, out var snapshotError))
+            {
+                _scheduledCleanupJournal.RecordFailure(entry.CleanupId, snapshotError, nowUtc);
+                continue;
+            }
+
+            var resourceKey = GetTargetIdentity(config, target);
+            using var diagnosticLease = _bridgeLifecycleGate.TryEnterDiagnostic(
+                resourceKey,
+                out _);
+            if (diagnosticLease == null)
+            {
+                // Playback or another diagnostic currently owns this exact resource. Do
+                // not count a coordination skip as a failed bridge attempt; the existing
+                // due timestamp lets the next scheduler pass retry without extending the
+                // bounded backoff window.
+                continue;
+            }
+
+            var warnings = new List<string>();
+            var targetHueClient = _hueClient.CreatePlaybackClient();
+            targetHueClient.RetryAttempts = target.RetryAttempts;
+            using var cleanupCancellation = HueCleanupBudget.CreateCancellationSource();
+            var cleanupToken = cleanupCancellation.Token;
+            try
+            {
+                if (!await targetHueClient.StopEntertainmentAreaWithResult(
+                        target.BridgeIp,
+                        target.AppKey,
+                        target.EntertainmentAreaId,
+                        cleanupToken).ConfigureAwait(false))
+                {
+                    warnings.Add("The entertainment area could not be deactivated within the cleanup deadline.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Could not deactivate Hue entertainment area while recovering scheduled cleanup for {0}",
+                    entry.CleanupId);
+                warnings.Add("The entertainment area could not be deactivated during cleanup recovery.");
+            }
+
+            try
+            {
+                var restoreResult = await targetHueClient.RestoreLightStatesWithResult(
+                    target.BridgeIp,
+                    target.AppKey,
+                    savedLightStates,
+                    cleanupToken).ConfigureAwait(false);
+                if (!restoreResult.Succeeded)
+                {
+                    warnings.Add(
+                        $"Light restoration was incomplete: restored {restoreResult.RestoredCount} of {restoreResult.AttemptedCount} light(s); {restoreResult.FailedCount} failed or exceeded the cleanup deadline.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Could not restore Hue light state while recovering scheduled cleanup for {0}",
+                    entry.CleanupId);
+                warnings.Add("Saved light state could not be restored during cleanup recovery.");
+            }
+
+            if (warnings.Count == 0)
+            {
+                if (!_scheduledCleanupJournal.Remove(entry.CleanupId))
+                {
+                    _logger.LogWarning(
+                        "Scheduled Hue cleanup for {0} succeeded but its durable record could not be cleared; it will be retried safely.",
+                        entry.CleanupId);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Recovered scheduled Hue cleanup for {0} after {1} persisted attempt(s).",
+                        entry.CleanupId,
+                        entry.AttemptCount);
+                }
+            }
+            else
+            {
+                var warning = string.Join(" ", warnings);
+                _scheduledCleanupJournal.RecordFailure(entry.CleanupId, warning, nowUtc);
+                _logger.LogWarning(
+                    "Scheduled Hue cleanup recovery for {0} remains pending: {1}",
+                    entry.CleanupId,
+                    warning);
+            }
+        }
+    }
+
+    private static bool TryResolvePendingCleanupTarget(
+        PluginConfiguration config,
+        HueSceneAutomationPendingCleanupEntry entry,
+        out HueSceneAutomationTargetDescription target,
+        out string error)
+    {
+        target = new HueSceneAutomationTargetDescription();
+        error = string.Empty;
+        var requestedDeviceId = string.IsNullOrWhiteSpace(entry.TargetDeviceId)
+            ? null
+            : entry.TargetDeviceId.Trim();
+        if (!TryResolveSingleTarget(
+                config,
+                new HueSceneSchedule(),
+                entry.TargetUserId,
+                requestedDeviceId,
+                out target,
+                out error,
+                requireClientKey: false))
+        {
+            return false;
+        }
+
+        if (!HueBridgeCertificateValidation.IsSameBridgeHost(target.BridgeIp, entry.BridgeIp) ||
+            !string.Equals(target.EntertainmentAreaId, entry.EntertainmentAreaId?.Trim(), StringComparison.Ordinal))
+        {
+            error = "The configured cleanup target changed since the snapshot was captured.";
+            return false;
+        }
+
+        return true;
+    }
+
     internal async Task RunDueSchedulesAsync(DateTime localNow, CancellationToken cancellationToken)
     {
         using var schedulerEvaluation = BeginSchedulerEvaluation();
@@ -4563,6 +4811,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         // A successful one-time cue must remain disabled even when its first completion
         // write failed. Repair that write before evaluating due schedules so a retry never
         // needs to replay bridge activity.
+        await RetryPendingScheduledCleanupsAsync(config, cancellationToken).ConfigureAwait(false);
         RetryPendingOneTimeCompletions(config);
         if (!config.SceneAutomationEnabled)
             return;
@@ -5277,7 +5526,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneSchedule schedule,
         CancellationToken cancellationToken,
         bool targetScopedPlayback = false,
-        DateTime? runAtUtcOverride = null)
+        DateTime? runAtUtcOverride = null,
+        bool durableCleanup = false)
     {
         if (!string.IsNullOrWhiteSpace(schedule.PlaylistName))
         {
@@ -5316,14 +5566,16 @@ public sealed class HueSceneAutomationService : BackgroundService
             var selectedTargetIds = schedule.IncludeDefaultTarget || (schedule.TargetUserIds?.Count ?? 0) > 0
                 ? schedule.TargetUserIds?.ToList() ?? new List<string>()
                 : null;
-            var playlistRun = await RunPlaylistPreviewAsync(
+            var playlistRun = await RunPlaylistPreviewDurableAsync(
                 scheduledPlaylist,
                 cancellationToken,
                 selectedTargetIds,
                 schedule.IncludeDefaultTarget,
                 targetScopedPlayback,
                 runAtUtcOverride,
-                GetScheduleTargetRoutes(schedule)).ConfigureAwait(false);
+                GetScheduleTargetRoutes(schedule),
+                durableCleanup,
+                schedule.Id).ConfigureAwait(false);
             return BuildPlaylistScheduleRunResult(config, schedule, playlistRun);
         }
 
@@ -5351,7 +5603,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 brightnessPercentOverride: schedule.BrightnessPercent,
                 redOverride: schedule.Red,
                 greenOverride: schedule.Green,
-                blueOverride: schedule.Blue).ConfigureAwait(false);
+                blueOverride: schedule.Blue,
+                durableCleanup: durableCleanup).ConfigureAwait(false);
             targetResults.Add(targetResult);
         }
 
@@ -5462,7 +5715,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         string? effectOverride = null,
         int? redOverride = null,
         int? greenOverride = null,
-        int? blueOverride = null)
+        int? blueOverride = null,
+        bool durableCleanup = false)
     {
         try
         {
@@ -5568,6 +5822,18 @@ public sealed class HueSceneAutomationService : BackgroundService
                 : PluginConfiguration.TryNormalizeColorPresetEffect(preset.Effect, out var normalizedPresetEffect)
                     ? normalizedPresetEffect
                     : PluginConfiguration.ColorPresetEffectSolid;
+            using var cleanupScope = durableCleanup && _scheduledCleanupJournal != null
+                ? _scheduledCleanupJournal.BeginScope(new HueScheduledCleanupScope
+                {
+                    CleanupId = Guid.NewGuid().ToString("N"),
+                    ScheduleId = schedule.Id?.Trim() ?? string.Empty,
+                    TargetUserId = target.TargetUserId,
+                    TargetDeviceId = target.TargetDeviceId,
+                    BridgeIp = target.BridgeIp,
+                    EntertainmentAreaId = target.EntertainmentAreaId,
+                    ChannelIds = target.ChannelIds
+                })
+                : null;
             var preview = scopedTester != null && curveTester != null
                 ? await curveTester.PreviewAsyncForTargetWithTransitionCurve(
                     target.BridgeIp,
@@ -5749,7 +6015,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 schedule,
                 cancellationToken,
                 targetScopedPlayback,
-                runAtUtcOverride).ConfigureAwait(false);
+                runAtUtcOverride,
+                durableCleanup: automaticRun).ConfigureAwait(false);
             runCompleted = true;
             result.WasCatchUp = wasCatchUp;
             result.WasDeferred = wasDeferred;
@@ -8140,6 +8407,8 @@ public sealed class HueSceneAutomationTargetRoute
 internal sealed class HueSceneAutomationTargetDescription
 {
     public string TargetLabel { get; init; } = string.Empty;
+    public string TargetUserId { get; init; } = string.Empty;
+    public string TargetDeviceId { get; init; } = string.Empty;
     public string BridgeIp { get; init; } = string.Empty;
     public string AppKey { get; init; } = string.Empty;
     public string ClientKey { get; init; } = string.Empty;
@@ -8827,6 +9096,39 @@ public sealed class HueSceneScheduleRuntimeStatus
 }
 
 /// <summary>
+/// Sanitized administrator-facing status for one pending scheduled cleanup.
+/// </summary>
+public sealed class HueSceneAutomationPendingCleanupStatus
+{
+    [JsonPropertyName("cleanupId")]
+    public string CleanupId { get; init; } = string.Empty;
+
+    [JsonPropertyName("scheduleId")]
+    public string ScheduleId { get; init; } = string.Empty;
+
+    [JsonPropertyName("targetUserId")]
+    public string TargetUserId { get; init; } = string.Empty;
+
+    [JsonPropertyName("targetDeviceId")]
+    public string TargetDeviceId { get; init; } = string.Empty;
+
+    [JsonPropertyName("capturedAtUtc")]
+    public DateTime CapturedAtUtc { get; init; }
+
+    [JsonPropertyName("attemptCount")]
+    public int AttemptCount { get; init; }
+
+    [JsonPropertyName("lastAttemptAtUtc")]
+    public DateTime? LastAttemptAtUtc { get; init; }
+
+    [JsonPropertyName("nextAttemptAtUtc")]
+    public DateTime? NextAttemptAtUtc { get; init; }
+
+    [JsonPropertyName("lastError")]
+    public string? LastError { get; init; }
+}
+
+/// <summary>
 /// Sanitized administrator-facing status for the scheduled scene automation service.
 /// </summary>
 public sealed class HueSceneAutomationStatus
@@ -8863,6 +9165,12 @@ public sealed class HueSceneAutomationStatus
 
     [JsonPropertyName("schedules")]
     public IReadOnlyList<HueSceneScheduleRuntimeStatus> Schedules { get; init; } = Array.Empty<HueSceneScheduleRuntimeStatus>();
+
+    [JsonPropertyName("pendingCleanupCount")]
+    public int PendingCleanupCount { get; init; }
+
+    [JsonPropertyName("pendingCleanups")]
+    public IReadOnlyList<HueSceneAutomationPendingCleanupStatus> PendingCleanups { get; init; } = Array.Empty<HueSceneAutomationPendingCleanupStatus>();
 
     [JsonPropertyName("conflicts")]
     public IReadOnlyList<HueSceneScheduleConflict> Conflicts { get; init; } = Array.Empty<HueSceneScheduleConflict>();

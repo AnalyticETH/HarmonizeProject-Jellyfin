@@ -585,6 +585,29 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
+    /// Credential-free snapshot for a scheduled preview whose bridge cleanup did not
+    /// complete. The captured light states are serialized as a bounded JSON document so
+    /// the scheduler can retry restoration after a transient bridge outage or Jellyfin
+    /// restart without persisting either Hue credential.
+    /// </summary>
+    public sealed class HueSceneAutomationPendingCleanupEntry
+    {
+        public string CleanupId { get; set; } = string.Empty;
+        public string ScheduleId { get; set; } = string.Empty;
+        public string TargetUserId { get; set; } = string.Empty;
+        public string TargetDeviceId { get; set; } = string.Empty;
+        public string BridgeIp { get; set; } = string.Empty;
+        public string EntertainmentAreaId { get; set; } = string.Empty;
+        public string ChannelIds { get; set; } = string.Empty;
+        public string LightStatesJson { get; set; } = string.Empty;
+        public DateTime CapturedAtUtc { get; set; }
+        public int AttemptCount { get; set; }
+        public DateTime? LastAttemptAtUtc { get; set; }
+        public DateTime? NextAttemptAtUtc { get; set; }
+        public string? LastError { get; set; }
+    }
+
+    /// <summary>
     /// Credential-free outcome for one target in a scheduled-scene run, including the
     /// validated entertainment-channel counts used by immediate and scheduled previews.
     /// </summary>
@@ -895,6 +918,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MinSceneAutomationDeferMinutes = 1;
         public const int MaxSceneAutomationDeferMinutes = 120;
         public const int DefaultSceneAutomationDeferMinutes = 15;
+        public const int MaxSceneAutomationPendingCleanups = 100;
+        public const int MaxSceneAutomationPendingCleanupLightStates = 256;
+        public const int MaxSceneAutomationPendingCleanupJsonLength = 262_144;
+        public const int MaxSceneAutomationPendingCleanupErrorLength = 1_024;
+        public const int MaxSceneAutomationPendingCleanupAttempts = 30;
 
         private static readonly string[] SceneScheduleTimeModes =
         {
@@ -1790,6 +1818,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// is removed/edited, so a restart fails closed instead of replaying bridge work.
         /// </summary>
         public List<HueSceneAutomationOccurrenceClaimEntry> PersistedSceneAutomationOccurrenceClaims { get; set; } = new List<HueSceneAutomationOccurrenceClaimEntry>();
+
+        /// <summary>
+        /// Credential-free snapshots for scheduled previews whose bridge cleanup is still
+        /// pending. The scheduler retries these records with bounded backoff and removes a
+        /// record only after deactivation and restoration both succeed. They are not part of
+        /// configuration exports because they represent in-flight server state.
+        /// </summary>
+        public List<HueSceneAutomationPendingCleanupEntry> PersistedSceneAutomationPendingCleanups { get; set; } = new List<HueSceneAutomationPendingCleanupEntry>();
 
         /// <summary>
         /// Retains the bounded, sanitized completed-session history in plugin configuration.
