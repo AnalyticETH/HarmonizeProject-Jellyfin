@@ -34,7 +34,9 @@ env:
   SEMGREP_PYTHON_CONFIG_SHA256: '31c1dfa46e8ddd97f9ac98c607ddd77b20a2c3356d7ec987359961d47ec27035'
 
 concurrency:
-  group: security-scan-${{ github.workflow }}-${{ github.ref }}
+  # Keep scheduled scans independent from the blocking workflow_call made by a
+  # main push. Within one event/ref lane, canceling an older scan is intentional.
+  group: security-scan-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:

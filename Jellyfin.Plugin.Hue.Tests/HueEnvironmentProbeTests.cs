@@ -115,4 +115,108 @@ public sealed class HueEnvironmentProbeTests
 
         await Assert.ThrowsAsync<OperationCanceledException>(() => probe.CheckAsync(cancellationSource.Token));
     }
+
+    [Fact]
+    public async Task CheckAsync_WhenVersionStdoutIsUnboundedStopsAndReportsUnavailable()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var yesPath = HueEnvironmentProbe.ResolveExecutable("yes");
+        if (yesPath == null)
+            return;
+
+        using var cancellationSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var probe = new HueEnvironmentProbe(yesPath, versionArgument: "fixture");
+
+        var result = await probe.CheckAsync(cancellationSource.Token).WaitAsync(TimeSpan.FromSeconds(8));
+
+        Assert.False(result.Ffmpeg.Available);
+        Assert.Contains("too much output", result.Ffmpeg.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CheckAsync_WhenVersionStderrIsUnboundedStopsAndReportsUnavailable()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var yesPath = HueEnvironmentProbe.ResolveExecutable("yes");
+        if (yesPath == null)
+            return;
+
+        var scriptPath = CreateExecutableScript(
+            $"if [ \"$1\" = \"--version\" ]; then\n  exec \"{yesPath}\" fixture >&2\nfi\nprintf 'fixture version\\n'\n");
+        try
+        {
+            using var cancellationSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var probe = new HueEnvironmentProbe(scriptPath, versionArgument: "--version");
+
+            var result = await probe.CheckAsync(cancellationSource.Token).WaitAsync(TimeSpan.FromSeconds(8));
+
+            Assert.False(result.Ffmpeg.Available);
+            Assert.Contains("too much output", result.Ffmpeg.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            TryDelete(scriptPath);
+        }
+    }
+
+    [Fact]
+    public async Task CheckAsync_WhenPcmStdoutIsUnboundedStopsAndReportsUnavailable()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var yesPath = HueEnvironmentProbe.ResolveExecutable("yes");
+        if (yesPath == null)
+            return;
+
+        var scriptPath = CreateExecutableScript(
+            $"if [ \"$1\" = \"--version\" ]; then\n  printf 'fixture version\\n'\n  exit 0\nfi\nexec \"{yesPath}\" fixture\n");
+        try
+        {
+            using var cancellationSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var probe = new HueEnvironmentProbe(scriptPath, versionArgument: "--version");
+
+            var result = await probe.CheckAsync(cancellationSource.Token).WaitAsync(TimeSpan.FromSeconds(8));
+
+            Assert.True(result.Ffmpeg.Available);
+            Assert.False(result.AudioCapture.Available);
+            Assert.Contains("too much output", result.AudioCapture.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            TryDelete(scriptPath);
+        }
+    }
+
+    private static string CreateExecutableScript(string contents)
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"hue-environment-probe-{Guid.NewGuid():N}.sh");
+        File.WriteAllText(path, $"#!/bin/sh\n{contents}");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(
+                path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        return path;
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+            // Test fixture cleanup must not mask the probe assertion.
+        }
+    }
 }

@@ -1890,7 +1890,7 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             e = NormalizeRecoveredPlaybackEvent(e);
-            _logger.LogInformation("Playback started for item {0}", e.Item.Name);
+            _logger.LogInformation("Playback started for item {0}", e.Item?.Name ?? "Unknown");
 
             if (!IsPlaybackUserSyncEnabled(e))
             {

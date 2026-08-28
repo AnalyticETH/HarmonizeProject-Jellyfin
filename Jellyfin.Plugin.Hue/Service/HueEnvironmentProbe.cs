@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.MediaEncoding;
@@ -35,6 +36,12 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
     private const int AudioProbeSampleRate = 8000;
     private const int AudioProbeChannels = 2;
     private const string AudioProbeDuration = "0.15";
+    // Diagnostics only need the first version line and a short PCM window. Keep
+    // each redirected stream bounded so an untrusted executable cannot consume
+    // unbounded memory before the timeout fires.
+    private const int MaximumProbeOutputChars = 64 * 1024;
+    private const int MaximumAudioProbeBytes = 64 * 1024;
+    private const int ProbeReadBufferSize = 4096;
 
     private readonly string _ffmpegCommand;
     private readonly string _versionArgument;
@@ -184,10 +191,13 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
 
         try
         {
-            var standardOutputTask = process.StandardOutput.ReadToEndAsync(timeoutSource.Token);
-            var standardErrorTask = process.StandardError.ReadToEndAsync(timeoutSource.Token);
-            await process.WaitForExitAsync(timeoutSource.Token).ConfigureAwait(false);
-            await Task.WhenAll(standardOutputTask, standardErrorTask).ConfigureAwait(false);
+            var standardOutputTask = ReadTextAsync(process.StandardOutput, timeoutSource.Token);
+            var standardErrorTask = ReadTextAsync(process.StandardError, timeoutSource.Token);
+            await WaitForProcessAndOutputAsync(
+                process,
+                standardOutputTask,
+                standardErrorTask,
+                timeoutSource.Token).ConfigureAwait(false);
 
             var version = ExtractVersionLine(standardOutputTask.Result, standardErrorTask.Result);
             var available = process.ExitCode == 0;
@@ -199,6 +209,17 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
                 Message = available
                     ? null
                     : "The executable returned a non-zero exit code."
+            };
+        }
+        catch (ProbeOutputLimitExceededException)
+        {
+            StopProcess(process);
+            cancellationToken.ThrowIfCancellationRequested();
+            return new HueToolStatus
+            {
+                Available = false,
+                ExecutablePath = executablePath,
+                Message = "The version check produced too much output."
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -314,8 +335,13 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         try
         {
             var standardOutputTask = ReadBytesAsync(process.StandardOutput.BaseStream, timeoutSource.Token);
-            var standardErrorTask = process.StandardError.ReadToEndAsync(timeoutSource.Token);
-            await process.WaitForExitAsync(timeoutSource.Token).ConfigureAwait(false);
+            var standardErrorTask = ReadTextAsync(process.StandardError, timeoutSource.Token);
+            await WaitForProcessAndOutputAsync(
+                process,
+                standardOutputTask,
+                standardErrorTask,
+                timeoutSource.Token).ConfigureAwait(false);
+
             var pcm = await standardOutputTask.ConfigureAwait(false);
             var standardError = await standardErrorTask.ConfigureAwait(false);
             var succeeded = process.ExitCode == 0 && pcm.Length >= MinimumAudioProbeBytes;
@@ -330,7 +356,18 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
                     ? null
                     : process.ExitCode != 0
                         ? $"FFmpeg audio capture probe failed: {ExtractVersionLine(null, standardError) ?? "non-zero exit code"}."
-                        : $"FFmpeg audio capture probe returned only {pcm.Length} PCM bytes; at least {MinimumAudioProbeBytes} were expected."
+                    : $"FFmpeg audio capture probe returned only {pcm.Length} PCM bytes; at least {MinimumAudioProbeBytes} were expected."
+            };
+        }
+        catch (ProbeOutputLimitExceededException)
+        {
+            StopProcess(process);
+            cancellationToken.ThrowIfCancellationRequested();
+            return new HueToolStatus
+            {
+                Available = false,
+                ExecutablePath = ffmpeg.ExecutablePath,
+                Message = "The FFmpeg audio capture probe produced too much output."
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -360,6 +397,34 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         }
     }
 
+    private static async Task WaitForProcessAndOutputAsync(
+        Process process,
+        Task standardOutputTask,
+        Task standardErrorTask,
+        CancellationToken cancellationToken)
+    {
+        var processExitTask = process.WaitForExitAsync(cancellationToken);
+        var pendingTasks = new[] { processExitTask, standardOutputTask, standardErrorTask };
+
+        while (pendingTasks.Length > 0)
+        {
+            await Task.WhenAny(pendingTasks).ConfigureAwait(false);
+            foreach (var completedTask in pendingTasks.Where(task => task.IsCompleted).ToArray())
+            {
+                await completedTask.ConfigureAwait(false);
+                if (completedTask == processExitTask)
+                {
+                    await Task.WhenAll(standardOutputTask, standardErrorTask).ConfigureAwait(false);
+                    return;
+                }
+            }
+
+            pendingTasks = pendingTasks
+                .Where(task => !task.IsCompleted)
+                .ToArray();
+        }
+    }
+
     private static void StopProcess(Process process)
     {
         try
@@ -373,11 +438,44 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         }
     }
 
+    private static async Task<string> ReadTextAsync(TextReader reader, CancellationToken cancellationToken)
+    {
+        var buffer = new char[ProbeReadBufferSize];
+        var output = new StringBuilder(Math.Min(MaximumProbeOutputChars, ProbeReadBufferSize));
+
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+                return output.ToString();
+
+            if (read > MaximumProbeOutputChars - output.Length)
+                throw new ProbeOutputLimitExceededException();
+
+            output.Append(buffer, 0, read);
+        }
+    }
+
     private static async Task<byte[]> ReadBytesAsync(Stream stream, CancellationToken cancellationToken)
     {
-        using var buffer = new MemoryStream();
-        await stream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
-        return buffer.ToArray();
+        using var output = new MemoryStream(Math.Min(MaximumAudioProbeBytes, ProbeReadBufferSize));
+        var buffer = new byte[ProbeReadBufferSize];
+
+        while (true)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+                return output.ToArray();
+
+            if (read > MaximumAudioProbeBytes - output.Length)
+                throw new ProbeOutputLimitExceededException();
+
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private sealed class ProbeOutputLimitExceededException : IOException
+    {
     }
 }
 

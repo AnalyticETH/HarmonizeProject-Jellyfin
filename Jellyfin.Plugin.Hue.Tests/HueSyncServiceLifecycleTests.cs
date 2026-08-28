@@ -1037,6 +1037,37 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task PlaybackStart_WithNullItem_SkipsUnsupportedPlaybackWithoutThrowing()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+
+        await service.StartAsync(CancellationToken.None);
+
+        var startMethod = typeof(HueSyncService).GetMethod("OnPlaybackStart", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var playbackStart = new PlaybackProgressEventArgs
+        {
+            Item = null,
+            PlaySessionId = "null-item-session"
+        };
+
+        var exception = Record.Exception(() => startMethod.Invoke(service, new object?[] { null, playbackStart }));
+
+        Assert.Null(exception);
+        var status = service.GetRuntimeStatus();
+        Assert.False(status.IsSyncing);
+        Assert.Equal("Idle", status.State);
+        Assert.Equal(
+            "Hue Sync supports video or audio playback, depending on the selected media scope.",
+            status.Message);
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.False(handler.FirstConfigurationRequest.Task.IsCompleted);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PlaybackStop_QueuesImmediateNextStartUntilCleanupCompletes()
     {
         var handler = new BlockingHueHandler();

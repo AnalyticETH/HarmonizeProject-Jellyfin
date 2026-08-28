@@ -26,6 +26,13 @@ build/test, 15 minutes for quality, security, and packaging, and 10 minutes for 
 publication; 20 minutes for the Linux release-helper validation) so a stalled network operation or tool cannot
 hold a persistent runner forever.
 
+The blocking security workflow uses an event-scoped concurrency key:
+`security-scan-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}` with
+`cancel-in-progress: true`. Consequently, the weekly default-branch `schedule` scan cannot
+cancel or be canceled by the `workflow_call` security gate invoked by a trusted `main` push.
+Cancellation remains intentional for an older scan in the same event/ref lane; preserve this
+event component whenever the workflow or its triggers are changed.
+
 Untrusted pull requests, including Dependabot update branches, are validated by
 `.github/workflows/pull-request-validation.yml` on the ephemeral GitHub-hosted
 `ubuntu-24.04` runner. That workflow has only `contents: read`, does not receive secrets,

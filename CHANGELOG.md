@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.364] - 2026-08-28
+
+### Runtime and runner safety hardening
+- **Null-safe playback events**: Jellyfin playback-start events with missing item metadata are logged safely and remain filtered as unsupported instead of throwing before lifecycle arbitration.
+- **Bounded environment probes**: FFmpeg version, diagnostic stderr, and PCM capability output are capped; oversized output terminates the probe and fails closed without allowing a misbehaving executable to grow memory indefinitely.
+- **Regression coverage**: lifecycle and environment-probe tests cover null playback items, unbounded version stdout/stderr, and unbounded PCM output.
+- **Security-scan concurrency isolation**: scheduled scans and trusted main-push security gates use separate event-scoped lanes, so a weekly scan cannot cancel a release-critical gate.
+
 ## [1.5.363] - 2026-08-28
 
 ### Bridge and capture hardening

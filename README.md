@@ -486,7 +486,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.363 (Current)
+### Version 1.5.364 (Current)
+
+- **Null-safe playback events**: Jellyfin playback-start events with missing item metadata are logged safely and remain filtered as unsupported instead of throwing before lifecycle arbitration.
+
+- **Bounded environment probes**: FFmpeg version, diagnostic stderr, and PCM capability output are capped; oversized output terminates the probe and fails closed without allowing a misbehaving executable to grow memory indefinitely.
+
+- **Regression coverage**: lifecycle and environment-probe tests cover null playback items, unbounded version stdout/stderr, and unbounded PCM output.
+
+- **Security-scan concurrency isolation**: scheduled scans and trusted main-push security gates use separate event-scoped lanes, so a weekly scan cannot cancel a release-critical gate.
 
 - **Fail-closed entertainment-area identity**: Hue configuration responses reject present malformed area IDs instead of treating them as legacy ID-less responses, preventing an unverified area's channel layout from being used for the requested target while preserving the documented ID-less fallback.
 
