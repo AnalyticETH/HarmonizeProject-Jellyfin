@@ -118,14 +118,25 @@ public sealed class HueBridgeLifecycleGate
     /// check-then-start race where playback could begin after an import's active check.
     /// </summary>
     public IDisposable? TryEnterConfigurationMutation()
+        => TryEnterConfigurationMutation(allowActivePlayback: false);
+
+    /// <summary>
+    /// Attempts to reserve the process-wide lifecycle gate for a policy-disable mutation.
+    /// A guarded disable may overlap an existing playback lease so the mutation can commit
+    /// first and then use the same lifecycle cleanup path to stop the affected session(s).
+    /// Diagnostics, reads, scheduler evaluation, and competing mutations still block the
+    /// reservation in every mode.
+    /// </summary>
+    /// <param name="allowActivePlayback">Whether the caller has proven this mutation disables Hue playback.</param>
+    public IDisposable? TryEnterConfigurationMutation(bool allowActivePlayback)
     {
         lock (_sync)
         {
             if (_configurationMutationActive ||
                 _configurationReadCount > 0 ||
                 _schedulerEvaluationCount > 0 ||
-                IsPlaybackActiveLocked() ||
-                IsDiagnosticActiveLocked())
+                IsDiagnosticActiveLocked() ||
+                (!allowActivePlayback && IsPlaybackActiveLocked()))
             {
                 return null;
             }

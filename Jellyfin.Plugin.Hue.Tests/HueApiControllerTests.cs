@@ -15209,6 +15209,276 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMapping_DisablingMappingStopsMatchingActivePlaybackAfterCommit()
+    {
+        var userId = Guid.NewGuid();
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            EntertainmentAreaId = "area-id",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString("D"),
+                    UserName = "Active viewer",
+                    SyncEnabled = true
+                }
+            }
+        });
+        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = CreateActiveSyncService(userId, "mapping-disable-session", lifecycleGate);
+        var controller = CreateController(
+            bridgeLifecycleGate: lifecycleGate,
+            hostedServices: new[] { service });
+
+        var action = controller.SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = userId.ToString("D"),
+            UserName = "Active viewer",
+            SyncEnabled = false
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action);
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        Assert.False(configuration.UserMappings.Single().SyncEnabled);
+        Assert.False(service.IsSyncing);
+        Assert.Null(service.GetRuntimeStatus().CurrentItem);
+    }
+
+    [Fact]
+    public async Task SaveUserMapping_WhenPersistenceFailsKeepsMatchingPlaybackActive()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("mapping disable persistence failed"));
+        var userId = Guid.NewGuid();
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            EntertainmentAreaId = "area-id",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString("D"), SyncEnabled = true }
+            }
+        }, serializer.Object);
+        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = CreateActiveSyncService(userId, "mapping-disable-rollback-session", lifecycleGate);
+        var controller = CreateController(
+            bridgeLifecycleGate: lifecycleGate,
+            hostedServices: new[] { service });
+
+        var action = controller.SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = userId.ToString("D"),
+            SyncEnabled = false
+        });
+
+        var response = Assert.IsType<ObjectResult>(action);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.True(configuration.UserMappings.Single().SyncEnabled);
+        Assert.True(service.IsSyncing);
+
+        await service.StopCurrentSyncAsync();
+    }
+
+    [Fact]
+    public void UserMappings_BulkEnabledDisablingMappingStopsMatchingActivePlaybackAfterCommit()
+    {
+        var userId = Guid.NewGuid();
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            EntertainmentAreaId = "area-id",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "mapping-disable-bulk",
+                    UserId = userId.ToString("D"),
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-key",
+                    HueClientKey = "mapping-client-key",
+                    EntertainmentAreaId = "mapping-area"
+                }
+            }
+        });
+        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = CreateActiveSyncService(userId, "bulk-mapping-disable-session", lifecycleGate);
+        var controller = CreateController(
+            bridgeLifecycleGate: lifecycleGate,
+            hostedServices: new[] { service });
+
+        var action = controller.SetUserMappingsEnabledBulk(new HueUserMappingBulkEnabledRequest
+        {
+            MappingIds = new List<string> { "mapping-disable-bulk" },
+            SyncEnabled = false
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        Assert.False(configuration.UserMappings.Single().SyncEnabled);
+        Assert.False(service.IsSyncing);
+        Assert.Null(service.GetRuntimeStatus().CurrentItem);
+    }
+
+    [Fact]
+    public void ConfigurationImport_DisablingGlobalSyncStopsActivePlaybackAfterCommit()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            EntertainmentAreaId = "area-id"
+        });
+        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        using var playback = lifecycleGate.TryEnterPlayback("192.168.1.100|area-id");
+        Assert.NotNull(playback);
+        var service = CreateActiveSyncService(Guid.NewGuid(), "import-disable-session", lifecycleGate);
+        var controller = CreateController(
+            bridgeLifecycleGate: lifecycleGate,
+            hostedServices: new[] { service });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.Configuration!.SyncEnabled = false;
+
+        AttachConfigurationVersion(controller, request);
+        var action = controller.ImportConfiguration(request);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        Assert.False(configuration.SyncEnabled);
+        Assert.False(service.IsSyncing);
+        Assert.Null(service.GetRuntimeStatus().CurrentItem);
+    }
+
+    [Fact]
+    public async Task ConfigurationImport_WhenPlaybackIsActiveAndPolicyIsUnchangedStillConflicts()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            EntertainmentAreaId = "area-id"
+        });
+        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        using var playback = lifecycleGate.TryEnterPlayback("192.168.1.100|area-id");
+        Assert.NotNull(playback);
+        var service = CreateActiveSyncService(Guid.NewGuid(), "import-noop-session", lifecycleGate);
+        var controller = CreateController(
+            bridgeLifecycleGate: lifecycleGate,
+            hostedServices: new[] { service });
+        var request = CreateConfigurationImportRequest(configuration);
+
+        var validation = controller.ValidateConfigurationImport(request);
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        Assert.False(validationResult.CanImport);
+        request.ExpectedConfigurationVersion = validationResult.ConfigurationVersion;
+        var action = controller.ImportConfiguration(request);
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.True(configuration.SyncEnabled);
+        Assert.True(service.IsSyncing);
+
+        await service.StopCurrentSyncAsync();
+    }
+
+    [Fact]
+    public async Task SaveUserMapping_DuplicateRowsRemainFailClosedWithoutStoppingAnAlreadyDisabledSession()
+    {
+        var userId = Guid.NewGuid();
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            EntertainmentAreaId = "area-id",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { MappingId = "duplicate-a", UserId = userId.ToString("D"), SyncEnabled = true },
+                new() { MappingId = "duplicate-b", UserId = userId.ToString("D"), SyncEnabled = false }
+            }
+        });
+        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = CreateActiveSyncService(userId, "duplicate-mapping-session", lifecycleGate);
+        var controller = CreateController(
+            bridgeLifecycleGate: lifecycleGate,
+            hostedServices: new[] { service });
+
+        var action = controller.SaveUserMapping(new UserBridgeMapping
+        {
+            MappingId = "duplicate-a",
+            UserId = userId.ToString("D"),
+            SyncEnabled = false
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action);
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        Assert.True(service.IsSyncing);
+
+        await service.StopCurrentSyncAsync();
+    }
+
+    [Fact]
+    public async Task SaveUserMapping_DisablingAlreadyDisabledEffectiveMappingDoesNotStopPlayback()
+    {
+        var userId = Guid.NewGuid();
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-key",
+            HueClientKey = "global-client-key",
+            EntertainmentAreaId = "area-id",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId.ToString("D"), SyncEnabled = false }
+            }
+        });
+        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = CreateActiveSyncService(userId, "already-disabled-session", lifecycleGate);
+        var controller = CreateController(
+            bridgeLifecycleGate: lifecycleGate,
+            hostedServices: new[] { service });
+
+        var action = controller.SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = userId.ToString("D"),
+            SyncEnabled = false
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action);
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        Assert.True(service.IsSyncing);
+
+        await service.StopCurrentSyncAsync();
+    }
+
+    [Fact]
     public void SaveUserMapping_BlankSecretsPreserveExistingCredentials()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -16298,6 +16568,40 @@ public sealed class HueApiControllerTests : IDisposable
             diagnosticsCancellationGate,
             sessionManager,
             userManager: userManager);
+    }
+
+    private HueSyncService CreateActiveSyncService(
+        Guid userId,
+        string playSessionId,
+        HueBridgeLifecycleGate bridgeLifecycleGate)
+    {
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory
+            .Setup(factory => factory.CreateLogger(It.IsAny<string>()))
+            .Returns(Mock.Of<ILogger>());
+        var service = new HueSyncService(
+            Mock.Of<ISessionManager>(),
+            Mock.Of<ILogger<HueSyncService>>(),
+            loggerFactory.Object,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<IMediaEncoder>(),
+            bridgeLifecycleGate);
+
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", playSessionId);
+        SetPrivateField(service, "_currentUserId", userId);
+        SetPrivateField(service, "_currentItemName", "Active test item");
+        SetPrivateField(
+            service,
+            "_currentBridgeConfig",
+            new ValueTuple<string, string, string, string>(
+                "192.168.1.100",
+                "app-key",
+                "client-key",
+                "area-id"));
+        SetPrivateField(service, "_activeRestoreLightState", false);
+        SetPrivateField(service, "_activeUseCinemaMode", false);
+        return service;
     }
 
     private static void AssertConflict(IActionResult action)

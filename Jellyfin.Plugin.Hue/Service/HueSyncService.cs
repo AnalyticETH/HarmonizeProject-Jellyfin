@@ -230,22 +230,27 @@ namespace Jellyfin.Plugin.Hue.Service
             {
                 lock (_syncLock)
                 {
-                    if (_isStopping ||
-                        (_manuallyStoppedPlaySessionId != null &&
-                         string.Equals(_manuallyStoppedPlaySessionId, _currentPlaySessionId, StringComparison.Ordinal) &&
-                         _syncCts == null &&
-                         _currentBridgeConfig == null &&
-                         _startingPlaySessionId == null))
-                    {
-                        return false;
-                    }
-
-                    return _currentPlaySessionId != null ||
-                           _startingPlaySessionId != null ||
-                           _syncCts != null ||
-                           _currentBridgeConfig != null;
+                    return CanStopSyncLocked();
                 }
             }
+        }
+
+        private bool CanStopSyncLocked()
+        {
+            if (_isStopping ||
+                (_manuallyStoppedPlaySessionId != null &&
+                 string.Equals(_manuallyStoppedPlaySessionId, _currentPlaySessionId, StringComparison.Ordinal) &&
+                 _syncCts == null &&
+                 _currentBridgeConfig == null &&
+                 _startingPlaySessionId == null))
+            {
+                return false;
+            }
+
+            return _currentPlaySessionId != null ||
+                   _startingPlaySessionId != null ||
+                   _syncCts != null ||
+                   _currentBridgeConfig != null;
         }
 
         public HueSyncService(
@@ -986,6 +991,109 @@ namespace Jellyfin.Plugin.Hue.Service
             status.State is "Starting" or "Syncing" or "Resyncing" or "Paused" or "Stopping");
 
         /// <summary>
+        /// Stops playback sessions made invalid by a committed configuration change.
+        /// The caller supplies the already-persisted policy transition; this method only
+        /// cancels matching Hue lifecycles and runs their normal restoration/deactivation
+        /// cleanup. It never starts a session when a policy is enabled again.
+        /// </summary>
+        /// <param name="globalSyncDisabled">Whether global Hue Sync was just disabled.</param>
+        /// <param name="disabledUserIds">Users whose effective mapping policy was just disabled.</param>
+        /// <returns>The number of matching playback lifecycles that completed a stop request.</returns>
+        internal async Task<int> StopPlaybackSessionsForDisabledConfigurationAsync(
+            bool globalSyncDisabled,
+            IEnumerable<Guid>? disabledUserIds = null)
+        {
+            var disabledUsers = disabledUserIds == null
+                ? new HashSet<Guid>()
+                : disabledUserIds
+                    .Where(userId => userId != Guid.Empty)
+                    .ToHashSet();
+            if (!globalSyncDisabled && disabledUsers.Count == 0)
+                return 0;
+
+            var candidates = SnapshotPlaybackStopCandidates()
+                .Where(candidate => globalSyncDisabled ||
+                    (candidate.UserId.HasValue && disabledUsers.Contains(candidate.UserId.Value)))
+                .ToArray();
+            if (candidates.Length == 0)
+                return 0;
+
+            var stopResults = await Task.WhenAll(candidates.Select(async candidate =>
+            {
+                try
+                {
+                    var stopped = await candidate.Service.StopCurrentSyncAsync(candidate.PlaySessionId).ConfigureAwait(false);
+                    if (!stopped)
+                    {
+                        _logger.LogWarning(
+                            "Hue playback session {0} was no longer active when configuration disable cleanup ran",
+                            candidate.PlaySessionId ?? "primary");
+                    }
+
+                    return stopped;
+                }
+                catch (Exception ex)
+                {
+                    // Configuration has already been durably committed. Preserve that
+                    // fail-closed policy and leave any cleanup warning in the normal
+                    // runtime status instead of turning a successful write into an
+                    // ambiguous API failure.
+                    _logger.LogError(
+                        ex,
+                        "Could not stop Hue playback session {0} after configuration disable",
+                        candidate.PlaySessionId ?? "primary");
+                    return false;
+                }
+            })).ConfigureAwait(false);
+
+            return stopResults.Count(stopped => stopped);
+        }
+
+        private PlaybackStopCandidate[] SnapshotPlaybackStopCandidates()
+        {
+            ConcurrentPlaybackWorker[] workers;
+            var candidates = new List<PlaybackStopCandidate>();
+            lock (_syncLock)
+            {
+                if (CanStopSyncLocked())
+                {
+                    candidates.Add(new PlaybackStopCandidate(
+                        this,
+                        _currentPlaySessionId ?? _startingPlaySessionId,
+                        _currentUserId));
+                }
+
+                workers = _concurrentPlaybackWorkers.Values.ToArray();
+            }
+
+            foreach (var worker in workers)
+            {
+                if (worker.Service.TryGetPlaybackStopCandidate(out var candidate))
+                    candidates.Add(candidate);
+            }
+
+            return candidates.ToArray();
+        }
+
+        private bool TryGetPlaybackStopCandidate(out PlaybackStopCandidate candidate)
+        {
+            lock (_syncLock)
+            {
+                if (CanStopSyncLocked())
+                {
+                    candidate = new PlaybackStopCandidate(
+                        this,
+                        _currentPlaySessionId ?? _startingPlaySessionId,
+                        _currentUserId);
+                    return true;
+                }
+            }
+
+            candidate = default;
+            return false;
+        }
+
+        /// <summary>
         /// Returns the most recently completed sanitized playback summaries. The list is
         /// bounded, newest first, and contains no bridge credentials or playback tokens.
         /// An outcome filter can be supplied for focused administrator diagnostics.
@@ -1327,7 +1435,8 @@ namespace Jellyfin.Plugin.Hue.Service
         private bool IsPlaybackUserSyncEnabled(PlaybackProgressEventArgs e)
         {
             var config = Plugin.Instance?.Configuration;
-            return config == null || config.IsSyncEnabledForUser(e.Session?.UserId ?? Guid.Empty);
+            return config == null ||
+                (config.SyncEnabled && config.IsSyncEnabledForUser(e.Session?.UserId ?? Guid.Empty));
         }
 
         private string GetPlaybackMediaFilter(PlaybackProgressEventArgs e)
@@ -5870,6 +5979,11 @@ namespace Jellyfin.Plugin.Hue.Service
             public string? ClientSessionId { get; init; }
             public required string ResourceKey { get; init; }
         }
+
+        private readonly record struct PlaybackStopCandidate(
+            HueSyncService Service,
+            string? PlaySessionId,
+            Guid? UserId);
 
         private sealed class SessionSummarySeed
         {

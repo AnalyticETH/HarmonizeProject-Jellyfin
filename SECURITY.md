@@ -6,7 +6,7 @@ The latest `1.5.x` release is supported with security fixes. Older releases shou
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities privately through a GitHub Security Advisory for this repository. Do not open a public issue or include credentials, bridge keys, access tokens, or other sensitive data in a report.
+If private vulnerability reporting is enabled for this repository, please use its GitHub Security Advisory channel. If GitHub does not offer that private channel for your account, contact the repository owner through an already-established private channel and ask for one before sharing technical details. Do not open a public issue or include credentials, bridge keys, access tokens, or other sensitive data in a report.
 
 Include the affected release, reproduction steps, impact, and any suggested mitigation. Reports are triaged against the plugin code, its NuGet dependencies, and the GitHub Actions workflows.
 

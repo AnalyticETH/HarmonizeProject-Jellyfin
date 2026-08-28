@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.351] - 2026-08-28
+
+### Immediate sync-policy shutdown and reporting accuracy
+- **Immediate sync-policy shutdown**: saving a disabled global or per-user policy now stops affected active Hue sessions after the durable write, restores captured lights, and requires a fresh playback event after re-enabling.
+- **Selective lifecycle reconciliation**: global, single-user, bulk-user, and imported policy changes filter concurrent sessions by effective user state; duplicate or ambiguous mappings remain fail-closed.
+- **Security-reporting accuracy**: SECURITY.md now makes private reporting conditional on the repository capability and directs reporters to an established private owner channel when that capability is unavailable.
+- **Regression coverage**: lifecycle, API rollback, duplicate-mapping, import, gate, and toggle contracts cover immediate policy shutdown and safe restoration.
+
 ## [1.5.350] - 2026-08-28
 
 ### Shutdown and administrator lifecycle integrity

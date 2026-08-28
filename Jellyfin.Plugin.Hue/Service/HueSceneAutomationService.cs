@@ -152,6 +152,20 @@ public sealed class HueSceneAutomationService : BackgroundService
     public bool TryAcquireConfigurationMutation(
         out IDisposable? lease,
         out string message)
+        => TryAcquireConfigurationMutation(
+            allowActivePlayback: false,
+            out lease,
+            out message);
+
+    /// <summary>
+    /// Reserves the runtime-state lock for a configuration mutation. A policy-disable
+    /// import may overlap active playback so the caller can persist the disable and
+    /// then stop the affected playback session through its normal cleanup path.
+    /// </summary>
+    public bool TryAcquireConfigurationMutation(
+        bool allowActivePlayback,
+        out IDisposable? lease,
+        out string message)
     {
         lease = null;
         message = string.Empty;
@@ -159,7 +173,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         // Reserve the process-wide bridge lifecycle gate before checking playback or
         // diagnostics. The lease prevents a new bridge lifecycle from starting after
         // the point-in-time check and remains held through the configuration transaction.
-        var bridgeLifecycleLease = _bridgeLifecycleGate.TryEnterConfigurationMutation();
+        var bridgeLifecycleLease = _bridgeLifecycleGate.TryEnterConfigurationMutation(allowActivePlayback);
         if (bridgeLifecycleLease == null)
         {
             message = _bridgeLifecycleGate.IsSchedulerEvaluationActive && HasActiveScheduleRuns

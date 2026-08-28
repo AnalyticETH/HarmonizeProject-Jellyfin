@@ -74,6 +74,76 @@ namespace Jellyfin.Plugin.Hue.Api
             _userManager = userManager;
         }
 
+        private void StopPlaybackForDisabledConfiguration(
+            bool globalSyncDisabled,
+            IEnumerable<Guid>? disabledUserIds = null)
+        {
+            if (_syncService == null)
+                return;
+
+            try
+            {
+                var stoppedCount = _syncService
+                    .StopPlaybackSessionsForDisabledConfigurationAsync(globalSyncDisabled, disabledUserIds)
+                    .GetAwaiter()
+                    .GetResult();
+                if (stoppedCount > 0)
+                {
+                    _logger?.LogInformation(
+                        "Stopped {StoppedCount} active Hue playback session(s) after a configuration disable",
+                        stoppedCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                // The guarded configuration write has already succeeded. Cleanup is
+                // best-effort and remains visible through the normal runtime warning;
+                // never report a durable policy change as rolled back because bridge
+                // cleanup encountered an unexpected exception.
+                _logger?.LogError(ex, "Could not stop all Hue playback sessions after a configuration disable");
+            }
+        }
+
+        private static bool TryParsePlaybackUserId(string? value, out Guid userId)
+        {
+            return Guid.TryParse(value?.Trim(), out userId) && userId != Guid.Empty;
+        }
+
+        private static Guid[] GetUsersWhoseSyncWasDisabled(
+            PluginConfiguration existingConfiguration,
+            IEnumerable<UserBridgeMapping> existingMappings,
+            PluginConfiguration candidateConfiguration,
+            IEnumerable<UserBridgeMapping> candidateMappings)
+        {
+            var userIds = existingMappings
+                .Concat(candidateMappings)
+                .Where(mapping => mapping != null)
+                .Select(mapping => mapping.UserId)
+                .Where(userId => TryParsePlaybackUserId(userId, out _))
+                .Select(userId => Guid.Parse(userId.Trim()))
+                .Distinct()
+                .ToArray();
+
+            if (!existingConfiguration.SyncEnabled || !candidateConfiguration.SyncEnabled)
+                return Array.Empty<Guid>();
+
+            return userIds
+                .Where(userId => existingConfiguration.IsSyncEnabledForUser(userId) &&
+                    !candidateConfiguration.IsSyncEnabledForUser(userId))
+                .ToArray();
+        }
+
+        private static bool RequestMayDisablePlayback(HueConfigurationImportRequest request)
+        {
+            if (request.Configuration?.SyncEnabled == false)
+                return true;
+
+            return (request.UserMappings ?? new List<UserBridgeMappingImport>()).Any(mapping =>
+                mapping != null &&
+                !mapping.SyncEnabled &&
+                TryParsePlaybackUserId(mapping.UserId, out _));
+        }
+
         /// <summary>
         /// Resolves credentials omitted by the configuration page only when the requested
         /// bridge is the configured global target. This lets the page keep global keys out
@@ -7996,10 +8066,21 @@ namespace Jellyfin.Plugin.Hue.Api
             var activeScheduleEvaluation = _sceneAutomationService?.HasActiveScheduleEvaluation == true;
             var activeScheduleLifecycle = _sceneAutomationService?.HasActiveScheduleLifecycle == true;
             var valid = plan.ValidationErrors.Count == 0;
+            var disabledUserIds = valid
+                ? GetUsersWhoseSyncWasDisabled(
+                    config,
+                    config.UserMappings ?? new List<UserBridgeMapping>(),
+                    plan.CandidateConfiguration,
+                    plan.CandidateMappings)
+                : Array.Empty<Guid>();
+            var activePlaybackBlocksImport = activePlayback &&
+                !(valid &&
+                  ((config.SyncEnabled && !plan.CandidateConfiguration.SyncEnabled) ||
+                   disabledUserIds.Length > 0));
             return Ok(new HueConfigurationImportValidationResult
             {
                 Valid = valid,
-                CanImport = valid && !activePlayback && !activeDiagnostic &&
+                CanImport = valid && !activePlaybackBlocksImport && !activeDiagnostic &&
                     !activeConfigurationMutation && !activeScheduledCue &&
                     !activeScheduleEvaluation && !activeScheduleLifecycle,
                 ActivePlayback = activePlayback,
@@ -8025,7 +8106,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 Diff = plan.Diff,
                 Message = BuildConfigurationImportValidationMessage(
                     valid,
-                    activePlayback,
+                    activePlaybackBlocksImport,
                     activeDiagnostic,
                     activeConfigurationMutation,
                     activeScheduledCue,
@@ -8036,7 +8117,7 @@ namespace Jellyfin.Plugin.Hue.Api
 
         private static string BuildConfigurationImportValidationMessage(
             bool valid,
-            bool activePlayback,
+            bool activePlaybackBlocksImport,
             bool activeDiagnostic,
             bool activeConfigurationMutation,
             bool activeScheduledCue,
@@ -8047,7 +8128,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 return "Configuration import is invalid. No changes were applied.";
 
             var blockers = new List<string>();
-            if (activePlayback)
+            if (activePlaybackBlocksImport)
                 blockers.Add("active Hue playback");
             if (activeDiagnostic)
                 blockers.Add("an administrator diagnostic");
@@ -8095,10 +8176,12 @@ namespace Jellyfin.Plugin.Hue.Api
             if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
+            var allowActivePlayback = RequestMayDisablePlayback(request);
             IDisposable? importLease = null;
             if (_sceneAutomationService != null)
             {
                 if (!_sceneAutomationService.TryAcquireConfigurationMutation(
+                        allowActivePlayback,
                         out importLease,
                         out var activeScheduleMessage))
                 {
@@ -8107,7 +8190,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
             else
             {
-                importLease = _bridgeLifecycleGate.TryEnterConfigurationMutation();
+                importLease = _bridgeLifecycleGate.TryEnterConfigurationMutation(allowActivePlayback);
                 if (importLease == null)
                 {
                     return Conflict("Configuration import cannot proceed while Hue playback or an administrator diagnostic is active.");
@@ -8116,17 +8199,30 @@ namespace Jellyfin.Plugin.Hue.Api
 
             try
             {
+                var plan = BuildConfigurationImportPlan(config, request);
+                var valid = plan.ValidationErrors.Count == 0;
+                var disabledUserIds = valid
+                    ? GetUsersWhoseSyncWasDisabled(
+                        config,
+                        config.UserMappings ?? new List<UserBridgeMapping>(),
+                        plan.CandidateConfiguration,
+                        plan.CandidateMappings)
+                    : Array.Empty<Guid>();
+                var disablesPlaybackPolicy = valid &&
+                    ((config.SyncEnabled && !plan.CandidateConfiguration.SyncEnabled) ||
+                     disabledUserIds.Length > 0);
+
                 // Keep the existing runtime-state check for defensive compatibility with
                 // test hosts or integrations that expose a playback service without using
                 // the shared lifecycle gate. The composite lease above closes the normal
                 // check-then-start race for the real hosted services.
-                if (_syncService?.HasActivePlaybackSessions == true)
+                if ((_syncService?.HasActivePlaybackSessions == true || _bridgeLifecycleGate.IsPlaybackActive) &&
+                    !disablesPlaybackPolicy)
                 {
                     return Conflict("Stop all active Hue playback sessions before importing configuration.");
                 }
 
-                var plan = BuildConfigurationImportPlan(config, request);
-                if (plan.ValidationErrors.Count > 0)
+                if (!valid)
                 {
                     return BadRequest(new { message = "Configuration import is invalid.", errors = plan.ValidationErrors });
                 }
@@ -8160,9 +8256,15 @@ namespace Jellyfin.Plugin.Hue.Api
             HueConfigurationImportPlan plan)
         {
             var previousSettings = HuePluginConfigurationSettings.From(config);
+            var globalSyncWasEnabled = config.SyncEnabled;
             var previousAppKey = config.HueAppKey;
             var previousClientKey = config.HueClientKey;
             var previousMappings = config.UserMappings ?? new List<UserBridgeMapping>();
+            var disabledUserIds = GetUsersWhoseSyncWasDisabled(
+                config,
+                previousMappings,
+                plan.CandidateConfiguration,
+                plan.CandidateMappings);
             var previousPresets = config.ColorPresets ?? new List<HueColorPreset>();
             var previousPlaylists = config.ScenePlaylists ?? new List<HueScenePlaylist>();
             var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
@@ -8197,6 +8299,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 _logger?.LogError(ex, "Could not persist imported Hue configuration");
                 return StatusCode(StatusCodes.Status500InternalServerError, "Configuration could not be saved.");
             }
+
+            if (globalSyncWasEnabled && !config.SyncEnabled)
+                StopPlaybackForDisabledConfiguration(globalSyncDisabled: true);
+            else if (disabledUserIds.Length > 0)
+                StopPlaybackForDisabledConfiguration(globalSyncDisabled: false, disabledUserIds);
 
             return Ok(new HueConfigurationImportResult
             {
@@ -9273,6 +9380,7 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var previousSettings = HuePluginConfigurationSettings.From(config);
+            var globalSyncWasEnabled = config.SyncEnabled;
             var previousAppKey = config.HueAppKey;
             var previousClientKey = config.HueClientKey;
             var previousPersistedSessionHistory = (config.PersistedSessionHistory ?? new List<HueSessionHistoryEntry>()).ToList();
@@ -9310,6 +9418,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
             _syncService?.RefreshSessionHistoryPersistence();
             _sceneAutomationService?.RefreshSceneScheduleHistoryPersistence();
+            if (globalSyncWasEnabled && !config.SyncEnabled)
+                StopPlaybackForDisabledConfiguration(globalSyncDisabled: true);
+
             return Ok(HuePluginConfigurationSettings.From(config));
         }
 
@@ -10394,6 +10505,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Plugin configuration not available.");
             }
 
+            var globalSyncWasEnabled = config.SyncEnabled;
+            var parsedPlaybackUserId = Guid.Empty;
+            var userSyncWasEnabled = globalSyncWasEnabled &&
+                TryParsePlaybackUserId(mapping.UserId, out parsedPlaybackUserId) &&
+                config.IsSyncEnabledForUser(parsedPlaybackUserId);
+
             var scheduledCueCount = config.SceneSchedules?.Count(schedule =>
                 schedule != null && ScheduleReferencesUserMapping(schedule, mapping.UserId.Trim())) ?? 0;
             var scenePlaylistCount = config.ScenePlaylists?.Count(playlist =>
@@ -10578,6 +10695,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 _logger?.LogError(ex, "Could not persist Hue user mapping {0}", mapping.UserId);
                 return StatusCode(StatusCodes.Status500InternalServerError, "The user mapping could not be saved.");
             }
+
+            if (userSyncWasEnabled && !mapping.SyncEnabled)
+                StopPlaybackForDisabledConfiguration(globalSyncDisabled: false, new[] { parsedPlaybackUserId });
 
             return Ok(new { message = "Mapping saved successfully." });
         }
@@ -11010,6 +11130,19 @@ namespace Jellyfin.Plugin.Hue.Api
 
                 mappings = selectedByUser.Select(matches => matches[0]).ToArray();
             }
+
+            var disabledUserIds = Array.Empty<Guid>();
+            if (!request.SyncEnabled && config.SyncEnabled)
+            {
+                disabledUserIds = mappings
+                    .Select(mapping => mapping.UserId)
+                    .Where(userId => TryParsePlaybackUserId(userId, out _))
+                    .Select(userId => Guid.Parse(userId.Trim()))
+                    .Where(config.IsSyncEnabledForUser)
+                    .Distinct()
+                    .ToArray();
+            }
+
             if (!request.SyncEnabled)
             {
                 var blockedMappings = mappings
@@ -11097,6 +11230,9 @@ namespace Jellyfin.Plugin.Hue.Api
                     StatusCodes.Status500InternalServerError,
                     "The selected user-mapping enabled state could not be saved; no changes were retained.");
             }
+
+            if (disabledUserIds.Length > 0)
+                StopPlaybackForDisabledConfiguration(globalSyncDisabled: false, disabledUserIds);
 
             return Ok(new HueUserMappingBulkEnabledResult
             {

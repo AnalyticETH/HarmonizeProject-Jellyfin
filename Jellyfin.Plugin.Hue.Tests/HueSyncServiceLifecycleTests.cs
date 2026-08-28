@@ -1853,6 +1853,90 @@ public sealed class HueSyncServiceLifecycleTests
         await service.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task ConfigurationDisable_StopsActivePlaybackAndRestoresLightsWithoutRestartingWhenReenabled()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var userId = Guid.NewGuid();
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "configuration-disable-session");
+        SetPrivateField(service, "_currentUserId", userId);
+        SetPrivateField(service, "_currentItemName", "Configuration disable item");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+        SetPrivateField(service, "_activeRestoreLightState", true);
+        SetPrivateField(service, "_activeUseCinemaMode", false);
+        SetPrivateField(service, "_savedLightStates", new List<HueClient.LightState>
+        {
+            new("light-id", true, 50, 0.1, 0.2)
+        });
+
+        var stopTask = service.StopPlaybackSessionsForDisabledConfigurationAsync(globalSyncDisabled: true);
+        await handler.RestorationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+
+        Assert.Equal(1, await stopTask);
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+        Assert.Null(GetPrivateField(service, "_savedLightStates"));
+        Assert.False(service.GetRuntimeStatus().IsSyncing);
+
+        // Re-enabling policy must not resurrect the session that was stopped by the
+        // administrator mutation. A fresh playback-start event is required.
+        Plugin.Instance!.Configuration.SyncEnabled = true;
+        var progressMethod = typeof(HueSyncService).GetMethod(
+            "OnPlaybackProgress",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        progressMethod.Invoke(service, new object?[] { null, CreateProgress("configuration-disable-session") });
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ConfigurationDisable_StopsOnlyTheSelectedUserPlaybackSession()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var activeUserId = Guid.NewGuid();
+        var unrelatedUserId = Guid.NewGuid();
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "selective-disable-session");
+        SetPrivateField(service, "_currentUserId", activeUserId);
+        SetPrivateField(service, "_currentItemName", "Selective disable item");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+        SetPrivateField(service, "_activeRestoreLightState", false);
+        SetPrivateField(service, "_activeUseCinemaMode", false);
+
+        Assert.Equal(
+            0,
+            await service.StopPlaybackSessionsForDisabledConfigurationAsync(
+                globalSyncDisabled: false,
+                disabledUserIds: new[] { unrelatedUserId }));
+        Assert.NotNull(GetPrivateField(service, "_syncCts"));
+
+        var stopTask = service.StopPlaybackSessionsForDisabledConfigurationAsync(
+            globalSyncDisabled: false,
+            disabledUserIds: new[] { activeUserId });
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+
+        Assert.Equal(1, await stopTask);
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
     private static HueSyncService CreateService(
         HttpClient httpClient,
         HueBridgeLifecycleGate? bridgeLifecycleGate = null,

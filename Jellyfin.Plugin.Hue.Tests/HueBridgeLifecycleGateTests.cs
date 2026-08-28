@@ -126,6 +126,22 @@ public sealed class HueBridgeLifecycleGateTests
     }
 
     [Fact]
+    public void ConfigurationDisableMutationMayOverlapPlaybackForCleanup()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var playback = gate.TryEnterPlayback("192.168.1.10|living-room");
+
+        Assert.NotNull(playback);
+        Assert.Null(gate.TryEnterConfigurationMutation());
+
+        using var disableMutation = gate.TryEnterConfigurationMutation(allowActivePlayback: true);
+        Assert.NotNull(disableMutation);
+        Assert.True(gate.IsPlaybackActive);
+        Assert.Null(gate.TryEnterPlayback("192.168.1.10|bedroom"));
+        Assert.Null(gate.TryEnterDiagnostic("192.168.1.10|living-room"));
+    }
+
+    [Fact]
     public void ConfigurationReadLeasesBlockMutationUntilAllReadersDispose()
     {
         var gate = new HueBridgeLifecycleGate();

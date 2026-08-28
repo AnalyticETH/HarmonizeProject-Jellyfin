@@ -1164,7 +1164,7 @@
                                     <input is="emby-checkbox" type="checkbox" id="mappingSyncEnabled" checked />
                                     <span>Enable Hue Sync for this user</span>
                                 </label>
-                                <div class="fieldDescription">Uncheck this to leave this user's playback unchanged while keeping other users enabled.</div>
+                                <div class="fieldDescription">Uncheck this to stop this user's active Hue sync after saving, restore captured lights, and keep other users enabled. Re-enabling waits for a fresh playback event.</div>
                             </div>
 
                             <fieldset class="verticalSection" style="background: rgba(255,255,255,0.03); padding: 1em; border-radius: 6px; margin-top: 1em;">
@@ -1771,7 +1771,7 @@
                             <input is="emby-checkbox" type="checkbox" id="syncEnabled" name="syncEnabled" />
                             <span>Enable Real-time Media Sync</span>
                         </label>
-                        <div class="fieldDescription">If enabled, lights will react to supported video and audio playback in real-time (uses CPU/GPU resources).</div>
+                        <div class="fieldDescription">If enabled, lights will react to supported video and audio playback in real-time (uses CPU/GPU resources). Saving while disabled stops active Hue sync, restores captured lights, and re-enabling waits for a fresh playback event.</div>
                     </div>
                     <br />
                     <button is="emby-button" type="submit" class="raised button-submit block" id="saveConfigurationBtn">

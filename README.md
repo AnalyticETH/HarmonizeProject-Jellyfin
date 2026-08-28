@@ -103,7 +103,7 @@ The configuration page starts with a keyboard-friendly **Configuration sections*
 | **Custom Flags** | Add only decoder, threading, or hardware-tuning flags here (for example `-hwaccel vaapi -threads 2` or `-c:v h264_cuvid`). Values may use quoted groups and escaped quotes/backslashes; configuration validation rejects extra inputs, outputs, protocols, headers, filters, scripts, paths, and network-capable options before playback starts. |
 | **FFmpeg Stall Timeout** | Stop synchronization and restore the lights when no complete video frame arrives within 1-60 seconds (Default: 5). FFmpeg startup receives an extended codec-initialization grace period. |
 | **Network Retry Attempts** | Number of retry attempts for Hue REST requests and DTLS stream recovery (0-10, default: 3). |
-| **Enable Real-time Sync** | Master toggle for the sync feature. |
+| **Enable Real-time Sync** | Master toggle for the sync feature. Saving while disabled immediately stops active Hue sessions, restores captured lights, and re-enabling waits for a fresh playback event. |
 | **Temperature Scene Effect** | Choose **Temperature** in the scene editor to sweep deterministically from warm 2200 K candlelight to cool 6500 K daylight and back. The scene's RGB seed controls output level, while effect speed, duration, transitions, playlists, scheduled cues, and target restoration work the same as the other effects. |
 | **Aurora Scene Effect** | Choose **Aurora** in the scene editor to drift deterministically through green, cyan, blue, and violet hues. The scene's RGB seed controls output level, while effect speed, duration, transitions, playlists, scheduled cues, and target restoration work the same as the other effects. |
 | **Fire Scene Effect** | Choose **Fire** in the scene editor for a deterministic red/amber/yellow flicker with independent channel phases. The RGB seed controls output level, while effect speed, duration, transitions, playlists, scheduled cues, and target restoration work the same as the other effects. |
@@ -142,9 +142,10 @@ previous in-memory mapping collection.
 To keep a per-user profile while using the global bridge, create or edit an enabled mapping and
 leave Bridge Address, App Key, Client Key, and Entertainment Area blank; those target fields
 inherit the global configuration. Enter all four fields when targeting a custom bridge.
-To leave a user's playback unchanged, edit or create that mapping and uncheck **Enable Hue Sync
-for this user**; bridge credentials are not required for a disabled mapping. Users without a
-mapping continue to use the default bridge settings.
+To stop this user's active Hue session immediately, edit or create that mapping and uncheck
+**Enable Hue Sync for this user**; the saved change restores captured lights and does not
+auto-start again when re-enabled. Bridge credentials are not required for a disabled mapping.
+Users without a mapping continue to use the default bridge settings.
 
 When editing an enabled mapping, the existing App Key and Client Key are kept securely on the
 server and are not displayed in the browser. Leave those fields blank to keep the stored keys, or
@@ -471,7 +472,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.350 (Current)
+### Version 1.5.351 (Current)
+
+- **Immediate sync-policy shutdown**: saving a disabled global or per-user policy now stops affected active Hue sessions after the durable write, restores captured lights, and requires a fresh playback event after re-enabling.
+
+- **Selective lifecycle reconciliation**: global, single-user, bulk-user, and imported policy changes filter concurrent sessions by effective user state; duplicate or ambiguous mappings remain fail-closed.
+
+- **Security-reporting accuracy**: SECURITY.md now makes private reporting conditional on the repository capability and directs reporters to an established private owner channel when that capability is unavailable.
+
+- **Regression coverage**: lifecycle, API rollback, duplicate-mapping, import, gate, and toggle contracts cover immediate policy shutdown and safe restoration.
 
 - **Shutdown-durable manual runs**: service shutdown now rejects new manual cues, cancels active runs outside the ownership lock, and awaits their bounded restorative cleanup before the hosted service stops.
 
