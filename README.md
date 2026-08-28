@@ -471,7 +471,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.349 (Current)
+### Version 1.5.350 (Current)
+
+- **Shutdown-durable manual runs**: service shutdown now rejects new manual cues, cancels active runs outside the ownership lock, and awaits their bounded restorative cleanup before the hosted service stops.
+
+- **Cancellation-safe automatic occurrences**: host-canceled transport failures retain scheduler slots and deferred markers across direct scenes and fallback playlists, while natural stream failures keep their ordinary failure accounting.
+
+- **Saved-scene duplication lifecycle safety**: duplicate requests are tracked, bounded to one submission, canceled on page teardown, and prevented from updating a hidden or reused administrator page.
+
+- **Regression coverage**: scheduler tests cover shutdown awaiting, transport-failure wording, fallback playlist retry, deferred-occurrence retention, and the duplicate saved-scene page lifecycle contract.
 
 - **Restart-durable one-time claims**: automatic one-time cues persist their disabled state before bridge activity or deferred-expiry handling; failed claims fail closed, release the occurrence slot, and retry without replaying a cue after restart.
 

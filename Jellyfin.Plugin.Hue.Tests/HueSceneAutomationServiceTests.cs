@@ -2807,6 +2807,204 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_ShutdownCanceledResultRetainsDeferredOccurrenceWithoutConsumingRun()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "shutdown-canceled-deferred-app-secret",
+            HueClientKey = "shutdown-canceled-deferred-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Shutdown canceled deferred scene", Red = 15, Green = 25, Blue = 35, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "shutdown-canceled-deferred-cue",
+                    Name = "Shutdown canceled deferred cue",
+                    PresetName = "Shutdown canceled deferred scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    MaxRuns = 1,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new CancelResultThenSucceedStreamTester();
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using (var playbackLease = lifecycleGate.TryEnterPlayback("shutdown-canceled-deferred-target"))
+        {
+            Assert.NotNull(playbackLease);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+        }
+
+        var deferredBeforeRun = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        using var cancellationSource = new CancellationTokenSource();
+        var automaticTask = service.RunDueSchedulesAsync(
+            dueUtc.AddMinutes(1),
+            cancellationSource.Token);
+        await streamTester.FirstPreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        cancellationSource.Cancel();
+        streamTester.ReleaseFirstPreview.TrySetResult(true);
+        await automaticTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        var canceledStatus = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(0, canceledStatus.RunCount);
+        Assert.True(canceledStatus.DeferredPending);
+        var retainedDeferred = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal(deferredBeforeRun.OccurrenceSlot, retainedDeferred.OccurrenceSlot);
+
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Equal(2, streamTester.PreviewCount);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Theory]
+    [InlineData(true, true, "The DTLS stream stopped while holding the preview color.")]
+    [InlineData(false, true, "The DTLS stream stopped while holding the preview color.")]
+    [InlineData(true, true, "The DTLS stream opened, but the preview color could not be sent.")]
+    [InlineData(false, true, "The DTLS stream opened, but the preview color could not be sent.")]
+    [InlineData(false, false, "The DTLS stream stopped while holding the preview color.")]
+    public async Task RunDueSchedules_TokenCanceledTransportFailurePreservesDeferredOccurrence(
+        bool useTransitionCurve,
+        bool cancelToken,
+        string failureMessage)
+    {
+        var configuration = CreateTransportFailureDeferredConfiguration();
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = useTransitionCurve
+            ? new TransitionCurveTransportFailureStreamTester(failureMessage)
+            : new TransportFailureStreamTester(failureMessage);
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using (var playbackLease = lifecycleGate.TryEnterPlayback("transport-failure-deferred-target"))
+        {
+            Assert.NotNull(playbackLease);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+        }
+
+        var deferredBeforeRun = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        using var cancellationSource = new CancellationTokenSource();
+        var automaticTask = service.RunDueSchedulesAsync(
+            dueUtc.AddMinutes(1),
+            cancelToken ? cancellationSource.Token : CancellationToken.None);
+        await streamTester.PreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        if (cancelToken)
+            cancellationSource.Cancel();
+        streamTester.ReleasePreview.TrySetResult(true);
+        await automaticTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var schedule = configuration.SceneSchedules[0];
+        if (cancelToken)
+        {
+            Assert.Equal(0, schedule.RunCount);
+            Assert.True(schedule.Enabled);
+            Assert.Equal(0, Assert.Single(service.GetStatus().Schedules).RunCount);
+            var retainedDeferred = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+            Assert.Equal(deferredBeforeRun.OccurrenceSlot, retainedDeferred.OccurrenceSlot);
+        }
+        else
+        {
+            Assert.Equal(1, schedule.RunCount);
+            Assert.False(schedule.Enabled);
+            Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        }
+
+        Assert.Equal(useTransitionCurve ? 1 : 0, streamTester.TransitionCurvePreviewCallCount);
+        Assert.Equal(useTransitionCurve ? 0 : 1, streamTester.LegacyPreviewCallCount);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_FallbackPlaylistTransportCancellationPreservesDeferredOccurrence()
+    {
+        var configuration = CreateTransportFailureDeferredConfiguration();
+        configuration.ScenePlaylists = new List<HueScenePlaylist>
+        {
+            new()
+            {
+                Id = "transport-failure-playlist",
+                Name = "Transport failure playlist",
+                PresetNames = new List<string> { "Transport failure scene" }
+            }
+        };
+        configuration.SceneSchedules[0].PlaylistName = "Transport failure playlist";
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new CancelResultThenSucceedStreamTester(
+            "The DTLS stream stopped while holding the preview color.");
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using (var playbackLease = lifecycleGate.TryEnterPlayback("transport-failure-playlist-target"))
+        {
+            Assert.NotNull(playbackLease);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+        }
+
+        var deferredBeforeRun = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        using var cancellationSource = new CancellationTokenSource();
+        var automaticTask = service.RunDueSchedulesAsync(
+            dueUtc.AddMinutes(1),
+            cancellationSource.Token);
+        await streamTester.FirstPreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellationSource.Cancel();
+        streamTester.ReleaseFirstPreview.TrySetResult(true);
+        await automaticTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        var retainedDeferred = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal(deferredBeforeRun.OccurrenceSlot, retainedDeferred.OccurrenceSlot);
+
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Equal(2, streamTester.PreviewCount);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_DropsDeferredCueWhenItsTimingDefinitionChanges()
     {
         var configuration = new PluginConfiguration
@@ -6216,6 +6414,59 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task StopAsync_CancelsActiveManualRunAndRejectsNewRuns()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-secret",
+            HueClientKey = "client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Cue", DurationSeconds = 8 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new() { Id = "cue-1", Name = "Cue", PresetName = "Cue" }
+            }
+        });
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new BlockingStreamTester(holdAfterCancellation: true);
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+
+        await service.StartAsync(CancellationToken.None);
+        var runTask = service.RunScheduleAsync("cue-1");
+        await streamTester.PreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(runTask.IsCompleted);
+
+        var stopTask = service.StopAsync(CancellationToken.None);
+        var rejected = await service.RunScheduleAsync("cue-1").WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(runTask.IsCompleted);
+        await Task.Delay(50);
+        Assert.False(stopTask.IsCompleted);
+        streamTester.ReleaseAfterCancellation.TrySetResult(true);
+        await stopTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var result = await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("canceled", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("stopping", rejected.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(service.HasActiveScheduleRuns);
+        Assert.False(service.HasActiveScheduleEvaluation);
+        Assert.False(service.HasActiveScheduleLifecycle);
+        Assert.False(lifecycleGate.IsSchedulerEvaluationActive);
+        Assert.False(lifecycleGate.IsDiagnosticActive);
+    }
+
+    [Fact]
     public async Task PausedAutomation_SkipsDueCueWithoutClaimingOrRunningIt()
     {
         var now = DateTime.Now;
@@ -6690,6 +6941,40 @@ public sealed class HueSceneAutomationServiceTests
         };
     }
 
+    private static PluginConfiguration CreateTransportFailureDeferredConfiguration()
+    {
+        return new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "transport-failure-app-secret",
+            HueClientKey = "transport-failure-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Transport failure scene", Red = 15, Green = 25, Blue = 35, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "transport-failure-deferred-cue",
+                    Name = "Transport failure deferred cue",
+                    PresetName = "Transport failure scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    MaxRuns = 1,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+    }
+
     private static PluginConfiguration CreateContinuousPlaylistConfiguration(
         string playlistId,
         string playlistName,
@@ -6881,7 +7166,17 @@ public sealed class HueSceneAutomationServiceTests
 
     private sealed class BlockingStreamTester : IHueStreamTester
     {
+        private readonly bool _holdAfterCancellation;
+
+        public BlockingStreamTester(bool holdAfterCancellation = false)
+        {
+            _holdAfterCancellation = holdAfterCancellation;
+        }
+
         public TaskCompletionSource<bool> PreviewStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> ReleaseAfterCancellation { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<HueStreamProbeResult> TestAsync(
@@ -6922,9 +7217,22 @@ public sealed class HueSceneAutomationServiceTests
 
         public bool CancelActiveDiagnostic() => false;
 
-        private static async Task<HueStreamProbeResult> WaitForCancellationAsync(CancellationToken cancellationToken)
+        private async Task<HueStreamProbeResult> WaitForCancellationAsync(CancellationToken cancellationToken)
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            catch (OperationCanceledException) when (_holdAfterCancellation)
+            {
+                await ReleaseAfterCancellation.Task.ConfigureAwait(false);
+                return new HueStreamProbeResult
+                {
+                    Succeeded = false,
+                    Message = "The solid preview request was canceled; the bridge is being restored."
+                };
+            }
+
             return new HueStreamProbeResult
             {
                 Succeeded = true,
@@ -6988,6 +7296,202 @@ public sealed class HueSceneAutomationServiceTests
         }
 
         public bool CancelActiveDiagnostic() => false;
+    }
+
+    private sealed class CancelResultThenSucceedStreamTester : IHueStreamTester
+    {
+        private readonly string _firstFailureMessage;
+        private int _previewCount;
+
+        public CancelResultThenSucceedStreamTester(
+            string firstFailureMessage = "The solid preview request was canceled; the bridge is being restored.")
+        {
+            _firstFailureMessage = firstFailureMessage;
+        }
+
+        public TaskCompletionSource<bool> FirstPreviewStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> ReleaseFirstPreview { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int PreviewCount => Volatile.Read(ref _previewCount);
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "Not used by this test."
+            });
+
+        public async Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        {
+            if (Interlocked.Increment(ref _previewCount) == 1)
+            {
+                FirstPreviewStarted.TrySetResult(true);
+                await ReleaseFirstPreview.Task.ConfigureAwait(false);
+                return new HueStreamProbeResult
+                {
+                    Succeeded = false,
+                    Message = _firstFailureMessage
+                };
+            }
+
+            return new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Displayed deferred scene after retry."
+            };
+        }
+
+        public bool CancelActiveDiagnostic() => false;
+    }
+
+    private class TransportFailureStreamTester : IHueStreamTester
+    {
+        private readonly string _failureMessage;
+        private int _legacyPreviewCallCount;
+
+        public TransportFailureStreamTester(string failureMessage)
+        {
+            _failureMessage = failureMessage;
+        }
+
+        public TaskCompletionSource<bool> PreviewStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> ReleasePreview { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int LegacyPreviewCallCount => Volatile.Read(ref _legacyPreviewCallCount);
+
+        public int TransitionCurvePreviewCallCount { get; protected set; }
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "Not used by this test."
+            });
+
+        public virtual Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        {
+            Interlocked.Increment(ref _legacyPreviewCallCount);
+            return WaitForFailureAsync();
+        }
+
+        public bool CancelActiveDiagnostic() => false;
+
+        protected async Task<HueStreamProbeResult> WaitForFailureAsync()
+        {
+            PreviewStarted.TrySetResult(true);
+            await ReleasePreview.Task.ConfigureAwait(false);
+            return new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = _failureMessage
+            };
+        }
+    }
+
+    private sealed class TransitionCurveTransportFailureStreamTester : TransportFailureStreamTester, IHueTransitionCurveStreamTester
+    {
+        public TransitionCurveTransportFailureStreamTester(string failureMessage)
+            : base(failureMessage)
+        {
+        }
+
+        public Task<HueStreamProbeResult> PreviewAsyncWithTransitionCurve(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+            string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear)
+        {
+            TransitionCurvePreviewCallCount++;
+            return WaitForFailureAsync();
+        }
+
+        public Task<HueStreamProbeResult> PreviewAsyncForTargetWithTransitionCurve(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+            string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear)
+        {
+            TransitionCurvePreviewCallCount++;
+            return WaitForFailureAsync();
+        }
     }
 
     private sealed class OverlapRecoveryStreamTester : IHueStreamTester

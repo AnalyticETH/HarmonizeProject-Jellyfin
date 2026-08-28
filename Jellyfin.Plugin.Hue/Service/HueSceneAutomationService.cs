@@ -31,6 +31,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     private bool _deferredRunsLoaded;
     private readonly object _manualRunCancellationLock = new();
     private readonly Dictionary<string, CancellationTokenSource> _manualRunCancellations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TaskCompletionSource<bool>> _manualRunCompletions = new(StringComparer.OrdinalIgnoreCase);
+    private bool _isStopping;
     private readonly object _runtimeStateLock = new();
     private readonly Dictionary<string, HueSceneScheduleRuntimeState> _runtimeStates = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _oneTimeCompletionPersistencePending = new(StringComparer.OrdinalIgnoreCase);
@@ -2017,8 +2019,17 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var runCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_manualRunCancellationLock)
         {
+            if (_isStopping)
+            {
+                return Failure(
+                    scheduleId,
+                    "The scene automation service is stopping.",
+                    schedule);
+            }
+
             if (_manualRunCancellations.ContainsKey(key))
             {
                 return Failure(
@@ -2028,6 +2039,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             }
 
             _manualRunCancellations[key] = runCancellation;
+            _manualRunCompletions[key] = runCompletion;
         }
 
         try
@@ -2056,7 +2068,13 @@ public sealed class HueSceneAutomationService : BackgroundService
                 if (_manualRunCancellations.TryGetValue(key, out var active) &&
                     ReferenceEquals(active, runCancellation))
                 {
+                    runCompletion.TrySetResult(true);
                     _manualRunCancellations.Remove(key);
+                    if (_manualRunCompletions.TryGetValue(key, out var completion) &&
+                        ReferenceEquals(completion, runCompletion))
+                    {
+                        _manualRunCompletions.Remove(key);
+                    }
                 }
             }
         }
@@ -2551,7 +2569,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                 CleanupWarning = run.CleanupWarning,
                 TargetResults = run.TargetResults
             });
-            if (!run.Succeeded && run.Message.Contains("canceled", StringComparison.OrdinalIgnoreCase))
+            if (!run.Succeeded &&
+                (IndicatesCancellation(run.Message) ||
+                 (cancellationToken.IsCancellationRequested &&
+                  IndicatesCancellationAfterTokenRequest(run.Message))))
                 break;
         }
 
@@ -2932,6 +2953,12 @@ public sealed class HueSceneAutomationService : BackgroundService
              message.Contains("cancelled", StringComparison.OrdinalIgnoreCase) ||
              message.Contains("cancellation", StringComparison.OrdinalIgnoreCase));
 
+    private static bool IndicatesCancellationAfterTokenRequest(string? message)
+        => IndicatesCancellation(message) ||
+            (!string.IsNullOrWhiteSpace(message) &&
+             (message.Contains("stream stopped", StringComparison.OrdinalIgnoreCase) ||
+              message.Contains("could not be sent", StringComparison.OrdinalIgnoreCase)));
+
     internal static bool IndicatesCancellation(HueScenePlaylistRunResult? result)
         => result != null &&
             (IndicatesCancellation(result.Message) ||
@@ -3088,14 +3115,30 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (string.IsNullOrWhiteSpace(key))
             return false;
 
+        CancellationTokenSource? cancellation;
         lock (_manualRunCancellationLock)
         {
-            if (!_manualRunCancellations.TryGetValue(key, out var cancellation))
+            if (!_manualRunCancellations.TryGetValue(key, out cancellation) || cancellation == null)
                 return false;
-
-            cancellation.Cancel();
-            return true;
         }
+
+        try
+        {
+            // Cancellation callbacks can perform bridge cleanup; do not invoke them
+            // while holding the map lock, and let all callbacks run before reporting
+            // any aggregate callback exception to the caller.
+            cancellation.Cancel(throwOnFirstException: false);
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Hue scene schedule {0} cancellation reported an exception", key);
+        }
+
+        return true;
     }
 
     private static bool TryGetScheduleOccurrenceTimes(
@@ -4396,15 +4439,60 @@ public sealed class HueSceneAutomationService : BackgroundService
             ? $"User mapping {mapping.UserId?.Trim() ?? "unknown"}"
             : mapping.UserName.Trim();
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        // Check once on startup so a service restart during a configured minute still
-        // honors the cue, while the run-slot guard prevents duplicate polling triggers.
-        await RunDueSchedulesAsync(DateTime.Now, stoppingToken).ConfigureAwait(false);
+        CancellationTokenSource[] activeCancellations;
+        Task[] activeCompletions;
+        lock (_manualRunCancellationLock)
+        {
+            _isStopping = true;
+            activeCancellations = _manualRunCancellations.Values.ToArray();
+            activeCompletions = _manualRunCompletions.Values
+                .Select(completion => completion.Task)
+                .ToArray();
+        }
 
-        using var timer = new PeriodicTimer(PollInterval);
+        foreach (var cancellation in activeCancellations)
+        {
+            try
+            {
+                // Cancellation callbacks can include bridge cleanup and must not run
+                // while the ownership lock is held. Continue cancelling every source
+                // even when one callback reports an exception.
+                cancellation.Cancel(throwOnFirstException: false);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The run completed between the snapshot and cancellation request.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Hue scene manual run cancellation reported an exception during service shutdown");
+            }
+        }
+
         try
         {
+            await base.StopAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Stream cleanup owns its independent bounded budget. Do not abandon an
+            // active manual run merely because the host's StopAsync token was canceled.
+            await Task.WhenAll(activeCompletions).ConfigureAwait(false);
+        }
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            // Check once on startup so a service restart during a configured minute still
+            // honors the cue, while the run-slot guard prevents duplicate polling triggers.
+            stoppingToken.ThrowIfCancellationRequested();
+            await RunDueSchedulesAsync(DateTime.Now, stoppingToken).ConfigureAwait(false);
+
+            using var timer = new PeriodicTimer(PollInterval);
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
             {
                 await RunDueSchedulesAsync(DateTime.Now, stoppingToken).ConfigureAwait(false);
@@ -4635,7 +4723,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                     StringComparison.OrdinalIgnoreCase),
                 runAtUtcOverride: slot,
                 schedulerBarrierHeld: true).ConfigureAwait(false);
-            if (hasDeferredRun)
+            var canceledDuringAutomaticRun = cancellationToken.IsCancellationRequested &&
+                !result.Succeeded;
+            if (hasDeferredRun && !canceledDuringAutomaticRun)
                 RemoveDeferredRun(schedule.Id);
 
             if (result.Succeeded)
@@ -5519,8 +5609,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             // A host-stopped automatic cue must remain eligible for the next scheduler
             // instance; manual cancellation keeps its existing attempted-run accounting.
             var automaticCancellationBeforeCompletion = automaticRun &&
-                !runCompleted &&
-                cancellationToken.IsCancellationRequested;
+                cancellationToken.IsCancellationRequested &&
+                (!runCompleted || result is { Succeeded: false });
             if (automaticCancellationBeforeCompletion && runAtUtcOverride.HasValue)
                 ReleaseRunSlot(schedule.Id, runAtUtcOverride.Value);
 

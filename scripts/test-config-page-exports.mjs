@@ -1310,6 +1310,129 @@ async function testColorPresetSaveLifecycleGuards() {
     assert.equal(duplicateState.button.disabled, false, "duplicate color preset submit re-enables its button");
 }
 
+function configureColorPresetDuplicateHarness(harness) {
+    const { page } = harness;
+    page.querySelector("#previewPresetSelect").value = "Scene One";
+    return {
+        button: page.querySelector("#duplicatePreviewPresetBtn"),
+        status: page.querySelector("#previewPresetStatus"),
+        presetLoads: 0,
+        playlistLoads: 0,
+        applyCalls: 0,
+        buttonUpdates: 0
+    };
+}
+
+async function testColorPresetDuplicateLifecycleGuards() {
+    const staleHarness = makeHarness();
+    const staleState = configureColorPresetDuplicateHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    staleApi.loadColorPresets = () => {
+        staleState.presetLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadScenePlaylists = () => {
+        staleState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.applyColorPreset = () => {
+        staleState.applyCalls += 1;
+    };
+    staleApi.updatePresetButtons = () => {
+        staleState.buttonUpdates += 1;
+    };
+
+    const staleDuplicate = staleApi.duplicateColorPreset(stalePage);
+    assert.ok(staleDuplicate && typeof staleDuplicate.then === "function", "color preset duplicate returns a tracked promise");
+    assert.equal(staleHarness.requests.length, 1, "color preset duplicate starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "color preset duplicate uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/ColorPresets/Scene%20One/Duplicate", "color preset duplicate targets the selected saved scene");
+    assert.equal(stalePage._hueColorPresetDuplicating, true, "color preset duplicate marks itself busy");
+    assert.equal(staleState.button.disabled, true, "color preset duplicate disables its button");
+    assert.ok(stalePage._huePageRequests.colorPresetDuplicate, "color preset duplicate is tracked by the page lifecycle");
+
+    staleState.status.textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts color preset duplicate");
+    assert.equal(stalePage._huePageRequests.colorPresetDuplicate, undefined, "pagehide removes color preset duplicate state");
+    assert.equal(stalePage._hueColorPresetDuplicating, false, "pagehide clears color preset duplicate state");
+    assert.equal(staleState.button.disabled, false, "pagehide re-enables the color preset duplicate button");
+    staleHarness.requests[0].resolve({ name: "Stale Scene" });
+    await staleDuplicate;
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale color preset duplicate cannot update hidden-page status");
+    assert.equal(staleState.presetLoads, 0, "stale color preset duplicate cannot reload saved scenes");
+    assert.equal(staleState.playlistLoads, 0, "stale color preset duplicate cannot reload playlists");
+    assert.equal(staleState.applyCalls, 0, "stale color preset duplicate cannot apply the duplicate");
+    assert.equal(staleState.buttonUpdates, 0, "stale color preset duplicate cannot update current-page controls");
+    assert.equal(staleHarness.dashboard.alerts.length, 0, "stale color preset duplicate cannot show an alert");
+
+    const currentHarness = makeHarness();
+    const currentState = configureColorPresetDuplicateHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    currentApi.loadColorPresets = (_page, selectedName) => {
+        currentState.presetLoads += 1;
+        assert.equal(selectedName, "Copied Scene", "current color preset duplicate reloads the returned scene");
+        return Promise.resolve();
+    };
+    currentApi.loadScenePlaylists = () => {
+        currentState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    currentApi.applyColorPreset = () => {
+        currentState.applyCalls += 1;
+    };
+    currentApi.updatePresetButtons = () => {
+        currentState.buttonUpdates += 1;
+    };
+
+    const currentDuplicate = currentApi.duplicateColorPreset(currentPage);
+    assert.equal(currentHarness.requests.length, 1, "current color preset duplicate starts one request");
+    currentHarness.requests[0].resolve({ name: "Copied Scene" });
+    await currentDuplicate;
+    assert.equal(currentState.status.textContent, "Scene 'Scene One' duplicated as 'Copied Scene'.", "current color preset duplicate reports success");
+    assert.equal(currentState.presetLoads, 1, "current color preset duplicate reloads saved scenes once");
+    assert.equal(currentState.playlistLoads, 1, "current color preset duplicate reloads playlists once");
+    assert.equal(currentState.applyCalls, 1, "current color preset duplicate applies the copied scene");
+    assert.equal(currentPage._hueColorPresetDuplicating, false, "current color preset duplicate clears busy state");
+    assert.equal(currentState.button.disabled, false, "current color preset duplicate re-enables its button");
+    assert.equal(currentState.buttonUpdates, 1, "current color preset duplicate refreshes current-page controls");
+
+    const duplicateHarness = makeHarness();
+    const duplicateState = configureColorPresetDuplicateHarness(duplicateHarness);
+    const duplicatePage = duplicateHarness.page;
+    const duplicateApi = duplicateHarness.api;
+    duplicateApi.loadColorPresets = () => {
+        duplicateState.presetLoads += 1;
+        return Promise.resolve();
+    };
+    duplicateApi.loadScenePlaylists = () => {
+        duplicateState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    duplicateApi.applyColorPreset = () => {
+        duplicateState.applyCalls += 1;
+    };
+    duplicateApi.updatePresetButtons = () => {
+        duplicateState.buttonUpdates += 1;
+    };
+
+    const first = duplicateApi.duplicateColorPreset(duplicatePage);
+    const second = duplicateApi.duplicateColorPreset(duplicatePage);
+    assert.equal(duplicateHarness.requests.length, 1, "duplicate color preset submit keeps one in-flight request");
+    assert.ok(second && typeof second.then === "function", "duplicate color preset submit returns a settled no-op");
+    assert.equal(duplicatePage._hueColorPresetDuplicating, true, "duplicate color preset submit remains marked busy");
+    duplicateHarness.requests[0].resolve({ name: "Copied Scene" });
+    await Promise.all([first, second]);
+    assert.equal(duplicateState.presetLoads, 1, "duplicate color preset submit reloads saved scenes once");
+    assert.equal(duplicateState.playlistLoads, 1, "duplicate color preset submit reloads playlists once");
+    assert.equal(duplicateState.applyCalls, 1, "duplicate color preset submit applies the copy once");
+    assert.equal(duplicateState.buttonUpdates, 1, "duplicate color preset submit refreshes controls once");
+    assert.equal(duplicatePage._hueColorPresetDuplicating, false, "duplicate color preset submit clears its busy state");
+    assert.equal(duplicateState.button.disabled, false, "duplicate color preset submit re-enables its button");
+}
+
 function configureScenePlaylistSaveHarness(harness) {
     const { page, api } = harness;
     api.getScenePlaylistTargetSelection = () => ({
@@ -1727,6 +1850,7 @@ await testConfigurationSaveSuppressesStaleConfigurationLoad();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
 await testColorPresetSaveLifecycleGuards();
+await testColorPresetDuplicateLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
 await testDuplicateTargetNormalizationAndGuard();
@@ -1735,4 +1859,4 @@ await testUserMappingReconciliationLifecycleGuards();
 await testRuntimeStopLifecycleGuards();
 await testDisabledMappingCannotPreview();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, configuration and color-preset/scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, and disabled-mapping preview paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, and disabled-mapping preview paths)`);

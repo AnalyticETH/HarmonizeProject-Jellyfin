@@ -2740,6 +2740,7 @@
                         configurationExport: { property: '_hueConfigurationExporting', selector: '#exportConfigurationBtn' },
                         configurationSave: { property: '_hueConfigurationSaving', selector: '#saveConfigurationBtn' },
                         colorPresetSave: { property: '_hueColorPresetSaving', selector: '#savePreviewPresetBtn' },
+                        colorPresetDuplicate: { property: '_hueColorPresetDuplicating', selector: '#duplicatePreviewPresetBtn' },
                         scenePlaylistSave: { property: '_hueScenePlaylistSaving', selector: '#saveScenePlaylistBtn' },
                         sceneScheduleSave: { property: '_hueSceneScheduleSaving', selector: '#saveSceneScheduleBtn' }
                     }[key];
@@ -2792,6 +2793,7 @@
                     page._hueConfigurationExporting = false;
                     page._hueConfigurationSaving = false;
                     page._hueColorPresetSaving = false;
+                    page._hueColorPresetDuplicating = false;
                     page._hueDiagnosticsLoading = false;
                     page._hueTargetDiagnosticsLoading = false;
                     page._hueDiagnosticsRequest = null;
@@ -5155,6 +5157,10 @@
                     HueConfigurationPage.updatePresetButtons(page);
                 },
                 duplicateColorPreset: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueColorPresetDuplicating) return Promise.resolve();
                     var selectEl = page.querySelector('#previewPresetSelect');
                     var statusEl = page.querySelector('#previewPresetStatus');
                     var name = selectEl ? selectEl.value : '';
@@ -5164,16 +5170,26 @@
                     }
 
                     var button = page.querySelector('#duplicatePreviewPresetBtn');
+                    page._hueColorPresetDuplicating = true;
                     if (button) button.disabled = true;
                     if (statusEl) {
                         statusEl.textContent = "Duplicating scene...";
                         statusEl.style.color = "";
                     }
-                    ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Duplicate"),
-                        dataType: "json"
-                    }).then(function (response) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'colorPresetDuplicate',
+                        ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Duplicate"),
+                        {
+                            type: "POST",
+                            dataType: "json"
+                        });
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         var duplicateName = response && (response.name || response.Name);
                         if (!duplicateName) {
                             throw new Error("The duplicated scene name was not returned.");
@@ -5183,19 +5199,30 @@
                             statusEl.style.color = "#8bc34a";
                         }
                         return HueConfigurationPage.loadColorPresets(page, duplicateName).then(function () {
+                            if (!isCurrent()) return;
                             return HueConfigurationPage.loadScenePlaylists(page).then(function () {
+                                if (!isCurrent()) return;
                                 HueConfigurationPage.applyColorPreset(page);
                             });
                         });
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to duplicate color preset:", err);
                         if (statusEl) {
                             statusEl.textContent = "Unable to duplicate the saved scene. Check the scene limit and server log.";
                             statusEl.style.color = "#d9534f";
                         }
-                        HueConfigurationPage.updatePresetButtons(page);
                     }).finally(function () {
-                        HueConfigurationPage.updatePresetButtons(page);
+                        var current = isCurrent();
+                        var requestRecord = request && request._huePageRequestRecord;
+                        var tracked = page && page._huePageRequests &&
+                            page._huePageRequests.colorPresetDuplicate === requestRecord;
+                        if (current || tracked) {
+                            page._hueColorPresetDuplicating = false;
+                            if (button) button.disabled = false;
+                            if (current) HueConfigurationPage.updatePresetButtons(page);
+                            else HueConfigurationPage.cancelPageLifecycleRequest(page, 'colorPresetDuplicate');
+                        }
                     });
                 },
                 renameColorPreset: function (page) {

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.350] - 2026-08-28
+
+### Shutdown and administrator lifecycle integrity
+- **Shutdown-durable manual runs**: service shutdown now rejects new manual cues, cancels active runs outside the ownership lock, and awaits their bounded restorative cleanup before the hosted service stops.
+- **Cancellation-safe automatic occurrences**: host-canceled transport failures retain scheduler slots and deferred markers across direct scenes and fallback playlists, while natural stream failures keep their ordinary failure accounting.
+- **Saved-scene duplication lifecycle safety**: duplicate requests are tracked, bounded to one submission, canceled on page teardown, and prevented from updating a hidden or reused administrator page.
+- **Regression coverage**: scheduler tests cover shutdown awaiting, transport-failure wording, fallback playlist retry, deferred-occurrence retention, and the duplicate saved-scene page lifecycle contract.
+
 ## [1.5.349] - 2026-08-27
 
 ### Scheduler and administrator lifecycle integrity
