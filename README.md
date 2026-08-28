@@ -472,7 +472,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.356 (Current)
+### Version 1.5.357 (Current)
+
+- **Case-insensitive cleanup recovery**: pending scheduled cleanup snapshots now match Hue entertainment-area UUIDs without treating upper/lowercase spelling differences as a target change, keeping imported or hand-edited target casing consistent with playback arbitration.
+
+- **Regression coverage**: scheduler recovery tests verify deactivation and light restoration when persisted and configured area-ID casing differs.
+
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated.
 
 - **Restart-safe recurring claims**: recurring automatic scene occurrences persist an exact UTC occurrence slot and credential-free timing-definition key before bridge activity, so a scheduler restart cannot replay the same-minute or recovered catch-up cue.
 

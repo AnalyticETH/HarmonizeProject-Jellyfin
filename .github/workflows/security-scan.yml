@@ -27,7 +27,7 @@ env:
   # Registry aliases are fetched as reviewed, SHA-256-pinned snapshots. A changed
   # ruleset fails closed instead of silently changing the security policy.
   SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'
-  SEMGREP_DEFAULT_CONFIG_SHA256: 'a48a53abfd3b161fe93ec7b7429b4af6d2698c088c9d74e5f8288758e0212eef'
+  SEMGREP_DEFAULT_CONFIG_SHA256: '0f6ea7d3cfe4ae69b648f5cceb7f3e464df81c1c67d885058a9b0fc6394e1ba6'
   SEMGREP_JAVASCRIPT_CONFIG_URL: 'https://semgrep.dev/c/p/javascript'
   SEMGREP_JAVASCRIPT_CONFIG_SHA256: 'e65e8449157ef5d587f2c2a0c17ed388910ca90336e514d27941ccd25543cf4e'
   SEMGREP_PYTHON_CONFIG_URL: 'https://semgrep.dev/c/p/python'

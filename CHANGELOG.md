@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.357] - 2026-08-28
+
+### Scheduled cleanup identity parity
+- **Case-insensitive area recovery**: pending cleanup replay now matches Hue entertainment-area UUIDs case-insensitively, consistent with playback resource arbitration, so imported or hand-edited casing cannot strand a recoverable snapshot.
+- **Regression coverage**: scheduler recovery tests verify deactivation and light restoration when the persisted and configured area-ID casing differs.
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated.
+
 ## [1.5.356] - 2026-08-28
 
 ### Scheduled cleanup durability

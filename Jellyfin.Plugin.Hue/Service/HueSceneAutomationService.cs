@@ -4783,8 +4783,11 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
         }
 
+        // Hue entertainment-area identifiers are UUID-shaped resource IDs. Match their
+        // casing the same way resource arbitration does so an imported or hand-edited
+        // upper/lowercase spelling cannot strand an otherwise recoverable snapshot.
         if (!HueBridgeCertificateValidation.IsSameBridgeHost(target.BridgeIp, entry.BridgeIp) ||
-            !string.Equals(target.EntertainmentAreaId, entry.EntertainmentAreaId?.Trim(), StringComparison.Ordinal))
+            !string.Equals(target.EntertainmentAreaId, entry.EntertainmentAreaId?.Trim(), StringComparison.OrdinalIgnoreCase))
         {
             error = "The configured cleanup target changed since the snapshot was captured.";
             return false;
