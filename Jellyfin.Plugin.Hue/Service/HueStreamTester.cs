@@ -202,6 +202,10 @@ public sealed class HuePlaylistStreamProbeResult
     public bool Succeeded { get; init; }
     public string Message { get; init; } = string.Empty;
     public string? CleanupWarning { get; init; }
+    // Internal arbitration signal. It is intentionally not part of the serialized API
+    // result or retained history; the scheduler uses it only to preserve a Defer cue
+    // when playback wins the diagnostic reservation race.
+    internal bool BlockedByPlayback { get; init; }
     public IReadOnlyList<HuePlaylistPreviewStepResult> Steps { get; init; } =
         Array.Empty<HuePlaylistPreviewStepResult>();
 }
@@ -293,6 +297,8 @@ public sealed class HueStreamProbeResult
     public bool Succeeded { get; init; }
     public string Message { get; init; } = string.Empty;
     public string? CleanupWarning { get; init; }
+    // Internal arbitration signal; do not expose playback ownership details in API JSON.
+    internal bool BlockedByPlayback { get; init; }
 }
 
 /// <summary>
@@ -1809,11 +1815,13 @@ public sealed class HueStreamTester :
 
     private static HuePlaylistStreamProbeResult PlaylistFailure(
         string message,
-        IReadOnlyList<HuePlaylistPreviewStepResult>? steps = null)
+        IReadOnlyList<HuePlaylistPreviewStepResult>? steps = null,
+        bool blockedByPlayback = false)
         => new()
         {
             Succeeded = false,
             Message = message,
+            BlockedByPlayback = blockedByPlayback,
             Steps = steps?.ToArray() ?? Array.Empty<HuePlaylistPreviewStepResult>()
         };
 
@@ -1828,7 +1836,8 @@ public sealed class HueStreamTester :
             new HueStreamProbeResult
             {
                 Succeeded = playlistResult.Succeeded,
-                Message = playlistResult.Message
+                Message = playlistResult.Message,
+                BlockedByPlayback = playlistResult.BlockedByPlayback
             },
             bridgeIp,
             appKey,
@@ -1864,6 +1873,7 @@ public sealed class HueStreamTester :
             Succeeded = false,
             Message = message,
             CleanupWarning = cleanupWarning,
+            BlockedByPlayback = result.BlockedByPlayback,
             Steps = result.Steps
         };
     }
@@ -1873,9 +1883,9 @@ public sealed class HueStreamTester :
         CancellationToken requestCancellation,
         string? resourceKey)
     {
-        var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic(resourceKey);
+        var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic(resourceKey, out var blockedByPlayback);
         if (lifecycleLease == null)
-            return PlaylistFailure(DiagnosticBusyMessage);
+            return PlaylistFailure(DiagnosticBusyMessage, blockedByPlayback: blockedByPlayback);
 
         using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
         lock (_activeOperationLock)
@@ -1972,9 +1982,9 @@ public sealed class HueStreamTester :
         CancellationToken requestCancellation,
         string? resourceKey = null)
     {
-        var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic(resourceKey);
+        var lifecycleLease = _bridgeLifecycleGate.TryEnterDiagnostic(resourceKey, out var blockedByPlayback);
         if (lifecycleLease == null)
-            return Failure(DiagnosticBusyMessage);
+            return Failure(DiagnosticBusyMessage, blockedByPlayback);
 
         using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
         lock (_activeOperationLock)
@@ -2050,7 +2060,8 @@ public sealed class HueStreamTester :
         {
             Succeeded = false,
             Message = $"{probeResult.Message} Cleanup warning: {cleanupWarning}",
-            CleanupWarning = cleanupWarning
+            CleanupWarning = cleanupWarning,
+            BlockedByPlayback = probeResult.BlockedByPlayback
         };
     }
 
@@ -2546,9 +2557,12 @@ public sealed class HueStreamTester :
         return (byte)Math.Clamp((int)(component * brightnessPercent / 100d / 2d), 0, 127);
     }
 
-    private static HueStreamProbeResult Failure(string message) => new()
-    {
-        Succeeded = false,
-        Message = message
-    };
+    private static HueStreamProbeResult Failure(
+        string message,
+        bool blockedByPlayback = false) => new()
+        {
+            Succeeded = false,
+            Message = message,
+            BlockedByPlayback = blockedByPlayback
+        };
 }

@@ -808,6 +808,46 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public async Task TargetScopedPreview_WhenPlaybackWinsReservationReportsPlaybackConflict()
+    {
+        using var httpClient = new HttpClient();
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
+        {
+            RetryAttempts = 0
+        };
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>()))
+            .Returns(Mock.Of<ILogger>());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var tester = new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>(),
+            lifecycleGate);
+        using var document = JsonDocument.Parse(
+            "{\"channels\":[{\"channel_id\":1}]}");
+        using var playbackLease = lifecycleGate.TryEnterPlayback("192.168.1.100|area-one");
+
+        Assert.NotNull(playbackLease);
+        var result = await tester.PreviewAsyncForTarget(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-one",
+            document.RootElement,
+            null,
+            255,
+            255,
+            255,
+            100,
+            1);
+
+        Assert.False(result.Succeeded);
+        Assert.True(result.BlockedByPlayback);
+        Assert.Contains("diagnostic", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task TestAsync_WhenCanceledDuringActivationStillRestoresBridgeState()
     {
         var handler = new Mock<HttpMessageHandler>();

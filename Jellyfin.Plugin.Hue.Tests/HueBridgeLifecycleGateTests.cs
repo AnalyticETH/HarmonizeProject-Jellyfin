@@ -92,6 +92,26 @@ public sealed class HueBridgeLifecycleGateTests
     }
 
     [Fact]
+    public void DiagnosticReservationReportsPlaybackConflictAtomically()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var playback = gate.TryEnterPlayback("192.168.1.10|living-room");
+
+        var diagnostic = gate.TryEnterDiagnostic(
+            "192.168.1.10|living-room",
+            out var blockedByPlayback);
+
+        Assert.Null(diagnostic);
+        Assert.True(blockedByPlayback);
+
+        using var otherDiagnostic = gate.TryEnterDiagnostic(
+            "192.168.1.10|bedroom",
+            out var otherBlockedByPlayback);
+        Assert.NotNull(otherDiagnostic);
+        Assert.False(otherBlockedByPlayback);
+    }
+
+    [Fact]
     public void ConfigurationMutationBlocksNewLifecyclesUntilDisposed()
     {
         var gate = new HueBridgeLifecycleGate();

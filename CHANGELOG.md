@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.354] - 2026-08-28
+
+### Scheduler and configuration safety
+- **Playback-conflict durability**: Defer scheduled cues now preserve their exact occurrence slot when playback starts after the scheduler's initial check, without consuming a run; active playback remains authoritative across direct scenes and continuous playlists.
+- **Mapping editor safety**: disabled per-user mappings now disable all persisted audio-profile overrides until sync is re-enabled.
+- **Regression coverage**: lifecycle-gate, stream, scheduler, playlist, and configuration-page contracts cover playback arbitration and disabled mapping controls.
+
 ## [1.5.353] - 2026-08-28
 
 ### Runtime identity and transport hardening

@@ -472,7 +472,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.353 (Current)
+### Version 1.5.354 (Current)
+
+- **Playback-conflict durability**: Defer scheduled cues now preserve their exact occurrence slot when playback starts after the scheduler's initial check, without consuming a run; active playback remains authoritative across direct scenes and continuous playlists.
+
+- **Mapping editor safety**: disabled per-user mappings now disable all persisted audio-profile overrides until sync is re-enabled.
+
+- **Regression coverage**: lifecycle-gate, stream, scheduler, playlist, and configuration-page contracts cover playback arbitration and disabled mapping controls.
 
 - **Playback-generation identity**: concurrent playback routing treats `PlaySessionId` as the authoritative generation key, refusing to attach unknown IDs to stale workers from the same Jellyfin client and allowing rapid same-client transitions to a new Hue target.
 

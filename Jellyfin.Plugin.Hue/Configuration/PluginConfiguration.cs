@@ -594,6 +594,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
         [JsonPropertyName("selectedChannelCount")]
         public int SelectedChannelCount { get; set; }
+
+        // Internal scheduler arbitration signal. This is intentionally not serialized;
+        // it exists only to preserve a Defer occurrence when playback wins the target
+        // diagnostic reservation race.
+        internal bool BlockedByPlayback { get; set; }
     }
 
     /// <summary>

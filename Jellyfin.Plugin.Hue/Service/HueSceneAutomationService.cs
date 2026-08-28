@@ -2341,6 +2341,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             Message = BuildAggregateRunMessage(targetResults, succeededCount),
             CleanupWarning = string.IsNullOrWhiteSpace(cleanupWarning) ? null : cleanupWarning,
             TargetResults = targetResults,
+            BlockedByPlayback = targetResults.Count > 0 &&
+                succeededCount == 0 &&
+                targetResults.All(result => result.BlockedByPlayback),
             RunAtUtc = DateTime.UtcNow
         };
     }
@@ -2623,6 +2626,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                     CleanupWarning = string.Join(" ", entries
                         .Where(entry => !string.IsNullOrWhiteSpace(entry.CleanupWarning))
                         .Select(entry => entry.CleanupWarning!.Trim())),
+                    BlockedByPlayback = entries.Length > 0 &&
+                        entries.All(entry => entry.BlockedByPlayback),
                     AvailableChannelCount = entries.Select(entry => entry.AvailableChannelCount).DefaultIfEmpty().Max(),
                     SelectedChannelCount = entries.Select(entry => entry.SelectedChannelCount).DefaultIfEmpty().Max()
                 };
@@ -2653,6 +2658,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             CleanupWarning = string.IsNullOrWhiteSpace(cleanupWarning) ? null : cleanupWarning,
             Steps = steps,
             TargetResults = targetResults,
+            BlockedByPlayback = targetResults.Length > 0 &&
+                !targetResults.Any(result => result.Succeeded) &&
+                targetResults.All(result => result.BlockedByPlayback),
             RunAtUtc = executionStartedAtUtc
         };
     }
@@ -2732,6 +2740,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                             Message = execution.Result.CompletedStepCount == 0
                                 ? execution.Result.Message
                                 : "The continuous playlist stream ended before this step.",
+                            BlockedByPlayback = execution.Result.BlockedByPlayback,
                             AvailableChannelCount = execution.Result.AvailableChannelCount,
                             SelectedChannelCount = execution.Result.SelectedChannelCount
                         })
@@ -2813,6 +2822,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             CleanupWarning = string.IsNullOrWhiteSpace(cleanupWarning) ? null : cleanupWarning,
             Steps = steps,
             TargetResults = targetResults,
+            BlockedByPlayback = targetResults.Length > 0 &&
+                !targetResults.Any(result => result.Succeeded) &&
+                targetResults.All(result => result.BlockedByPlayback),
             RunAtUtc = executionStartedAtUtc
         };
     }
@@ -2905,6 +2917,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     TargetLabel = target.TargetLabel,
                     Succeeded = pair.Value.Succeeded,
                     Message = pair.Value.Message,
+                    BlockedByPlayback = probe.BlockedByPlayback,
                     CleanupWarning = pair.Key == lastCompletedIndex ? probe.CleanupWarning : null,
                     AvailableChannelCount = availableChannelIds.Count,
                     SelectedChannelCount = selectedChannelCount
@@ -2921,6 +2934,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     TotalStepCount = steps.Count,
                     Message = probe.Message,
                     CleanupWarning = probe.CleanupWarning,
+                    BlockedByPlayback = probe.BlockedByPlayback,
                     AvailableChannelCount = availableChannelIds.Count,
                     SelectedChannelCount = selectedChannelCount
                 },
@@ -2963,6 +2977,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 CompletedStepCount = 0,
                 TotalStepCount = totalStepCount,
                 Message = message,
+                BlockedByPlayback = false,
                 AvailableChannelCount = availableChannelCount,
                 SelectedChannelCount = selectedChannelCount
             },
@@ -4723,11 +4738,16 @@ public sealed class HueSceneAutomationService : BackgroundService
             // RunDate when post-run history or cleanup writes fail. If the claim cannot be
             // saved, leave the cue untouched and retry the occurrence later without
             // contacting the bridge.
-            if (!string.IsNullOrWhiteSpace(schedule.RunDate) &&
-                !TryClaimAutomaticOneTimeSchedule(config, schedule))
+            var automaticOneTimeClaimed = false;
+            if (!string.IsNullOrWhiteSpace(schedule.RunDate))
             {
-                ReleaseRunSlot(schedule.Id, slot);
-                continue;
+                if (!TryClaimAutomaticOneTimeSchedule(config, schedule))
+                {
+                    ReleaseRunSlot(schedule.Id, slot);
+                    continue;
+                }
+
+                automaticOneTimeClaimed = true;
             }
 
             var result = await RunScheduleTrackedAsync(
@@ -4746,6 +4766,27 @@ public sealed class HueSceneAutomationService : BackgroundService
                 schedulerBarrierHeld: true).ConfigureAwait(false);
             var canceledDuringAutomaticRun = cancellationToken.IsCancellationRequested &&
                 !result.Succeeded;
+            var deferredPlaybackBlocked = deferDuringPlayback &&
+                result.BlockedByPlayback &&
+                !result.Succeeded &&
+                !canceledDuringAutomaticRun;
+            if (deferredPlaybackBlocked)
+            {
+                // Playback won the target lifecycle race after the point-in-time
+                // scheduler check. The diagnostic made no bridge mutation, so release
+                // the in-memory claim and retain the exact occurrence for the defer
+                // window instead of counting or consuming a failed attempt.
+                ReleaseRunSlot(schedule.Id, slot);
+                if (automaticOneTimeClaimed)
+                    RestoreAutomaticOneTimeScheduleAfterPlaybackConflict(config, schedule);
+                if (!hasDeferredRun)
+                    QueueDeferredRun(schedule, slot, evaluationNow, deferMinutes);
+                _logger.LogInformation(
+                    "Hue scene schedule {0} was deferred because playback became active before its target lifecycle started",
+                    schedule.Name);
+                continue;
+            }
+
             if (hasDeferredRun && !canceledDuringAutomaticRun)
                 RemoveDeferredRun(schedule.Id);
 
@@ -4808,6 +4849,28 @@ public sealed class HueSceneAutomationService : BackgroundService
                     schedule.Name);
                 return false;
             }
+        }
+    }
+
+    private void RestoreAutomaticOneTimeScheduleAfterPlaybackConflict(
+        PluginConfiguration config,
+        HueSceneSchedule schedule)
+    {
+        var key = schedule.Id?.Trim() ?? string.Empty;
+        var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
+        if (configuredSchedule == null)
+            return;
+
+        // The one-time claim was persisted before the preview started. A playback
+        // conflict is the one failure mode where no bridge mutation occurred, so make
+        // the cue eligible again before QueueDeferredRun persists the exact occurrence.
+        // Keeping this in-memory lets that single queue write commit both changes.
+        lock (_runtimeStateLock)
+        {
+            configuredSchedule.Enabled = true;
+            configuredSchedule.SkipNextOccurrence = false;
         }
     }
 
@@ -5268,6 +5331,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             Message = message,
             CleanupWarning = string.IsNullOrWhiteSpace(cleanupWarning) ? null : cleanupWarning,
             TargetResults = targetResults,
+            BlockedByPlayback = targetResults.Count > 0 &&
+                !targetResults.Any(result => result.Succeeded) &&
+                targetResults.All(result => result.BlockedByPlayback),
             RunAtUtc = DateTime.UtcNow
         };
     }
@@ -5283,6 +5349,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Succeeded = target.Succeeded,
             Message = target.Message,
             CleanupWarning = target.CleanupWarning,
+            BlockedByPlayback = target.BlockedByPlayback,
             AvailableChannelCount = target.AvailableChannelCount,
             SelectedChannelCount = target.SelectedChannelCount
         }).ToArray() ?? Array.Empty<HueSceneScheduleTargetResult>();
@@ -5311,6 +5378,9 @@ public sealed class HueSceneAutomationService : BackgroundService
             CleanupWarning = playlistRun.CleanupWarning,
             TargetResults = targetResults,
             PlaylistSteps = playlistRun.Steps ?? Array.Empty<HueScenePlaylistStepResult>(),
+            BlockedByPlayback = targetResults.Length > 0 &&
+                !targetResults.Any(result => result.Succeeded) &&
+                targetResults.All(result => result.BlockedByPlayback),
             RunAtUtc = playlistRun.RunAtUtc
         };
     }
@@ -5514,6 +5584,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 Succeeded = preview.Succeeded,
                 Message = preview.Message,
                 CleanupWarning = preview.CleanupWarning,
+                BlockedByPlayback = preview.BlockedByPlayback,
                 AvailableChannelCount = availableChannelIds.Count,
                 SelectedChannelCount = selectedChannelCount
             };
@@ -5643,15 +5714,20 @@ public sealed class HueSceneAutomationService : BackgroundService
             var automaticCancellationBeforeCompletion = automaticRun &&
                 cancellationToken.IsCancellationRequested &&
                 (!runCompleted || result is { Succeeded: false });
-            if (automaticCancellationBeforeCompletion && runAtUtcOverride.HasValue)
+            var automaticPlaybackConflictBeforeCompletion = automaticRun &&
+                !automaticCancellationBeforeCompletion &&
+                result is { Succeeded: false, BlockedByPlayback: true };
+            if ((automaticCancellationBeforeCompletion || automaticPlaybackConflictBeforeCompletion) &&
+                runAtUtcOverride.HasValue)
                 ReleaseRunSlot(schedule.Id, runAtUtcOverride.Value);
 
             CompleteRun(
                 config,
                 schedule,
                 result,
-                countRun: !automaticCancellationBeforeCompletion,
-                preserveDeferred: automaticCancellationBeforeCompletion && wasDeferred);
+                countRun: !automaticCancellationBeforeCompletion && !automaticPlaybackConflictBeforeCompletion,
+                preserveDeferred: (automaticCancellationBeforeCompletion && wasDeferred) ||
+                    automaticPlaybackConflictBeforeCompletion);
         }
     }
 
@@ -6537,7 +6613,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistSteps = source.PlaylistSteps?.Select(ClonePlaylistStepResult).ToArray()
                 ?? Array.Empty<HueScenePlaylistStepResult>(),
             RunAtUtc = source.RunAtUtc,
-            RunCount = source.RunCount
+            RunCount = source.RunCount,
+            BlockedByPlayback = source.BlockedByPlayback
         };
     }
 
@@ -7352,6 +7429,7 @@ public sealed class HueSceneAutomationService : BackgroundService
             Succeeded = source.Succeeded,
             Message = source.Message?.Trim() ?? string.Empty,
             CleanupWarning = source.CleanupWarning?.Trim(),
+            BlockedByPlayback = source.BlockedByPlayback,
             AvailableChannelCount = source.AvailableChannelCount,
             SelectedChannelCount = source.SelectedChannelCount
         };
@@ -7477,6 +7555,7 @@ internal sealed class HueSceneScheduleRuntimeState
                 Succeeded = target.Succeeded,
                 Message = target.Message,
                 CleanupWarning = target.CleanupWarning,
+                BlockedByPlayback = target.BlockedByPlayback,
                 AvailableChannelCount = target.AvailableChannelCount,
                 SelectedChannelCount = target.SelectedChannelCount
             }).ToArray() ?? Array.Empty<HueSceneScheduleTargetResult>()
@@ -7631,6 +7710,9 @@ public sealed class HueSceneAutomationRunResult
 
     [JsonPropertyName("runCount")]
     public int RunCount { get; internal set; }
+
+    // Internal scheduler arbitration signal; omitted from serialized API/history data.
+    internal bool BlockedByPlayback { get; init; }
 }
 
 /// <summary>
@@ -7685,6 +7767,9 @@ public sealed class HueScenePlaylistRunResult
 
     [JsonPropertyName("runAtUtc")]
     public DateTime RunAtUtc { get; init; }
+
+    // Internal scheduler arbitration signal; omitted from serialized API/history data.
+    internal bool BlockedByPlayback { get; init; }
 }
 
 /// <summary>
@@ -7778,6 +7863,9 @@ public sealed class HueScenePlaylistTargetResult
 
     [JsonPropertyName("selectedChannelCount")]
     public int SelectedChannelCount { get; init; }
+
+    // Internal scheduler arbitration signal; omitted from serialized API/history data.
+    internal bool BlockedByPlayback { get; init; }
 }
 
 /// <summary>

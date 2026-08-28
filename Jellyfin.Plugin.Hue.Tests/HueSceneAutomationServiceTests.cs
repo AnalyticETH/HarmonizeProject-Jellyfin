@@ -1768,6 +1768,39 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunPlaylistPreview_ContinuousPlaybackConflictPropagatesArbitrationMarker()
+    {
+        var configuration = CreateContinuousPlaylistConfiguration(
+            "blocked-playlist",
+            "Blocked playlist",
+            2);
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new ContinuousPlaylistStreamTester();
+        streamTester.EnqueueResult(new HuePlaylistStreamProbeResult
+        {
+            Succeeded = false,
+            Message = "Another Hue diagnostic is already running.",
+            BlockedByPlayback = true
+        });
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var result = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+
+        Assert.False(result.Succeeded);
+        Assert.True(result.BlockedByPlayback);
+        var target = Assert.Single(result.TargetResults);
+        Assert.True(target.BlockedByPlayback);
+        Assert.All(result.Steps, step => Assert.All(
+            step.TargetResults,
+            targetResult => Assert.True(targetResult.BlockedByPlayback)));
+    }
+
+    [Fact]
     public async Task RunPlaylistPreview_ContinuousPartialFailurePreservesStepAndCleanupTelemetry()
     {
         var configuration = CreateContinuousPlaylistConfiguration("partial-playlist", "Partial playlist", 3);
@@ -2645,6 +2678,145 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Single(service.GetHistory(outcome: "Deferred"));
         Assert.Empty(service.GetHistory(outcome: "Failed"));
         Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_DeferPolicyPreservesCueWhenPlaybackStartsAfterInitialCheck()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "race-app-secret",
+            HueClientKey = "race-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Race scene", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "race-cue",
+                    Name = "Race cue",
+                    PresetName = "Race scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var streamTester = new PlaybackRaceStreamTester(lifecycleGate);
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.Equal(1, streamTester.PreviewCount);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        var deferred = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal("race-cue", deferred.ScheduleId);
+        Assert.Equal(dueUtc.AddSeconds(-30), deferred.OccurrenceSlot);
+        Assert.True(Assert.Single(service.GetStatus().Schedules).DeferredPending);
+
+        streamTester.ReleasePlayback();
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Equal(2, streamTester.PreviewCount);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.False(Assert.Single(service.GetStatus().Schedules).DeferredPending);
+        var history = service.GetHistory();
+        Assert.Equal(2, history.Count);
+        Assert.True(history[0].Succeeded);
+        Assert.False(history[1].Succeeded);
+        Assert.True(history[1].BlockedByPlayback);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_DeferPolicyRestoresOneTimeCueAfterPlaybackRace()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "race-one-time-app-secret",
+            HueClientKey = "race-one-time-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Race one-time scene", Red = 40, Green = 50, Blue = 60, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "race-one-time-cue",
+                    Name = "Race one-time cue",
+                    PresetName = "Race one-time scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-08-18",
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var streamTester = new PlaybackRaceStreamTester(lifecycleGate);
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        // The durable one-time claim is rolled back in memory before the deferred
+        // occurrence is persisted, so a restart can still discover this cue.
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        var deferred = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal("race-one-time-cue", deferred.ScheduleId);
+        Assert.Equal(dueUtc.AddSeconds(-30), deferred.OccurrenceSlot);
+
+        streamTester.ReleasePlayback();
+        await service.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Equal(2, streamTester.PreviewCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        var status = Assert.Single(service.GetStatus().Schedules);
+        Assert.False(status.DeferredPending);
+        Assert.Equal(1, status.RunCount);
+        var history = service.GetHistory();
+        Assert.Equal(2, history.Count);
+        Assert.True(history[0].Succeeded);
+        Assert.False(history[1].Succeeded);
+        Assert.True(history[1].BlockedByPlayback);
+        Assert.Empty(service.GetHistory(outcome: "Skipped"));
     }
 
     [Fact]
@@ -7550,6 +7722,79 @@ public sealed class HueSceneAutomationServiceTests
                 Succeeded = true,
                 Message = "Displayed overlap-recovery scene."
             };
+        }
+
+        public bool CancelActiveDiagnostic() => false;
+    }
+
+    private sealed class PlaybackRaceStreamTester : IHueStreamTester
+    {
+        private readonly HueBridgeLifecycleGate _lifecycleGate;
+        private IDisposable? _playbackLease;
+        private int _previewCount;
+
+        public PlaybackRaceStreamTester(HueBridgeLifecycleGate lifecycleGate)
+        {
+            _lifecycleGate = lifecycleGate;
+        }
+
+        public int PreviewCount => Volatile.Read(ref _previewCount);
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "Not used by this test."
+            });
+
+        public Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        {
+            if (Interlocked.Increment(ref _previewCount) == 1)
+            {
+                _playbackLease = _lifecycleGate.TryEnterPlayback(
+                    HueSyncService.GetPlaybackResourceKey(bridgeIp, areaId));
+                return Task.FromResult(new HueStreamProbeResult
+                {
+                    Succeeded = false,
+                    Message = "Another Hue diagnostic is already running.",
+                    BlockedByPlayback = true
+                });
+            }
+
+            return Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Displayed deferred scene after playback released."
+            });
+        }
+
+        public void ReleasePlayback()
+        {
+            _playbackLease?.Dispose();
+            _playbackLease = null;
         }
 
         public bool CancelActiveDiagnostic() => false;

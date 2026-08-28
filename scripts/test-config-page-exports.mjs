@@ -1810,20 +1810,38 @@ async function testDisabledMappingCannotPreview() {
     page._huePreviewTargetMetadataReady = true;
     const syncEnabled = page.querySelector("#mappingSyncEnabled");
     const previewButton = page.querySelector("#mappingPreviewColorBtn");
+    const mappingProfileControls = [
+        "#mappingAudioLowGainPercentOverride",
+        "#mappingAudioMidGainPercentOverride",
+        "#mappingAudioHighGainPercentOverride",
+        "#mappingAudioResponseSmoothingPercentOverride",
+        "#mappingAudioColorPaletteOverride",
+        "#mappingAudioSpatialModeOverride",
+        "#mappingAudioChannelModeOverride"
+    ];
 
     syncEnabled.checked = true;
     api.updatePreviewTargetMetadataControls(page);
     assert.equal(previewButton.disabled, false, "enabled mapping allows current-color preview");
+    mappingProfileControls.forEach(selector => {
+        assert.equal(page.querySelector(selector).disabled, false, `${selector} starts enabled`);
+    });
 
     syncEnabled.checked = false;
     api.toggleMappingSyncFields(page);
     assert.equal(previewButton.disabled, true, "disabled mapping blocks current-color preview");
+    mappingProfileControls.forEach(selector => {
+        assert.equal(page.querySelector(selector).disabled, true, `${selector} is disabled with mapping sync off`);
+    });
 
     syncEnabled.checked = true;
     api.toggleMappingSyncFields(page);
     api.setPreviewBusy(page, true);
     api.setPreviewBusy(page, false);
     assert.equal(previewButton.disabled, false, "ending a preview restores enabled mapping preview state");
+    mappingProfileControls.forEach(selector => {
+        assert.equal(page.querySelector(selector).disabled, false, `${selector} is restored when mapping sync is on`);
+    });
 }
 
 for (const testCase of exportCases) {

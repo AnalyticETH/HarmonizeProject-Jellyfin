@@ -283,13 +283,28 @@ public sealed class HueBridgeLifecycleGate
     /// overload continues to reserve the entire bridge process.
     /// </summary>
     public IDisposable? TryEnterDiagnostic(string? resourceKey)
+        => TryEnterDiagnostic(resourceKey, out _);
+
+    /// <summary>
+    /// Attempts to reserve one bridge/entertainment-area target for a diagnostic or
+    /// restorative preview and reports whether a failed reservation was blocked by an
+    /// active playback lease. The conflict reason is captured under the same lock as
+    /// the reservation so callers can safely preserve a deferred occurrence without a
+    /// second check-then-act race.
+    /// </summary>
+    /// <param name="resourceKey">The bridge/area resource, or null for the process-wide lifecycle.</param>
+    /// <param name="blockedByPlayback">True only when active playback prevented the reservation.</param>
+    public IDisposable? TryEnterDiagnostic(string? resourceKey, out bool blockedByPlayback)
     {
         lock (_sync)
         {
             if (_configurationMutationActive)
+            {
+                blockedByPlayback = false;
                 return null;
+            }
 
-            var blockedByPlayback = resourceKey == null
+            blockedByPlayback = resourceKey == null
                 ? IsPlaybackActiveLocked()
                 : _unscopedPlaybackActive || _playbackResources.Contains(resourceKey);
             var blockedByDiagnostic = resourceKey == null
