@@ -2738,7 +2738,9 @@
                         sessionHistoryExport: { property: '_hueSessionHistoryExporting', selector: '#exportSessionHistoryBtn' },
                         sessionHistoryCsvExport: { property: '_hueSessionHistoryCsvExporting', selector: '#exportSessionHistoryCsvBtn' },
                         configurationExport: { property: '_hueConfigurationExporting', selector: '#exportConfigurationBtn' },
-                        configurationSave: { property: '_hueConfigurationSaving', selector: '#saveConfigurationBtn' }
+                        configurationSave: { property: '_hueConfigurationSaving', selector: '#saveConfigurationBtn' },
+                        scenePlaylistSave: { property: '_hueScenePlaylistSaving', selector: '#saveScenePlaylistBtn' },
+                        sceneScheduleSave: { property: '_hueSceneScheduleSaving', selector: '#saveSceneScheduleBtn' }
                     }[key];
                     if (exportStates) {
                         page[exportStates.property] = false;
@@ -6807,6 +6809,10 @@
                         });
                 },
                 saveScenePlaylist: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueScenePlaylistSaving) return Promise.resolve();
                     var name = page.querySelector('#scenePlaylistName').value.trim();
                     var repeatText = page.querySelector('#scenePlaylistRepeatCount').value.trim();
                     var repeatCount = repeatText ? Number(repeatText) : 1;
@@ -6903,36 +6909,46 @@
                         return;
                     }
                     var button = page.querySelector('#saveScenePlaylistBtn');
+                    page._hueScenePlaylistSaving = true;
                     if (button) button.disabled = true;
                     status.textContent = "Saving playlist...";
                     status.style.color = '';
-                    ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/ScenePlaylists"),
-                        data: JSON.stringify({
-                            id: page._hueScenePlaylistId || '',
-                            name: name,
-                            presetNames: items,
-                            stepDurationSeconds: durations,
-                            stepBrightnessPercent: brightnesses,
-                            stepRed: reds,
-                            stepGreen: greens,
-                            stepBlue: blues,
-                            stepEffects: effects,
-                            stepEffectSpeedPercent: effectSpeeds,
-                            stepTransitionSeconds: transitions,
-                            stepTransitionOutSeconds: transitionOuts,
-                            stepTransitionCurves: transitionCurves,
-                            repeatCount: repeatCount,
-                            playbackOrder: playbackOrder,
-                            targetUserId: targetSelection.targetUserId,
-                            targetUserIds: targetSelection.targetUserIds,
-                            includeDefaultTarget: targetSelection.includeDefaultTarget,
-                            targetAllEnabledMappings: targetSelection.targetAllEnabledMappings
-                        }),
-                        contentType: "application/json",
-                        dataType: "json"
-                    }).then(function (response) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'scenePlaylistSave',
+                        ApiClient.getUrl("HueSync/ScenePlaylists"),
+                        {
+                            type: "POST",
+                            data: JSON.stringify({
+                                id: page._hueScenePlaylistId || '',
+                                name: name,
+                                presetNames: items,
+                                stepDurationSeconds: durations,
+                                stepBrightnessPercent: brightnesses,
+                                stepRed: reds,
+                                stepGreen: greens,
+                                stepBlue: blues,
+                                stepEffects: effects,
+                                stepEffectSpeedPercent: effectSpeeds,
+                                stepTransitionSeconds: transitions,
+                                stepTransitionOutSeconds: transitionOuts,
+                                stepTransitionCurves: transitionCurves,
+                                repeatCount: repeatCount,
+                                playbackOrder: playbackOrder,
+                                targetUserId: targetSelection.targetUserId,
+                                targetUserIds: targetSelection.targetUserIds,
+                                includeDefaultTarget: targetSelection.includeDefaultTarget,
+                                targetAllEnabledMappings: targetSelection.targetAllEnabledMappings
+                            }),
+                            contentType: "application/json",
+                            dataType: "json"
+                        });
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         var savedName = response && (response.name || response.Name) || name;
                         status.textContent = "Playlist '" + savedName + "' saved.";
                         status.style.color = "#8bc34a";
@@ -6940,12 +6956,21 @@
                             return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
                         });
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to save scene playlist:", err);
                         status.textContent = "Unable to save playlist. Check the name, target, and saved scene list.";
                         status.style.color = "#d9534f";
                     }).finally(function () {
-                        if (button) button.disabled = false;
-                        HueConfigurationPage.updateScenePlaylistButtons(page);
+                        var current = isCurrent();
+                        var requestRecord = request && request._huePageRequestRecord;
+                        var tracked = page && page._huePageRequests &&
+                            page._huePageRequests.scenePlaylistSave === requestRecord;
+                        if (current || tracked) {
+                            page._hueScenePlaylistSaving = false;
+                            if (button) button.disabled = false;
+                            if (current) HueConfigurationPage.updateScenePlaylistButtons(page);
+                            else HueConfigurationPage.cancelPageLifecycleRequest(page, 'scenePlaylistSave');
+                        }
                     });
                 },
                 duplicateScenePlaylist: function (page) {
@@ -9437,6 +9462,10 @@
                     HueConfigurationPage.updateSceneScheduleButtons(page);
                 },
                 saveSceneSchedule: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueSceneScheduleSaving) return Promise.resolve();
                     if (!HueConfigurationPage.requireSceneScheduleMetadata(page)) return;
                     var name = page.querySelector('#sceneScheduleName').value.trim();
                     var sourceType = page.querySelector('#sceneScheduleSourceType').value || 'scene';
@@ -9591,50 +9620,60 @@
                         button.disabled = false;
                         return;
                     }
-                    ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/SceneSchedules"),
-                        data: JSON.stringify({
-                            id: select.value || '',
-                            name: name,
-                            presetName: presetName,
-                            playlistName: playlistName,
-                            targetUserId: targetSelection.targetUserId,
-                            targetAllEnabledMappings: targetSelection.targetAllEnabledMappings,
-                            targetUserIds: targetSelection.targetUserIds,
-                            targetRoutes: targetSelection.targetRoutes,
-                            includeDefaultTarget: targetSelection.includeDefaultTarget,
-                            timeOfDay: timeOfDay,
-                            timeMode: timeMode,
-                            solarOffsetMinutes: solarOffsetMinutes,
-                            solarLatitude: solarLatitude,
-                            solarLongitude: solarLongitude,
-                            red: red,
-                            green: green,
-                            blue: blue,
-                            brightnessPercent: brightness,
-                            durationSeconds: durationSeconds,
-                            maxRuns: maxRuns,
-                            priority: priority,
-                            playbackPolicy: playbackPolicy,
-                            recurrence: recurrence,
-                            recurrenceInterval: recurrenceInterval,
-                            dayOfMonth: dayOfMonth,
-                            monthOfYear: monthOfYear,
-                            weekOfMonth: weekOfMonth,
-                            dayOfWeek: dayOfWeek,
-                            timeZoneId: timeZoneId,
-                            timeZoneIanaId: timeZoneIanaId,
-                            runDate: runDate,
-                            startDate: startDate,
-                            endDate: endDate,
-                            excludedDates: excludedDates,
-                            daysOfWeekMask: daysOfWeekMask,
-                            enabled: page.querySelector('#sceneScheduleEnabled').checked
-                        }),
-                        contentType: "application/json",
-                        dataType: "json"
-                    }).then(function (response) {
+                    page._hueSceneScheduleSaving = true;
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'sceneScheduleSave',
+                        ApiClient.getUrl("HueSync/SceneSchedules"),
+                        {
+                            type: "POST",
+                            data: JSON.stringify({
+                                id: select.value || '',
+                                name: name,
+                                presetName: presetName,
+                                playlistName: playlistName,
+                                targetUserId: targetSelection.targetUserId,
+                                targetAllEnabledMappings: targetSelection.targetAllEnabledMappings,
+                                targetUserIds: targetSelection.targetUserIds,
+                                targetRoutes: targetSelection.targetRoutes,
+                                includeDefaultTarget: targetSelection.includeDefaultTarget,
+                                timeOfDay: timeOfDay,
+                                timeMode: timeMode,
+                                solarOffsetMinutes: solarOffsetMinutes,
+                                solarLatitude: solarLatitude,
+                                solarLongitude: solarLongitude,
+                                red: red,
+                                green: green,
+                                blue: blue,
+                                brightnessPercent: brightness,
+                                durationSeconds: durationSeconds,
+                                maxRuns: maxRuns,
+                                priority: priority,
+                                playbackPolicy: playbackPolicy,
+                                recurrence: recurrence,
+                                recurrenceInterval: recurrenceInterval,
+                                dayOfMonth: dayOfMonth,
+                                monthOfYear: monthOfYear,
+                                weekOfMonth: weekOfMonth,
+                                dayOfWeek: dayOfWeek,
+                                timeZoneId: timeZoneId,
+                                timeZoneIanaId: timeZoneIanaId,
+                                runDate: runDate,
+                                startDate: startDate,
+                                endDate: endDate,
+                                excludedDates: excludedDates,
+                                daysOfWeekMask: daysOfWeekMask,
+                                enabled: page.querySelector('#sceneScheduleEnabled').checked
+                            }),
+                            contentType: "application/json",
+                            dataType: "json"
+                        });
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         var savedId = response && (response.id !== undefined ? response.id : response.Id);
                         if (statusEl) {
                             statusEl.textContent = "Scheduled cue '" + name + "' saved.";
@@ -9642,13 +9681,23 @@
                         }
                         return HueConfigurationPage.loadSceneSchedules(page, savedId || select.value);
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to save scene schedule:", err);
                         if (statusEl) {
                             statusEl.textContent = "Unable to save scheduled cue. Check the scene, target, and time.";
                             statusEl.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        button.disabled = !HueConfigurationPage.hasSceneScheduleMetadata(page);
+                        var current = isCurrent();
+                        var requestRecord = request && request._huePageRequestRecord;
+                        var tracked = page && page._huePageRequests &&
+                            page._huePageRequests.sceneScheduleSave === requestRecord;
+                        if (current || tracked) {
+                            page._hueSceneScheduleSaving = false;
+                            if (button) button.disabled = !HueConfigurationPage.hasSceneScheduleMetadata(page);
+                            if (current) HueConfigurationPage.updateSceneScheduleButtons(page);
+                            else HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleSave');
+                        }
                     });
                 },
                 duplicateSceneSchedule: function (page) {

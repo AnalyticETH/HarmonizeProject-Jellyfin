@@ -33,6 +33,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     private readonly Dictionary<string, CancellationTokenSource> _manualRunCancellations = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _runtimeStateLock = new();
     private readonly Dictionary<string, HueSceneScheduleRuntimeState> _runtimeStates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _oneTimeCompletionPersistencePending = new(StringComparer.OrdinalIgnoreCase);
     private int _schedulerEvaluationCount;
     private int _scheduleLifecycleCount;
     private readonly object _historyLock = new();
@@ -122,6 +123,22 @@ public sealed class HueSceneAutomationService : BackgroundService
             lock (_runtimeStateLock)
             {
                 return _scheduleLifecycleCount > 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reports whether a completed one-time cue still needs its disabled state persisted.
+    /// This is intentionally in-memory repair state; the completed cue remains disabled
+    /// while the next scheduler pass retries the configuration write.
+    /// </summary>
+    internal bool HasPendingOneTimeCompletionPersistence
+    {
+        get
+        {
+            lock (_runtimeStateLock)
+            {
+                return _oneTimeCompletionPersistencePending.Count > 0;
             }
         }
     }
@@ -4410,7 +4427,14 @@ public sealed class HueSceneAutomationService : BackgroundService
         EnsureHistoryLoaded();
         EnsureDeferredRunsLoaded();
         var config = Plugin.Instance?.Configuration;
-        if (config == null || !config.SceneAutomationEnabled)
+        if (config == null)
+            return;
+
+        // A successful one-time cue must remain disabled even when its first completion
+        // write failed. Repair that write before evaluating due schedules so a retry never
+        // needs to replay bridge activity.
+        RetryPendingOneTimeCompletions(config);
+        if (!config.SceneAutomationEnabled)
             return;
 
         // Keep the logical scheduler clock anchored to the caller's observation while
@@ -4822,8 +4846,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (configuredSchedule == null || !configuredSchedule.Enabled)
             return;
 
-        var previousEnabled = configuredSchedule.Enabled;
         var previousSkipNextOccurrence = configuredSchedule.SkipNextOccurrence;
+        var persistenceFailed = false;
         lock (_runtimeStateLock)
         {
             configuredSchedule.Enabled = false;
@@ -4834,9 +4858,103 @@ public sealed class HueSceneAutomationService : BackgroundService
             }
             catch (Exception ex)
             {
-                configuredSchedule.Enabled = previousEnabled;
+                // The cue already ran successfully. Keep it disabled in memory while a
+                // later scheduler pass retries the durable state transition; restoring
+                // Enabled here would permit a restart or another evaluation to replay it.
+                configuredSchedule.Enabled = false;
                 configuredSchedule.SkipNextOccurrence = previousSkipNextOccurrence;
+                persistenceFailed = true;
                 _logger.LogWarning(ex, "One-time Hue scene schedule {0} ran but could not persist its completed state", schedule.Name);
+            }
+        }
+
+        if (persistenceFailed)
+            MarkOneTimeCompletionPersistencePending(configuredSchedule.Id);
+    }
+
+    private void RetryPendingOneTimeCompletions(PluginConfiguration config)
+    {
+        string[] pendingIds;
+        lock (_runtimeStateLock)
+        {
+            pendingIds = _oneTimeCompletionPersistencePending.ToArray();
+        }
+
+        if (pendingIds.Length == 0)
+            return;
+
+        var pendingSchedules = new List<HueSceneSchedule>(pendingIds.Length);
+        var staleIds = new List<string>();
+        foreach (var pendingId in pendingIds)
+        {
+            var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Id?.Trim(), pendingId, StringComparison.OrdinalIgnoreCase));
+            if (configuredSchedule == null || string.IsNullOrWhiteSpace(configuredSchedule.RunDate))
+            {
+                // A deleted or deliberately converted recurring cue no longer has a
+                // one-time completion transition to repair.
+                staleIds.Add(pendingId);
+                continue;
+            }
+
+            pendingSchedules.Add(configuredSchedule);
+        }
+
+        if (staleIds.Count > 0)
+            ClearOneTimeCompletionPersistencePending(staleIds);
+        if (pendingSchedules.Count == 0)
+            return;
+
+        try
+        {
+            lock (_runtimeStateLock)
+            {
+                foreach (var schedule in pendingSchedules)
+                {
+                    schedule.Enabled = false;
+                    schedule.SkipNextOccurrence = false;
+                }
+
+                Plugin.Instance?.SaveConfiguration();
+            }
+
+            ClearOneTimeCompletionPersistencePending(pendingSchedules
+                .Select(schedule => schedule.Id?.Trim() ?? string.Empty)
+                .Where(id => !string.IsNullOrWhiteSpace(id)));
+        }
+        catch (Exception ex)
+        {
+            foreach (var schedule in pendingSchedules)
+            {
+                // Keep the same diagnostic contract as the initial failed write. The
+                // marker remains set and the next scheduler pass retries again.
+                _logger.LogWarning(ex, "One-time Hue scene schedule {0} ran but could not persist its completed state", schedule.Name);
+            }
+        }
+    }
+
+    private void MarkOneTimeCompletionPersistencePending(string? scheduleId)
+    {
+        var key = scheduleId?.Trim();
+        if (string.IsNullOrWhiteSpace(key))
+            return;
+
+        lock (_runtimeStateLock)
+        {
+            _oneTimeCompletionPersistencePending.Add(key);
+        }
+    }
+
+    private void ClearOneTimeCompletionPersistencePending(IEnumerable<string> scheduleIds)
+    {
+        lock (_runtimeStateLock)
+        {
+            foreach (var scheduleId in scheduleIds)
+            {
+                var key = scheduleId?.Trim();
+                if (!string.IsNullOrWhiteSpace(key))
+                    _oneTimeCompletionPersistencePending.Remove(key);
             }
         }
     }

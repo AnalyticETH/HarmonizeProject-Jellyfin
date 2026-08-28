@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
-## [1.5.347] - 2026-08-27
+## [1.5.348] - 2026-08-27
+
+### Administrator and scheduler integrity
+- **Lifecycle-safe scene saves**: saved playlists and scheduled cues now cancel on page teardown, reject duplicate submissions, and ignore stale responses so a hidden or reused administrator page cannot overwrite current state.
+- **One-time completion repair**: a successful one-time cue remains disabled in memory and retries its completion write on the next scheduler pass when the initial persistence fails, without replaying bridge activity.
+- **Repository governance**: CODEOWNERS now covers workflow, Dependabot, and Semgrep policy files for owner review while the owner-only direct-main bypass remains available for the trusted release path.
+- **Regression coverage**: configuration-page lifecycle tests and serializer-backed scheduler tests cover stale saves, teardown cancellation, one-time repair, and no-duplicate execution.
 
 ### Schedule durability
 - **Finite-schedule persistence retry**: failed finite run-count and auto-disable writes remain dirty and retry on the next scheduler pass even when retained schedule history is disabled.

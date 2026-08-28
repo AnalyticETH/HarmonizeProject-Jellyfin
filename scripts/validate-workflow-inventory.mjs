@@ -16,6 +16,18 @@ const allowedActionRepositories = new Set([
   "actions/github-script",
   "codecov/codecov-action",
 ]);
+const codeownersPath = ".github/CODEOWNERS";
+const codeowners = fs.readFileSync(codeownersPath, "utf8");
+for (const requiredEntry of [
+  "/.github/CODEOWNERS @AnalyticETH",
+  "/.github/dependabot.yml @AnalyticETH",
+  "/.github/semgrep/ @AnalyticETH",
+  "/.github/workflows/ @AnalyticETH",
+]) {
+  if (!codeowners.split(/\r?\n/).some((line) => line.trim() === requiredEntry)) {
+    throw new Error(`${codeownersPath} is missing owner coverage: ${requiredEntry}`);
+  }
+}
 
 const entries = fs.readdirSync(workflowDirectory, { withFileTypes: true });
 const workflowFiles = entries
@@ -149,4 +161,4 @@ if (/^\s*contents:\s*write\s*$/m.test(pullRequestWorkflow)) {
   throw new Error("pull-request-validation.yml must not grant contents: write");
 }
 
-console.log(`Workflow inventory contract passed (${workflowFiles.join(", ")})`);
+console.log(`Workflow inventory contract passed (${workflowFiles.join(", ")}; CODEOWNERS coverage verified)`);

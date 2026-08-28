@@ -1,0 +1,5 @@
+# Keep CI, dependency-update, and security policy changes owner-reviewed.
+/.github/CODEOWNERS @AnalyticETH
+/.github/dependabot.yml @AnalyticETH
+/.github/semgrep/ @AnalyticETH
+/.github/workflows/ @AnalyticETH

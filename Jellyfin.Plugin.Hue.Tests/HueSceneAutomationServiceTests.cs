@@ -4358,15 +4358,17 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
-    public async Task RunDueSchedules_WhenOneTimeCompletionPersistenceFails_RestoresEnabledState()
+    public async Task RunDueSchedules_WhenOneTimeCompletionPersistenceFails_RetriesWithoutReplaying()
     {
         var serializer = new Mock<IXmlSerializer>();
         serializer
-            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
-            .Throws(new InvalidOperationException("simulated one-time completion persistence failure"));
+            .SetupSequence(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated one-time completion persistence failure"))
+            .Pass();
         var configuration = new PluginConfiguration
         {
             SceneAutomationEnabled = true,
+            PersistSceneScheduleHistory = false,
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "one-time-failure-app-secret",
             HueClientKey = "one-time-failure-client-secret",
@@ -4393,8 +4395,9 @@ public sealed class HueSceneAutomationServiceTests
         InstallConfiguration(configuration, serializer.Object);
 
         using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
         var service = new HueSceneAutomationService(
-            new RecordingStreamTester(),
+            streamTester,
             new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
             Mock.Of<ILogger<HueSceneAutomationService>>());
 
@@ -4402,9 +4405,28 @@ public sealed class HueSceneAutomationServiceTests
             new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc),
             CancellationToken.None);
 
-        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
         Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
         Assert.True(Assert.Single(service.GetHistory()).Succeeded);
+        Assert.Single(streamTester.Invocations);
+        Assert.True(service.HasPendingOneTimeCompletionPersistence);
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Once);
+
+        // The next scheduler pass repairs only the disabled-state write. The claimed
+        // occurrence must not replay the bridge scene or increment the run count.
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.Single(streamTester.Invocations);
+        Assert.False(service.HasPendingOneTimeCompletionPersistence);
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Exactly(2));
     }
 
     [Fact]

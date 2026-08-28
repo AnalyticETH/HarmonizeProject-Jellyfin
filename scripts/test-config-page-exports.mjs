@@ -1161,6 +1161,191 @@ async function testConfigurationSaveDuplicateSubmitIsBounded() {
     assert.equal(page.querySelector('#saveConfigurationBtn').disabled, false, "duplicate configuration submit re-enables the button");
 }
 
+function configureScenePlaylistSaveHarness(harness) {
+    const { page, api } = harness;
+    api.getScenePlaylistTargetSelection = () => ({
+        targetAllEnabledMappings: false,
+        includeDefaultTarget: false,
+        targetUserIds: [],
+        targetUserId: ""
+    });
+    page._hueScenePlaylistId = "playlist-1";
+    page._hueScenePlaylistItems = ["Scene One"];
+    page.querySelector("#scenePlaylistName").value = "Playlist One";
+    page.querySelector("#scenePlaylistRepeatCount").value = "1";
+    page.querySelector("#scenePlaylistPlaybackOrder").value = "Sequential";
+    page.querySelector("#sceneScheduleSelect").value = "cue-1";
+    return {
+        button: page.querySelector("#saveScenePlaylistBtn"),
+        status: page.querySelector("#scenePlaylistStatus"),
+        playlistLoads: 0,
+        scheduleLoads: 0,
+        buttonUpdates: 0
+    };
+}
+
+async function testScenePlaylistSaveLifecycleGuards() {
+    const staleHarness = makeHarness();
+    const staleState = configureScenePlaylistSaveHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    staleApi.loadScenePlaylists = () => {
+        staleState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadSceneSchedules = () => {
+        staleState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.updateScenePlaylistButtons = () => {
+        staleState.buttonUpdates += 1;
+    };
+
+    const staleSave = staleApi.saveScenePlaylist(stalePage);
+    assert.ok(staleSave && typeof staleSave.then === "function", "scene playlist save returns a tracked promise");
+    assert.equal(staleHarness.requests.length, 1, "scene playlist save starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "scene playlist save uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/ScenePlaylists", "scene playlist save targets the playlist endpoint");
+    assert.equal(stalePage._hueScenePlaylistSaving, true, "scene playlist save marks itself busy");
+    assert.equal(staleState.button.disabled, true, "scene playlist save disables its button");
+    assert.ok(stalePage._huePageRequests.scenePlaylistSave, "scene playlist save is tracked by the page lifecycle");
+
+    staleState.status.textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts scene playlist save");
+    assert.equal(stalePage._huePageRequests.scenePlaylistSave, undefined, "pagehide removes scene playlist save state");
+    assert.equal(stalePage._hueScenePlaylistSaving, false, "pagehide clears scene playlist save state");
+    assert.equal(staleState.button.disabled, false, "pagehide re-enables the scene playlist save button");
+    staleHarness.requests[0].resolve({ name: "Stale Playlist" });
+    await staleSave;
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale scene playlist save cannot update hidden-page status");
+    assert.equal(staleState.playlistLoads, 0, "stale scene playlist save cannot reload playlists");
+    assert.equal(staleState.scheduleLoads, 0, "stale scene playlist save cannot reload schedules");
+    assert.equal(staleState.buttonUpdates, 0, "stale scene playlist save cannot update current-page controls");
+    assert.equal(staleHarness.dashboard.alerts.length, 0, "stale scene playlist save cannot show an alert");
+
+    const currentHarness = makeHarness();
+    const currentState = configureScenePlaylistSaveHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    currentApi.loadScenePlaylists = (_page, selectedName) => {
+        currentState.playlistLoads += 1;
+        assert.equal(selectedName, "Saved Playlist", "current scene playlist save reloads the returned playlist");
+        return Promise.resolve();
+    };
+    currentApi.loadSceneSchedules = (_page, selectedId) => {
+        currentState.scheduleLoads += 1;
+        assert.equal(selectedId, "cue-1", "current scene playlist save preserves the selected cue");
+        return Promise.resolve();
+    };
+    currentApi.updateScenePlaylistButtons = () => {
+        currentState.buttonUpdates += 1;
+    };
+
+    const currentSave = currentApi.saveScenePlaylist(currentPage);
+    assert.equal(currentHarness.requests.length, 1, "current scene playlist save starts one request");
+    currentHarness.requests[0].resolve({ name: "Saved Playlist" });
+    await currentSave;
+    assert.equal(currentState.status.textContent, "Playlist 'Saved Playlist' saved.", "current scene playlist save reports success");
+    assert.equal(currentState.playlistLoads, 1, "current scene playlist save reloads playlists once");
+    assert.equal(currentState.scheduleLoads, 1, "current scene playlist save reloads schedules once");
+    assert.equal(currentPage._hueScenePlaylistSaving, false, "current scene playlist save clears busy state");
+    assert.equal(currentState.button.disabled, false, "current scene playlist save re-enables its button");
+    assert.equal(currentState.buttonUpdates, 1, "current scene playlist save refreshes current-page controls");
+}
+
+function configureSceneScheduleSaveHarness(harness) {
+    const { page, api } = harness;
+    api.requireSceneScheduleMetadata = () => true;
+    page._hueSceneScheduleMetadataReady = true;
+    api.getSceneScheduleTargetSelection = () => ({
+        valid: true,
+        targetAllEnabledMappings: false,
+        includeDefaultTarget: false,
+        targetUserIds: [],
+        targetRoutes: [],
+        targetUserId: ""
+    });
+    const days = page.querySelector("#sceneScheduleDays");
+    days.options = [{ value: "1", selected: true }];
+    page.querySelector("#sceneScheduleName").value = "Cue One";
+    page.querySelector("#sceneScheduleSourceType").value = "scene";
+    page.querySelector("#sceneSchedulePresetSelect").value = "Scene One";
+    page.querySelector("#sceneScheduleTimeMode").value = "Fixed";
+    page.querySelector("#sceneScheduleTime").value = "20:00";
+    page.querySelector("#sceneSchedulePriority").value = "0";
+    page.querySelector("#sceneSchedulePlaybackPolicy").value = "Inherit";
+    page.querySelector("#sceneScheduleRecurrence").value = "Weekly";
+    page.querySelector("#sceneScheduleRecurrenceInterval").value = "1";
+    page.querySelector("#sceneScheduleSelect").value = "cue-1";
+    page.querySelector("#sceneScheduleEnabled").checked = true;
+    return {
+        button: page.querySelector("#saveSceneScheduleBtn"),
+        status: page.querySelector("#sceneScheduleStatus"),
+        scheduleLoads: 0,
+        buttonUpdates: 0
+    };
+}
+
+async function testSceneScheduleSaveLifecycleGuards() {
+    const staleHarness = makeHarness();
+    const staleState = configureSceneScheduleSaveHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    staleApi.loadSceneSchedules = () => {
+        staleState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.updateSceneScheduleButtons = () => {
+        staleState.buttonUpdates += 1;
+    };
+
+    const staleSave = staleApi.saveSceneSchedule(stalePage);
+    assert.ok(staleSave && typeof staleSave.then === "function", "scene schedule save returns a tracked promise");
+    assert.equal(staleHarness.requests.length, 1, "scene schedule save starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "scene schedule save uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/SceneSchedules", "scene schedule save targets the schedule endpoint");
+    assert.equal(stalePage._hueSceneScheduleSaving, true, "scene schedule save marks itself busy");
+    assert.equal(staleState.button.disabled, true, "scene schedule save disables its button");
+    assert.ok(stalePage._huePageRequests.sceneScheduleSave, "scene schedule save is tracked by the page lifecycle");
+
+    staleState.status.textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts scene schedule save");
+    assert.equal(stalePage._huePageRequests.sceneScheduleSave, undefined, "pagehide removes scene schedule save state");
+    assert.equal(stalePage._hueSceneScheduleSaving, false, "pagehide clears scene schedule save state");
+    assert.equal(staleState.button.disabled, false, "pagehide re-enables the scene schedule save button");
+    staleHarness.requests[0].resolve({ id: "stale-cue" });
+    await staleSave;
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale scene schedule save cannot update hidden-page status");
+    assert.equal(staleState.scheduleLoads, 0, "stale scene schedule save cannot reload schedules");
+    assert.equal(staleState.buttonUpdates, 0, "stale scene schedule save cannot update current-page controls");
+    assert.equal(staleHarness.dashboard.alerts.length, 0, "stale scene schedule save cannot show an alert");
+
+    const currentHarness = makeHarness();
+    const currentState = configureSceneScheduleSaveHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    currentApi.loadSceneSchedules = (_page, selectedId) => {
+        currentState.scheduleLoads += 1;
+        assert.equal(selectedId, "saved-cue", "current scene schedule save reloads the returned cue");
+        return Promise.resolve();
+    };
+    currentApi.updateSceneScheduleButtons = () => {
+        currentState.buttonUpdates += 1;
+    };
+
+    const currentSave = currentApi.saveSceneSchedule(currentPage);
+    assert.equal(currentHarness.requests.length, 1, "current scene schedule save starts one request");
+    currentHarness.requests[0].resolve({ id: "saved-cue" });
+    await currentSave;
+    assert.equal(currentState.status.textContent, "Scheduled cue 'Cue One' saved.", "current scene schedule save reports success");
+    assert.equal(currentState.scheduleLoads, 1, "current scene schedule save reloads schedules once");
+    assert.equal(currentPage._hueSceneScheduleSaving, false, "current scene schedule save clears busy state");
+    assert.equal(currentState.button.disabled, false, "current scene schedule save re-enables its button");
+    assert.equal(currentState.buttonUpdates, 1, "current scene schedule save refreshes current-page controls");
+}
+
 async function testDuplicateTargetNormalizationAndGuard() {
     const harness = makeHarness();
     const { page, api, dashboard } = harness;
@@ -1392,10 +1577,12 @@ await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
+await testScenePlaylistSaveLifecycleGuards();
+await testSceneScheduleSaveLifecycleGuards();
 await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
 await testUserMappingReconciliationLifecycleGuards();
 await testRuntimeStopLifecycleGuards();
 await testDisabledMappingCannotPreview();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, and disabled-mapping preview paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, configuration and scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, and disabled-mapping preview paths)`);
