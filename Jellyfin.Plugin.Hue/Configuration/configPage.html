@@ -2739,6 +2739,7 @@
                         sessionHistoryCsvExport: { property: '_hueSessionHistoryCsvExporting', selector: '#exportSessionHistoryCsvBtn' },
                         configurationExport: { property: '_hueConfigurationExporting', selector: '#exportConfigurationBtn' },
                         configurationSave: { property: '_hueConfigurationSaving', selector: '#saveConfigurationBtn' },
+                        colorPresetSave: { property: '_hueColorPresetSaving', selector: '#savePreviewPresetBtn' },
                         scenePlaylistSave: { property: '_hueScenePlaylistSaving', selector: '#saveScenePlaylistBtn' },
                         sceneScheduleSave: { property: '_hueSceneScheduleSaving', selector: '#saveSceneScheduleBtn' }
                     }[key];
@@ -2790,6 +2791,7 @@
                     page._hueSessionHistoryCsvExporting = false;
                     page._hueConfigurationExporting = false;
                     page._hueConfigurationSaving = false;
+                    page._hueColorPresetSaving = false;
                     page._hueDiagnosticsLoading = false;
                     page._hueTargetDiagnosticsLoading = false;
                     page._hueDiagnosticsRequest = null;
@@ -5318,6 +5320,10 @@
                         });
                 },
                 saveColorPreset: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueColorPresetSaving) return Promise.resolve();
                     var nameEl = page.querySelector('#previewPresetName');
                     var statusEl = page.querySelector('#previewPresetStatus');
                     var name = nameEl ? nameEl.value.trim() : '';
@@ -5335,30 +5341,40 @@
                     }
 
                     var button = page.querySelector('#savePreviewPresetBtn');
+                    page._hueColorPresetSaving = true;
                     button.disabled = true;
                     if (statusEl) {
                         statusEl.textContent = "Saving scene...";
                         statusEl.style.color = "";
                     }
-                    ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/ColorPresets"),
-                        data: JSON.stringify({
-                            name: name,
-                            effect: values.effect,
-                            effectSpeedPercent: values.effectSpeedPercent,
-                            red: values.red,
-                            green: values.green,
-                            blue: values.blue,
-                            brightnessPercent: values.brightnessPercent,
-                            durationSeconds: values.durationSeconds,
-                            transitionSeconds: values.transitionSeconds,
-                            transitionOutSeconds: values.transitionOutSeconds,
-                            transitionCurve: values.transitionCurve
-                        }),
-                        contentType: "application/json",
-                        dataType: "json"
-                    }).then(function () {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'colorPresetSave',
+                        ApiClient.getUrl("HueSync/ColorPresets"),
+                        {
+                            type: "POST",
+                            data: JSON.stringify({
+                                name: name,
+                                effect: values.effect,
+                                effectSpeedPercent: values.effectSpeedPercent,
+                                red: values.red,
+                                green: values.green,
+                                blue: values.blue,
+                                brightnessPercent: values.brightnessPercent,
+                                durationSeconds: values.durationSeconds,
+                                transitionSeconds: values.transitionSeconds,
+                                transitionOutSeconds: values.transitionOutSeconds,
+                                transitionCurve: values.transitionCurve
+                            }),
+                            contentType: "application/json",
+                            dataType: "json"
+                        });
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function () {
+                        if (!isCurrent()) return;
                         if (statusEl) {
                             statusEl.textContent = "Scene '" + name + "' saved.";
                             statusEl.style.color = "#8bc34a";
@@ -5366,18 +5382,30 @@
                         var selectedSchedule = page.querySelector('#sceneScheduleSelect');
                         var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
                         return HueConfigurationPage.loadColorPresets(page, name).then(function () {
+                            if (!isCurrent()) return;
                             return HueConfigurationPage.loadScenePlaylists(page).then(function () {
+                                if (!isCurrent()) return;
                                 return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
                             });
                         });
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to save color preset:", err);
                         if (statusEl) {
                             statusEl.textContent = "Unable to save scene. Check the name and preview values.";
                             statusEl.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        button.disabled = false;
+                        var current = isCurrent();
+                        var requestRecord = request && request._huePageRequestRecord;
+                        var tracked = page && page._huePageRequests &&
+                            page._huePageRequests.colorPresetSave === requestRecord;
+                        if (current || tracked) {
+                            page._hueColorPresetSaving = false;
+                            if (button) button.disabled = false;
+                            if (current) HueConfigurationPage.updatePresetButtons(page);
+                            else HueConfigurationPage.cancelPageLifecycleRequest(page, 'colorPresetSave');
+                        }
                     });
                 },
                 deleteColorPreset: function (page) {

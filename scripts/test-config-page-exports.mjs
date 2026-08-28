@@ -1161,6 +1161,155 @@ async function testConfigurationSaveDuplicateSubmitIsBounded() {
     assert.equal(page.querySelector('#saveConfigurationBtn').disabled, false, "duplicate configuration submit re-enables the button");
 }
 
+function configureColorPresetSaveHarness(harness) {
+    const { page } = harness;
+    page.querySelector("#previewPresetName").value = "Scene One";
+    page.querySelector("#previewColor").value = "#123456";
+    page.querySelector("#previewEffect").value = "Pulse";
+    page.querySelector("#previewEffectSpeed").value = "125";
+    page.querySelector("#previewBrightness").value = "80";
+    page.querySelector("#previewDuration").value = "7";
+    page.querySelector("#previewTransitionSeconds").value = "1";
+    page.querySelector("#previewTransitionOutSeconds").value = "2";
+    page.querySelector("#previewTransitionCurve").value = "EaseInOut";
+    page.querySelector("#sceneScheduleSelect").value = "cue-1";
+    return {
+        button: page.querySelector("#savePreviewPresetBtn"),
+        status: page.querySelector("#previewPresetStatus"),
+        presetLoads: 0,
+        playlistLoads: 0,
+        scheduleLoads: 0,
+        buttonUpdates: 0
+    };
+}
+
+async function testColorPresetSaveLifecycleGuards() {
+    const staleHarness = makeHarness();
+    const staleState = configureColorPresetSaveHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    staleApi.loadColorPresets = () => {
+        staleState.presetLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadScenePlaylists = () => {
+        staleState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadSceneSchedules = () => {
+        staleState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.updatePresetButtons = () => {
+        staleState.buttonUpdates += 1;
+    };
+
+    const staleSave = staleApi.saveColorPreset(stalePage);
+    assert.ok(staleSave && typeof staleSave.then === "function", "color preset save returns a tracked promise");
+    assert.equal(staleHarness.requests.length, 1, "color preset save starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "color preset save uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/ColorPresets", "color preset save targets the saved-scene endpoint");
+    assert.deepEqual(JSON.parse(staleHarness.requests[0].options.data), {
+        name: "Scene One",
+        effect: "Pulse",
+        effectSpeedPercent: 125,
+        red: 18,
+        green: 52,
+        blue: 86,
+        brightnessPercent: 80,
+        durationSeconds: 7,
+        transitionSeconds: 1,
+        transitionOutSeconds: 2,
+        transitionCurve: "EaseInOut"
+    }, "color preset save sends the complete scene payload");
+    assert.equal(stalePage._hueColorPresetSaving, true, "color preset save marks itself busy");
+    assert.equal(staleState.button.disabled, true, "color preset save disables its button");
+    assert.ok(stalePage._huePageRequests.colorPresetSave, "color preset save is tracked by the page lifecycle");
+
+    staleState.status.textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts color preset save");
+    assert.equal(stalePage._huePageRequests.colorPresetSave, undefined, "pagehide removes color preset save state");
+    assert.equal(stalePage._hueColorPresetSaving, false, "pagehide clears color preset save state");
+    assert.equal(staleState.button.disabled, false, "pagehide re-enables the color preset save button");
+    staleHarness.requests[0].resolve({ name: "Stale Scene" });
+    await staleSave;
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale color preset save cannot update hidden-page status");
+    assert.equal(staleState.presetLoads, 0, "stale color preset save cannot reload saved scenes");
+    assert.equal(staleState.playlistLoads, 0, "stale color preset save cannot reload playlists");
+    assert.equal(staleState.scheduleLoads, 0, "stale color preset save cannot reload schedules");
+    assert.equal(staleState.buttonUpdates, 0, "stale color preset save cannot update current-page controls");
+    assert.equal(staleHarness.dashboard.alerts.length, 0, "stale color preset save cannot show an alert");
+
+    const currentHarness = makeHarness();
+    const currentState = configureColorPresetSaveHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    currentApi.loadColorPresets = (_page, selectedName) => {
+        currentState.presetLoads += 1;
+        assert.equal(selectedName, "Scene One", "current color preset save reloads the saved scene");
+        return Promise.resolve();
+    };
+    currentApi.loadScenePlaylists = () => {
+        currentState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    currentApi.loadSceneSchedules = (_page, selectedId) => {
+        currentState.scheduleLoads += 1;
+        assert.equal(selectedId, "cue-1", "current color preset save preserves the selected cue");
+        return Promise.resolve();
+    };
+    currentApi.updatePresetButtons = () => {
+        currentState.buttonUpdates += 1;
+    };
+
+    const currentSave = currentApi.saveColorPreset(currentPage);
+    assert.equal(currentHarness.requests.length, 1, "current color preset save starts one request");
+    currentHarness.requests[0].resolve({ name: "Scene One" });
+    await currentSave;
+    assert.equal(currentState.status.textContent, "Scene 'Scene One' saved.", "current color preset save reports success");
+    assert.equal(currentState.presetLoads, 1, "current color preset save reloads saved scenes once");
+    assert.equal(currentState.playlistLoads, 1, "current color preset save reloads playlists once");
+    assert.equal(currentState.scheduleLoads, 1, "current color preset save reloads schedules once");
+    assert.equal(currentPage._hueColorPresetSaving, false, "current color preset save clears busy state");
+    assert.equal(currentState.button.disabled, false, "current color preset save re-enables its button");
+    assert.equal(currentState.buttonUpdates, 1, "current color preset save refreshes current-page controls");
+
+    const duplicateHarness = makeHarness();
+    const duplicateState = configureColorPresetSaveHarness(duplicateHarness);
+    const duplicatePage = duplicateHarness.page;
+    const duplicateApi = duplicateHarness.api;
+    duplicateApi.loadColorPresets = () => {
+        duplicateState.presetLoads += 1;
+        return Promise.resolve();
+    };
+    duplicateApi.loadScenePlaylists = () => {
+        duplicateState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    duplicateApi.loadSceneSchedules = () => {
+        duplicateState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    duplicateApi.updatePresetButtons = () => {
+        duplicateState.buttonUpdates += 1;
+    };
+
+    const first = duplicateApi.saveColorPreset(duplicatePage);
+    const second = duplicateApi.saveColorPreset(duplicatePage);
+    assert.equal(duplicateHarness.requests.length, 1, "duplicate color preset submit keeps one in-flight request");
+    assert.ok(second && typeof second.then === "function", "duplicate color preset submit returns a settled no-op");
+    assert.equal(duplicatePage._hueColorPresetSaving, true, "duplicate color preset submit remains marked busy");
+    duplicateHarness.requests[0].resolve({ name: "Scene One" });
+    await Promise.all([first, second]);
+    assert.equal(duplicateState.presetLoads, 1, "duplicate color preset submit reloads saved scenes once");
+    assert.equal(duplicateState.playlistLoads, 1, "duplicate color preset submit reloads playlists once");
+    assert.equal(duplicateState.scheduleLoads, 1, "duplicate color preset submit reloads schedules once");
+    assert.equal(duplicateState.buttonUpdates, 1, "duplicate color preset submit refreshes controls once");
+    assert.equal(duplicatePage._hueColorPresetSaving, false, "duplicate color preset submit clears its busy state");
+    assert.equal(duplicateState.button.disabled, false, "duplicate color preset submit re-enables its button");
+}
+
 function configureScenePlaylistSaveHarness(harness) {
     const { page, api } = harness;
     api.getScenePlaylistTargetSelection = () => ({
@@ -1577,6 +1726,7 @@ await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
+await testColorPresetSaveLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
 await testDuplicateTargetNormalizationAndGuard();
@@ -1585,4 +1735,4 @@ await testUserMappingReconciliationLifecycleGuards();
 await testRuntimeStopLifecycleGuards();
 await testDisabledMappingCannotPreview();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, configuration and scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, and disabled-mapping preview paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, configuration and color-preset/scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, and disabled-mapping preview paths)`);

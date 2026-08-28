@@ -4499,6 +4499,18 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 if (TryClaimRunSlot(schedule.Id, deferredRun!.OccurrenceSlot))
                 {
+                    // An expired deferred one-time cue is still consuming its only
+                    // occurrence. Claim and persist the disabled state before recording
+                    // that skip so a restart cannot restore an enabled cue and consume the
+                    // same deferred occurrence again. Recurring cues keep their existing
+                    // skip-recording behavior.
+                    if (!string.IsNullOrWhiteSpace(schedule.RunDate) &&
+                        !TryClaimAutomaticOneTimeSchedule(config, schedule))
+                    {
+                        ReleaseRunSlot(schedule.Id, deferredRun!.OccurrenceSlot);
+                        continue;
+                    }
+
                     RecordSkippedOccurrence(
                         config,
                         schedule,
@@ -4507,8 +4519,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                             schedule,
                             deferMinutes,
                             deferredRun!.Restored));
-                    if (!string.IsNullOrWhiteSpace(schedule.RunDate))
-                        DisableCompletedOneTimeSchedule(config, schedule);
+                    RemoveDeferredRun(schedule.Id);
                 }
 
                 continue;
@@ -4597,6 +4608,19 @@ public sealed class HueSceneAutomationService : BackgroundService
                 continue;
             }
 
+            // A one-time cue must have a durable claim before any bridge lifecycle can
+            // begin. The in-memory occurrence slot protects only this process; persisting
+            // the disabled state first is what prevents a restart from replaying the same
+            // RunDate when post-run history or cleanup writes fail. If the claim cannot be
+            // saved, leave the cue untouched and retry the occurrence later without
+            // contacting the bridge.
+            if (!string.IsNullOrWhiteSpace(schedule.RunDate) &&
+                !TryClaimAutomaticOneTimeSchedule(config, schedule))
+            {
+                ReleaseRunSlot(schedule.Id, slot);
+                continue;
+            }
+
             var result = await RunScheduleTrackedAsync(
                 config,
                 schedule,
@@ -4631,6 +4655,47 @@ public sealed class HueSceneAutomationService : BackgroundService
                     "Hue scene schedule {0} could not run: {1}",
                     schedule.Name,
                     result.Message);
+            }
+        }
+    }
+
+    private bool TryClaimAutomaticOneTimeSchedule(
+        PluginConfiguration config,
+        HueSceneSchedule schedule)
+    {
+        var key = schedule.Id?.Trim() ?? string.Empty;
+        var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
+        if (configuredSchedule == null || !configuredSchedule.Enabled)
+            return false;
+
+        var previousEnabled = configuredSchedule.Enabled;
+        var previousSkipNextOccurrence = configuredSchedule.SkipNextOccurrence;
+        lock (_runtimeStateLock)
+        {
+            // A manual run may have acquired this cue after the scheduler cloned its
+            // configuration. Do not consume the automatic occurrence in that case; the
+            // manual lifecycle owns the cue and the scheduler will retry after it ends.
+            if (_runtimeStates.TryGetValue(key, out var state) && state.ActiveRuns > 0)
+                return false;
+
+            configuredSchedule.Enabled = false;
+            configuredSchedule.SkipNextOccurrence = false;
+            try
+            {
+                Plugin.Instance?.SaveConfiguration();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                configuredSchedule.Enabled = previousEnabled;
+                configuredSchedule.SkipNextOccurrence = previousSkipNextOccurrence;
+                _logger.LogWarning(
+                    ex,
+                    "One-time Hue scene schedule {0} could not be claimed before its automatic run",
+                    schedule.Name);
+                return false;
             }
         }
     }
@@ -6429,7 +6494,6 @@ public sealed class HueSceneAutomationService : BackgroundService
             }
             else if (ConvertServerLocalNowToUtc(localNow) - current.DeferredAtUtc >= TimeSpan.FromMinutes(deferMinutes))
             {
-                _deferredRuns.Remove(key);
                 deferredRun = current;
                 expired = true;
             }
@@ -6449,12 +6513,10 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
         }
 
-        if (expired)
-        {
-            ClearDeferredRuntimeState(key);
-            PersistDeferredRuns();
-        }
-
+        // Keep an expired entry until the caller records its skipped outcome. This lets
+        // one-time cues durably claim their disabled state first; if that claim fails,
+        // the deferred occurrence remains available for a safe retry instead of falling
+        // through to ordinary catch-up evaluation.
         return !expired;
     }
 

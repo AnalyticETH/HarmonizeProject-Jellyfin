@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.349] - 2026-08-27
+
+### Scheduler and administrator lifecycle integrity
+- **Restart-durable one-time claims**: automatic one-time cues now persist their disabled state before bridge activity or deferred-expiry handling; failed claims fail closed, release the occurrence slot, and retry without replaying a cue after restart.
+- **Deferred expiry durability**: expired deferred one-time occurrences retain their marker until the disabled state and skipped outcome are safely processed, preserving retry behavior across persistence failures.
+- **Saved-scene lifecycle safety**: color-preset saves now cancel on page teardown, reject duplicate submissions, and ignore stale responses before updating a hidden or reused administrator page.
+- **Regression coverage**: serializer-backed scheduler tests cover preclaim failure, deferred retry, reconstructed restart suppression, and the administrator color-preset lifecycle contract.
+
 ## [1.5.348] - 2026-08-27
 
 ### Administrator and scheduler integrity

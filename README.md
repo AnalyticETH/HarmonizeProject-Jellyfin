@@ -471,7 +471,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.348 (Current)
+### Version 1.5.349 (Current)
+
+- **Restart-durable one-time claims**: automatic one-time cues persist their disabled state before bridge activity or deferred-expiry handling; failed claims fail closed, release the occurrence slot, and retry without replaying a cue after restart.
+
+- **Deferred expiry durability**: expired deferred one-time occurrences retain their marker until the disabled state and skipped outcome are safely processed, preserving retry behavior across persistence failures.
+
+- **Saved-scene lifecycle safety**: color-preset saves now cancel on page teardown, reject duplicate submissions, and ignore stale responses before updating a hidden or reused administrator page.
+
+- **Regression coverage**: serializer-backed scheduler tests cover preclaim failure, deferred retry, reconstructed restart suppression, and the administrator color-preset lifecycle contract.
 
 - **Lifecycle-safe scene saves**: saved playlists and scheduled cues now cancel on page teardown, reject duplicate submissions, and ignore stale responses so a hidden or reused administrator page cannot overwrite current state.
 
