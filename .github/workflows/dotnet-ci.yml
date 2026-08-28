@@ -347,7 +347,9 @@ jobs:
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
       with:
         name: release-package
-        path: trusted-release-package
+        # Keep downloaded artifacts outside the checkout so the helper's
+        # clean-checkout provenance guard sees only committed source files.
+        path: ${{ runner.temp }}/trusted-release-package
 
     - name: Run documented Linux release helper
       run: |
@@ -358,6 +360,8 @@ jobs:
     - name: Verify helper package parity
       run: |
         set -euo pipefail
+        : "${RUNNER_TEMP:?RUNNER_TEMP is required for canonical artifact verification}"
+        CANONICAL_PACKAGE_DIR="$RUNNER_TEMP/trusted-release-package"
         VERSION=$(jq -er '.version | strings | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"))' meta.json)
         HELPER_ZIP="jellyfin-plugin-hue-v${VERSION}.zip"
         HELPER_CHECKSUM="${HELPER_ZIP}.sha256"
@@ -371,15 +375,15 @@ jobs:
         sha256sum --check --strict "$HELPER_MANIFEST_CHECKSUM"
         EXPECTED_ENTRIES="BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "
         test "$(unzip -Z1 "$HELPER_ZIP" | sort | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
-        test "$(unzip -Z1 trusted-release-package/jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
+        test "$(unzip -Z1 "$CANONICAL_PACKAGE_DIR/jellyfin-plugin-hue-release.zip" | sort | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
         unzip -p "$HELPER_ZIP" meta.json > helper-meta.json
-        unzip -p trusted-release-package/jellyfin-plugin-hue-release.zip meta.json > canonical-meta.json
+        unzip -p "$CANONICAL_PACKAGE_DIR/jellyfin-plugin-hue-release.zip" meta.json > canonical-meta.json
         test "$(jq -er '.version' helper-meta.json)" = "$VERSION"
         test "$(jq -er '.version' canonical-meta.json)" = "$VERSION"
         cmp -s helper-meta.json canonical-meta.json
-        (cd trusted-release-package && sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256)
-        (cd trusted-release-package && sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256)
-        cmp -s "$HELPER_MANIFEST" trusted-release-package/jellyfin-plugin-hue-release.manifest.json
+        (cd "$CANONICAL_PACKAGE_DIR" && sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256)
+        (cd "$CANONICAL_PACKAGE_DIR" && sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256)
+        cmp -s "$HELPER_MANIFEST" "$CANONICAL_PACKAGE_DIR/jellyfin-plugin-hue-release.manifest.json"
         echo "Linux release helper produced a verified ${VERSION} package and matching release manifest."
 
   create-github-release:

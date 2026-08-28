@@ -42,6 +42,8 @@ for (const marker of [
   "Run documented Linux release helper",
   "chmod +x ./build-release.sh",
   "./build-release.sh",
+  "path: ${{ runner.temp }}/trusted-release-package",
+  "CANONICAL_PACKAGE_DIR=\"$RUNNER_TEMP/trusted-release-package\"",
   "Validate workflow inventory and runner boundaries",
   "node scripts/validate-workflow-inventory.mjs",
   "needs: [create-release-package, validate-release-helper]",

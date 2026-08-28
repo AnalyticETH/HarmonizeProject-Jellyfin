@@ -89,6 +89,8 @@ const requiredWorkflowMarkers = [
   "scripts/create-release-manifest.py",
   "--source-commit \"$GITHUB_SHA\"",
   "--output jellyfin-plugin-hue-release.manifest.json",
+  "path: ${{ runner.temp }}/trusted-release-package",
+  "CANONICAL_PACKAGE_DIR=\"$RUNNER_TEMP/trusted-release-package\"",
   '"BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "',
 ];
 
