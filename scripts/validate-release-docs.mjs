@@ -17,6 +17,8 @@ const requiredReadmeMarkers = [
   "jellyfin-plugin-hue-release.manifest.json.sha256",
   "sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256",
   "resolved hash-locked NuGet graph",
+  "exact source commit",
+  "clean Git checkout",
   "BouncyCastle.Cryptography.dll",
   "Jellyfin.Plugin.Hue.dll",
   "meta.json",
@@ -85,6 +87,7 @@ const requiredWorkflowMarkers = [
   "sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256",
   "sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256",
   "scripts/create-release-manifest.py",
+  "--source-commit \"$GITHUB_SHA\"",
   "--output jellyfin-plugin-hue-release.manifest.json",
   '"BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "',
 ];
@@ -108,6 +111,8 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
   if (name === "build-release.sh") {
     markers.push(
       "rm -rf ./publish",
+      "git -c safe.directory=\"$PWD\" rev-parse --verify HEAD",
+      "git -c safe.directory=\"$PWD\" status --porcelain=v1 --untracked-files=all",
       "--input-dir release-package",
       "--output \"$ZIPFILE\"",
       "sha256sum --check --strict",
@@ -117,6 +122,7 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
   } else {
     markers.push(
       "Remove-Item -Recurse -Force \"./publish\"",
+      "status --porcelain=v1 --untracked-files=all",
       "Get-FileHash -Algorithm SHA256",
       "create-deterministic-release-zip.py",
       "--input-dir \"release-package\"",
@@ -139,6 +145,7 @@ const requiredPackagerMarkers = [
   "EXPECTED_FILES = (",
   'FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)',
   "COMPRESSION_LEVEL = 9",
+  "FIXED_OUTPUT_MODE = 0o644",
   "info.create_system = 0",
   "FIXED_EXTERNAL_ATTR = 0o600 << 16",
   "info.external_attr = FIXED_EXTERNAL_ATTR",
@@ -146,6 +153,7 @@ const requiredPackagerMarkers = [
   "def run_self_test()",
   "first_hash != second_hash",
   "entry.date_time != FIXED_TIMESTAMP",
+  "os.chmod(output_path, FIXED_OUTPUT_MODE)",
 ];
 for (const marker of requiredPackagerMarkers) {
   if (!releasePackager.includes(marker)) {
@@ -166,12 +174,15 @@ for (const marker of [
 }
 
 for (const marker of [
-  "SCHEMA_VERSION = 1",
+  "SCHEMA_VERSION = 2",
+  "COMMIT_PATTERN =",
   "REQUIRED_PACKAGE_FILES =",
   "def build_manifest(",
+  "source_commit: str | None = None",
   "def serialize_manifest(",
   "with zipfile.ZipFile(archive_path)",
   "release archive entry does not match package file",
+  "source commit is required for release provenance",
   "def run_self_test()",
   "Deterministic release manifest self-test passed",
 ]) {

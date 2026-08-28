@@ -20,8 +20,9 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$")
+COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_PACKAGE_FILES = (
     "BouncyCastle.Cryptography.dll",
     "Jellyfin.Plugin.Hue.dll",
@@ -91,6 +92,7 @@ def build_manifest(
     lock_path: Path,
     archive_path: Path,
     expected_version: str | None = None,
+    source_commit: str | None = None,
 ) -> dict[str, Any]:
     if not package_dir.is_dir():
         raise ValueError(f"package directory does not exist: {package_dir}")
@@ -119,6 +121,11 @@ def build_manifest(
     version = load_version(package_dir / "meta.json")
     if expected_version is not None and version != expected_version:
         raise ValueError(f"package version {version} does not match expected {expected_version}")
+    if not isinstance(source_commit, str):
+        raise ValueError("source commit is required for release provenance")
+    source_commit = source_commit.strip().lower()
+    if COMMIT_PATTERN.fullmatch(source_commit) is None:
+        raise ValueError("source commit must be a 40-character hexadecimal Git SHA")
     lock_version, packages = load_locked_packages(lock_path)
     if lock_version != "1":
         raise ValueError(f"{lock_path} lock schema must be version 1, found {lock_version!r}")
@@ -147,6 +154,7 @@ def build_manifest(
     return {
         "schemaVersion": SCHEMA_VERSION,
         "pluginVersion": version,
+        "sourceCommit": source_commit,
         "archive": {
             "size": archive_path.stat().st_size,
             "sha256": sha256_file(archive_path),
@@ -198,13 +206,20 @@ def run_self_test() -> None:
         with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for file_name in REQUIRED_PACKAGE_FILES:
                 archive.write(package_dir / file_name, arcname=file_name)
-        first = serialize_manifest(build_manifest(package_dir, lock_path, archive_path, "1.2.3.4"))
-        second = serialize_manifest(build_manifest(package_dir, lock_path, archive_path, "1.2.3.4"))
+        source_commit = "0123456789abcdef0123456789abcdef01234567"
+        first = serialize_manifest(
+            build_manifest(package_dir, lock_path, archive_path, "1.2.3.4", source_commit)
+        )
+        second = serialize_manifest(
+            build_manifest(package_dir, lock_path, archive_path, "1.2.3.4", source_commit)
+        )
         if first != second:
             raise AssertionError("release manifest serialization is not deterministic")
         parsed = json.loads(first)
         if parsed["schemaVersion"] != SCHEMA_VERSION:
             raise AssertionError("release manifest schema marker is incorrect")
+        if parsed["sourceCommit"] != source_commit:
+            raise AssertionError("release manifest source commit marker is incorrect")
         if [entry["name"] for entry in parsed["packageFiles"]] != list(REQUIRED_PACKAGE_FILES):
             raise AssertionError("release manifest package order is incorrect")
         if len(parsed["nuget"]["packages"]) != 1:
@@ -219,12 +234,27 @@ def run_self_test() -> None:
                 )
                 archive.writestr(file_name, payload)
         try:
-            build_manifest(package_dir, lock_path, tampered_archive, "1.2.3.4")
+            build_manifest(package_dir, lock_path, tampered_archive, "1.2.3.4", source_commit)
         except ValueError as error:
             if "does not match package file" not in str(error):
                 raise AssertionError("tampered archive failure did not identify the mismatched file") from error
         else:
             raise AssertionError("tampered archive was accepted")
+
+        for invalid_source_commit in (None, "", "not-a-sha", "a" * 39, "g" * 40):
+            try:
+                build_manifest(
+                    package_dir,
+                    lock_path,
+                    archive_path,
+                    "1.2.3.4",
+                    invalid_source_commit,
+                )
+            except ValueError as error:
+                if "source commit" not in str(error):
+                    raise AssertionError("invalid source commit failure was not identified") from error
+            else:
+                raise AssertionError("invalid source commit was accepted")
 
 
 def parse_args() -> argparse.Namespace:
@@ -234,6 +264,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--version")
+    parser.add_argument("--source-commit")
     parser.add_argument("--self-test", action="store_true")
     return parser.parse_args()
 
@@ -249,11 +280,18 @@ def main() -> int:
         "--lock-file": args.lock_file,
         "--archive": args.archive,
         "--output": args.output,
+        "--source-commit": args.source_commit,
     }
     missing = [name for name, value in required.items() if value is None]
     if missing:
         raise ValueError(f"missing required arguments: {', '.join(missing)}")
-    manifest = build_manifest(args.package_dir, args.lock_file, args.archive, args.version)
+    manifest = build_manifest(
+        args.package_dir,
+        args.lock_file,
+        args.archive,
+        args.version,
+        args.source_commit,
+    )
     args.output.write_text(serialize_manifest(manifest), encoding="utf-8", newline="\n")
     print(f"Release manifest written to {args.output}")
     return 0

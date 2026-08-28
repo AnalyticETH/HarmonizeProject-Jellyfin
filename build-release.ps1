@@ -30,6 +30,13 @@ Get-ChildItem -Filter "jellyfin-plugin-hue-*.zip.sha256" | Remove-Item -Force
 Get-ChildItem -Filter "jellyfin-plugin-hue-*.manifest.json" | Remove-Item -Force
 Get-ChildItem -Filter "jellyfin-plugin-hue-*.manifest.json.sha256" | Remove-Item -Force
 
+# Provenance is bound to the commit, so refuse to package a dirty checkout
+# whose uncommitted source files would not be represented by that SHA.
+$gitStatus = (& git -c "safe.directory=$((Get-Location).Path)" status --porcelain=v1 --untracked-files=all)
+if (-not [string]::IsNullOrWhiteSpace(($gitStatus -join "`n"))) {
+    throw "Release helper requires a clean Git checkout; commit or remove local changes first."
+}
+
 # Restore dependencies
 Write-Host "📥 Restoring dependencies..." -ForegroundColor Yellow
 dotnet restore --locked-mode
@@ -58,6 +65,10 @@ $version = [string]$metaContent.version
 $versionPattern = '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
 if ($version -notmatch $versionPattern) {
     throw "meta.json version must be a four-part numeric version."
+}
+$sourceCommit = (& git rev-parse --verify HEAD).Trim().ToLowerInvariant()
+if ($sourceCommit -notmatch '^[0-9a-f]{40}$') {
+    throw "The checked-out source commit must be a 40-character Git SHA."
 }
 $projectContent = Get-Content "Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj" -Raw
 $projectVersion = ($projectContent | Select-String '<Version>([^<]+)</Version>').Matches.Groups[1].Value
@@ -139,6 +150,7 @@ $manifestFile = "jellyfin-plugin-hue-v$version.manifest.json"
     --lock-file "Jellyfin.Plugin.Hue/packages.lock.json" `
     --archive $zipFile `
     --version $version `
+    --source-commit $sourceCommit `
     --output $manifestFile
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

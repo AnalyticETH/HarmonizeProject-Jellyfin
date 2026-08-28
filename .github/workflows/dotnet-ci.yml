@@ -283,6 +283,7 @@ jobs:
           --lock-file Jellyfin.Plugin.Hue/packages.lock.json \
           --archive jellyfin-plugin-hue-release.zip \
           --version "$(jq -er '.version' release-package/meta.json)" \
+          --source-commit "$GITHUB_SHA" \
           --output jellyfin-plugin-hue-release.manifest.json
         sha256sum jellyfin-plugin-hue-release.manifest.json > jellyfin-plugin-hue-release.manifest.json.sha256
         sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256
@@ -416,7 +417,7 @@ jobs:
         set -euo pipefail
         sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
         sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256
-        jq -e '(.schemaVersion == 1) and (.pluginVersion | type == "string") and ((.packageFiles | length) == 3) and ((.nuget.packages | length) > 0)' jellyfin-plugin-hue-release.manifest.json >/dev/null
+        jq -e --arg source_commit "$GITHUB_SHA" '(.schemaVersion == 2) and (.pluginVersion | type == "string") and (.sourceCommit == $source_commit) and ((.packageFiles | length) == 3) and ((.nuget.packages | length) > 0)' jellyfin-plugin-hue-release.manifest.json >/dev/null
 
     - name: Extract changelog for current version
       id: changelog

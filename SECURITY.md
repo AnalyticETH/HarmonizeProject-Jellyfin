@@ -17,7 +17,7 @@ Every trusted `main` push runs the named self-hosted CI runner with:
 - A dedicated, least-privileged `harmonize-runner` service account and isolated home directory
 - A main-only `workflow_dispatch` recovery trigger for operators, with no pull-request or non-main push trigger, plus a job-level `refs/heads/main` guard and a separate release-runner identity for the `contents:write` publication job
 - Release packaging generates SHA-256 sidecars for the ZIP and a deterministic release manifest, carries them with the inter-job artifact, verifies them on the isolated release runner, and publishes the manifest beside the release ZIP
-- The release manifest records each packaged file's size and SHA-256 digest plus every resolved package/content hash from the plugin's committed NuGet lock file; helper and canonical manifests must compare byte-for-byte
+- The schema-version-2 release manifest records the exact 40-character source commit, each packaged file's size and SHA-256 digest, plus every resolved package/content hash from the plugin's committed NuGet lock file; helper and canonical manifests must compare byte-for-byte and the release runner rejects a source-commit mismatch
 - Locked-mode NuGet restores with committed dependency content hashes
 - NuGet vulnerability auditing through `dotnet list package --vulnerable --include-transitive`
 - Blocking Gitleaks history scanning with a redacted JSON artifact

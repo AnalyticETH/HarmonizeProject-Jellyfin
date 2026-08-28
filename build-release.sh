@@ -29,6 +29,13 @@ rm -f jellyfin-plugin-hue-*.zip.sha256
 rm -f jellyfin-plugin-hue-*.manifest.json
 rm -f jellyfin-plugin-hue-*.manifest.json.sha256
 
+# Provenance is bound to the commit, so refuse to package a dirty checkout
+# whose uncommitted source files would not be represented by that SHA.
+if [ -n "$(git -c safe.directory="$PWD" status --porcelain=v1 --untracked-files=all)" ]; then
+    echo "❌ Release helper requires a clean Git checkout; commit or remove local changes first." >&2
+    exit 1
+fi
+
 # Restore dependencies
 echo "📥 Restoring dependencies..."
 dotnet restore --locked-mode
@@ -52,6 +59,8 @@ dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj \
 
 # Extract and validate the release version from both sources of truth.
 VERSION=$(python3 -c 'import json, re, sys; value=json.load(open(sys.argv[1], encoding="utf-8")).get("version"); print(value) if isinstance(value, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+", value) else sys.exit("meta.json version must be a four-part numeric version")' meta.json)
+SOURCE_COMMIT=$(git -c safe.directory="$PWD" rev-parse --verify HEAD)
+printf '%s\n' "$SOURCE_COMMIT" | grep -Eq '^[0-9a-f]{40}$'
 PROJECT_VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj | head -n 1)
 PUBLISHED_VERSION=$(python3 -c 'import json, re, sys; value=json.load(open(sys.argv[1], encoding="utf-8")).get("version"); print(value) if isinstance(value, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+", value) else sys.exit("published meta.json version must be a four-part numeric version")' publish/meta.json)
 printf '%s\n' "$PROJECT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
@@ -112,6 +121,7 @@ python3 scripts/create-release-manifest.py \
     --lock-file Jellyfin.Plugin.Hue/packages.lock.json \
     --archive "$ZIPFILE" \
     --version "$VERSION" \
+    --source-commit "$SOURCE_COMMIT" \
     --output "$MANIFEST_FILE"
 MANIFEST_CHECKSUM_FILE="$MANIFEST_FILE.sha256"
 sha256sum "$MANIFEST_FILE" > "$MANIFEST_CHECKSUM_FILE"

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.360] - 2026-08-28
+
+### Source-bound release provenance
+- **Source-bound release provenance**: release manifests now carry the exact 40-character source commit that produced the tested package, and the isolated release runner verifies that binding before publication.
+- **Manifest schema hardening**: advance the deterministic manifest contract to schema version 2 with a required source-commit field and regression coverage for malformed or missing provenance.
+- **Cross-platform helper parity**: both documented release helpers pass their checked-out commit into the manifest generator so Linux helper output remains byte-for-byte identical to the canonical package manifest.
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated.
+
 ## [1.5.359] - 2026-08-28
 
 ### Release provenance manifest

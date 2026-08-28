@@ -27,6 +27,10 @@ COMPRESSION_LEVEL = 9
 # Python's ZipFile otherwise fills this with the process's default file mode.
 # Keep one fixed, harmless read/write mode across host platforms.
 FIXED_EXTERNAL_ATTR = 0o600 << 16
+# mkstemp creates the archive with a private mode. Make the completed release
+# artifact readable by the operator even when the helper runs as a container
+# root over a mounted checkout.
+FIXED_OUTPUT_MODE = 0o644
 
 
 def _canonical_info(name: str) -> zipfile.ZipInfo:
@@ -133,6 +137,7 @@ def create_archive(input_dir: Path, output_path: Path) -> None:
 
         inspect_archive(temporary_path)
         os.replace(temporary_path, output_path)
+        os.chmod(output_path, FIXED_OUTPUT_MODE)
         temporary_path = None
     finally:
         if temporary_path is not None:

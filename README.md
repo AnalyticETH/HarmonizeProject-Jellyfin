@@ -43,7 +43,7 @@ Unlike simple "cinema mode" automations that just dim the lights, this plugin ac
     *   **Windows**: `%ProgramData%\Jellyfin\Server\plugins`
     *   **Docker**: `/config/plugins`
 4.  Create a folder named `HueSync` and extract `jellyfin-plugin-hue-release.zip` into it.
-5.  Optionally inspect the manifest to audit the exact packaged file hashes and locked NuGet dependency graph.
+5.  Optionally inspect the manifest to audit the exact source commit, packaged file hashes, and locked NuGet dependency graph.
 6.  Confirm that `BouncyCastle.Cryptography.dll`, `Jellyfin.Plugin.Hue.dll`, and `meta.json` are directly inside the `HueSync` folder.
 7.  Restart Jellyfin.
 
@@ -347,8 +347,13 @@ The local release scripts produce `jellyfin-plugin-hue-v<version>.zip` and match
 * `Jellyfin.Plugin.Hue.dll` — the plugin assembly, including the embedded configuration page
 * `meta.json` — the Jellyfin plugin manifest and release version
 
-The release manifest is deterministic and records the archive digest, each packaged file's size and
-SHA-256 digest, and every resolved package/content hash from the plugin's committed NuGet lock file.
+The release manifest is deterministic and records the exact source commit, archive digest, each packaged
+file's size and SHA-256 digest, and every resolved package/content hash from the plugin's committed NuGet
+lock file. The source-commit binding lets an operator compare the published bytes with the reviewed
+workflow commit before installation.
+
+The local release helpers require a clean Git checkout so uncommitted source cannot be mislabeled with the
+checked-out commit's provenance.
 
 The version in `meta.json`, the project file, and the local archive name must match. Keep the
 archive, both checksum sidecars, and the matching manifest together for auditability; install the
@@ -481,7 +486,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.359 (Current)
+### Version 1.5.360 (Current)
+
+- **Source-bound release provenance**: release manifests now carry the exact 40-character source commit that produced the tested package, and the isolated release runner verifies that binding before publication.
+
+- **Manifest schema hardening**: advance the deterministic manifest contract to schema version 2 with a required source-commit field and regression coverage for malformed or missing provenance.
+
+- **Cross-platform helper parity**: both documented release helpers pass their checked-out commit into the manifest generator so Linux helper output remains byte-for-byte identical to the canonical package manifest.
+
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated.
 
 - **Deterministic release manifest**: every release now publishes exact packaged-file sizes and SHA-256 digests, the deterministic archive digest, and the plugin's resolved hash-locked NuGet graph.
 
