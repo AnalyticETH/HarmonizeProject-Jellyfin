@@ -507,13 +507,24 @@ namespace Jellyfin.Plugin.Hue.Hue
                     var hasResourceIds = false;
                     foreach (var candidate in data.EnumerateArray())
                     {
-                        if (!candidate.TryGetProperty("id", out var idProperty) ||
-                            idProperty.ValueKind != JsonValueKind.String)
+                        // Preserve the legacy first-entry fallback only when every
+                        // returned resource truly omits its identity. A present but
+                        // malformed id is not equivalent to an older response without
+                        // ids: accepting it could apply another area's channel layout
+                        // to the requested target.
+                        if (!candidate.TryGetProperty("id", out var idProperty))
                         {
                             continue;
                         }
 
                         hasResourceIds = true;
+                        if (idProperty.ValueKind != JsonValueKind.String ||
+                            string.IsNullOrWhiteSpace(idProperty.GetString()))
+                        {
+                            _logger.LogWarning("Entertainment configuration response contained a malformed area identifier");
+                            return (JsonElement?)null;
+                        }
+
                         if (string.Equals(
                             idProperty.GetString()?.Trim(),
                             areaId.Trim(),

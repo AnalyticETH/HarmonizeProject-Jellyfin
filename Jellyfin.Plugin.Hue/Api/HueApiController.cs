@@ -7519,9 +7519,19 @@ namespace Jellyfin.Plugin.Hue.Api
             if (captures.Count == 0)
                 return default;
 
-            var brightness = (int)Math.Round(
-                captures.Average(capture => Math.Clamp(capture.BrightnessPercent, 0, 100)),
-                MidpointRounding.AwayFromZero);
+            // HueColorMath averages brightness across every captured light, including
+            // lights that are off and therefore do not contribute to chromaticity. Keep
+            // that same per-light weighting when combining targets with different sizes.
+            var brightnessWeight = captures.Sum(capture => Math.Max(0, capture.CapturedLightCount));
+            var brightness = brightnessWeight > 0
+                ? (int)Math.Round(
+                    captures.Sum(capture =>
+                        (double)Math.Clamp(capture.BrightnessPercent, 0, 100) *
+                        Math.Max(0, capture.CapturedLightCount)) / brightnessWeight,
+                    MidpointRounding.AwayFromZero)
+                : (int)Math.Round(
+                    captures.Average(capture => Math.Clamp(capture.BrightnessPercent, 0, 100)),
+                    MidpointRounding.AwayFromZero);
             var colorSamples = captures
                 .Where(capture => capture.SampledLightCount > 0)
                 .ToArray();

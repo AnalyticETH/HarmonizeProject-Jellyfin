@@ -443,6 +443,62 @@ public class HueClientTests : IDisposable
         Assert.Null(result);
     }
 
+    [Theory]
+    [InlineData("42")]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("\"\"")]
+    public async Task GetEntertainmentConfiguration_MalformedResourceId_ReturnsNull(string malformedId)
+    {
+        var responseJson = $@"{{
+            ""data"": [{{
+                ""id"": ${malformedId},
+                ""channels"": [{{""channel_id"": 99}}]
+            }}]
+        }}";
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetEntertainmentConfiguration_MixedMissingAndMalformedResourceIds_ReturnsNull()
+    {
+        var responseJson = @"{
+            ""data"": [
+                {""channels"": [{""channel_id"": 0}]},
+                {""id"": 42, ""channels"": [{""channel_id"": 99}]}
+            ]
+        }";
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetEntertainmentConfiguration_IdlessLegacyResponse_ReturnsFirstConfiguration()
+    {
+        var responseJson = @"{
+            ""data"": [{""channels"": [{""channel_id"": 7}]}]
+        }";
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.NotNull(result);
+        Assert.Equal(7, result.Value.GetProperty("channels")[0].GetProperty("channel_id").GetInt32());
+    }
+
     [Fact]
     public async Task GetEntertainmentConfiguration_SelectsRequestedResourceWhenNotFirst()
     {

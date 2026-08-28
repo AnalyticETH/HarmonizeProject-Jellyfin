@@ -40,6 +40,11 @@ fingerprint before registration or any credential-bearing request; the administr
 credential-free probe and requires explicit confirmation, while unpinned or changed certificates fail
 closed.
 
+Entertainment-area configuration parsing also fails closed when an area identity is present but
+malformed or does not match the requested resource. The legacy first-entry fallback is retained only
+for responses where every returned resource omits its identity, so malformed bridge metadata cannot
+silently supply another area's channel layout.
+
 The repository-controlled weekly default-branch security workflow reruns the blocking Gitleaks and Semgrep gates. Both scanner jobs carry the same `refs/heads/main` guard, so pull-request and non-main code never reach the persistent runner.
 
 Pull requests, including Dependabot updates, use the separate

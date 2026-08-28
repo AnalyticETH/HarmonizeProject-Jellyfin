@@ -486,7 +486,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.361 (Current)
+### Version 1.5.362 (Current)
+
+- **Fail-closed entertainment-area identity**: Hue configuration responses reject present malformed area IDs instead of treating them as legacy ID-less responses, preventing an unverified area's channel layout from being used for the requested target while preserving the documented ID-less fallback.
+
+- **Weighted multi-target brightness**: aggregate current-light capture now weights brightness by captured light count, including off lights, so rooms with different numbers of lights seed the scene editor accurately.
+
+- **Regression coverage**: client and API tests cover malformed area identities, legacy ID-less responses, unequal target sizes, and off-light brightness weighting.
 
 - **Semgrep snapshot integrity**: blocking Semgrep workflows vary each ruleset request per run and attempt while retaining SHA-256 fail-closed verification, so any changed snapshot requires an explicit pin review.
 

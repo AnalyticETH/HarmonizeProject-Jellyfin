@@ -2532,7 +2532,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(2, result.AttemptedTargetCount);
         Assert.Equal(2, result.SuccessfulTargetCount);
         Assert.Equal(3, result.SampledLightCount);
-        Assert.Equal(65, result.BrightnessPercent);
+        Assert.Equal(70, result.BrightnessPercent);
         Assert.Equal(new[] { "user-custom" }, result.TargetUserIds);
         Assert.Equal(new[] { "Default bridge", "Bedroom" }, result.Captures.Select(capture => capture.TargetLabel));
         Assert.True(result.Red > 0);
@@ -2543,6 +2543,105 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("default-client-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("mapping-client-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CaptureCurrentColors_WeightsBrightnessByCapturedLightsIncludingOffLights()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-secret",
+            HueClientKey = "default-client-secret",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = "1",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-custom",
+                    UserName = "Bedroom",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "area-2",
+                    ChannelIdsOverride = "2"
+                }
+            }
+        });
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"on\":{\"on\":true},\"dimming\":{\"brightness\":100},\"color\":{\"xy\":{\"x\":0.64,\"y\":0.33}}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-2\",\"metadata\":{\"name\":\"Bedroom\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":2,\"members\":[{\"service\":{\"rid\":\"light-2\"}},{\"service\":{\"rid\":\"light-3\"}}]}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"on\":{\"on\":true},\"dimming\":{\"brightness\":100},\"color\":{\"xy\":{\"x\":0.64,\"y\":0.33}}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"on\":{\"on\":false},\"dimming\":{\"brightness\":0},\"color\":{\"xy\":{\"x\":0.15,\"y\":0.06}}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+
+        var action = await CreateController().CaptureCurrentColors(new HueCurrentLightColorBatchRequest
+        {
+            IncludeDefaultTarget = true,
+            TargetUserIds = new List<string> { "user-custom" }
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueCurrentLightColorBatchResult>(response.Value);
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal(2, result.SuccessfulTargetCount);
+        Assert.Equal(2, result.SampledLightCount);
+        Assert.Equal(67, result.BrightnessPercent);
+        Assert.Equal(1, result.Captures[0].CapturedLightCount);
+        Assert.Equal(2, result.Captures[1].CapturedLightCount);
+        Assert.Equal(100, result.Captures[0].BrightnessPercent);
+        Assert.Equal(50, result.Captures[1].BrightnessPercent);
     }
 
     [Fact]
