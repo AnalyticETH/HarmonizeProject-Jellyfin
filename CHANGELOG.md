@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.353] - 2026-08-28
+
+### Runtime identity and transport hardening
+- **Playback-generation identity**: concurrent playback routing now treats `PlaySessionId` as the authoritative generation key, refusing to attach unknown IDs to a stale worker from the same Jellyfin client and allowing rapid same-client transitions to a new Hue target.
+- **Bounded bridge responses**: bridge REST and cloud-discovery bodies now use header-first streaming with a strict 1 MiB limit, rejecting oversized success or error payloads without logging their contents.
+- **Regression coverage**: concurrent playback, bounded response, history lifecycle, API conflict, and serialized persistence tests cover the new runtime and transport boundaries.
+
 ## [1.5.352] - 2026-08-28
 
 ### Non-disruptive history maintenance

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.Hue.Api;
@@ -316,6 +317,34 @@ public class HueClientTests : IDisposable
         Assert.Equal("Living Room", result[0].Name);
         Assert.Equal("area-2", result[1].Id);
         Assert.Equal("Bedroom", result[1].Name);
+    }
+
+    [Fact]
+    public async Task GetEntertainmentAreas_NormalResponseWithoutContentLength_ReturnsAreaList()
+    {
+        SetupHttpResponseWithoutContentLength(
+            HttpStatusCode.OK,
+            @"{""data"":[{""id"":""area-1"",""metadata"":{""name"":""Living Room""}}]}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentAreas("192.168.1.100", "test-app-key");
+
+        var area = Assert.Single(result!);
+        Assert.Equal("area-1", area.Id);
+        Assert.Equal("Living Room", area.Name);
+    }
+
+    [Fact]
+    public async Task GetEntertainmentAreas_OversizedSuccessResponse_ReturnsNull()
+    {
+        SetupHttpResponseWithoutContentLength(
+            HttpStatusCode.OK,
+            new string('x', HueClient.MaxResponseBodyBytes + 1));
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentAreas("192.168.1.100", "test-app-key");
+
+        Assert.Null(result);
     }
 
     [Fact]
@@ -1638,6 +1667,25 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task RegisterWithBridge_OversizedErrorResponseReturnsNullWithoutLoggingBody()
+    {
+        const string secretSentinel = "oversized-bridge-response-secret";
+        var oversizedDescription = new string('x', HueClient.MaxResponseBodyBytes) + secretSentinel;
+        SetupHttpResponseWithoutContentLength(
+            HttpStatusCode.OK,
+            $"[{{\"error\":{{\"type\":101,\"description\":\"{oversizedDescription}\"}}}}]");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        Assert.Null(await client.RegisterWithBridge("192.168.1.100"));
+
+        var logText = string.Join(
+            "\n",
+            _loggerMock.Invocations.Select(invocation =>
+                string.Join(" ", invocation.Arguments.Select(argument => argument?.ToString() ?? string.Empty))));
+        Assert.DoesNotContain(secretSentinel, logText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RegisterWithBridge_WhenCanceled_PropagatesCancellation()
     {
         SetupHttpResponse(HttpStatusCode.OK, "[]");
@@ -1664,6 +1712,24 @@ public class HueClientTests : IDisposable
             .ReturnsAsync(new HttpResponseMessage(statusCode)
             {
                 Content = new StringContent(content, Encoding.UTF8, "application/json")
+            });
+    }
+
+    private void SetupHttpResponseWithoutContentLength(HttpStatusCode statusCode, string content)
+    {
+        var responseContent = new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(content)));
+        responseContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        responseContent.Headers.Remove("Content-Length");
+
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(statusCode)
+            {
+                Content = responseContent
             });
     }
 

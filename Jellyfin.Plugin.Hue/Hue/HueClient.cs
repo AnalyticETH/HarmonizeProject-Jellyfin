@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,6 +24,10 @@ namespace Jellyfin.Plugin.Hue.Hue
         private const int DefaultRetryAttempts = 3;
         private const int MaxRetryAttempts = 10;
         private const int RetryDelayMs = 1000;
+        // Hue REST and discovery payloads are normally measured in kilobytes. Keep
+        // enough headroom for installations with many resources while preventing a
+        // compromised bridge or discovery endpoint from forcing an unbounded buffer.
+        internal const int MaxResponseBodyBytes = 1024 * 1024;
         private const int MaxLightStateTokenLength = 128;
         private const int MaxGradientPoints = 5;
         private const long MaxTimedEffectDurationMilliseconds = 21_600_000;
@@ -192,7 +198,55 @@ namespace Jellyfin.Plugin.Hue.Hue
                     configuredFingerprint);
             }
 
-            return await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            return await _httpClient
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Reads a Hue response body with a finite decoded-byte limit. The limit is
+        /// enforced both from the advertised length and while streaming so chunked or
+        /// dishonest responses cannot grow an in-memory buffer without bound.
+        /// </summary>
+        private static async Task<string> ReadResponseBodyAsync(
+            HttpResponseMessage response,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(response);
+
+            var content = response.Content;
+            if (content.Headers.ContentLength > MaxResponseBodyBytes)
+            {
+                throw new InvalidDataException("Hue response body exceeds the maximum allowed size.");
+            }
+
+            await using var responseStream = await content
+                .ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            using var body = new MemoryStream();
+            var buffer = new byte[81920];
+
+            while (true)
+            {
+                var remaining = MaxResponseBodyBytes - checked((int)body.Length);
+                var bytesToRead = Math.Min(buffer.Length, remaining + 1);
+                var bytesRead = await responseStream
+                    .ReadAsync(buffer.AsMemory(0, bytesToRead), cancellationToken)
+                    .ConfigureAwait(false);
+                if (bytesRead == 0)
+                {
+                    break;
+                }
+
+                if (bytesRead > remaining)
+                {
+                    throw new InvalidDataException("Hue response body exceeds the maximum allowed size.");
+                }
+
+                body.Write(buffer, 0, bytesRead);
+            }
+
+            return Encoding.UTF8.GetString(body.GetBuffer(), 0, checked((int)body.Length));
         }
 
         /// <summary>
@@ -219,7 +273,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     .ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
                 using var document = JsonDocument.Parse(
-                    await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                    await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false));
                 if (document.RootElement.ValueKind != JsonValueKind.Object ||
                     !document.RootElement.TryGetProperty("bridgeid", out var bridgeId) ||
                     bridgeId.ValueKind != JsonValueKind.String ||
@@ -277,8 +331,13 @@ namespace Jellyfin.Plugin.Hue.Hue
             // offline from the cloud or have not been published there yet.
             try
             {
-                var response = await _httpClient.GetStringAsync("https://discovery.meethue.com/", cancellationToken).ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(response);
+                using var request = new HttpRequestMessage(HttpMethod.Get, "https://discovery.meethue.com/");
+                using var response = await _httpClient
+                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                    .ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                using var doc = JsonDocument.Parse(
+                    await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false));
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var bridge in doc.RootElement.EnumerateArray())
@@ -363,7 +422,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                         response.EnsureSuccessStatusCode();
                     }
 
-                    var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    var json = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
 
                     // Response: [{"success":{"username":"...","clientkey":"..."}}] OR [{"error":...}]
                     using var doc = JsonDocument.Parse(json);
@@ -429,7 +488,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
 
-                    var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    var json = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
                     using var doc = JsonDocument.Parse(json);
                     // Expected: { "data": [ { "id": "...", "channels": [ ... ] } ] }.
                     // Older bridge responses may omit the resource id, so preserve the
@@ -638,7 +697,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
 
-                    var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    var json = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
                     using var doc = JsonDocument.Parse(json);
 
                     var results = new List<EntertainmentArea>();
@@ -1147,7 +1206,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                         using var response = await SendBridgeRequestAsync(request, cancellationToken).ConfigureAwait(false);
                         response.EnsureSuccessStatusCode();
 
-                        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                        var json = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
                         using var doc = JsonDocument.Parse(json);
                         if (!doc.RootElement.TryGetProperty("data", out var data) ||
                             data.ValueKind != JsonValueKind.Array ||

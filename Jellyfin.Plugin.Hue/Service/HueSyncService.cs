@@ -1652,7 +1652,13 @@ namespace Jellyfin.Plugin.Hue.Service
                     return true;
                 }
 
-                if (!string.IsNullOrWhiteSpace(clientSessionId))
+                // SessionInfo.Id identifies the connected Jellyfin client, not the
+                // playback generation. Once an event carries a play-session ID, an
+                // unknown value must fail closed instead of being attached to an older
+                // worker from the same client. The client fallback is retained only for
+                // legacy events that do not carry a play-session ID.
+                if (string.IsNullOrWhiteSpace(playSessionId) &&
+                    !string.IsNullOrWhiteSpace(clientSessionId))
                 {
                     var matchingWorker = _concurrentPlaybackWorkers.Values.FirstOrDefault(candidate =>
                         string.Equals(candidate.ClientSessionId, clientSessionId, StringComparison.Ordinal));
@@ -1684,10 +1690,12 @@ namespace Jellyfin.Plugin.Hue.Service
                     return false;
                 }
 
-                if (_concurrentPlaybackWorkers.ContainsKey(e.PlaySessionId) ||
-                    (!string.IsNullOrWhiteSpace(e.Session?.Id) &&
-                     _concurrentPlaybackWorkers.Values.Any(worker =>
-                         string.Equals(worker.ClientSessionId, e.Session?.Id, StringComparison.Ordinal))))
+                // A Jellyfin client can move to a new playback generation while the
+                // predecessor's stop notification is still in flight. The exact
+                // PlaySessionId is the duplicate key; SessionInfo.Id must not suppress
+                // a distinct generation, especially when its route changes to another
+                // Hue target.
+                if (_concurrentPlaybackWorkers.ContainsKey(e.PlaySessionId))
                 {
                     return true;
                 }

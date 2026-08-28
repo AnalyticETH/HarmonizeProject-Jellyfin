@@ -1066,6 +1066,111 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task ConcurrentPlaybackLookup_DoesNotUseClientSessionForUnknownPlaySession()
+    {
+        using var httpClient = new HttpClient(new ImmediateHueHandler());
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var workers = GetConcurrentPlaybackWorkers(service);
+        workers.Add(
+            "old-play-session",
+            CreateSyntheticConcurrentWorker("old-play-session", "client-session", "bridge|area"));
+
+        var lookup = typeof(HueSyncService)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(method => method.Name == "TryGetConcurrentPlaybackWorker" &&
+                              method.GetParameters().Length == 3 &&
+                              method.GetParameters()[0].ParameterType == typeof(string));
+        var arguments = new object?[] { "new-play-session", "client-session", null };
+
+        var found = (bool)lookup.Invoke(service, arguments)!;
+
+        Assert.False(found);
+        Assert.Null(arguments[2]);
+        Assert.Single(workers);
+
+        workers.Clear();
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ConcurrentPlaybackStart_AllowsNewPlaySessionFromSameClientOnNewTarget()
+    {
+        using var httpClient = new HttpClient(new ImmediateHueHandler());
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var userId = Guid.NewGuid();
+        Plugin.Instance!.Configuration.UserMappings.Add(new UserBridgeMapping
+        {
+            UserId = userId.ToString(),
+            DeviceTargets = new List<UserDeviceBridgeTarget>
+            {
+                new()
+                {
+                    DeviceId = "device-old",
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "old-app-key",
+                    HueClientKey = "old-client-key",
+                    EntertainmentAreaId = "old-area"
+                },
+                new()
+                {
+                    DeviceId = "device-new",
+                    HueBridgeIp = "192.168.1.102",
+                    HueAppKey = "new-app-key",
+                    HueClientKey = "new-client-key",
+                    EntertainmentAreaId = "new-area"
+                }
+            }
+        });
+        SetPrivateField(service, "_currentPlaySessionId", "primary-play-session");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "primary-area"));
+
+        var workers = GetConcurrentPlaybackWorkers(service);
+        workers.Add(
+            "old-play-session",
+            CreateSyntheticConcurrentWorker(
+                "old-play-session",
+                "client-session",
+                HueSyncService.GetPlaybackResourceKey("192.168.1.101", "old-area")));
+
+        var session = new SessionInfo(Mock.Of<ISessionManager>(), Mock.Of<ILogger>())
+        {
+            Id = "client-session",
+            UserId = userId,
+            DeviceId = "device-new",
+            DeviceName = "New playback device"
+        };
+        var progress = CreateProgress("new-play-session");
+        progress.Session = session;
+        var start = typeof(HueSyncService).GetMethod(
+            "TryStartConcurrentPlayback",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        var handled = (bool)start.Invoke(service, new object?[]
+        {
+            progress,
+            PluginConfiguration.PlaybackMediaFilterAllVideo
+        })!;
+
+        Assert.True(handled);
+        Assert.True(workers.Contains("old-play-session"));
+        Assert.True(workers.Contains("new-play-session"));
+        Assert.Equal(2, workers.Count);
+
+        // The synthetic predecessor is only test scaffolding and has no child service;
+        // remove it before normal hosted-service cleanup stops the newly created worker.
+        workers.Remove("old-play-session");
+        SetPrivateField(service, "_bridgeAreaDeactivated", true);
+        SetPrivateField(service, "_currentBridgeConfig", null);
+        SetPrivateField(service, "_currentPlaySessionId", null);
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PlaybackStart_CapturesMediaScopeForRuntimeStatus()
     {
         var handler = new BlockingHueHandler();
@@ -1996,6 +2101,24 @@ public sealed class HueSyncServiceLifecycleTests
     private static void SetPrivateField(object target, string fieldName, object? value) =>
         target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(target, value);
 
+    private static System.Collections.IDictionary GetConcurrentPlaybackWorkers(HueSyncService service) =>
+        Assert.IsAssignableFrom<System.Collections.IDictionary>(GetPrivateField(service, "_concurrentPlaybackWorkers"));
+
+    private static object CreateSyntheticConcurrentWorker(
+        string playSessionId,
+        string clientSessionId,
+        string resourceKey)
+    {
+        var workerType = typeof(HueSyncService).GetNestedType(
+            "ConcurrentPlaybackWorker",
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Static)!;
+        var worker = Activator.CreateInstance(workerType, nonPublic: true)!;
+        workerType.GetProperty("PlaySessionId")!.SetValue(worker, playSessionId);
+        workerType.GetProperty("ClientSessionId")!.SetValue(worker, clientSessionId);
+        workerType.GetProperty("ResourceKey")!.SetValue(worker, resourceKey);
+        return worker;
+    }
+
     private static PlaybackProgressEventArgs CreateProgress(string playSessionId, bool isPaused = false)
     {
         return new PlaybackProgressEventArgs
@@ -2211,6 +2334,23 @@ public sealed class HueSyncServiceLifecycleTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+        }
+    }
+
+    private sealed class ImmediateHueHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var content = request.Method == HttpMethod.Get &&
+                          request.RequestUri?.AbsolutePath.Contains("entertainment_configuration", StringComparison.Ordinal) == true
+                ? "{\"data\":[{\"channels\":[]}] }"
+                : "{}";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(content, Encoding.UTF8, "application/json")
             });
         }
     }
