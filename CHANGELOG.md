@@ -16,6 +16,7 @@ No unreleased changes.
 - **Bounded environment probes**: FFmpeg version, diagnostic stderr, and PCM capability output are capped; oversized output terminates the probe and fails closed without allowing a misbehaving executable to grow memory indefinitely.
 - **Regression coverage**: lifecycle and environment-probe tests cover null playback items, unbounded version stdout/stderr, and unbounded PCM output.
 - **Security-scan concurrency isolation**: scheduled scans and trusted main-push security gates use separate event-scoped lanes, so a weekly scan cannot cancel a release-critical gate.
+- **Semgrep snapshot integrity**: refreshed the reviewed SHA-256 pin for the default ruleset after the registry rotated; blocking scans continue to fail closed on any unreviewed change.
 
 ## [1.5.363] - 2026-08-28
 

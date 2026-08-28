@@ -496,6 +496,8 @@ Benchmarks measure:
 
 - **Security-scan concurrency isolation**: scheduled scans and trusted main-push security gates use separate event-scoped lanes, so a weekly scan cannot cancel a release-critical gate.
 
+- **Semgrep snapshot integrity**: refreshed the reviewed SHA-256 pin for the default ruleset after the registry rotated; blocking scans continue to fail closed on any unreviewed change.
+
 - **Fail-closed entertainment-area identity**: Hue configuration responses reject present malformed area IDs instead of treating them as legacy ID-less responses, preventing an unverified area's channel layout from being used for the requested target while preserving the documented ID-less fallback.
 
 - **Weighted multi-target brightness**: aggregate current-light capture now weights brightness by captured light count, including off lights, so rooms with different numbers of lights seed the scene editor accurately.
