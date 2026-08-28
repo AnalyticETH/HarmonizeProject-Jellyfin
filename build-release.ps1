@@ -66,7 +66,7 @@ $versionPattern = '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
 if ($version -notmatch $versionPattern) {
     throw "meta.json version must be a four-part numeric version."
 }
-$sourceCommit = (& git rev-parse --verify HEAD).Trim().ToLowerInvariant()
+$sourceCommit = (& git -c "safe.directory=$((Get-Location).Path)" rev-parse --verify HEAD).Trim().ToLowerInvariant()
 if ($sourceCommit -notmatch '^[0-9a-f]{40}$') {
     throw "The checked-out source commit must be a 40-character Git SHA."
 }

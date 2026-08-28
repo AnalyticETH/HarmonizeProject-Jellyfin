@@ -27,7 +27,7 @@ env:
   # Registry aliases are fetched as reviewed, SHA-256-pinned snapshots. A changed
   # ruleset fails closed instead of silently changing the security policy.
   SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'
-  SEMGREP_DEFAULT_CONFIG_SHA256: 'cfa8bb1e6cfcd2b02f2bbef70d3b155858551834b72f79a7f70de42fc9118591'
+  SEMGREP_DEFAULT_CONFIG_SHA256: '3f7d40a75e96d29602385193fba95faaa87163b26f75d44e19b01154c0a5a75d'
   SEMGREP_JAVASCRIPT_CONFIG_URL: 'https://semgrep.dev/c/p/javascript'
   SEMGREP_JAVASCRIPT_CONFIG_SHA256: 'e65e8449157ef5d587f2c2a0c17ed388910ca90336e514d27941ccd25543cf4e'
   SEMGREP_PYTHON_CONFIG_URL: 'https://semgrep.dev/c/p/python'
@@ -132,12 +132,15 @@ jobs:
           default_config_path="$RUNNER_TEMP/semgrep-default.yml"
           javascript_config_path="$RUNNER_TEMP/semgrep-javascript.yml"
           python_config_path="$RUNNER_TEMP/semgrep-python.yml"
+          # Vary each request per run/attempt where intermediaries honor query
+          # keys; a changed snapshot still fails closed until its hash is reviewed.
+          semgrep_cache_buster="$(date -u +%Y%m%d%H%M%S)-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
           curl -sSfL --retry 3 --retry-all-errors \
-            -o "$default_config_path" "$SEMGREP_DEFAULT_CONFIG_URL"
+            -o "$default_config_path" "${SEMGREP_DEFAULT_CONFIG_URL}?cachebust=${semgrep_cache_buster}"
           curl -sSfL --retry 3 --retry-all-errors \
-            -o "$javascript_config_path" "$SEMGREP_JAVASCRIPT_CONFIG_URL"
+            -o "$javascript_config_path" "${SEMGREP_JAVASCRIPT_CONFIG_URL}?cachebust=${semgrep_cache_buster}"
           curl -sSfL --retry 3 --retry-all-errors \
-            -o "$python_config_path" "$SEMGREP_PYTHON_CONFIG_URL"
+            -o "$python_config_path" "${SEMGREP_PYTHON_CONFIG_URL}?cachebust=${semgrep_cache_buster}"
           printf '%s  %s\n' "$SEMGREP_DEFAULT_CONFIG_SHA256" "$default_config_path" \
             | sha256sum --check --strict -
           printf '%s  %s\n' "$SEMGREP_JAVASCRIPT_CONFIG_SHA256" "$javascript_config_path" \

@@ -486,7 +486,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.360 (Current)
+### Version 1.5.361 (Current)
+
+- **Semgrep snapshot integrity**: blocking Semgrep workflows vary each ruleset request per run and attempt while retaining SHA-256 fail-closed verification, so any changed snapshot requires an explicit pin review.
+
+- **Cross-platform Git provenance parity**: the PowerShell release helper applies an explicit safe.directory override when binding the source commit, matching Linux helper behavior on hardened self-hosted runners.
 
 - **Source-bound release provenance**: release manifests now carry the exact 40-character source commit that produced the tested package, and the isolated release runner verifies that binding before publication.
 

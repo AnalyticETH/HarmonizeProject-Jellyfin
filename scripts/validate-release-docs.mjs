@@ -124,7 +124,8 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
   } else {
     markers.push(
       "Remove-Item -Recurse -Force \"./publish\"",
-      "status --porcelain=v1 --untracked-files=all",
+      "git -c \"safe.directory=$((Get-Location).Path)\" status --porcelain=v1 --untracked-files=all",
+      "git -c \"safe.directory=$((Get-Location).Path)\" rev-parse --verify HEAD",
       "Get-FileHash -Algorithm SHA256",
       "create-deterministic-release-zip.py",
       "--input-dir \"release-package\"",

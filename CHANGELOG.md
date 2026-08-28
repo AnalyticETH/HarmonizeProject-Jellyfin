@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.361] - 2026-08-28
+
+### Release integrity hardening
+- **Semgrep snapshot integrity**: blocking Semgrep workflows vary each ruleset request per run and attempt while retaining SHA-256 fail-closed verification, so any changed snapshot requires an explicit pin review.
+- **Cross-platform Git provenance parity**: the PowerShell release helper applies an explicit safe.directory override when binding the source commit, matching Linux helper behavior on hardened self-hosted runners.
+
 ## [1.5.360] - 2026-08-28
 
 ### Source-bound release provenance

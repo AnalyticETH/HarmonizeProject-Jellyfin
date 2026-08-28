@@ -119,7 +119,11 @@ const pinnedConfigRuntimeMarkers = [
     'default_config_path="$RUNNER_TEMP/semgrep-default.yml"',
     'javascript_config_path="$RUNNER_TEMP/semgrep-javascript.yml"',
     'python_config_path="$RUNNER_TEMP/semgrep-python.yml"',
+    'semgrep_cache_buster="$(date -u +%Y%m%d%H%M%S)-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"',
     'curl -sSfL --retry 3 --retry-all-errors',
+    '"${SEMGREP_DEFAULT_CONFIG_URL}?cachebust=${semgrep_cache_buster}"',
+    '"${SEMGREP_JAVASCRIPT_CONFIG_URL}?cachebust=${semgrep_cache_buster}"',
+    '"${SEMGREP_PYTHON_CONFIG_URL}?cachebust=${semgrep_cache_buster}"',
     '"$semgrep_venv/bin/semgrep" validate "$default_config_path"',
     '"$semgrep_venv/bin/semgrep" validate "$javascript_config_path"',
     '"$semgrep_venv/bin/semgrep" validate "$python_config_path"',
@@ -164,8 +168,10 @@ function countOccurrences(value, marker) {
     return value.split(marker).length - 1;
 }
 
+let baselineWorkflowHashes = null;
 for (const workflowPath of semgrepWorkflows) {
     const workflow = fs.readFileSync(workflowPath, "utf8");
+    const workflowHashes = [];
     for (const marker of [timeoutCountExpression, timeoutSummaryMarker, timeoutGateMarker]) {
         if (countOccurrences(workflow, marker) < 4) {
             throw new Error(`${workflowPath}: Semgrep timeout gate is missing marker: ${marker}`);
@@ -176,10 +182,20 @@ for (const workflowPath of semgrepWorkflows) {
             throw new Error(`${workflowPath}: Semgrep config source is not pinned to ${source}`);
         }
         const hashVariable = `${variable.replace(/_URL$/, "")}_SHA256`;
-        if (!new RegExp(`${hashVariable}: ['\"][0-9a-f]{64}['\"]`).test(workflow)) {
+        const hashMatch = workflow.match(new RegExp(`${hashVariable}: ['\"]([0-9a-f]{64})['\"]`));
+        if (!hashMatch) {
             throw new Error(`${workflowPath}: ${hashVariable} must be a 64-character SHA-256 digest`);
         }
+        workflowHashes.push(hashMatch[1]);
     }
+    if (countOccurrences(workflow, 'semgrep_cache_buster="') !== 1 ||
+        countOccurrences(workflow, 'GITHUB_RUN_ATTEMPT:-1') !== 1) {
+        throw new Error(`${workflowPath}: Semgrep downloads must use one per-attempt cache-buster`);
+    }
+    if (baselineWorkflowHashes && workflowHashes.some((hash, index) => hash !== baselineWorkflowHashes[index])) {
+        throw new Error(`${workflowPath}: Semgrep SHA-256 pins must match the other blocking workflow`);
+    }
+    baselineWorkflowHashes = baselineWorkflowHashes || workflowHashes;
     for (const marker of pinnedConfigRuntimeMarkers) {
         if (!workflow.includes(marker)) {
             throw new Error(`${workflowPath}: Semgrep config pinning is missing marker: ${marker}`);
