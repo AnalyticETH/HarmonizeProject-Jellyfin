@@ -12,10 +12,12 @@ namespace Jellyfin.Plugin.Hue.Api;
 
 /// <summary>
 /// Serializes administrator configuration writers with configuration import and the
-/// scheduler's evaluation barrier. Read-only, bridge-lifecycle, and cue-run actions are
-/// intentionally excluded so a configuration write never holds the bridge gate across a
-/// long-running preview or playback operation. A guarded policy-disable write may overlap
-/// existing playback long enough to persist the disable and await targeted cleanup.
+/// scheduler's evaluation barrier. Read-only, bridge-lifecycle, cue-run, and retained-history
+/// clear actions are intentionally excluded from the bridge mutation lease: history clears
+/// use the gate's independent history slot so they can run while playback or a scheduled cue
+/// is active without allowing a configuration snapshot to overlap their persistence window.
+/// A guarded policy-disable write may overlap existing playback long enough to persist the
+/// disable and await targeted cleanup.
 /// </summary>
 public sealed class HueConfigurationMutationFilter : IAsyncActionFilter
 {
@@ -30,6 +32,24 @@ public sealed class HueConfigurationMutationFilter : IAsyncActionFilter
         ActionExecutingContext context,
         ActionExecutionDelegate next)
     {
+        if (IsHistoryClear(context.HttpContext.Request.Method, context.HttpContext.Request.Path.Value))
+        {
+            var historyLease = _bridgeLifecycleGate.TryEnterHistoryMutation();
+            if (historyLease == null)
+            {
+                context.Result = new ConflictObjectResult(
+                    "History clear cannot proceed while configuration is being read or changed, or another history clear is active.");
+                return;
+            }
+
+            using (historyLease)
+            {
+                await next().ConfigureAwait(false);
+            }
+
+            return;
+        }
+
         if (!IsConfigurationWriter(context.HttpContext.Request.Method, context.HttpContext.Request.Path.Value))
         {
             await next().ConfigureAwait(false);
@@ -68,8 +88,7 @@ public sealed class HueConfigurationMutationFilter : IAsyncActionFilter
         }
 
         if (segments.Length == 2 &&
-            (segments[1].Equals("Configuration", StringComparison.OrdinalIgnoreCase) ||
-             segments[1].Equals("History", StringComparison.OrdinalIgnoreCase)))
+            segments[1].Equals("Configuration", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -85,7 +104,7 @@ public sealed class HueConfigurationMutationFilter : IAsyncActionFilter
             segments.Length == 3 &&
             segments[2].Equals("History", StringComparison.OrdinalIgnoreCase))
         {
-            return true;
+            return false;
         }
 
         if (segments[1].Equals("Configuration", StringComparison.OrdinalIgnoreCase))
@@ -132,6 +151,22 @@ public sealed class HueConfigurationMutationFilter : IAsyncActionFilter
         }
 
         return false;
+    }
+
+    private static bool IsHistoryClear(string method, string? path)
+    {
+        if (!string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var route = path?.Trim('/') ?? string.Empty;
+        var segments = route.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return (segments.Length == 2 &&
+                segments[0].Equals("HueSync", StringComparison.OrdinalIgnoreCase) &&
+                segments[1].Equals("History", StringComparison.OrdinalIgnoreCase)) ||
+               (segments.Length == 3 &&
+                segments[0].Equals("HueSync", StringComparison.OrdinalIgnoreCase) &&
+                segments[1].Equals("SceneSchedules", StringComparison.OrdinalIgnoreCase) &&
+                segments[2].Equals("History", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsDisablingPlaybackPolicy(ActionExecutingContext context)

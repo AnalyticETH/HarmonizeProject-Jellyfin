@@ -5,11 +5,11 @@ using System.Threading;
 namespace Jellyfin.Plugin.Hue.Service;
 
 /// <summary>
-/// Coordinates bridge-mutating playback and diagnostic lifecycles. A single gate is
-/// shared by the hosted playback service and the API diagnostic tester so a request
-/// cannot pass a point-in-time <c>IsSyncing</c> check and then race playback startup.
-/// Distinct bridge/entertainment-area resources may be owned by independent playback
-/// sessions at the same time.
+/// Coordinates bridge-mutating playback and diagnostic lifecycles plus the independent
+/// retained-history mutation slot. A single gate is shared by the hosted playback service
+/// and the API diagnostic tester so a request cannot pass a point-in-time <c>IsSyncing</c>
+/// check and then race playback startup. Distinct bridge/entertainment-area resources may
+/// be owned by independent playback sessions at the same time.
 /// </summary>
 public sealed class HueBridgeLifecycleGate
 {
@@ -21,6 +21,8 @@ public sealed class HueBridgeLifecycleGate
     private bool _configurationMutationActive;
     private int _configurationReadCount;
     private int _schedulerEvaluationCount;
+    private bool _historyMutationActive;
+    private readonly object _historySynchronization = new();
 
     /// <summary>
     /// Gets whether a playback lifecycle currently owns at least one bridge resource.
@@ -112,6 +114,30 @@ public sealed class HueBridgeLifecycleGate
     }
 
     /// <summary>
+    /// Gets whether a retained-history clear currently owns the history mutation slot.
+    /// History clears do not touch a Hue bridge and are therefore allowed to overlap
+    /// playback, diagnostics, and scheduler evaluation, but they remain serialized with
+    /// configuration snapshots and other history clears.
+    /// </summary>
+    public bool IsHistoryMutationActive
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _historyMutationActive;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Shared synchronization root for in-memory history snapshots and their optional
+    /// configuration persistence. The lock is intentionally separate from the bridge
+    /// lifecycle state so history maintenance cannot reserve or block a Hue resource.
+    /// </summary>
+    internal object HistorySynchronization => _historySynchronization;
+
+    /// <summary>
     /// Attempts to reserve the process-wide lifecycle gate for an atomic configuration
     /// mutation. The reservation succeeds only when no playback or diagnostic lifecycle
     /// is active, and remains held until the returned lease is disposed. This closes the
@@ -134,6 +160,7 @@ public sealed class HueBridgeLifecycleGate
         {
             if (_configurationMutationActive ||
                 _configurationReadCount > 0 ||
+                _historyMutationActive ||
                 _schedulerEvaluationCount > 0 ||
                 IsDiagnosticActiveLocked() ||
                 (!allowActivePlayback && IsPlaybackActiveLocked()))
@@ -156,7 +183,7 @@ public sealed class HueBridgeLifecycleGate
     {
         lock (_sync)
         {
-            if (_configurationMutationActive || _schedulerEvaluationCount > 0)
+            if (_configurationMutationActive || _historyMutationActive || _schedulerEvaluationCount > 0)
                 return null;
 
             _configurationReadCount++;
@@ -179,6 +206,29 @@ public sealed class HueBridgeLifecycleGate
 
             _schedulerEvaluationCount++;
             return new LifecycleLease(this, LifecycleKind.SchedulerEvaluation, resourceKey: null);
+        }
+    }
+
+    /// <summary>
+    /// Attempts to reserve a retained-history mutation. Unlike a configuration mutation,
+    /// this reservation deliberately remains available while playback, diagnostics, or
+    /// scheduler evaluation is active because clearing telemetry does not touch a bridge
+    /// or alter scheduler deferred-run state. Configuration mutations and reads remain
+    /// excluded so their snapshots cannot overlap the history persistence window.
+    /// </summary>
+    public IDisposable? TryEnterHistoryMutation()
+    {
+        lock (_sync)
+        {
+            if (_historyMutationActive ||
+                _configurationMutationActive ||
+                _configurationReadCount > 0)
+            {
+                return null;
+            }
+
+            _historyMutationActive = true;
+            return new LifecycleLease(this, LifecycleKind.HistoryMutation, resourceKey: null);
         }
     }
 
@@ -279,6 +329,10 @@ public sealed class HueBridgeLifecycleGate
             {
                 _schedulerEvaluationCount = Math.Max(0, _schedulerEvaluationCount - 1);
             }
+            else if (kind == LifecycleKind.HistoryMutation)
+            {
+                _historyMutationActive = false;
+            }
             else if (kind == LifecycleKind.Playback)
             {
                 if (resourceKey == null)
@@ -322,6 +376,7 @@ public sealed class HueBridgeLifecycleGate
         Diagnostic,
         ConfigurationMutation,
         ConfigurationRead,
-        SchedulerEvaluation
+        SchedulerEvaluation,
+        HistoryMutation
     }
 }

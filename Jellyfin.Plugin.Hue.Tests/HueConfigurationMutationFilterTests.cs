@@ -66,7 +66,6 @@ public sealed class HueConfigurationMutationFilterTests
     [InlineData("POST", "/HueSync/Configuration")]
     [InlineData("POST", "/HueSync/BridgeCertificate/Trust")]
     [InlineData("POST", "/HueSync/SceneSchedules/BulkEnabled")]
-    [InlineData("DELETE", "/HueSync/SceneSchedules/History")]
     public async Task ConfigurationWriterRoutesAcquireConfigurationMutation(
         string method,
         string path)
@@ -87,6 +86,87 @@ public sealed class HueConfigurationMutationFilterTests
 
         Assert.True(actionExecuted);
         Assert.False(gate.IsConfigurationMutationActive);
+    }
+
+    [Theory]
+    [InlineData("/HueSync/History")]
+    [InlineData("/HueSync/SceneSchedules/History")]
+    public async Task HistoryClearRoutesAcquireHistoryMutationWithoutConfigurationMutation(string path)
+    {
+        var gate = new HueBridgeLifecycleGate();
+        var filter = new HueConfigurationMutationFilter(gate);
+        var context = CreateExecutingContext("DELETE", path);
+        var actionExecuted = false;
+
+        await filter.OnActionExecutionAsync(
+            context,
+            () =>
+            {
+                actionExecuted = true;
+                Assert.True(gate.IsHistoryMutationActive);
+                Assert.False(gate.IsConfigurationMutationActive);
+                return Task.FromResult(CreateExecutedContext(context));
+            });
+
+        Assert.True(actionExecuted);
+        Assert.False(gate.IsHistoryMutationActive);
+        Assert.False(gate.IsConfigurationMutationActive);
+    }
+
+    [Theory]
+    [InlineData("/HueSync/History")]
+    [InlineData("/HueSync/SceneSchedules/History")]
+    public async Task HistoryClearRoutesRemainAvailableDuringPlaybackAndSchedulerEvaluation(string path)
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var playback = gate.TryEnterPlayback("192.168.1.10|living-room");
+        using var evaluation = gate.TryEnterSchedulerEvaluation();
+        Assert.NotNull(playback);
+        Assert.NotNull(evaluation);
+
+        var filter = new HueConfigurationMutationFilter(gate);
+        var context = CreateExecutingContext("DELETE", path);
+        var actionExecuted = false;
+
+        await filter.OnActionExecutionAsync(
+            context,
+            () =>
+            {
+                actionExecuted = true;
+                Assert.True(gate.IsHistoryMutationActive);
+                Assert.True(gate.IsPlaybackActive);
+                Assert.True(gate.IsSchedulerEvaluationActive);
+                Assert.False(gate.IsConfigurationMutationActive);
+                return Task.FromResult(CreateExecutedContext(context));
+            });
+
+        Assert.True(actionExecuted);
+        Assert.False(gate.IsHistoryMutationActive);
+    }
+
+    [Fact]
+    public async Task ConfigurationWriterIsRejectedWhileHistoryClearOwnsHistoryMutation()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var history = gate.TryEnterHistoryMutation();
+        Assert.NotNull(history);
+
+        var filter = new HueConfigurationMutationFilter(gate);
+        var context = CreateExecutingContext("POST", "/HueSync/Configuration");
+        var actionExecuted = false;
+
+        await filter.OnActionExecutionAsync(
+            context,
+            () =>
+            {
+                actionExecuted = true;
+                return Task.FromResult(CreateExecutedContext(context));
+            });
+
+        Assert.False(actionExecuted);
+        var conflict = Assert.IsType<ConflictObjectResult>(context.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+        Assert.True(gate.IsHistoryMutationActive);
     }
 
     [Theory]

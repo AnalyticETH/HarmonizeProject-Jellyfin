@@ -1120,16 +1120,19 @@ namespace Jellyfin.Plugin.Hue.Service
         /// </summary>
         public int ClearSessionHistory()
         {
-            int clearedCount;
-            lock (_syncLock)
+            lock (_bridgeLifecycleGate.HistorySynchronization)
             {
-                clearedCount = _sessionHistory.Count;
-                _sessionHistory.Clear();
-                _lastSessionSummary = null;
-            }
+                int clearedCount;
+                lock (_syncLock)
+                {
+                    clearedCount = _sessionHistory.Count;
+                    _sessionHistory.Clear();
+                    _lastSessionSummary = null;
+                }
 
-            PersistSessionHistory();
-            return clearedCount;
+                PersistSessionHistory();
+                return clearedCount;
+            }
         }
 
         /// <summary>
@@ -1142,16 +1145,27 @@ namespace Jellyfin.Plugin.Hue.Service
             if (!_managesPlaybackEvents)
                 return;
 
-            lock (_syncLock)
+            lock (_bridgeLifecycleGate.HistorySynchronization)
             {
-                TrimSessionHistoryLocked();
-                _lastSessionSummary = _sessionHistory.FirstOrDefault();
-            }
+                lock (_syncLock)
+                {
+                    TrimSessionHistoryLocked();
+                    _lastSessionSummary = _sessionHistory.FirstOrDefault();
+                }
 
-            PersistSessionHistory();
+                PersistSessionHistory();
+            }
         }
 
         private void LoadPersistedSessionHistory()
+        {
+            lock (_bridgeLifecycleGate.HistorySynchronization)
+            {
+                LoadPersistedSessionHistoryCore();
+            }
+        }
+
+        private void LoadPersistedSessionHistoryCore()
         {
             var config = Plugin.Instance?.Configuration;
             if (config == null)
@@ -1191,6 +1205,14 @@ namespace Jellyfin.Plugin.Hue.Service
         }
 
         private void PersistSessionHistory()
+        {
+            lock (_bridgeLifecycleGate.HistorySynchronization)
+            {
+                PersistSessionHistoryCore();
+            }
+        }
+
+        private void PersistSessionHistoryCore()
         {
             var plugin = Plugin.Instance;
             var config = plugin?.Configuration;
@@ -5708,40 +5730,43 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             HueSessionSummary summary;
             Action<HueSessionSummary>? sessionSummarySink;
-            lock (_syncLock)
+            lock (_bridgeLifecycleGate.HistorySynchronization)
             {
-                summary = new HueSessionSummary
+                lock (_syncLock)
                 {
-                    Outcome = seed.Outcome,
-                    Item = seed.Item,
-                    UserId = seed.UserId,
-                    UserName = seed.UserName,
-                    DeviceId = seed.DeviceId,
-                    DeviceName = seed.DeviceName,
-                    DeviceRouteMatched = seed.DeviceRouteMatched,
-                    BridgeIp = seed.BridgeIp,
-                    EntertainmentAreaId = seed.EntertainmentAreaId,
-                    StartedAtUtc = seed.StartedAtUtc,
-                    EndedAtUtc = seed.EndedAtUtc,
-                    DurationSeconds = seed.DurationSeconds,
-                    EffectiveFps = seed.EffectiveFps,
-                    FramesProcessed = seed.FramesProcessed,
-                    PacketsSent = seed.PacketsSent,
-                    PacketsSkippedByThreshold = seed.PacketsSkippedByThreshold,
-                    PacketSendFailures = seed.PacketSendFailures,
-                    ReconnectAttempts = seed.ReconnectAttempts,
-                    SeekRestartCount = seed.SeekRestartCount,
-                    LastSeekPositionSeconds = seed.LastSeekPositionSeconds,
-                    Error = seed.Error,
-                    CleanupWarning = cleanupWarning
-                };
-                _lastSessionSummary = summary;
-                AddSessionHistoryLocked(summary);
-                sessionSummarySink = _sessionSummarySink;
-            }
+                    summary = new HueSessionSummary
+                    {
+                        Outcome = seed.Outcome,
+                        Item = seed.Item,
+                        UserId = seed.UserId,
+                        UserName = seed.UserName,
+                        DeviceId = seed.DeviceId,
+                        DeviceName = seed.DeviceName,
+                        DeviceRouteMatched = seed.DeviceRouteMatched,
+                        BridgeIp = seed.BridgeIp,
+                        EntertainmentAreaId = seed.EntertainmentAreaId,
+                        StartedAtUtc = seed.StartedAtUtc,
+                        EndedAtUtc = seed.EndedAtUtc,
+                        DurationSeconds = seed.DurationSeconds,
+                        EffectiveFps = seed.EffectiveFps,
+                        FramesProcessed = seed.FramesProcessed,
+                        PacketsSent = seed.PacketsSent,
+                        PacketsSkippedByThreshold = seed.PacketsSkippedByThreshold,
+                        PacketSendFailures = seed.PacketSendFailures,
+                        ReconnectAttempts = seed.ReconnectAttempts,
+                        SeekRestartCount = seed.SeekRestartCount,
+                        LastSeekPositionSeconds = seed.LastSeekPositionSeconds,
+                        Error = seed.Error,
+                        CleanupWarning = cleanupWarning
+                    };
+                    _lastSessionSummary = summary;
+                    AddSessionHistoryLocked(summary);
+                    sessionSummarySink = _sessionSummarySink;
+                }
 
-            if (_managesPlaybackEvents)
-                PersistSessionHistory();
+                if (_managesPlaybackEvents)
+                    PersistSessionHistory();
+            }
 
             if (sessionSummarySink != null)
             {
@@ -5758,12 +5783,15 @@ namespace Jellyfin.Plugin.Hue.Service
 
         private void AddConcurrentSessionSummary(HueSessionSummary summary)
         {
-            lock (_syncLock)
+            lock (_bridgeLifecycleGate.HistorySynchronization)
             {
-                AddSessionHistoryLocked(summary);
-            }
+                lock (_syncLock)
+                {
+                    AddSessionHistoryLocked(summary);
+                }
 
-            PersistSessionHistory();
+                PersistSessionHistory();
+            }
         }
 
         private void AddSessionHistoryLocked(HueSessionSummary summary)

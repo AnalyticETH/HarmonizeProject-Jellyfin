@@ -9346,11 +9346,15 @@ public sealed class HueApiControllerTests : IDisposable
                 }
             }
         });
+        var gate = new HueBridgeLifecycleGate();
         var sceneService = new HueSceneAutomationService(
             Mock.Of<IHueStreamTester>(),
             new HueClient(_httpClient, _loggerMock.Object),
-            Mock.Of<ILogger<HueSceneAutomationService>>());
-        var controller = CreateController(hostedServices: new IHostedService[] { sceneService });
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            bridgeLifecycleGate: gate);
+        var controller = CreateController(
+            bridgeLifecycleGate: gate,
+            hostedServices: new IHostedService[] { sceneService });
 
         var action = controller.GetSceneScheduleHistory(5, " cue-1 ");
         var response = Assert.IsType<OkObjectResult>(action.Result);
@@ -9366,6 +9370,10 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("AppKey", serialized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("ClientKey", serialized, StringComparison.OrdinalIgnoreCase);
 
+        using var playback = gate.TryEnterPlayback("192.168.1.10|living-room");
+        using var evaluation = gate.TryEnterSchedulerEvaluation();
+        Assert.NotNull(playback);
+        Assert.NotNull(evaluation);
         var cleared = controller.ClearSceneScheduleHistory();
         var clearedResponse = Assert.IsType<OkObjectResult>(cleared.Result);
         var clearResult = Assert.IsType<HueSceneScheduleHistoryClearResult>(clearedResponse.Value);

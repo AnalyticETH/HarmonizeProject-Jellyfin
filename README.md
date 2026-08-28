@@ -472,7 +472,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.351 (Current)
+### Version 1.5.352 (Current)
+
+- **Active-lifecycle history clearing**: `DELETE /HueSync/History` and `DELETE /HueSync/SceneSchedules/History` use an independent serialized history lease, so clearing retained telemetry does not stop active playback, diagnostics, or scheduler evaluation while configuration snapshots remain protected.
+
+- **Cross-service persistence ordering**: session and scheduled-cue history writes share synchronization, preventing a clear or persistence repair from racing another telemetry update.
+
+- **Regression coverage**: lifecycle-gate, mutation-filter, API, scheduler-history, and session-history tests cover active playback clears, configuration conflicts, and serialized persistence.
 
 - **Immediate sync-policy shutdown**: saving a disabled global or per-user policy now stops affected active Hue sessions after the durable write, restores captured lights, and requires a fresh playback event after re-enabling.
 

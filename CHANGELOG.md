@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.352] - 2026-08-28
+
+### Non-disruptive history maintenance
+- **Active-lifecycle history clearing**: `DELETE /HueSync/History` and `DELETE /HueSync/SceneSchedules/History` now use an independent serialized history lease, so active playback, diagnostics, and scheduler evaluation can continue while configuration snapshots remain protected.
+- **Cross-service persistence ordering**: session and scheduled-cue history writes share synchronization, preventing a clear or persistence repair from racing another telemetry update.
+- **Regression coverage**: lifecycle-gate, mutation-filter, API, scheduler-history, and session-history tests cover active playback clears, configuration conflicts, and serialized persistence.
+
 ## [1.5.351] - 2026-08-28
 
 ### Immediate sync-policy shutdown and reporting accuracy

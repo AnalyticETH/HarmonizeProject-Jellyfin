@@ -5150,6 +5150,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// </summary>
         [HttpDelete("SceneSchedules/History")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueSceneScheduleHistoryClearResult> ClearSceneScheduleHistory()
         {
             return Ok(new HueSceneScheduleHistoryClearResult
@@ -6837,6 +6838,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// </summary>
         [HttpDelete("History")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<HueSessionHistoryClearResult> ClearSessionHistory()
         {
             return Ok(new HueSessionHistoryClearResult

@@ -213,4 +213,33 @@ public sealed class HueBridgeLifecycleGateTests
         Assert.NotNull(evaluation);
         Assert.Null(gate.TryEnterConfigurationRead());
     }
+
+    [Fact]
+    public void HistoryMutationAllowsActivePlaybackAndSchedulerEvaluationButBlocksConfigurationSnapshots()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var playback = gate.TryEnterPlayback("192.168.1.10|living-room");
+        using var evaluation = gate.TryEnterSchedulerEvaluation();
+        using var history = gate.TryEnterHistoryMutation();
+
+        Assert.NotNull(playback);
+        Assert.NotNull(evaluation);
+        Assert.NotNull(history);
+        Assert.True(gate.IsPlaybackActive);
+        Assert.True(gate.IsSchedulerEvaluationActive);
+        Assert.True(gate.IsHistoryMutationActive);
+        Assert.Null(gate.TryEnterHistoryMutation());
+        Assert.Null(gate.TryEnterConfigurationMutation());
+        Assert.Null(gate.TryEnterConfigurationRead());
+
+        history!.Dispose();
+        Assert.False(gate.IsHistoryMutationActive);
+        Assert.Null(gate.TryEnterConfigurationMutation());
+        Assert.Null(gate.TryEnterConfigurationRead());
+
+        evaluation!.Dispose();
+        playback!.Dispose();
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+    }
 }

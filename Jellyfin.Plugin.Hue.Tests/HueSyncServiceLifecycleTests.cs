@@ -312,7 +312,8 @@ public sealed class HueSyncServiceLifecycleTests
     {
         var handler = new BlockingHueHandler();
         using var httpClient = new HttpClient(handler);
-        var service = CreateService(httpClient, persistSessionHistory: true);
+        var gate = new HueBridgeLifecycleGate();
+        var service = CreateService(httpClient, gate, persistSessionHistory: true);
         await service.StartAsync(CancellationToken.None);
 
         SetPrivateField(service, "_syncCts", new CancellationTokenSource());
@@ -391,11 +392,17 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Single(service.GetSessionHistory());
         Assert.Equal(summary.Item, service.GetRuntimeStatus().LastSession!.Item);
 
+        using var playbackLease = gate.TryEnterPlayback("192.168.1.10|living-room");
+        using var schedulerLease = gate.TryEnterSchedulerEvaluation();
+        Assert.NotNull(playbackLease);
+        Assert.NotNull(schedulerLease);
         Assert.Equal(1, service.ClearSessionHistory());
         Assert.Empty(service.GetSessionHistory());
         Assert.Null(service.GetRuntimeStatus().LastSession);
         Assert.Empty(Plugin.Instance!.Configuration.PersistedSessionHistory);
 
+        schedulerLease!.Dispose();
+        playbackLease!.Dispose();
         await service.StopAsync(CancellationToken.None);
     }
 

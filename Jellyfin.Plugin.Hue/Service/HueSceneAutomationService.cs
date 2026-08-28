@@ -1008,54 +1008,58 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// </summary>
     public int ClearHistory()
     {
-        EnsureHistoryLoaded();
-        // Deferred occurrences are durable scheduler state, not history. Ensure the
-        // authoritative persisted/runtime set has been loaded before resetting the
-        // presentation fields below so a pending cue remains visible after this call.
-        EnsureDeferredRunsLoaded();
-        var config = Plugin.Instance?.Configuration;
-        int clearedCount;
-        lock (_historyLock)
+        lock (_bridgeLifecycleGate.HistorySynchronization)
         {
-            clearedCount = _runHistory.Count;
-            _runHistory.Clear();
-        }
+            EnsureHistoryLoaded();
+            // Deferred occurrences are durable scheduler state, not history. Ensure the
+            // authoritative persisted/runtime set has been loaded before resetting the
+            // presentation fields below so a pending cue remains visible after this call.
+            EnsureDeferredRunsLoaded();
+            var config = Plugin.Instance?.Configuration;
 
-        lock (_runtimeStateLock)
-        {
-            foreach (var entry in _runtimeStates)
+            lock (_runtimeStateLock)
             {
-                var configuredSchedule = config?.SceneSchedules?.FirstOrDefault(schedule =>
-                    schedule != null &&
-                    string.Equals(schedule.Id?.Trim(), entry.Key, StringComparison.OrdinalIgnoreCase));
-                var state = entry.Value;
-                state.RunCount = 0;
-                if (configuredSchedule?.MaxRuns > 0)
-                    state.RunCount = Math.Max(0, configuredSchedule.RunCount);
-                state.LastRunAtUtc = null;
-                state.LastSucceeded = null;
-                state.LastSkipped = false;
-                state.LastWasCatchUp = false;
-                state.LastWasDeferred = false;
-                state.LastWasDeferredRestored = false;
-                // A pending deferred occurrence is owned by _deferredRuns and must
-                // survive a history-only clear. Keep its occurrence/expiry metadata
-                // and waiting message visible; completed cues still clear their
-                // transient deferred fields along with the rest of their telemetry.
-                if (!state.DeferredPending)
+                foreach (var entry in _runtimeStates)
                 {
-                    state.DeferredOccurrenceSlot = null;
-                    state.DeferredAtLocal = null;
-                    state.DeferredUntilLocal = null;
-                    state.DeferredRestored = false;
-                    state.LastMessage = null;
+                    var configuredSchedule = config?.SceneSchedules?.FirstOrDefault(schedule =>
+                        schedule != null &&
+                        string.Equals(schedule.Id?.Trim(), entry.Key, StringComparison.OrdinalIgnoreCase));
+                    var state = entry.Value;
+                    state.RunCount = 0;
+                    if (configuredSchedule?.MaxRuns > 0)
+                        state.RunCount = Math.Max(0, configuredSchedule.RunCount);
+                    state.LastRunAtUtc = null;
+                    state.LastSucceeded = null;
+                    state.LastSkipped = false;
+                    state.LastWasCatchUp = false;
+                    state.LastWasDeferred = false;
+                    state.LastWasDeferredRestored = false;
+                    // A pending deferred occurrence is owned by _deferredRuns and must
+                    // survive a history-only clear. Keep its occurrence/expiry metadata
+                    // and waiting message visible; completed cues still clear their
+                    // transient deferred fields along with the rest of their telemetry.
+                    if (!state.DeferredPending)
+                    {
+                        state.DeferredOccurrenceSlot = null;
+                        state.DeferredAtLocal = null;
+                        state.DeferredUntilLocal = null;
+                        state.DeferredRestored = false;
+                        state.LastMessage = null;
+                    }
+                    state.LastCleanupWarning = null;
                 }
-                state.LastCleanupWarning = null;
             }
-        }
 
-        PersistSceneScheduleHistory();
-        return clearedCount;
+            int clearedCount;
+            lock (_historyLock)
+            {
+                clearedCount = _runHistory.Count;
+                _runHistory.Clear();
+            }
+
+            PersistSceneScheduleHistory();
+            return clearedCount;
+        }
     }
 
     /// <summary>
@@ -1065,13 +1069,16 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// </summary>
     public void RefreshSceneScheduleHistoryPersistence()
     {
-        EnsureHistoryLoaded();
-        lock (_historyLock)
+        lock (_bridgeLifecycleGate.HistorySynchronization)
         {
-            TrimRunHistoryLocked();
-        }
+            EnsureHistoryLoaded();
+            lock (_historyLock)
+            {
+                TrimRunHistoryLocked();
+            }
 
-        PersistSceneScheduleHistory();
+            PersistSceneScheduleHistory();
+        }
     }
 
     /// <summary>
@@ -4906,6 +4913,17 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneSchedule schedule,
         HueSceneAutomationRunResult result)
     {
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            RecordSkippedOccurrenceCore(config, schedule, result);
+        }
+    }
+
+    private void RecordSkippedOccurrenceCore(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        HueSceneAutomationRunResult result)
+    {
         EnsureHistoryLoaded();
         var key = schedule.Id?.Trim() ?? string.Empty;
         lock (_runtimeStateLock)
@@ -5811,6 +5829,19 @@ public sealed class HueSceneAutomationService : BackgroundService
         bool countRun,
         bool preserveDeferred)
     {
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            CompleteRunCore(config, schedule, result, countRun, preserveDeferred);
+        }
+    }
+
+    private void CompleteRunCore(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        HueSceneAutomationRunResult? result,
+        bool countRun,
+        bool preserveDeferred)
+    {
         EnsureHistoryLoaded();
         var key = schedule.Id?.Trim() ?? string.Empty;
         var shouldPersistRunState = false;
@@ -5896,6 +5927,14 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     private void EnsureHistoryLoaded(bool persistRepairs = true)
+    {
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            EnsureHistoryLoadedCore(persistRepairs);
+        }
+    }
+
+    private void EnsureHistoryLoadedCore(bool persistRepairs)
     {
         bool historyLoaded;
         bool persistencePending;
@@ -6020,86 +6059,92 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private void PersistPendingSceneScheduleHistoryRepair()
     {
-        var config = Plugin.Instance?.Configuration;
-        if (config == null)
-            return;
-
-        List<HueSceneScheduleHistoryEntry> entries;
-        lock (_historyLock)
+        lock (_bridgeLifecycleGate.HistorySynchronization)
         {
-            entries = config.PersistSceneScheduleHistory
-                ? _runHistory
-                    .Take(config.GetSceneScheduleHistoryRetentionCount())
-                    .Select(ToHistoryEntry)
-                    .ToList()
-                : new List<HueSceneScheduleHistoryEntry>();
-        }
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return;
 
-        // A failed initial repair already copied the normalized list into the live
-        // configuration object, so comparing against that list cannot establish that
-        // the XML file was updated. Persist the authoritative in-memory history whenever
-        // the dirty flag is set, even when the configuration appears equal.
-        config.PersistedSceneScheduleHistory = entries
-            .Select(CloneHistoryEntry)
-            .ToList();
-        if (SavePersistedSceneScheduleHistoryConfiguration())
-        {
+            List<HueSceneScheduleHistoryEntry> entries;
             lock (_historyLock)
             {
-                _historyPersistencePending = false;
+                entries = config.PersistSceneScheduleHistory
+                    ? _runHistory
+                        .Take(config.GetSceneScheduleHistoryRetentionCount())
+                        .Select(ToHistoryEntry)
+                        .ToList()
+                    : new List<HueSceneScheduleHistoryEntry>();
             }
-        }
-        else
-        {
-            MarkHistoryPersistencePending();
+
+            // A failed initial repair already copied the normalized list into the live
+            // configuration object, so comparing against that list cannot establish that
+            // the XML file was updated. Persist the authoritative in-memory history whenever
+            // the dirty flag is set, even when the configuration appears equal.
+            config.PersistedSceneScheduleHistory = entries
+                .Select(CloneHistoryEntry)
+                .ToList();
+            if (SavePersistedSceneScheduleHistoryConfiguration())
+            {
+                lock (_historyLock)
+                {
+                    _historyPersistencePending = false;
+                }
+            }
+            else
+            {
+                MarkHistoryPersistencePending();
+            }
         }
     }
 
     private void PersistSceneScheduleHistory()
     {
-        var plugin = Plugin.Instance;
-        var config = plugin?.Configuration;
-        if (plugin == null || config == null)
-            return;
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return;
 
-        List<HueSceneScheduleHistoryEntry> entries;
-        lock (_historyLock)
-        {
-            entries = _runHistory
-                .Take(config.GetSceneScheduleHistoryRetentionCount())
-                .Select(ToHistoryEntry)
-                .ToList();
-        }
+            List<HueSceneScheduleHistoryEntry> entries;
+            lock (_historyLock)
+            {
+                entries = _runHistory
+                    .Take(config.GetSceneScheduleHistoryRetentionCount())
+                    .Select(ToHistoryEntry)
+                    .ToList();
+            }
 
-        config.PersistedSceneScheduleHistory ??= new List<HueSceneScheduleHistoryEntry>();
-        if (config.PersistSceneScheduleHistory)
-        {
-            config.PersistedSceneScheduleHistory = entries;
-        }
-        else
-        {
-            if (config.PersistedSceneScheduleHistory.Count == 0)
+            config.PersistedSceneScheduleHistory ??= new List<HueSceneScheduleHistoryEntry>();
+            if (config.PersistSceneScheduleHistory)
+            {
+                config.PersistedSceneScheduleHistory = entries;
+            }
+            else
+            {
+                if (config.PersistedSceneScheduleHistory.Count == 0)
+                {
+                    lock (_historyLock)
+                    {
+                        if (!_historyPersistencePending)
+                            return;
+                    }
+                }
+
+                config.PersistedSceneScheduleHistory.Clear();
+            }
+
+            if (SavePersistedSceneScheduleHistoryConfiguration())
             {
                 lock (_historyLock)
                 {
-                    if (!_historyPersistencePending)
-                        return;
+                    _historyPersistencePending = false;
                 }
             }
-
-            config.PersistedSceneScheduleHistory.Clear();
-        }
-
-        if (SavePersistedSceneScheduleHistoryConfiguration())
-        {
-            lock (_historyLock)
+            else
             {
-                _historyPersistencePending = false;
+                MarkHistoryPersistencePending();
             }
-        }
-        else
-        {
-            MarkHistoryPersistencePending();
         }
     }
 
@@ -6736,6 +6781,14 @@ public sealed class HueSceneAutomationService : BackgroundService
     /// </summary>
     private void EnsureDeferredRunsLoaded(bool persistRepairs = true)
     {
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            EnsureDeferredRunsLoadedCore(persistRepairs);
+        }
+    }
+
+    private void EnsureDeferredRunsLoadedCore(bool persistRepairs)
+    {
         var config = Plugin.Instance?.Configuration;
         if (config == null)
             return;
@@ -6906,44 +6959,59 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private void PersistPendingDeferredRunsRepair()
     {
-        var config = Plugin.Instance?.Configuration;
-        if (config == null)
-            return;
-
-        List<HueSceneDeferredRunEntry> entries;
-        lock (_deferredRunLock)
+        lock (_bridgeLifecycleGate.HistorySynchronization)
         {
-            entries = _deferredRuns
-                .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(entry => new HueSceneDeferredRunEntry
-                {
-                    ScheduleId = entry.Key,
-                    OccurrenceSlot = entry.Value.OccurrenceSlot,
-                    DeferredAtLocal = entry.Value.DeferredAtLocal,
-                    DeferredAtUtc = entry.Value.DeferredAtUtc
-                })
-                .ToList();
-        }
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return;
 
-        // A failed normal write already copied the attempted snapshot into the live
-        // configuration object, so comparing against that list cannot tell whether the
-        // XML file was updated. Persist the authoritative runtime snapshot whenever the
-        // dirty flag is set, even when it appears equal to the in-memory configuration.
-        config.PersistedSceneAutomationDeferredRuns = entries;
-        if (SavePersistedDeferredRunsConfiguration())
-        {
+            List<HueSceneDeferredRunEntry> entries;
             lock (_deferredRunLock)
             {
-                _deferredRunsPersistencePending = false;
+                entries = _deferredRuns
+                    .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(entry => new HueSceneDeferredRunEntry
+                    {
+                        ScheduleId = entry.Key,
+                        OccurrenceSlot = entry.Value.OccurrenceSlot,
+                        DeferredAtLocal = entry.Value.DeferredAtLocal,
+                        DeferredAtUtc = entry.Value.DeferredAtUtc
+                    })
+                    .ToList();
             }
-        }
-        else
-        {
-            MarkDeferredRunsPersistencePending();
+
+            // A failed normal write already copied the attempted snapshot into the live
+            // configuration object, so comparing against that list cannot tell whether the
+            // XML file was updated. Persist the authoritative runtime snapshot whenever the
+            // dirty flag is set, even when it appears equal to the in-memory configuration.
+            config.PersistedSceneAutomationDeferredRuns = entries;
+            if (SavePersistedDeferredRunsConfiguration())
+            {
+                lock (_deferredRunLock)
+                {
+                    _deferredRunsPersistencePending = false;
+                }
+            }
+            else
+            {
+                MarkDeferredRunsPersistencePending();
+            }
         }
     }
 
     private void QueueDeferredRun(
+        HueSceneSchedule schedule,
+        DateTime occurrenceSlot,
+        DateTime localNow,
+        int deferMinutes)
+    {
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            QueueDeferredRunCore(schedule, occurrenceSlot, localNow, deferMinutes);
+        }
+    }
+
+    private void QueueDeferredRunCore(
         HueSceneSchedule schedule,
         DateTime occurrenceSlot,
         DateTime localNow,
@@ -6986,6 +7054,14 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private void RemoveDeferredRun(string scheduleId, bool persist = true)
     {
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            RemoveDeferredRunCore(scheduleId, persist);
+        }
+    }
+
+    private void RemoveDeferredRunCore(string scheduleId, bool persist)
+    {
         var key = scheduleId?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(key))
             return;
@@ -7002,6 +7078,26 @@ public sealed class HueSceneAutomationService : BackgroundService
     }
 
     private void MarkDeferredRuntimeState(
+        string scheduleId,
+        DateTime occurrenceSlot,
+        DateTime deferredAtLocal,
+        int deferMinutes,
+        bool restored,
+        DateTime? deferredAtUtc = null)
+    {
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            MarkDeferredRuntimeStateCore(
+                scheduleId,
+                occurrenceSlot,
+                deferredAtLocal,
+                deferMinutes,
+                restored,
+                deferredAtUtc);
+        }
+    }
+
+    private void MarkDeferredRuntimeStateCore(
         string scheduleId,
         DateTime occurrenceSlot,
         DateTime deferredAtLocal,
@@ -7037,6 +7133,14 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private void ClearDeferredRuntimeState(string scheduleId)
     {
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            ClearDeferredRuntimeStateCore(scheduleId);
+        }
+    }
+
+    private void ClearDeferredRuntimeStateCore(string scheduleId)
+    {
         lock (_runtimeStateLock)
         {
             if (!_runtimeStates.TryGetValue(scheduleId, out var state))
@@ -7064,37 +7168,40 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private void PersistDeferredRuns()
     {
-        var plugin = Plugin.Instance;
-        var config = plugin?.Configuration;
-        if (plugin == null || config == null)
-            return;
-
-        List<HueSceneDeferredRunEntry> entries;
-        lock (_deferredRunLock)
+        lock (_bridgeLifecycleGate.HistorySynchronization)
         {
-            entries = _deferredRuns
-                .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(entry => new HueSceneDeferredRunEntry
-                {
-                    ScheduleId = entry.Key,
-                    OccurrenceSlot = entry.Value.OccurrenceSlot,
-                    DeferredAtLocal = entry.Value.DeferredAtLocal,
-                    DeferredAtUtc = entry.Value.DeferredAtUtc
-                })
-                .ToList();
-        }
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return;
 
-        config.PersistedSceneAutomationDeferredRuns = entries;
-        if (SavePersistedDeferredRunsConfiguration())
-        {
+            List<HueSceneDeferredRunEntry> entries;
             lock (_deferredRunLock)
             {
-                _deferredRunsPersistencePending = false;
+                entries = _deferredRuns
+                    .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(entry => new HueSceneDeferredRunEntry
+                    {
+                        ScheduleId = entry.Key,
+                        OccurrenceSlot = entry.Value.OccurrenceSlot,
+                        DeferredAtLocal = entry.Value.DeferredAtLocal,
+                        DeferredAtUtc = entry.Value.DeferredAtUtc
+                    })
+                    .ToList();
             }
-        }
-        else
-        {
-            MarkDeferredRunsPersistencePending();
+
+            config.PersistedSceneAutomationDeferredRuns = entries;
+            if (SavePersistedDeferredRunsConfiguration())
+            {
+                lock (_deferredRunLock)
+                {
+                    _deferredRunsPersistencePending = false;
+                }
+            }
+            else
+            {
+                MarkDeferredRunsPersistencePending();
+            }
         }
     }
 
