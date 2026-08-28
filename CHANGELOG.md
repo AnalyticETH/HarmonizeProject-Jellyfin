@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.359] - 2026-08-28
+
+### Release provenance manifest
+- **Deterministic release manifest**: publish exact packaged-file sizes and SHA-256 digests, the deterministic archive digest, and the plugin's resolved hash-locked NuGet graph beside every release.
+- **Manifest parity gate**: compare the documented Linux helper's manifest byte-for-byte with the canonical package manifest before publication.
+- **Release asset integrity**: verify the manifest and both checksum sidecars on the isolated release runner and bind all four GitHub release asset digests to locally verified bytes.
+- **Regression coverage**: add a dependency-free manifest self-test and executable workflow/package contract markers.
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated again.
+
 ## [1.5.358] - 2026-08-28
 
 ### Matrix scene effect

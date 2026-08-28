@@ -32,18 +32,20 @@ Unlike simple "cinema mode" automations that just dim the lights, this plugin ac
 ## Installation
 
 ### Manual Installation
-1.  Open the latest [GitHub release](https://github.com/AnalyticETH/HarmonizeProject-Jellyfin/releases) and download both `jellyfin-plugin-hue-release.zip` and `jellyfin-plugin-hue-release.zip.sha256`.
+1.  Open the latest [GitHub release](https://github.com/AnalyticETH/HarmonizeProject-Jellyfin/releases) and download `jellyfin-plugin-hue-release.zip`, its `jellyfin-plugin-hue-release.zip.sha256` sidecar, and the matching `jellyfin-plugin-hue-release.manifest.json` plus `.sha256` sidecar.
 2.  Verify the archive before extracting it:
     ```bash
     sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
+    sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256
     ```
 3.  Navigate to your Jellyfin plugins directory:
     *   **Linux**: `/var/lib/jellyfin/plugins`
     *   **Windows**: `%ProgramData%\Jellyfin\Server\plugins`
     *   **Docker**: `/config/plugins`
 4.  Create a folder named `HueSync` and extract `jellyfin-plugin-hue-release.zip` into it.
-5.  Confirm that `BouncyCastle.Cryptography.dll`, `Jellyfin.Plugin.Hue.dll`, and `meta.json` are directly inside the `HueSync` folder.
-6.  Restart Jellyfin.
+5.  Optionally inspect the manifest to audit the exact packaged file hashes and locked NuGet dependency graph.
+6.  Confirm that `BouncyCastle.Cryptography.dll`, `Jellyfin.Plugin.Hue.dll`, and `meta.json` are directly inside the `HueSync` folder.
+7.  Restart Jellyfin.
 
 ## Configuration
 Go to **Dashboard -> Plugins -> Philips Hue Sync** to configure the plugin.
@@ -339,18 +341,23 @@ The plugin DLL will be generated at:
 
 #### Release Package Contents
 
-The local release scripts produce `jellyfin-plugin-hue-v<version>.zip` and a matching `.sha256` sidecar, while the GitHub release workflow publishes the canonical `jellyfin-plugin-hue-release.zip` and its `jellyfin-plugin-hue-release.zip.sha256` checksum sidecar. Each archive contains exactly:
+The local release scripts produce `jellyfin-plugin-hue-v<version>.zip` and matching archive and manifest `.sha256` sidecars, while the GitHub release workflow publishes the canonical `jellyfin-plugin-hue-release.zip`, its checksum sidecar, and the matching `jellyfin-plugin-hue-release.manifest.json` plus `.sha256` sidecar. Each archive contains exactly:
 
 * `BouncyCastle.Cryptography.dll` — the managed DTLS transport dependency
 * `Jellyfin.Plugin.Hue.dll` — the plugin assembly, including the embedded configuration page
 * `meta.json` — the Jellyfin plugin manifest and release version
 
-The version in `meta.json`, the project file, and the local archive name must match. Install both
-files together in a `HueSync` directory under the Jellyfin plugins directory, and verify the
-published archive with its checksum sidecar before extraction:
+The release manifest is deterministic and records the archive digest, each packaged file's size and
+SHA-256 digest, and every resolved package/content hash from the plugin's committed NuGet lock file.
+
+The version in `meta.json`, the project file, and the local archive name must match. Keep the
+archive, both checksum sidecars, and the matching manifest together for auditability; install the
+archive contents in a `HueSync` directory under the Jellyfin plugins directory, and verify the
+published archive and manifest before extraction:
 
 ```bash
 sha256sum --check --strict jellyfin-plugin-hue-v<version>.zip.sha256
+sha256sum --check --strict jellyfin-plugin-hue-v<version>.manifest.json.sha256
 ```
 
 If the .NET SDK is not installed on a Linux host, the same build can be run with Docker:
@@ -407,7 +414,7 @@ doubles. A real bridge is only needed for an end-to-end playback check after ins
 Tests are automatically run in CI/CD on:
 - Trusted pushes to `main`
 
-Full CI runs locked restores, build/tests, formatting, dependency auditing, Gitleaks, and split Semgrep scans on the named self-hosted runner. The Semgrep production-source/configuration (including PowerShell release helpers), repository-script, and embedded administrator-page JavaScript reports fail closed on findings, scanner errors, or fixpoint-analysis timeouts, and each reviewed ruleset snapshot is SHA-256 verified and configuration-validated before use. The embedded page scan keeps generic/browser rules blocking while explicitly documenting the non-applicable Express/React framework-rule exclusions in `.github/semgrep/config-page-excludes.txt`. It also executes the documented Linux release helper in a separate bounded job and compares its verified archive manifest with the canonical package before publication. A repository-controlled weekly default-branch workflow reruns the blocking Gitleaks and Semgrep gates. The main persistent-runner workflow accepts `workflow_dispatch` only for an operator recovery run on `main`; manual recovery never publishes a release, while pull-request and non-main push events remain excluded and every self-hosted job has a `refs/heads/main` guard. The trusted workflow boundary validator (`scripts/validate-trusted-workflow.mjs`) keeps those trigger, runner, permission, immutable-action, and version contracts executable. Dependabot explicitly monitors the plugin, test, and benchmark NuGet directories, the GitHub Actions workflows, and the hash-locked Semgrep environment; `scripts/validate-dependabot.mjs` fails CI if a tracked project directory is missing. The repository Actions policy is selected-only with SHA pinning required; it allows only `actions/checkout`, `actions/setup-dotnet`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, `actions/github-script`, and `codecov/codecov-action` (plus local reusable workflows). The runner is configured under the dedicated, least-privileged `harmonize-runner` service account with an isolated home. Release publication uses a separate least-privileged self-hosted identity so its short-lived `contents:write` token is never exposed to the build/test account, verifies the release ZIP's SHA-256 sidecar and exact asset set before publication, rechecks GitHub's recorded asset digests after publication, and resumes only a matching version-tag draft at the same workflow commit. See `.github/workflows/dotnet-ci.yml`, [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md), and [.github/dependabot.yml](.github/dependabot.yml) for the full workflow, runner, and dependency-maintenance contracts.
+Full CI runs locked restores, build/tests, formatting, dependency auditing, Gitleaks, and split Semgrep scans on the named self-hosted runner. The Semgrep production-source/configuration (including PowerShell release helpers), repository-script, and embedded administrator-page JavaScript reports fail closed on findings, scanner errors, or fixpoint-analysis timeouts, and each reviewed ruleset snapshot is SHA-256 verified and configuration-validated before use. The embedded page scan keeps generic/browser rules blocking while explicitly documenting the non-applicable Express/React framework-rule exclusions in `.github/semgrep/config-page-excludes.txt`. It also executes the documented Linux release helper in a separate bounded job and compares its verified archive and deterministic dependency manifest with the canonical package before publication. A repository-controlled weekly default-branch workflow reruns the blocking Gitleaks and Semgrep gates. The main persistent-runner workflow accepts `workflow_dispatch` only for an operator recovery run on `main`; manual recovery never publishes a release, while pull-request and non-main push events remain excluded and every self-hosted job has a `refs/heads/main` guard. The trusted workflow boundary validator (`scripts/validate-trusted-workflow.mjs`) keeps those trigger, runner, permission, immutable-action, and version contracts executable. Dependabot explicitly monitors the plugin, test, and benchmark NuGet directories, the GitHub Actions workflows, and the hash-locked Semgrep environment; `scripts/validate-dependabot.mjs` fails CI if a tracked project directory is missing. The repository Actions policy is selected-only with SHA pinning required; it allows only `actions/checkout`, `actions/setup-dotnet`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, `actions/github-script`, and `codecov/codecov-action` (plus local reusable workflows). The runner is configured under the dedicated, least-privileged `harmonize-runner` service account with an isolated home. Release publication uses a separate least-privileged self-hosted identity so its short-lived `contents:write` token is never exposed to the build/test account, verifies the release ZIP and dependency manifest sidecars plus exact four-asset set before publication, rechecks GitHub's recorded asset digests after publication, and resumes only a matching version-tag draft at the same workflow commit. See `.github/workflows/dotnet-ci.yml`, [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md), and [.github/dependabot.yml](.github/dependabot.yml) for the full workflow, runner, and dependency-maintenance contracts.
 
 Every trusted build also retains its Cobertura coverage artifact. Codecov publication is optional: when
 `CODECOV_TOKEN` is not configured, CI records an explicit skip in the run summary; when it is configured,
@@ -474,7 +481,17 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.358 (Current)
+### Version 1.5.359 (Current)
+
+- **Deterministic release manifest**: every release now publishes exact packaged-file sizes and SHA-256 digests, the deterministic archive digest, and the plugin's resolved hash-locked NuGet graph.
+
+- **Manifest parity gate**: the documented Linux release helper must produce a byte-for-byte matching manifest before the canonical package can publish.
+
+- **Release asset integrity**: the isolated release runner verifies the manifest and both checksum sidecars, then binds all four GitHub release asset digests to locally verified bytes.
+
+- **Regression coverage**: a dependency-free manifest self-test and executable workflow/package markers protect the provenance contract.
+
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated again.
 
 - **Matrix scene effect**: add a deterministic green/cyan cascading data-rain pattern with smooth trails and independent channel phases across previews, saved scenes, playlists, scheduled cues, and credential-free portability.
 
@@ -1058,7 +1075,7 @@ Benchmarks measure:
 
 ### Version 1.5.232
 - **Fail-closed bulk mapping deletion**: null or blank user mapping IDs are rejected before normalization or configuration mutation, preserving atomic bulk-delete behavior.
-- **Release artifact verification**: the release ZIP's SHA-256 sidecar is verified between the package and release runners and published for downstream integrity checks.
+- **Release artifact verification**: the release ZIP and deterministic dependency manifest sidecars are verified between the package and release runners and published for downstream integrity and provenance checks.
 
 ### Version 1.5.231
 - **Fail-closed preview target selection**: direct, saved-scene, bulk saved-scene, playlist, and bulk playlist previews reject blank target user IDs before default-bridge fallback or bridge activity.

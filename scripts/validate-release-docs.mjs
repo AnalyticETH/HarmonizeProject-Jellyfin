@@ -5,6 +5,7 @@ const workflow = fs.readFileSync(".github/workflows/dotnet-ci.yml", "utf8");
 const releaseShell = fs.readFileSync("build-release.sh", "utf8");
 const releasePowerShell = fs.readFileSync("build-release.ps1", "utf8");
 const releasePackager = fs.readFileSync("scripts/create-deterministic-release-zip.py", "utf8");
+const releaseManifest = fs.readFileSync("scripts/create-release-manifest.py", "utf8");
 const releasePackageValidator = fs.readFileSync("scripts/validate-release-package.mjs", "utf8");
 const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
 const meta = JSON.parse(fs.readFileSync("meta.json", "utf8"));
@@ -12,7 +13,10 @@ const meta = JSON.parse(fs.readFileSync("meta.json", "utf8"));
 const requiredReadmeMarkers = [
   "jellyfin-plugin-hue-release.zip",
   "jellyfin-plugin-hue-release.zip.sha256",
+  "jellyfin-plugin-hue-release.manifest.json",
+  "jellyfin-plugin-hue-release.manifest.json.sha256",
   "sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256",
+  "resolved hash-locked NuGet graph",
   "BouncyCastle.Cryptography.dll",
   "Jellyfin.Plugin.Hue.dll",
   "meta.json",
@@ -79,6 +83,9 @@ const requiredWorkflowMarkers = [
   "--input-dir release-package",
   "--output jellyfin-plugin-hue-release.zip",
   "sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256",
+  "sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256",
+  "scripts/create-release-manifest.py",
+  "--output jellyfin-plugin-hue-release.manifest.json",
   '"BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "',
 ];
 
@@ -103,7 +110,10 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
       "rm -rf ./publish",
       "--input-dir release-package",
       "--output \"$ZIPFILE\"",
-      "sha256sum --check --strict");
+      "sha256sum --check --strict",
+      "create-release-manifest.py",
+      "MANIFEST_FILE=",
+      "MANIFEST_CHECKSUM_FILE=");
   } else {
     markers.push(
       "Remove-Item -Recurse -Force \"./publish\"",
@@ -113,7 +123,10 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
       "--output $zipFile",
       "Get-Content -LiteralPath $checksumFile -Raw",
       "Checksum sidecar is malformed or names the wrong archive",
-      "$checksumParts[0].ToLowerInvariant() -ne $verifiedHash");
+      "$checksumParts[0].ToLowerInvariant() -ne $verifiedHash",
+      "create-release-manifest.py",
+      "$manifestFile",
+      "$manifestChecksumFile");
   }
   for (const marker of markers) {
     if (!script.includes(marker)) {
@@ -142,11 +155,28 @@ for (const marker of requiredPackagerMarkers) {
 
 for (const marker of [
   "create-deterministic-release-zip.py",
+  "create-release-manifest.py",
   "--self-test",
   "Release package determinism contract passed",
+  "Release manifest determinism contract passed",
 ]) {
   if (!releasePackageValidator.includes(marker)) {
     throw new Error(`Release package validator is missing marker: ${marker}`);
+  }
+}
+
+for (const marker of [
+  "SCHEMA_VERSION = 1",
+  "REQUIRED_PACKAGE_FILES =",
+  "def build_manifest(",
+  "def serialize_manifest(",
+  "with zipfile.ZipFile(archive_path)",
+  "release archive entry does not match package file",
+  "def run_self_test()",
+  "Deterministic release manifest self-test passed",
+]) {
+  if (!releaseManifest.includes(marker)) {
+    throw new Error(`Release manifest generator is missing marker: ${marker}`);
   }
 }
 

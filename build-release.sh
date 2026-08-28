@@ -10,7 +10,7 @@ if ! command -v dotnet >/dev/null 2>&1; then
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "❌ Python 3 is required to create the deterministic release archive." >&2
+    echo "❌ Python 3 is required to create the deterministic release archive and manifest." >&2
     exit 1
 fi
 
@@ -26,6 +26,8 @@ rm -rf ./release-package
 rm -rf ./publish
 rm -f jellyfin-plugin-hue-*.zip
 rm -f jellyfin-plugin-hue-*.zip.sha256
+rm -f jellyfin-plugin-hue-*.manifest.json
+rm -f jellyfin-plugin-hue-*.manifest.json.sha256
 
 # Restore dependencies
 echo "📥 Restoring dependencies..."
@@ -101,12 +103,28 @@ CHECKSUM_FILE="$ZIPFILE.sha256"
 sha256sum "$ZIPFILE" > "$CHECKSUM_FILE"
 sha256sum --check --strict "$CHECKSUM_FILE"
 
+# Publish a deterministic manifest beside the archive. It records the exact
+# package-file hashes, archive hash, and hash-locked NuGet graph so downstream
+# operators can audit the release without trusting the build host.
+MANIFEST_FILE="jellyfin-plugin-hue-v${VERSION}.manifest.json"
+python3 scripts/create-release-manifest.py \
+    --package-dir release-package \
+    --lock-file Jellyfin.Plugin.Hue/packages.lock.json \
+    --archive "$ZIPFILE" \
+    --version "$VERSION" \
+    --output "$MANIFEST_FILE"
+MANIFEST_CHECKSUM_FILE="$MANIFEST_FILE.sha256"
+sha256sum "$MANIFEST_FILE" > "$MANIFEST_CHECKSUM_FILE"
+sha256sum --check --strict "$MANIFEST_CHECKSUM_FILE"
+
 echo ""
 echo "✅ Build complete!"
 echo ""
 echo "📁 Release package: $ZIPFILE"
 echo "   Size: $(ls -lh $ZIPFILE | awk '{print $5}')"
 echo "   Checksum: $CHECKSUM_FILE"
+echo "   Release manifest: $MANIFEST_FILE"
+echo "   Manifest checksum: $MANIFEST_CHECKSUM_FILE"
 echo ""
 echo "🚀 Installation:"
 echo "   1. Extract $ZIPFILE to your Jellyfin plugins directory"

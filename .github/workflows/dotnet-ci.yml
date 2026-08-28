@@ -271,12 +271,21 @@ jobs:
 
     - name: Create zip archive
       run: |
+        set -euo pipefail
         python3 scripts/create-deterministic-release-zip.py \
           --input-dir release-package \
           --output jellyfin-plugin-hue-release.zip
         test "$(unzip -Z1 jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "
         sha256sum jellyfin-plugin-hue-release.zip > jellyfin-plugin-hue-release.zip.sha256
         sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
+        python3 scripts/create-release-manifest.py \
+          --package-dir release-package \
+          --lock-file Jellyfin.Plugin.Hue/packages.lock.json \
+          --archive jellyfin-plugin-hue-release.zip \
+          --version "$(jq -er '.version' release-package/meta.json)" \
+          --output jellyfin-plugin-hue-release.manifest.json
+        sha256sum jellyfin-plugin-hue-release.manifest.json > jellyfin-plugin-hue-release.manifest.json.sha256
+        sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256
 
     - name: Upload release package
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -285,6 +294,8 @@ jobs:
         path: |
           jellyfin-plugin-hue-release.zip
           jellyfin-plugin-hue-release.zip.sha256
+          jellyfin-plugin-hue-release.manifest.json
+          jellyfin-plugin-hue-release.manifest.json.sha256
         retention-days: 90
 
     - name: Generate release notes
@@ -301,8 +312,10 @@ jobs:
         echo "" >> release-notes.md
         echo "## Installation" >> release-notes.md
         echo "1. Download the release package" >> release-notes.md
-        echo "2. Extract to your Jellyfin plugins directory" >> release-notes.md
-        echo "3. Restart Jellyfin" >> release-notes.md
+        echo "2. Verify the ZIP with its SHA-256 sidecar" >> release-notes.md
+        echo "3. Optionally inspect the release manifest and its checksum for package/dependency provenance" >> release-notes.md
+        echo "4. Extract to your Jellyfin plugins directory" >> release-notes.md
+        echo "5. Restart Jellyfin" >> release-notes.md
 
     - name: Upload release notes
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -347,9 +360,14 @@ jobs:
         VERSION=$(jq -er '.version | strings | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"))' meta.json)
         HELPER_ZIP="jellyfin-plugin-hue-v${VERSION}.zip"
         HELPER_CHECKSUM="${HELPER_ZIP}.sha256"
+        HELPER_MANIFEST="jellyfin-plugin-hue-v${VERSION}.manifest.json"
+        HELPER_MANIFEST_CHECKSUM="${HELPER_MANIFEST}.sha256"
         test -f "$HELPER_ZIP"
         test -f "$HELPER_CHECKSUM"
+        test -f "$HELPER_MANIFEST"
+        test -f "$HELPER_MANIFEST_CHECKSUM"
         sha256sum --check --strict "$HELPER_CHECKSUM"
+        sha256sum --check --strict "$HELPER_MANIFEST_CHECKSUM"
         EXPECTED_ENTRIES="BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "
         test "$(unzip -Z1 "$HELPER_ZIP" | sort | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
         test "$(unzip -Z1 trusted-release-package/jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
@@ -359,7 +377,9 @@ jobs:
         test "$(jq -er '.version' canonical-meta.json)" = "$VERSION"
         cmp -s helper-meta.json canonical-meta.json
         (cd trusted-release-package && sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256)
-        echo "Linux release helper produced a verified ${VERSION} package matching the canonical manifest."
+        (cd trusted-release-package && sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256)
+        cmp -s "$HELPER_MANIFEST" trusted-release-package/jellyfin-plugin-hue-release.manifest.json
+        echo "Linux release helper produced a verified ${VERSION} package and matching release manifest."
 
   create-github-release:
     name: Create GitHub Release
@@ -395,6 +415,8 @@ jobs:
       run: |
         set -euo pipefail
         sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
+        sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256
+        jq -e '(.schemaVersion == 1) and (.pluginVersion | type == "string") and ((.packageFiles | length) == 3) and ((.nuget.packages | length) > 0)' jellyfin-plugin-hue-release.manifest.json >/dev/null
 
     - name: Extract changelog for current version
       id: changelog
@@ -517,7 +539,9 @@ jobs:
             "### What's Included" \
             '- `Jellyfin.Plugin.Hue.dll` - Main plugin assembly' \
             '- `BouncyCastle.Cryptography.dll` - Managed DTLS transport dependency' \
-            '- `meta.json` - Plugin metadata (required by Jellyfin)'
+            '- `meta.json` - Plugin metadata (required by Jellyfin)' \
+            '- `jellyfin-plugin-hue-release.manifest.json` - Hash-locked package and dependency manifest' \
+            '- `.sha256` sidecars - Integrity checks for the ZIP and manifest'
           } > "$body_file"
 
         command -v gh >/dev/null
@@ -578,17 +602,25 @@ jobs:
         retry gh release upload "$RELEASE_TAG" \
           jellyfin-plugin-hue-release.zip \
           jellyfin-plugin-hue-release.zip.sha256 \
+          jellyfin-plugin-hue-release.manifest.json \
+          jellyfin-plugin-hue-release.manifest.json.sha256 \
           --clobber
 
         # Verify GitHub's recorded asset digests, not only the asset names. This
-        # keeps a successful publication bound to the exact locally verified ZIP
-        # and checksum bytes.
+        # keeps a successful publication bound to the exact locally verified ZIP,
+        # checksums, and dependency manifest bytes.
         local_zip_digest="$(sha256sum jellyfin-plugin-hue-release.zip | awk '{ print $1 }')"
         local_checksum_digest="$(sha256sum jellyfin-plugin-hue-release.zip.sha256 | awk '{ print $1 }')"
+        local_manifest_digest="$(sha256sum jellyfin-plugin-hue-release.manifest.json | awk '{ print $1 }')"
+        local_manifest_checksum_digest="$(sha256sum jellyfin-plugin-hue-release.manifest.json.sha256 | awk '{ print $1 }')"
         expected_zip_digest="$(awk 'NR == 1 { print $1 }' jellyfin-plugin-hue-release.zip.sha256)"
+        expected_manifest_digest="$(awk 'NR == 1 { print $1 }' jellyfin-plugin-hue-release.manifest.json.sha256)"
         test "$expected_zip_digest" = "$local_zip_digest"
+        test "$expected_manifest_digest" = "$local_manifest_digest"
         printf '%s\n' "$local_zip_digest" | grep -Eq '^[0-9a-f]{64}$'
         printf '%s\n' "$local_checksum_digest" | grep -Eq '^[0-9a-f]{64}$'
+        printf '%s\n' "$local_manifest_digest" | grep -Eq '^[0-9a-f]{64}$'
+        printf '%s\n' "$local_manifest_checksum_digest" | grep -Eq '^[0-9a-f]{64}$'
         test -n "${GITHUB_REPOSITORY:-}"
         remote_release="$(retry gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
         remote_zip_digest="$(jq -er --arg name jellyfin-plugin-hue-release.zip '
@@ -607,15 +639,33 @@ jobs:
             else $digests[0]
             end
         ' <<<"$remote_release")"
+        remote_manifest_digest="$(jq -er --arg name jellyfin-plugin-hue-release.manifest.json '
+          [.assets[] | select((.name == $name) and (.state == "uploaded")) | .digest] as $digests
+          | if ($digests | length) != 1 then error("release manifest asset must have exactly one digest")
+            elif ($digests[0] | type) != "string" then error("release manifest asset digest is missing")
+            elif ($digests[0] | test("^sha256:[0-9a-f]{64}$") | not) then error("release manifest asset digest is malformed")
+            else $digests[0]
+            end
+        ' <<<"$remote_release")"
+        remote_manifest_checksum_digest="$(jq -er --arg name jellyfin-plugin-hue-release.manifest.json.sha256 '
+          [.assets[] | select((.name == $name) and (.state == "uploaded")) | .digest] as $digests
+          | if ($digests | length) != 1 then error("release manifest checksum asset must have exactly one digest")
+            elif ($digests[0] | type) != "string" then error("release manifest checksum asset digest is missing")
+            elif ($digests[0] | test("^sha256:[0-9a-f]{64}$") | not) then error("release manifest checksum asset digest is malformed")
+            else $digests[0]
+            end
+        ' <<<"$remote_release")"
         test "$remote_zip_digest" = "sha256:${local_zip_digest}"
         test "$remote_checksum_digest" = "sha256:${local_checksum_digest}"
-        echo "GitHub release asset digests match the locally verified ZIP and checksum bytes."
+        test "$remote_manifest_digest" = "sha256:${local_manifest_digest}"
+        test "$remote_manifest_checksum_digest" = "sha256:${local_manifest_checksum_digest}"
+        echo "GitHub release asset digests match the locally verified ZIP, checksum, and manifest bytes."
 
         # Refuse to publish a draft that contains anything other than the
-        # two verified release assets. This check intentionally runs before
+        # four verified release assets. This check intentionally runs before
         # the draft is made public, and is repeated after publication below.
         release_assets="$(retry gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
-        jq -e '([.assets[] | select(.state == "uploaded") | .name] | sort == ["jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"])' \
+        jq -e '([.assets[] | select(.state == "uploaded") | .name] | sort == ["jellyfin-plugin-hue-release.manifest.json", "jellyfin-plugin-hue-release.manifest.json.sha256", "jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"])' \
           <<<"$release_assets" >/dev/null
 
         retry gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
@@ -628,6 +678,8 @@ jobs:
         jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" \
           --arg zip_digest "sha256:${local_zip_digest}" \
           --arg checksum_digest "sha256:${local_checksum_digest}" \
-          '(.tag_name == $tag) and (.target_commitish == $sha) and (.draft == false) and (.prerelease == false) and ([.assets[].name] | sort == ["jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"]) and ([.assets[] | select((.name == "jellyfin-plugin-hue-release.zip") and (.state == "uploaded") and (.digest == $zip_digest))] | length == 1) and ([.assets[] | select((.name == "jellyfin-plugin-hue-release.zip.sha256") and (.state == "uploaded") and (.digest == $checksum_digest))] | length == 1)' \
+          --arg manifest_digest "sha256:${local_manifest_digest}" \
+          --arg manifest_checksum_digest "sha256:${local_manifest_checksum_digest}" \
+          '(.tag_name == $tag) and (.target_commitish == $sha) and (.draft == false) and (.prerelease == false) and ([.assets[].name] | sort == ["jellyfin-plugin-hue-release.manifest.json", "jellyfin-plugin-hue-release.manifest.json.sha256", "jellyfin-plugin-hue-release.zip", "jellyfin-plugin-hue-release.zip.sha256"]) and ([.assets[] | select((.name == "jellyfin-plugin-hue-release.zip") and (.state == "uploaded") and (.digest == $zip_digest))] | length == 1) and ([.assets[] | select((.name == "jellyfin-plugin-hue-release.zip.sha256") and (.state == "uploaded") and (.digest == $checksum_digest))] | length == 1) and ([.assets[] | select((.name == "jellyfin-plugin-hue-release.manifest.json") and (.state == "uploaded") and (.digest == $manifest_digest))] | length == 1) and ([.assets[] | select((.name == "jellyfin-plugin-hue-release.manifest.json.sha256") and (.state == "uploaded") and (.digest == $manifest_checksum_digest))] | length == 1)' \
           <<<"$final_release" >/dev/null
-        echo "Published $RELEASE_TAG at $RELEASE_SHA with the verified ZIP and checksum asset digests."
+        echo "Published $RELEASE_TAG at $RELEASE_SHA with verified ZIP, checksum, and manifest asset digests."

@@ -11,7 +11,7 @@ $pythonCommand = @("python", "python3") |
     Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } |
     Select-Object -First 1
 if (-not $pythonCommand) {
-    throw "Python 3 is required to create the deterministic release archive."
+    throw "Python 3 is required to create the deterministic release archive and manifest."
 }
 
 # Clean previous builds
@@ -27,6 +27,8 @@ if (Test-Path "./publish") {
 }
 Get-ChildItem -Filter "jellyfin-plugin-hue-*.zip" | Remove-Item -Force
 Get-ChildItem -Filter "jellyfin-plugin-hue-*.zip.sha256" | Remove-Item -Force
+Get-ChildItem -Filter "jellyfin-plugin-hue-*.manifest.json" | Remove-Item -Force
+Get-ChildItem -Filter "jellyfin-plugin-hue-*.manifest.json.sha256" | Remove-Item -Force
 
 # Restore dependencies
 Write-Host "📥 Restoring dependencies..." -ForegroundColor Yellow
@@ -128,12 +130,39 @@ if ($checksumParts[0].ToLowerInvariant() -ne $verifiedHash) {
     throw "Checksum verification failed for $zipFile"
 }
 
+# Publish a deterministic manifest beside the archive. It records the exact
+# package-file hashes, archive hash, and hash-locked NuGet graph so downstream
+# operators can audit the release without trusting the build host.
+$manifestFile = "jellyfin-plugin-hue-v$version.manifest.json"
+& $pythonCommand "scripts/create-release-manifest.py" `
+    --package-dir "release-package" `
+    --lock-file "Jellyfin.Plugin.Hue/packages.lock.json" `
+    --archive $zipFile `
+    --version $version `
+    --output $manifestFile
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+$manifestChecksumFile = $manifestFile + ".sha256"
+$manifestHash = (Get-FileHash -Algorithm SHA256 -Path $manifestFile).Hash.ToLowerInvariant()
+($manifestHash + "  " + [System.IO.Path]::GetFileName($manifestFile)) | Set-Content -Path $manifestChecksumFile -Encoding ascii
+$manifestChecksumParts = (Get-Content -LiteralPath $manifestChecksumFile -Raw).Trim() -split '\s+', 2
+if ($manifestChecksumParts.Count -ne 2 -or
+    $manifestChecksumParts[0] -notmatch '^[0-9a-fA-F]{64}$' -or
+    $manifestChecksumParts[1] -ne [System.IO.Path]::GetFileName($manifestFile)) {
+    throw "Manifest checksum sidecar is malformed or names the wrong manifest: $manifestChecksumFile"
+}
+if ($manifestChecksumParts[0].ToLowerInvariant() -ne $manifestHash) {
+    throw "Manifest checksum verification failed for $manifestFile"
+}
+
 Write-Host ""
 Write-Host "✅ Build complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "📁 Release package: $zipFile" -ForegroundColor Cyan
 Write-Host "   Size: $zipSize KB"
 Write-Host "   Checksum: $checksumFile"
+Write-Host "   Release manifest: $manifestFile"
+Write-Host "   Manifest checksum: $manifestChecksumFile"
 Write-Host ""
 Write-Host "🚀 Installation:" -ForegroundColor Cyan
 Write-Host "   1. Extract $zipFile to your Jellyfin plugins directory"
