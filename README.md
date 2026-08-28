@@ -472,7 +472,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.354 (Current)
+### Version 1.5.355 (Current)
+
+- **Restart-safe recurring claims**: recurring automatic scene occurrences persist an exact UTC occurrence slot and credential-free timing-definition key before bridge activity, so a scheduler restart cannot replay the same-minute or recovered catch-up cue.
+
+- **Fail-closed occurrence persistence**: failed claim writes leave the cue eligible without contacting Hue, while cancellation, playback conflicts, skipped occurrences, schedule edits, and deleted cues reconcile durable claims safely.
+
+- **Semgrep ruleset integrity**: the blocking workflows verify the refreshed SHA-256 pin for the reviewed default ruleset snapshot before scanning.
+
+- **Regression coverage**: scheduler contracts cover same-minute restart suppression, catch-up suppression, next-occurrence execution, timing-definition edits, and persistence-failure retry.
 
 - **Playback-conflict durability**: Defer scheduled cues now preserve their exact occurrence slot when playback starts after the scheduler's initial check, without consuming a run; active playback remains authoritative across direct scenes and continuous playlists.
 

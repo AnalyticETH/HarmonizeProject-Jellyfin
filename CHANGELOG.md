@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.355] - 2026-08-28
+
+### Scheduler durability
+- **Restart-safe recurring claims**: recurring automatic scene occurrences now persist an exact UTC slot and credential-free timing-definition key before bridge activity, preventing same-minute and catch-up replays after a scheduler restart.
+- **Fail-closed occurrence persistence**: a failed recurring claim write leaves the cue eligible without contacting Hue, while cancellation, playback conflicts, skipped occurrences, schedule edits, and deleted cues reconcile their durable claims safely.
+- **Semgrep ruleset integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot changed.
+- **Regression coverage**: scheduler tests cover same-minute restart suppression, catch-up suppression, next-occurrence execution, timing-definition edits, and persistence-failure retry.
+
 ## [1.5.354] - 2026-08-28
 
 ### Scheduler and configuration safety

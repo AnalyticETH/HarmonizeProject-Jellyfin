@@ -2402,6 +2402,7 @@ public sealed class HueSceneAutomationServiceTests
         var serializer = new Mock<IXmlSerializer>();
         serializer
             .SetupSequence(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Pass()
             .Throws(new InvalidOperationException("simulated finite-state persistence failure"))
             .Throws(new InvalidOperationException("simulated history persistence failure"))
             .Pass();
@@ -2448,7 +2449,7 @@ public sealed class HueSceneAutomationServiceTests
         Assert.False(configuration.SceneSchedules[0].Enabled);
         serializer.Verify(
             xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
-            Times.Exactly(2));
+            Times.Exactly(3));
 
         // The next scheduler pass retries the authoritative finite state even though
         // history retention is disabled and the cue is no longer enabled.
@@ -2456,9 +2457,188 @@ public sealed class HueSceneAutomationServiceTests
 
         serializer.Verify(
             xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
-            Times.Exactly(3));
+            Times.Exactly(4));
         Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
         Assert.False(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_PersistsRecurringOccurrenceClaimAndSuppressesReplayAfterRestart()
+    {
+        var configuration = CreateDurableOccurrenceClaimConfiguration(
+            "durable-replay-cue",
+            catchUpMinutes: 10);
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var dueUtc = new DateTime(2026, 9, 1, 7, 5, 30, DateTimeKind.Utc);
+
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.Equal(new[] { 10 }, streamTester.Reds);
+        var persistedClaim = Assert.Single(configuration.PersistedSceneAutomationOccurrenceClaims);
+        Assert.Equal("durable-replay-cue", persistedClaim.ScheduleId);
+        Assert.Equal(dueUtc.AddSeconds(-30), persistedClaim.OccurrenceSlot);
+        Assert.False(string.IsNullOrWhiteSpace(persistedClaim.OccurrenceDefinitionKey));
+
+        var restartedConfiguration = CreateDurableOccurrenceClaimConfiguration(
+            "durable-replay-cue",
+            catchUpMinutes: 10);
+        restartedConfiguration.PersistedSceneAutomationOccurrenceClaims = configuration
+            .PersistedSceneAutomationOccurrenceClaims
+            .Select(CloneOccurrenceClaimEntry)
+            .ToList();
+        InstallConfiguration(restartedConfiguration);
+
+        using var restartedHttpClient = new HttpClient(new AreaConfigurationHandler());
+        var restartedStreamTester = new RecordingStreamTester();
+        var restartedService = new HueSceneAutomationService(
+            restartedStreamTester,
+            new HueClient(restartedHttpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await restartedService.RunDueSchedulesAsync(
+            dueUtc.AddSeconds(20),
+            CancellationToken.None);
+
+        Assert.Empty(restartedStreamTester.Reds);
+        Assert.Equal(0, restartedConfiguration.SceneSchedules[0].RunCount);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_PersistedRecurringClaimSuppressesCatchUpButAllowsNextOccurrence()
+    {
+        var configuration = CreateDurableOccurrenceClaimConfiguration(
+            "durable-catch-up-cue",
+            catchUpMinutes: 10);
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var dueUtc = new DateTime(2026, 9, 1, 7, 5, 30, DateTimeKind.Utc);
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        var restartedConfiguration = CreateDurableOccurrenceClaimConfiguration(
+            "durable-catch-up-cue",
+            catchUpMinutes: 10);
+        restartedConfiguration.PersistedSceneAutomationOccurrenceClaims = configuration
+            .PersistedSceneAutomationOccurrenceClaims
+            .Select(CloneOccurrenceClaimEntry)
+            .ToList();
+        InstallConfiguration(restartedConfiguration);
+
+        using var restartedHttpClient = new HttpClient(new AreaConfigurationHandler());
+        var restartedStreamTester = new RecordingStreamTester();
+        var restartedService = new HueSceneAutomationService(
+            restartedStreamTester,
+            new HueClient(restartedHttpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await restartedService.RunDueSchedulesAsync(
+            dueUtc.AddMinutes(2),
+            CancellationToken.None);
+        Assert.Empty(restartedStreamTester.Reds);
+
+        await restartedService.RunDueSchedulesAsync(
+            dueUtc.AddDays(1),
+            CancellationToken.None);
+
+        Assert.Equal(new[] { 10 }, restartedStreamTester.Reds);
+        var claim = Assert.Single(restartedConfiguration.PersistedSceneAutomationOccurrenceClaims);
+        Assert.Equal(dueUtc.AddDays(1).AddSeconds(-30), claim.OccurrenceSlot);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_TimingDefinitionChangeDoesNotSuppressNewOccurrence()
+    {
+        var configuration = CreateDurableOccurrenceClaimConfiguration(
+            "durable-edited-cue",
+            catchUpMinutes: 10);
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var firstStreamTester = new RecordingStreamTester();
+        var firstService = new HueSceneAutomationService(
+            firstStreamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var originalDueUtc = new DateTime(2026, 9, 1, 7, 5, 30, DateTimeKind.Utc);
+        await firstService.RunDueSchedulesAsync(originalDueUtc, CancellationToken.None);
+
+        var persistedClaim = Assert.Single(configuration.PersistedSceneAutomationOccurrenceClaims);
+        var editedConfiguration = CreateDurableOccurrenceClaimConfiguration(
+            "durable-edited-cue",
+            catchUpMinutes: 10);
+        editedConfiguration.SceneSchedules[0].TimeOfDay = "07:06";
+        editedConfiguration.PersistedSceneAutomationOccurrenceClaims = new List<HueSceneAutomationOccurrenceClaimEntry>
+        {
+            CloneOccurrenceClaimEntry(persistedClaim)
+        };
+        InstallConfiguration(editedConfiguration);
+
+        using var restartedHttpClient = new HttpClient(new AreaConfigurationHandler());
+        var restartedStreamTester = new RecordingStreamTester();
+        var restartedService = new HueSceneAutomationService(
+            restartedStreamTester,
+            new HueClient(restartedHttpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await restartedService.RunDueSchedulesAsync(
+            new DateTime(2026, 9, 1, 7, 6, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        Assert.Equal(new[] { 10 }, restartedStreamTester.Reds);
+        var replacementClaim = Assert.Single(editedConfiguration.PersistedSceneAutomationOccurrenceClaims);
+        Assert.Equal(new DateTime(2026, 9, 1, 7, 6, 0, DateTimeKind.Utc), replacementClaim.OccurrenceSlot);
+        Assert.NotEqual(persistedClaim.OccurrenceDefinitionKey, replacementClaim.OccurrenceDefinitionKey);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_WhenRecurringOccurrenceClaimPersistenceFails_FailsClosedAndRetries()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .SetupSequence(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated recurring claim persistence failure"))
+            .Pass();
+        var configuration = CreateDurableOccurrenceClaimConfiguration(
+            "durable-claim-retry-cue",
+            catchUpMinutes: 0);
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var dueUtc = new DateTime(2026, 9, 1, 7, 5, 30, DateTimeKind.Utc);
+
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.Empty(streamTester.Reds);
+        Assert.Empty(configuration.PersistedSceneAutomationOccurrenceClaims);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Once);
+
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.Equal(new[] { 10 }, streamTester.Reds);
+        Assert.Single(configuration.PersistedSceneAutomationOccurrenceClaims);
+        serializer.Verify(
+            xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
+            Times.Exactly(2));
     }
 
     [Fact]
@@ -3780,6 +3960,7 @@ public sealed class HueSceneAutomationServiceTests
         serializer
             .SetupSequence(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
             .Pass()
+            .Pass()
             .Throws(new InvalidOperationException("simulated deferred removal persistence failure"))
             .Pass();
         var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
@@ -3807,13 +3988,13 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
         serializer.Verify(
             xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
-            Times.Exactly(2));
+            Times.Exactly(3));
 
         await service.RunDueSchedulesAsync(dueUtc.AddMinutes(2), CancellationToken.None);
 
         serializer.Verify(
             xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()),
-            Times.Exactly(3));
+            Times.Exactly(4));
         Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
         Assert.Equal(1, Assert.Single(configuration.SceneSchedules).RunCount);
     }
@@ -7110,6 +7291,51 @@ public sealed class HueSceneAutomationServiceTests
                     Enabled = true
                 }
             }
+        };
+    }
+
+    private static PluginConfiguration CreateDurableOccurrenceClaimConfiguration(
+        string scheduleId,
+        int catchUpMinutes)
+    {
+        return new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationCatchUpMinutes = catchUpMinutes,
+            PersistSceneScheduleHistory = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "durable-occurrence-app-secret",
+            HueClientKey = "durable-occurrence-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Durable occurrence scene", Red = 10, Green = 20, Blue = 30, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = scheduleId,
+                    Name = "Durable occurrence cue",
+                    PresetName = "Durable occurrence scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+    }
+
+    private static HueSceneAutomationOccurrenceClaimEntry CloneOccurrenceClaimEntry(
+        HueSceneAutomationOccurrenceClaimEntry source)
+    {
+        return new HueSceneAutomationOccurrenceClaimEntry
+        {
+            ScheduleId = source.ScheduleId,
+            OccurrenceSlot = source.OccurrenceSlot,
+            OccurrenceDefinitionKey = source.OccurrenceDefinitionKey
         };
     }
 

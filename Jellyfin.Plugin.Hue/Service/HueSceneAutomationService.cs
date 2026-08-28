@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -36,6 +37,10 @@ public sealed class HueSceneAutomationService : BackgroundService
     private readonly object _runtimeStateLock = new();
     private readonly Dictionary<string, HueSceneScheduleRuntimeState> _runtimeStates = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _oneTimeCompletionPersistencePending = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _automaticOccurrenceClaimLock = new();
+    private readonly Dictionary<string, HueSceneAutomationOccurrenceClaim> _automaticOccurrenceClaims = new(StringComparer.OrdinalIgnoreCase);
+    private bool _automaticOccurrenceClaimsLoaded;
+    private bool _automaticOccurrenceClaimsPersistencePending;
     private int _schedulerEvaluationCount;
     private int _scheduleLifecycleCount;
     private readonly object _historyLock = new();
@@ -4550,6 +4555,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         // finite run-state writes that failed after the previous pass completed.
         EnsureHistoryLoaded();
         EnsureDeferredRunsLoaded();
+        EnsureAutomaticOccurrenceClaimsLoaded();
         var config = Plugin.Instance?.Configuration;
         if (config == null)
             return;
@@ -4582,8 +4588,11 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (schedules == null || schedules.Length == 0)
         {
             ClearAllDeferredRuns();
+            ClearAllAutomaticOccurrenceClaims();
             return;
         }
+
+        PruneAutomaticOccurrenceClaims(schedules, persist: true);
 
         var catchUpMinutes = Math.Clamp(
             config.SceneAutomationCatchUpMinutes,
@@ -4674,11 +4683,37 @@ public sealed class HueSceneAutomationService : BackgroundService
             var wasCatchUp = !hasDeferredRun && !isDue;
             var wasDeferredRestored = hasDeferredRun && deferredRun!.Restored;
 
+            // The in-memory run-slot guard only protects this process. A durable claim
+            // is authoritative across scheduler restarts; if a deferred entry survived
+            // a completed run's cleanup write, discard that stale work item rather than
+            // replaying bridge activity for an already-claimed occurrence.
+            if (HasAutomaticOccurrenceClaim(schedule, slot))
+            {
+                if (hasDeferredRun)
+                    RemoveDeferredRun(schedule.Id);
+                continue;
+            }
+
             // A pending administrator skip always wins over a deferred occurrence. It is
             // safe to consume it while playback is active because no bridge mutation occurs.
             var playbackActiveForSchedule = IsPlaybackActiveForSchedule(config, schedule, playbackScope);
             if (deferDuringPlayback && playbackActiveForSchedule)
             {
+                var skippedOccurrenceClaimed = false;
+                if (ShouldClaimAutomaticOccurrence(schedule) && schedule.SkipNextOccurrence)
+                {
+                    // Claim a skipped recurring occurrence before clearing the
+                    // administrator marker. If persistence fails, leave the marker
+                    // untouched so a later pass can retry without bridge activity.
+                    if (!TryClaimAutomaticOccurrence(config, schedule, slot))
+                    {
+                        ReleaseRunSlot(schedule.Id, slot);
+                        continue;
+                    }
+
+                    skippedOccurrenceClaimed = true;
+                }
+
                 if (TryConsumeSkippedOccurrence(config, schedule, out var blockedSkippedResult, out var blockedSkipPersistenceFailed))
                 {
                     if (TryClaimRunSlot(schedule.Id, slot))
@@ -4689,6 +4724,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                         RemoveDeferredRun(schedule.Id);
                         RecordSkippedOccurrence(config, schedule, blockedSkippedResult);
                     }
+                    else if (skippedOccurrenceClaimed)
+                    {
+                        ReleaseAutomaticOccurrenceClaim(config, schedule, slot);
+                    }
 
                     continue;
                 }
@@ -4696,7 +4735,14 @@ public sealed class HueSceneAutomationService : BackgroundService
                 // If clearing a skip marker failed, leave both the marker and any pending
                 // deferred occurrence intact so a later poll can retry safely.
                 if (blockedSkipPersistenceFailed)
+                {
+                    if (skippedOccurrenceClaimed)
+                        ReleaseAutomaticOccurrenceClaim(config, schedule, slot);
                     continue;
+                }
+
+                if (skippedOccurrenceClaimed)
+                    ReleaseAutomaticOccurrenceClaim(config, schedule, slot);
 
                 if (!hasDeferredRun)
                 {
@@ -4707,6 +4753,21 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             if (!TryClaimRunSlot(schedule.Id, slot))
                 continue;
+
+            var automaticOccurrenceClaimed = false;
+            if (ShouldClaimAutomaticOccurrence(schedule))
+            {
+                // Persist the recurring occurrence claim before entering any target
+                // lifecycle. A failed write is fail-closed: release only the local
+                // slot and retry on a later scheduler pass without contacting Hue.
+                if (!TryClaimAutomaticOccurrence(config, schedule, slot))
+                {
+                    ReleaseRunSlot(schedule.Id, slot);
+                    continue;
+                }
+
+                automaticOccurrenceClaimed = true;
+            }
 
             if (TryConsumeSkippedOccurrence(config, schedule, out var skippedResult, out var skipPersistenceFailed))
             {
@@ -4728,6 +4789,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             // slot claimed above; otherwise the slot guard would suppress that retry.
             if (skipPersistenceFailed)
             {
+                if (automaticOccurrenceClaimed)
+                    ReleaseAutomaticOccurrenceClaim(config, schedule, slot);
                 ReleaseRunSlot(schedule.Id, slot);
                 continue;
             }
@@ -5661,8 +5724,11 @@ public sealed class HueSceneAutomationService : BackgroundService
             // allowed to continue beside playback. Do not let that rejected attempt
             // consume the occurrence slot, or the next poll will permanently suppress
             // the occurrence after the manual run completes.
-            if (alreadyRunning && runAtUtcOverride.HasValue)
+            if (automaticRun && runAtUtcOverride.HasValue)
+            {
                 ReleaseRunSlot(schedule.Id, runAtUtcOverride.Value);
+                ReleaseAutomaticOccurrenceClaim(config, schedule, runAtUtcOverride.Value);
+            }
 
             var exhausted = Failure(
                 schedule.Id,
@@ -5719,7 +5785,11 @@ public sealed class HueSceneAutomationService : BackgroundService
                 result is { Succeeded: false, BlockedByPlayback: true };
             if ((automaticCancellationBeforeCompletion || automaticPlaybackConflictBeforeCompletion) &&
                 runAtUtcOverride.HasValue)
+            {
                 ReleaseRunSlot(schedule.Id, runAtUtcOverride.Value);
+                if (automaticRun)
+                    ReleaseAutomaticOccurrenceClaim(config, schedule, runAtUtcOverride.Value);
+            }
 
             CompleteRun(
                 config,
@@ -7324,6 +7394,451 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
+    private static bool ShouldClaimAutomaticOccurrence(HueSceneSchedule? schedule)
+        => schedule != null && string.IsNullOrWhiteSpace(schedule.RunDate);
+
+    private static string GetOccurrenceDefinitionKey(HueSceneSchedule schedule)
+    {
+        var timeMode = PluginConfiguration.TryNormalizeSceneScheduleTimeMode(
+            schedule.TimeMode,
+            out var normalizedTimeMode)
+            ? normalizedTimeMode
+            : schedule.TimeMode?.Trim() ?? string.Empty;
+        var recurrence = PluginConfiguration.TryNormalizeSceneScheduleRecurrence(
+            schedule.Recurrence,
+            out var normalizedRecurrence)
+            ? normalizedRecurrence
+            : schedule.Recurrence?.Trim() ?? string.Empty;
+        var timeOfDay = PluginConfiguration.TryNormalizeSceneScheduleTime(
+            schedule.TimeOfDay,
+            out var normalizedTimeOfDay)
+            ? normalizedTimeOfDay
+            : schedule.TimeOfDay?.Trim() ?? string.Empty;
+        var excludedDates = PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(
+            schedule.ExcludedDates,
+            out var normalizedExcludedDates)
+            ? normalizedExcludedDates
+            : (schedule.ExcludedDates ?? new List<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+        // Unit-separate each field so a credential-free schedule edit cannot create an
+        // accidental collision. These are all timing fields; target and scene edits do
+        // not change the identity of an already-consumed occurrence.
+        return string.Join(
+            '\u001f',
+            timeMode,
+            timeOfDay,
+            schedule.TimeZoneId?.Trim() ?? string.Empty,
+            recurrence,
+            schedule.RecurrenceInterval.ToString(CultureInfo.InvariantCulture),
+            schedule.DayOfMonth.ToString(CultureInfo.InvariantCulture),
+            schedule.MonthOfYear.ToString(CultureInfo.InvariantCulture),
+            schedule.WeekOfMonth.ToString(CultureInfo.InvariantCulture),
+            schedule.DayOfWeek.ToString(CultureInfo.InvariantCulture),
+            schedule.DaysOfWeekMask.ToString(CultureInfo.InvariantCulture),
+            schedule.StartDate?.Trim() ?? string.Empty,
+            schedule.EndDate?.Trim() ?? string.Empty,
+            schedule.SolarOffsetMinutes.ToString(CultureInfo.InvariantCulture),
+            schedule.SolarLatitude?.ToString("R", CultureInfo.InvariantCulture) ?? string.Empty,
+            schedule.SolarLongitude?.ToString("R", CultureInfo.InvariantCulture) ?? string.Empty,
+            string.Join(',', normalizedExcludedDates));
+    }
+
+    private bool HasAutomaticOccurrenceClaim(
+        HueSceneSchedule schedule,
+        DateTime occurrenceSlot)
+    {
+        if (!ShouldClaimAutomaticOccurrence(schedule) ||
+            string.IsNullOrWhiteSpace(schedule.Id) ||
+            occurrenceSlot == default)
+        {
+            return false;
+        }
+
+        var key = schedule.Id.Trim();
+        var normalizedSlot = NormalizeUtcInstant(occurrenceSlot);
+        var definitionKey = GetOccurrenceDefinitionKey(schedule);
+        lock (_automaticOccurrenceClaimLock)
+        {
+            return _automaticOccurrenceClaims.TryGetValue(key, out var claim) &&
+                claim.OccurrenceSlot == normalizedSlot &&
+                string.Equals(claim.OccurrenceDefinitionKey, definitionKey, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private bool TryClaimAutomaticOccurrence(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        DateTime occurrenceSlot)
+    {
+        if (!ShouldClaimAutomaticOccurrence(schedule) ||
+            string.IsNullOrWhiteSpace(schedule.Id) ||
+            occurrenceSlot == default)
+        {
+            return false;
+        }
+
+        var key = schedule.Id.Trim();
+        var normalizedSlot = NormalizeUtcInstant(occurrenceSlot);
+        var definitionKey = GetOccurrenceDefinitionKey(schedule);
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            lock (_automaticOccurrenceClaimLock)
+            {
+                if (_automaticOccurrenceClaims.TryGetValue(key, out var existing) &&
+                    existing.OccurrenceSlot == normalizedSlot &&
+                    string.Equals(existing.OccurrenceDefinitionKey, definitionKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                var previousClaim = _automaticOccurrenceClaims.TryGetValue(key, out existing)
+                    ? existing
+                    : null;
+                var previousEntries = (config.PersistedSceneAutomationOccurrenceClaims ?? new List<HueSceneAutomationOccurrenceClaimEntry>())
+                    .Select(CloneAutomaticOccurrenceClaimEntry)
+                    .ToList();
+                _automaticOccurrenceClaims[key] = new HueSceneAutomationOccurrenceClaim(
+                    normalizedSlot,
+                    definitionKey);
+                config.PersistedSceneAutomationOccurrenceClaims = SnapshotAutomaticOccurrenceClaims();
+                if (SaveAutomaticOccurrenceClaimsConfiguration())
+                {
+                    _automaticOccurrenceClaimsPersistencePending = false;
+                    return true;
+                }
+
+                if (previousClaim == null)
+                    _automaticOccurrenceClaims.Remove(key);
+                else
+                    _automaticOccurrenceClaims[key] = previousClaim;
+                config.PersistedSceneAutomationOccurrenceClaims = previousEntries;
+                return false;
+            }
+        }
+    }
+
+    private bool ReleaseAutomaticOccurrenceClaim(
+        PluginConfiguration config,
+        HueSceneSchedule schedule,
+        DateTime occurrenceSlot)
+    {
+        if (!ShouldClaimAutomaticOccurrence(schedule) ||
+            string.IsNullOrWhiteSpace(schedule.Id) ||
+            occurrenceSlot == default)
+        {
+            return true;
+        }
+
+        var key = schedule.Id.Trim();
+        var normalizedSlot = NormalizeUtcInstant(occurrenceSlot);
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            lock (_automaticOccurrenceClaimLock)
+            {
+                var definitionKey = GetOccurrenceDefinitionKey(schedule);
+                if (!_automaticOccurrenceClaims.TryGetValue(key, out var existing) ||
+                    existing.OccurrenceSlot != normalizedSlot ||
+                    !string.Equals(
+                        existing.OccurrenceDefinitionKey,
+                        definitionKey,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                var previousEntries = (config.PersistedSceneAutomationOccurrenceClaims ?? new List<HueSceneAutomationOccurrenceClaimEntry>())
+                    .Select(CloneAutomaticOccurrenceClaimEntry)
+                    .ToList();
+                _automaticOccurrenceClaims.Remove(key);
+                config.PersistedSceneAutomationOccurrenceClaims = SnapshotAutomaticOccurrenceClaims();
+                if (SaveAutomaticOccurrenceClaimsConfiguration())
+                {
+                    _automaticOccurrenceClaimsPersistencePending = false;
+                    return true;
+                }
+
+                // Keep a failed release in memory and on the in-memory configuration so
+                // a persistence outage fails closed instead of replaying a possibly
+                // partially-mutated bridge lifecycle after cancellation.
+                _automaticOccurrenceClaims[key] = existing;
+                config.PersistedSceneAutomationOccurrenceClaims = previousEntries;
+                return false;
+            }
+        }
+    }
+
+    private void EnsureAutomaticOccurrenceClaimsLoaded(bool persistRepairs = true)
+    {
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            EnsureAutomaticOccurrenceClaimsLoadedCore(persistRepairs);
+        }
+    }
+
+    private void EnsureAutomaticOccurrenceClaimsLoadedCore(bool persistRepairs)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config == null)
+            return;
+
+        bool loaded;
+        bool persistencePending;
+        lock (_automaticOccurrenceClaimLock)
+        {
+            loaded = _automaticOccurrenceClaimsLoaded;
+            persistencePending = _automaticOccurrenceClaimsPersistencePending;
+        }
+
+        if (loaded)
+        {
+            if (persistRepairs && persistencePending)
+                PersistPendingAutomaticOccurrenceClaimsRepair();
+            return;
+        }
+
+        if (persistRepairs)
+            config.PersistedSceneAutomationOccurrenceClaims ??= new List<HueSceneAutomationOccurrenceClaimEntry>();
+        var configuredEntries = config.PersistedSceneAutomationOccurrenceClaims ??
+            new List<HueSceneAutomationOccurrenceClaimEntry>();
+        var normalizedEntries = NormalizeAutomaticOccurrenceClaimEntries(
+            config,
+            configuredEntries,
+            out var shouldSave);
+        var loadedClaims = normalizedEntries.ToDictionary(
+            entry => entry.ScheduleId.Trim(),
+            entry => new HueSceneAutomationOccurrenceClaim(
+                NormalizeUtcInstant(entry.OccurrenceSlot),
+                entry.OccurrenceDefinitionKey.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        lock (_automaticOccurrenceClaimLock)
+        {
+            if (_automaticOccurrenceClaimsLoaded)
+            {
+                if (!persistRepairs && shouldSave)
+                    _automaticOccurrenceClaimsPersistencePending = true;
+                return;
+            }
+
+            if (shouldSave)
+            {
+                if (persistRepairs)
+                    config.PersistedSceneAutomationOccurrenceClaims = normalizedEntries
+                        .Select(CloneAutomaticOccurrenceClaimEntry)
+                        .ToList();
+                else
+                    _automaticOccurrenceClaimsPersistencePending = true;
+            }
+
+            _automaticOccurrenceClaims.Clear();
+            foreach (var entry in loadedClaims)
+                _automaticOccurrenceClaims[entry.Key] = entry.Value;
+            _automaticOccurrenceClaimsLoaded = true;
+        }
+
+        if (shouldSave && persistRepairs)
+        {
+            if (SaveAutomaticOccurrenceClaimsConfiguration())
+            {
+                lock (_automaticOccurrenceClaimLock)
+                {
+                    _automaticOccurrenceClaimsPersistencePending = false;
+                }
+            }
+            else
+            {
+                MarkAutomaticOccurrenceClaimsPersistencePending();
+            }
+        }
+    }
+
+    private List<HueSceneAutomationOccurrenceClaimEntry> NormalizeAutomaticOccurrenceClaimEntries(
+        PluginConfiguration config,
+        IReadOnlyList<HueSceneAutomationOccurrenceClaimEntry> configuredEntries,
+        out bool shouldSave)
+    {
+        var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
+            .Where(schedule => schedule != null && !string.IsNullOrWhiteSpace(schedule.Id))
+            .GroupBy(schedule => schedule.Id.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToDictionary(
+                schedule => schedule.Id.Trim(),
+                schedule => schedule,
+                StringComparer.OrdinalIgnoreCase);
+        var candidates = new List<HueSceneAutomationOccurrenceClaimEntry>();
+        foreach (var entry in configuredEntries ?? Array.Empty<HueSceneAutomationOccurrenceClaimEntry>())
+        {
+            if (entry == null ||
+                string.IsNullOrWhiteSpace(entry.ScheduleId) ||
+                entry.OccurrenceSlot == default ||
+                !schedules.TryGetValue(entry.ScheduleId.Trim(), out var schedule) ||
+                !ShouldClaimAutomaticOccurrence(schedule))
+            {
+                continue;
+            }
+
+            var definitionKey = GetOccurrenceDefinitionKey(schedule);
+            var persistedDefinitionKey = entry.OccurrenceDefinitionKey?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(persistedDefinitionKey) &&
+                !string.Equals(persistedDefinitionKey, definitionKey, StringComparison.OrdinalIgnoreCase))
+            {
+                // The schedule kept its ID but its timing changed; the old claim belongs
+                // to the old occurrence definition and must not suppress the new cue.
+                continue;
+            }
+
+            candidates.Add(new HueSceneAutomationOccurrenceClaimEntry
+            {
+                ScheduleId = schedule.Id.Trim(),
+                OccurrenceSlot = NormalizeUtcInstant(entry.OccurrenceSlot),
+                OccurrenceDefinitionKey = definitionKey
+            });
+        }
+
+        var normalizedEntries = candidates
+            .GroupBy(entry => entry.ScheduleId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(entry => entry.OccurrenceSlot)
+                .First())
+            .OrderBy(entry => entry.ScheduleId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var sourceEntries = (configuredEntries ?? Array.Empty<HueSceneAutomationOccurrenceClaimEntry>()).ToArray();
+        shouldSave = normalizedEntries.Count != sourceEntries.Length ||
+            normalizedEntries.Where((entry, index) => !AutomaticOccurrenceClaimEntriesEqual(entry, sourceEntries[index])).Any();
+        return normalizedEntries;
+    }
+
+    private static bool AutomaticOccurrenceClaimEntriesEqual(
+        HueSceneAutomationOccurrenceClaimEntry left,
+        HueSceneAutomationOccurrenceClaimEntry? right)
+    {
+        return right != null &&
+            string.Equals(left.ScheduleId?.Trim(), right.ScheduleId?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+            NormalizeUtcInstant(left.OccurrenceSlot) == NormalizeUtcInstant(right.OccurrenceSlot) &&
+            string.Equals(left.OccurrenceDefinitionKey?.Trim(), right.OccurrenceDefinitionKey?.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void PruneAutomaticOccurrenceClaims(
+        IReadOnlyList<HueSceneSchedule> schedules,
+        bool persist)
+    {
+        var definitions = schedules
+            .Where(schedule => schedule != null && ShouldClaimAutomaticOccurrence(schedule) && !string.IsNullOrWhiteSpace(schedule.Id))
+            .GroupBy(schedule => schedule.Id.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToDictionary(
+                schedule => schedule.Id.Trim(),
+                schedule => GetOccurrenceDefinitionKey(schedule),
+                StringComparer.OrdinalIgnoreCase);
+        lock (_bridgeLifecycleGate.HistorySynchronization)
+        {
+            lock (_automaticOccurrenceClaimLock)
+            {
+                var retained = _automaticOccurrenceClaims
+                    .Where(entry => definitions.TryGetValue(entry.Key, out var definition) &&
+                        string.Equals(entry.Value.OccurrenceDefinitionKey, definition, StringComparison.OrdinalIgnoreCase))
+                    .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+                if (retained.Count == _automaticOccurrenceClaims.Count)
+                    return;
+
+                var previousClaims = _automaticOccurrenceClaims.ToDictionary(
+                    entry => entry.Key,
+                    entry => entry.Value,
+                    StringComparer.OrdinalIgnoreCase);
+                var previousEntries = (Plugin.Instance?.Configuration?.PersistedSceneAutomationOccurrenceClaims ??
+                    new List<HueSceneAutomationOccurrenceClaimEntry>())
+                    .Select(CloneAutomaticOccurrenceClaimEntry)
+                    .ToList();
+                _automaticOccurrenceClaims.Clear();
+                foreach (var entry in retained)
+                    _automaticOccurrenceClaims[entry.Key] = entry.Value;
+                var config = Plugin.Instance?.Configuration;
+                if (config == null)
+                    return;
+                config.PersistedSceneAutomationOccurrenceClaims = SnapshotAutomaticOccurrenceClaims();
+                if (!persist || SaveAutomaticOccurrenceClaimsConfiguration())
+                {
+                    _automaticOccurrenceClaimsPersistencePending = !persist;
+                    return;
+                }
+
+                _automaticOccurrenceClaims.Clear();
+                foreach (var entry in previousClaims)
+                    _automaticOccurrenceClaims[entry.Key] = entry.Value;
+                config.PersistedSceneAutomationOccurrenceClaims = previousEntries;
+            }
+        }
+    }
+
+    private void ClearAllAutomaticOccurrenceClaims()
+        => PruneAutomaticOccurrenceClaims(Array.Empty<HueSceneSchedule>(), persist: true);
+
+    private List<HueSceneAutomationOccurrenceClaimEntry> SnapshotAutomaticOccurrenceClaims()
+    {
+        return _automaticOccurrenceClaims
+            .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(entry => new HueSceneAutomationOccurrenceClaimEntry
+            {
+                ScheduleId = entry.Key,
+                OccurrenceSlot = entry.Value.OccurrenceSlot,
+                OccurrenceDefinitionKey = entry.Value.OccurrenceDefinitionKey
+            })
+            .ToList();
+    }
+
+    private void PersistPendingAutomaticOccurrenceClaimsRepair()
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config == null)
+            return;
+
+        lock (_automaticOccurrenceClaimLock)
+        {
+            config.PersistedSceneAutomationOccurrenceClaims = SnapshotAutomaticOccurrenceClaims();
+            if (SaveAutomaticOccurrenceClaimsConfiguration())
+                _automaticOccurrenceClaimsPersistencePending = false;
+            else
+                MarkAutomaticOccurrenceClaimsPersistencePending();
+        }
+    }
+
+    private void MarkAutomaticOccurrenceClaimsPersistencePending()
+    {
+        lock (_automaticOccurrenceClaimLock)
+        {
+            _automaticOccurrenceClaimsPersistencePending = true;
+        }
+    }
+
+    private bool SaveAutomaticOccurrenceClaimsConfiguration()
+    {
+        try
+        {
+            Plugin.Instance?.SaveConfiguration();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not persist Hue automatic scene occurrence claims");
+            return false;
+        }
+    }
+
+    private static HueSceneAutomationOccurrenceClaimEntry CloneAutomaticOccurrenceClaimEntry(
+        HueSceneAutomationOccurrenceClaimEntry source)
+    {
+        return new HueSceneAutomationOccurrenceClaimEntry
+        {
+            ScheduleId = source.ScheduleId?.Trim() ?? string.Empty,
+            OccurrenceSlot = NormalizeUtcInstant(source.OccurrenceSlot),
+            OccurrenceDefinitionKey = source.OccurrenceDefinitionKey?.Trim() ?? string.Empty
+        };
+    }
+
     private bool TryClaimRunSlot(string scheduleId, DateTime slot)
     {
         lock (_runSlotLock)
@@ -7581,6 +8096,20 @@ internal sealed class HueSceneDeferredRun
     public DateTime DeferredAtLocal { get; }
     public DateTime DeferredAtUtc { get; }
     public bool Restored { get; }
+}
+
+internal sealed class HueSceneAutomationOccurrenceClaim
+{
+    public HueSceneAutomationOccurrenceClaim(
+        DateTime occurrenceSlot,
+        string occurrenceDefinitionKey)
+    {
+        OccurrenceSlot = occurrenceSlot;
+        OccurrenceDefinitionKey = occurrenceDefinitionKey;
+    }
+
+    public DateTime OccurrenceSlot { get; }
+    public string OccurrenceDefinitionKey { get; }
 }
 
 internal sealed class HueSceneScheduleReadiness

@@ -572,6 +572,19 @@ namespace Jellyfin.Plugin.Hue.Configuration
     }
 
     /// <summary>
+    /// Credential-free durable claim for one recurring automatic scene occurrence.
+    /// Claims are written before bridge activity so a scheduler restart cannot replay an
+    /// occurrence whose lifecycle may have already mutated the bridge. The timing
+    /// definition key prevents a retained claim from suppressing a newly edited cue.
+    /// </summary>
+    public sealed class HueSceneAutomationOccurrenceClaimEntry
+    {
+        public string ScheduleId { get; set; } = string.Empty;
+        public DateTime OccurrenceSlot { get; set; }
+        public string OccurrenceDefinitionKey { get; set; } = string.Empty;
+    }
+
+    /// <summary>
     /// Credential-free outcome for one target in a scheduled-scene run, including the
     /// validated entertainment-channel counts used by immediate and scheduled previews.
     /// </summary>
@@ -1768,6 +1781,15 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// completion, expiration, disablement, or deletion.
         /// </summary>
         public List<HueSceneDeferredRunEntry> PersistedSceneAutomationDeferredRuns { get; set; } = new List<HueSceneDeferredRunEntry>();
+
+        /// <summary>
+        /// Durable exactly-once guards for recurring automatic scene occurrences. Entries
+        /// contain only schedule identity, the exact UTC occurrence slot, and a
+        /// credential-free timing-definition key; they are not included in configuration
+        /// exports. A claim remains until a later occurrence replaces it or the schedule
+        /// is removed/edited, so a restart fails closed instead of replaying bridge work.
+        /// </summary>
+        public List<HueSceneAutomationOccurrenceClaimEntry> PersistedSceneAutomationOccurrenceClaims { get; set; } = new List<HueSceneAutomationOccurrenceClaimEntry>();
 
         /// <summary>
         /// Retains the bounded, sanitized completed-session history in plugin configuration.
