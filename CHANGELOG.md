@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
-## [1.5.362] - 2026-08-28
+## [1.5.363] - 2026-08-28
 
 ### Bridge and capture hardening
 - **Fail-closed entertainment-area identity**: Hue configuration responses reject present malformed area IDs instead of treating them as legacy ID-less responses, preventing an unverified area's channel layout from being used for the requested target while preserving the documented ID-less fallback.
 - **Weighted multi-target brightness**: aggregate current-light capture now weights brightness by captured light count, including off lights, so rooms with different numbers of lights seed the scene editor accurately.
 - **Regression coverage**: client and API tests cover malformed area identities, legacy ID-less responses, unequal target sizes, and off-light brightness weighting.
+- **Semgrep snapshot integrity**: refreshed the reviewed SHA-256 pins for the current default and Python ruleset snapshots after the registry rotated, with local findings, scanner errors, and fixpoint timeouts at zero.
 
 ## [1.5.361] - 2026-08-28
 
