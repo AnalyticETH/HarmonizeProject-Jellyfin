@@ -488,7 +488,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.386 (Current)
+### Version 1.5.387 (Current)
+
+- **Scheduled-cue deletion lifecycle**: confirmation and DELETE requests are owned by the active configuration-page generation, canceled on teardown, guarded against duplicate submissions, and prevented from applying stale status or reload callbacks.
+
+- **Bounded FFmpeg diagnostics**: stderr is drained in fixed-size chunks, capped to 8 KiB per diagnostic line, and marked once when truncated while continuing to drain the process pipe.
+
+- **Regression coverage**: configuration lifecycle contracts cover stale confirmation/completion and duplicate deletion; FFmpeg tests cover multi-megabyte unterminated stderr and bounded cleanup.
 
 - **mDNS class validation**: discovery accepts only Internet-class DNS questions and records while preserving mDNS cache-flush/unicast-response flag bits, so unrelated class data cannot be treated as a Hue endpoint.
 

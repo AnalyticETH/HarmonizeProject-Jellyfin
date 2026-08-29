@@ -2977,6 +2977,12 @@
                         if (deleteButton) deleteButton.disabled = false;
                         page._hueUserMappingDeleteButton = null;
                     }
+                    if (key === 'sceneScheduleDelete') {
+                        page._hueSceneScheduleDeleting = false;
+                        var sceneScheduleDeleteButton = page._hueSceneScheduleDeleteButton;
+                        if (sceneScheduleDeleteButton) sceneScheduleDeleteButton.disabled = false;
+                        page._hueSceneScheduleDeleteButton = null;
+                    }
                 },
                 invalidatePageLifecycle: function (page) {
                     if (!page) return;
@@ -3003,6 +3009,12 @@
                         if (pendingDeleteConfirmation.button) pendingDeleteConfirmation.button.disabled = false;
                     }
                     page._hueUserMappingDeleteConfirmation = null;
+                    var pendingSceneScheduleDeleteConfirmation = page._hueSceneScheduleDeleteConfirmation;
+                    if (pendingSceneScheduleDeleteConfirmation) {
+                        pendingSceneScheduleDeleteConfirmation.canceled = true;
+                        if (pendingSceneScheduleDeleteConfirmation.button) pendingSceneScheduleDeleteConfirmation.button.disabled = false;
+                    }
+                    page._hueSceneScheduleDeleteConfirmation = null;
                     page._huePageGeneration += 1;
                     page._huePageActive = false;
                     page._hueBridgeCertificatePinPending = false;
@@ -3046,6 +3058,9 @@
                     page._hueUserMappingDeleting = false;
                     if (page._hueUserMappingDeleteButton) page._hueUserMappingDeleteButton.disabled = false;
                     page._hueUserMappingDeleteButton = null;
+                    page._hueSceneScheduleDeleting = false;
+                    if (page._hueSceneScheduleDeleteButton) page._hueSceneScheduleDeleteButton.disabled = false;
+                    page._hueSceneScheduleDeleteButton = null;
                     page._hueColorPresetSaving = false;
                     page._hueColorPresetDuplicating = false;
                     page._hueDiagnosticsLoading = false;
@@ -10295,6 +10310,10 @@
                         });
                 },
                 deleteSceneSchedule: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueSceneScheduleDeleting === true || page._hueSceneScheduleDeleteConfirmation) return Promise.resolve();
                     var select = page.querySelector('#sceneScheduleSelect');
                     var scheduleId = select && select.value;
                     var option = select && select.options[select.selectedIndex];
@@ -10302,24 +10321,65 @@
                         Dashboard.alert("Choose a scheduled cue first.");
                         return;
                     }
-                    Dashboard.confirm("Delete the scheduled cue '" + (option ? option.textContent : scheduleId) + "'?", "Delete Cue", function (confirmed) {
-                        if (!confirmed) return;
-                        var statusEl = page.querySelector('#sceneScheduleStatus');
-                        ApiClient.ajax({
-                            type: "DELETE",
-                            url: ApiClient.getUrl("HueSync/SceneSchedules/" + encodeURIComponent(scheduleId))
-                        }).then(function () {
-                            if (statusEl) {
-                                statusEl.textContent = "Scheduled cue deleted.";
-                                statusEl.style.color = "#8bc34a";
+                    var button = page.querySelector('#deleteSceneScheduleBtn');
+                    var confirmation = { generation: pageGeneration, button: button || null, canceled: false };
+                    page._hueSceneScheduleDeleteConfirmation = confirmation;
+                    if (button) button.disabled = true;
+                    return new Promise(function (resolve) {
+                        Dashboard.confirm("Delete the scheduled cue '" + (option ? option.textContent : scheduleId) + "'?", "Delete Cue", function (confirmed) {
+                            var ownsConfirmation = page._hueSceneScheduleDeleteConfirmation === confirmation;
+                            if (ownsConfirmation) page._hueSceneScheduleDeleteConfirmation = null;
+                            if (!ownsConfirmation || confirmation.canceled || !confirmed ||
+                                !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                if (ownsConfirmation && button) button.disabled = false;
+                                resolve();
+                                return;
                             }
-                            return HueConfigurationPage.loadSceneSchedules(page);
-                        }).catch(function (err) {
-                            console.error("Failed to delete scene schedule:", err);
-                            if (statusEl) {
-                                statusEl.textContent = "Unable to delete the scheduled cue.";
-                                statusEl.style.color = "#d9534f";
-                            }
+
+                            var statusEl = page.querySelector('#sceneScheduleStatus');
+                            page._hueSceneScheduleDeleting = true;
+                            page._hueSceneScheduleDeleteButton = button || null;
+                            var request = HueConfigurationPage.getPageLifecycleRequest(
+                                page,
+                                pageGeneration,
+                                'sceneScheduleDelete',
+                                ApiClient.getUrl("HueSync/SceneSchedules/" + encodeURIComponent(scheduleId)),
+                                {
+                                    type: "DELETE",
+                                    dataType: "json"
+                                });
+                            var isCurrent = function () {
+                                return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                            };
+                            resolve(request.then(function () {
+                                if (!isCurrent()) return;
+                                if (statusEl) {
+                                    statusEl.textContent = "Scheduled cue deleted.";
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                                return HueConfigurationPage.loadSceneSchedules(page);
+                            }).catch(function (err) {
+                                if (!isCurrent()) return;
+                                console.error("Failed to delete scene schedule:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = "Unable to delete the scheduled cue.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                            }).finally(function () {
+                                var current = isCurrent();
+                                var requestRecord = request && request._huePageRequestRecord;
+                                var tracked = page && page._huePageRequests &&
+                                    page._huePageRequests.sceneScheduleDelete === requestRecord;
+                                if (current || tracked) {
+                                    page._hueSceneScheduleDeleting = false;
+                                    if (page._hueSceneScheduleDeleteButton === button) {
+                                        if (button) button.disabled = false;
+                                        page._hueSceneScheduleDeleteButton = null;
+                                    }
+                                    if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleDelete');
+                                    if (current) HueConfigurationPage.updateSceneScheduleButtons(page);
+                                }
+                            }));
                         });
                     });
                 },

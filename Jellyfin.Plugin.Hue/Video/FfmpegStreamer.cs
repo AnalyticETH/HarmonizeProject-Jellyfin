@@ -38,6 +38,8 @@ namespace Jellyfin.Plugin.Hue.Video
         private const int MinStallTimeoutSeconds = 1;
         private const int MaxStallTimeoutSeconds = 60;
         private const int MaxCustomFlagTextLength = 768;
+        internal const int MaximumStandardErrorLineChars = 8 * 1024;
+        private const int StandardErrorReadBufferSize = 4096;
         private static readonly TimeSpan ProcessCleanupTimeout = TimeSpan.FromSeconds(1);
         private static readonly HashSet<string> SafeCustomFlags = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -898,11 +900,55 @@ namespace Jellyfin.Plugin.Hue.Video
             try
             {
                 using var reader = process.StandardError;
-                while (!cancellationToken.IsCancellationRequested && !reader.EndOfStream)
+                var buffer = new char[StandardErrorReadBufferSize];
+                var line = new StringBuilder(StandardErrorReadBufferSize);
+                var lineWasTruncated = false;
+                var skipLineFeed = false;
+
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    var line = reader.ReadLine();
-                    if (!string.IsNullOrEmpty(line))
-                        _logger.LogDebug("FFmpeg: {0}", line);
+                    var read = reader.Read(buffer, 0, buffer.Length);
+                    if (read == 0)
+                    {
+                        if (!lineWasTruncated)
+                            LogStandardErrorLine(line);
+                        break;
+                    }
+
+                    for (var index = 0; index < read; index++)
+                    {
+                        var character = buffer[index];
+                        if (skipLineFeed)
+                        {
+                            skipLineFeed = false;
+                            if (character == '\n')
+                                continue;
+                        }
+
+                        if (character == '\r' || character == '\n')
+                        {
+                            if (!lineWasTruncated)
+                                LogStandardErrorLine(line);
+
+                            line.Clear();
+                            lineWasTruncated = false;
+                            skipLineFeed = character == '\r';
+                            continue;
+                        }
+
+                        if (lineWasTruncated)
+                            continue;
+
+                        if (line.Length < MaximumStandardErrorLineChars)
+                        {
+                            line.Append(character);
+                            continue;
+                        }
+
+                        LogStandardErrorLine(line, truncated: true);
+                        line.Clear();
+                        lineWasTruncated = true;
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -921,6 +967,16 @@ namespace Jellyfin.Plugin.Hue.Video
             {
                 _logger.LogWarning(ex, "Error reading FFmpeg stderr");
             }
+        }
+
+        private void LogStandardErrorLine(StringBuilder line, bool truncated = false)
+        {
+            if (line.Length == 0)
+                return;
+
+            _logger.LogDebug(
+                truncated ? "FFmpeg: {0} [truncated]" : "FFmpeg: {0}",
+                line.ToString());
         }
 
         private async Task MonitorProcessHealthAsync(Process process, CancellationToken cancellationToken)

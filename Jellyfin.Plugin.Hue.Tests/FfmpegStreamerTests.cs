@@ -293,6 +293,78 @@ public sealed class FfmpegStreamerTests
         }
     }
 
+    [Fact]
+    public async Task StderrReader_CapsUnterminatedLineAndStopCompletes()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        using var temporaryDirectory = new TemporaryDirectory();
+        var scriptPath = Path.Combine(temporaryDirectory.Path, "fake-ffmpeg-large-stderr.sh");
+        var mediaPath = Path.Combine(temporaryDirectory.Path, "input.mkv");
+        File.WriteAllText(
+            scriptPath,
+            "#!/bin/sh\n" +
+            "dd if=/dev/zero bs=1048576 count=4 2>/dev/null | tr '\\000' A >&2\n" +
+            "printf x\n" +
+            "while :; do sleep 1; done\n");
+        File.SetUnixFileMode(
+            scriptPath,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        File.WriteAllBytes(mediaPath, Array.Empty<byte>());
+
+        var logger = new RecordingLogger();
+        var streamer = new FfmpegStreamer(logger);
+        Stream? output = null;
+        try
+        {
+            output = streamer.StartFfmpeg(
+                mediaPath,
+                fps: 1,
+                useGpu: false,
+                ffmpegPath: scriptPath);
+
+            Assert.NotNull(output);
+
+            // The script writes several megabytes to stderr before stdout. This
+            // read proves the stderr worker continues draining instead of letting
+            // the child block on its redirected pipe.
+            var outputReadTask = Task.Run(() => output!.ReadByte());
+            Assert.Same(outputReadTask, await Task.WhenAny(outputReadTask, Task.Delay(TimeSpan.FromSeconds(5))));
+            Assert.Equal((byte)'x', await outputReadTask);
+
+            Assert.True(await WaitForConditionAsync(
+                () => logger.Messages.Any(message => message.EndsWith("[truncated]", StringComparison.Ordinal))));
+
+            var stderrMessages = logger.Messages
+                .Where(message => message.StartsWith("FFmpeg: ", StringComparison.Ordinal))
+                .ToArray();
+            Assert.Contains(stderrMessages, message => message.EndsWith("[truncated]", StringComparison.Ordinal));
+            Assert.All(
+                stderrMessages,
+                message => Assert.True(
+                    message.Length <=
+                        "FFmpeg: ".Length +
+                        FfmpegStreamer.MaximumStandardErrorLineChars +
+                        " [truncated]".Length));
+
+            var stderrTask = GetPrivateField<Task>(streamer, "_stderrReaderTask");
+            Assert.NotNull(stderrTask);
+
+            var stopTask = Task.Run(streamer.Stop);
+            Assert.Same(stopTask, await Task.WhenAny(stopTask, Task.Delay(TimeSpan.FromSeconds(5))));
+            await stopTask;
+            Assert.True(stderrTask!.IsCompleted);
+        }
+        finally
+        {
+            streamer.Stop();
+            output?.Dispose();
+        }
+    }
+
     private static T? GetPrivateField<T>(FfmpegStreamer streamer, string name)
     {
         return (T?)typeof(FfmpegStreamer)
@@ -312,6 +384,20 @@ public sealed class FfmpegStreamerTests
         }
 
         throw new TimeoutException("The fake FFmpeg process did not publish its child PID.");
+    }
+
+    private static async Task<bool> WaitForConditionAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+                return true;
+
+            await Task.Delay(25);
+        }
+
+        return false;
     }
 
     private static async Task<bool> WaitForProcessExitAsync(int processId)
@@ -355,6 +441,46 @@ public sealed class FfmpegStreamerTests
             {
                 // The test has already asserted process cleanup; leave a diagnostic
                 // directory in place if the host has not released it yet.
+            }
+        }
+    }
+
+    private sealed class RecordingLogger : ILogger<FfmpegStreamer>
+    {
+        private readonly object _gate = new();
+        private readonly List<string> _messages = new();
+
+        public IReadOnlyList<string> Messages
+        {
+            get
+            {
+                lock (_gate)
+                    return _messages.ToArray();
+            }
+        }
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => NullScope.Instance;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            lock (_gate)
+                _messages.Add(formatter(state, exception));
+        }
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+
+            public void Dispose()
+            {
             }
         }
     }

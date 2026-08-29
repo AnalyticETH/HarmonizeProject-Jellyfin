@@ -1881,6 +1881,108 @@ async function testSceneScheduleSaveLifecycleGuards() {
     assert.equal(currentState.buttonUpdates, 1, "current scene schedule save refreshes current-page controls");
 }
 
+function configureSceneScheduleDeleteHarness(harness) {
+    const { page } = harness;
+    const select = page.querySelector("#sceneScheduleSelect");
+    select.value = "cue-1";
+    select.selectedIndex = 0;
+    select.options = [{ value: "cue-1", textContent: "Cue One" }];
+    return {
+        button: page.querySelector("#deleteSceneScheduleBtn"),
+        status: page.querySelector("#sceneScheduleStatus")
+    };
+}
+
+async function testSceneScheduleDeleteLifecycleGuards() {
+    const confirmationHarness = makeHarness();
+    const confirmationState = configureSceneScheduleDeleteHarness(confirmationHarness);
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    let confirmation;
+    let confirmationCalls = 0;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => {
+        confirmationCalls += 1;
+        confirmation = callback;
+    };
+    const confirmationOperation = confirmationApi.deleteSceneSchedule(confirmationPage);
+    assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "scene schedule delete returns a promise");
+    assert.equal(confirmationHarness.requests.length, 0, "scene schedule delete waits for confirmation before mutating configuration");
+    assert.equal(confirmationCalls, 1, "scene schedule delete asks for one confirmation");
+    assert.equal(confirmationState.button.disabled, true, "pending scene schedule delete disables its button");
+    const duplicateConfirmation = confirmationApi.deleteSceneSchedule(confirmationPage);
+    assert.equal(confirmationCalls, 1, "duplicate scene schedule delete does not open another confirmation");
+    assert.equal(confirmationHarness.requests.length, 0, "duplicate scene schedule delete does not submit before confirmation");
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    confirmationApi.beginPageLifecycle(confirmationPage);
+    assert.equal(confirmationState.button.disabled, false, "pagehide restores the pending scene schedule delete button");
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 0, "stale scene schedule delete confirmation cannot start a request after pagehide");
+    await confirmationOperation;
+    await duplicateConfirmation;
+
+    const staleHarness = makeHarness();
+    const staleState = configureSceneScheduleDeleteHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    let staleScheduleLoads = 0;
+    staleApi.loadSceneSchedules = () => {
+        staleScheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let staleConfirmation;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+    const staleOperation = staleApi.deleteSceneSchedule(stalePage);
+    staleConfirmation(true);
+    assert.equal(staleHarness.requests.length, 1, "confirmed scene schedule delete starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "DELETE", "scene schedule delete uses DELETE");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/SceneSchedules/cue-1", "scene schedule delete scopes the request to the selected cue");
+    assert.equal(staleHarness.requests[0].options.dataType, "json", "scene schedule delete accepts the API response safely");
+    assert.ok(stalePage._huePageRequests.sceneScheduleDelete, "scene schedule delete is tracked by the page lifecycle");
+    assert.equal(stalePage._hueSceneScheduleDeleting, true, "scene schedule delete marks the page busy");
+    assert.equal(staleState.button.disabled, true, "scene schedule delete keeps its button disabled while pending");
+    staleState.status.textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight scene schedule delete");
+    assert.equal(stalePage._huePageRequests.sceneScheduleDelete, undefined, "pagehide removes the scene schedule delete request record");
+    assert.equal(stalePage._hueSceneScheduleDeleting, false, "pagehide clears the scene schedule delete busy state");
+    assert.equal(staleState.button.disabled, false, "pagehide restores the scene schedule delete button");
+    staleHarness.requests[0].resolve({ message: "stale delete" });
+    await staleOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale scene schedule delete cannot write hidden-page status");
+    assert.equal(staleScheduleLoads, 0, "stale scene schedule delete cannot reload schedules");
+
+    const currentHarness = makeHarness();
+    const currentState = configureSceneScheduleDeleteHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    let currentScheduleLoads = 0;
+    currentApi.loadSceneSchedules = () => {
+        currentScheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let currentConfirmation;
+    let currentConfirmationCalls = 0;
+    currentHarness.dashboard.confirm = (_message, _title, callback) => {
+        currentConfirmationCalls += 1;
+        currentConfirmation = callback;
+    };
+    const currentOperation = currentApi.deleteSceneSchedule(currentPage);
+    currentConfirmation(true);
+    assert.equal(currentHarness.requests.length, 1, "current scene schedule delete starts one request");
+    const duplicateWhilePending = currentApi.deleteSceneSchedule(currentPage);
+    await duplicateWhilePending;
+    assert.equal(currentConfirmationCalls, 1, "pending scene schedule delete blocks duplicate confirmation");
+    assert.equal(currentHarness.requests.length, 1, "pending scene schedule delete keeps one request in flight");
+    currentHarness.requests[0].resolve({ message: "deleted" });
+    await currentOperation;
+    assert.equal(currentState.status.textContent, "Scheduled cue deleted.", "current scene schedule delete reports success");
+    assert.equal(currentScheduleLoads, 1, "current scene schedule delete reloads schedules once");
+    assert.equal(currentPage._hueSceneScheduleDeleting, false, "current scene schedule delete clears the busy state");
+    assert.equal(currentState.button.disabled, false, "current scene schedule delete restores its button");
+    assert.equal(currentPage._huePageRequests.sceneScheduleDelete, undefined, "current scene schedule delete removes its settled lifecycle record");
+}
+
 async function testSceneScheduleRunCancellationUsesActiveId() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -2431,6 +2533,7 @@ await testColorPresetSaveLifecycleGuards();
 await testColorPresetDuplicateLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
+await testSceneScheduleDeleteLifecycleGuards();
 await testSceneScheduleRunCancellationUsesActiveId();
 await testEntertainmentAreaSelectionHandlesUnsafeIds();
 await testPreviewLifecyclePagehideGuards();
@@ -2442,4 +2545,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

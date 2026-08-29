@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.387] - 2026-08-29
+
+### Lifecycle and diagnostics hardening
+- **Scheduled-cue deletion lifecycle**: confirmation and DELETE requests are now owned by the active configuration-page generation, canceled on teardown, guarded against duplicate submissions, and prevented from applying stale status or reload callbacks.
+- **Bounded FFmpeg diagnostics**: stderr is drained in fixed-size chunks, capped to 8 KiB per diagnostic line, and marked once when truncated while continuing to drain the process pipe.
+- **Regression coverage**: configuration lifecycle contracts cover stale confirmation/completion and duplicate deletion; FFmpeg tests cover multi-megabyte unterminated stderr and bounded cleanup.
+
 ## [1.5.386] - 2026-08-29
 
 ### mDNS class validation
