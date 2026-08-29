@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.399] - 2026-08-29
+
+### Runtime, administrator, and request-boundary hardening
+- **History-clear lifecycle**: cue/session history clear confirmations and DELETE requests are page-generation-owned, canceled on teardown, stale-safe, duplicate-suppressed, and leave no stuck controls.
+- **Ambiguous area configuration rejection**: duplicate case/whitespace-variant entertainment-area IDs fail closed instead of selecting a response-order-dependent channel layout.
+- **Configuration request bound**: `POST /HueSync/Configuration` rejects bodies over 1 MiB before model binding traverses certificate pins and administrator text.
+- **Regression coverage**: history-clear lifecycle, duplicate-area configuration, and maximum-valid configuration payload contracts cover the new boundaries.
+
 ## [1.5.398] - 2026-08-29
 
 ### Runtime, administrator, and request-boundary hardening

@@ -591,6 +591,24 @@ public class HueClientTests : IDisposable
         Assert.Equal(1, result.Value.GetProperty("channels")[0].GetProperty("channel_id").GetInt32());
     }
 
+    [Fact]
+    public async Task GetEntertainmentConfiguration_DuplicateRequestedResourceIds_ReturnsNull()
+    {
+        var responseJson = @"{
+            ""data"": [
+                {""id"": ""area-1"", ""channels"": [{""channel_id"": 1}]},
+                {""id"": "" AREA-1 "", ""channels"": [{""channel_id"": 2}]}
+            ]
+        }";
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.Null(result);
+    }
+
     [Theory]
     [InlineData(@"{}")]
     [InlineData(@"{""data"":[]}")]

@@ -77,6 +77,64 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveConfigurationEndpointDeclaresBoundedPreBindingRequestBodyLimit()
+    {
+        var method = typeof(HueApiController).GetMethod(
+            "SaveConfiguration",
+            BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(method);
+        var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+        Assert.NotNull(limit);
+        var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+        Assert.Equal((long?)HueApiController.MaxConfigurationRequestBodyBytes, metadata.MaxRequestBodySize);
+    }
+
+    [Fact]
+    public void MaximumSupportedConfigurationPayloadFitsRequestBodyLimit()
+    {
+        var settings = CreateMaximumSupportedConfigurationSettings();
+        var candidate = new PluginConfiguration();
+        settings.ApplyTo(candidate);
+
+        Assert.Empty(candidate.Validate());
+
+        var serialized = JsonSerializer.SerializeToUtf8Bytes(settings);
+        Assert.InRange(
+            serialized.Length,
+            1,
+            (int)HueApiController.MaxConfigurationRequestBodyBytes);
+
+        var roundTripped = JsonSerializer.Deserialize<HuePluginConfigurationSettings>(serialized);
+        Assert.NotNull(roundTripped);
+        Assert.Equal(
+            PluginConfiguration.MaxHueBridgeCertificatePins,
+            roundTripped!.HueBridgeCertificatePins!.Count);
+        Assert.Equal(PluginConfiguration.MaxChannelIdsInputLength, roundTripped.ChannelIds.Length);
+        Assert.Equal(768, roundTripped.CustomFfmpegFlags.Length);
+    }
+
+    [Fact]
+    public void OversizedConfigurationPayloadExceedsPreBindingRequestBodyLimit()
+    {
+        var validJson = Encoding.UTF8.GetString(
+            JsonSerializer.SerializeToUtf8Bytes(CreateMaximumSupportedConfigurationSettings()));
+        var oversizedJson = validJson[..^1] +
+            $",\"ignoredPadding\":\"{new string('x', (int)HueApiController.MaxConfigurationRequestBodyBytes)}\"}}";
+        var oversized = Encoding.UTF8.GetBytes(oversizedJson);
+
+        Assert.True(
+            oversized.Length > HueApiController.MaxConfigurationRequestBodyBytes,
+            $"Expected oversized configuration payload to exceed {HueApiController.MaxConfigurationRequestBodyBytes} bytes, got {oversized.Length}.");
+
+        var method = typeof(HueApiController).GetMethod(
+            "SaveConfiguration",
+            BindingFlags.Instance | BindingFlags.Public);
+        var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+        var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+        Assert.True(oversized.Length > metadata.MaxRequestBodySize);
+    }
+
+    [Fact]
     public void MaximumSupportedUserMappingPayloadFitsRequestBodyLimit()
     {
         var channelIds = string.Join(',', Enumerable.Range(0, 1024));
@@ -118,6 +176,38 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.MaxDeviceTargetsPerUser, deviceTargetCount);
         var mapping = request.ToConfigurationMapping();
         Assert.Empty(PluginConfiguration.ValidateDeviceTargets(mapping));
+    }
+
+    private static HuePluginConfigurationSettings CreateMaximumSupportedConfigurationSettings()
+    {
+        var settings = HuePluginConfigurationSettings.From(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-app-key",
+            HueClientKey = "stored-client-key",
+            EntertainmentAreaId = "maximum-supported-area"
+        });
+        settings.SyncEnabled = true;
+        settings.HueBridgeIp = "192.168.1.100";
+        settings.HueAppKey = new string('a', 64);
+        settings.HueClientKey = new string('c', 64);
+        settings.EntertainmentAreaId = "maximum-supported-area";
+        settings.HueBridgeCertificatePins = Enumerable.Range(0, PluginConfiguration.MaxHueBridgeCertificatePins)
+            .ToDictionary(
+                index => string.Join(
+                    ".",
+                    $"bridge-{index:D3}",
+                    new string('a', 63),
+                    new string('b', 63),
+                    new string('c', 63),
+                    new string('d', 44),
+                    "local"),
+                _ => new string('a', 64));
+        settings.ChannelIds = string.Join(',', Enumerable.Repeat("65535", 682)) + new string(' ', 5);
+        var customFfmpegFlags = "-c:v h264 -filter_threads 256 -hwaccel auto -hwaccel_device renderD128 -hwaccel_output_format vaapi -threads 256";
+        settings.CustomFfmpegFlags = customFfmpegFlags + new string(' ', 768 - customFfmpegFlags.Length);
+        return settings;
     }
 
     [Fact]

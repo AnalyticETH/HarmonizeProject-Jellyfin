@@ -513,6 +513,177 @@ async function testDuplicateClickIsBounded(testCase) {
     await first;
 }
 
+async function testHistoryClearLifecycleGuards() {
+    const cases = [
+        {
+            method: "clearSceneScheduleHistory",
+            key: "sceneScheduleHistoryClear",
+            flag: "_hueSceneScheduleHistoryClearing",
+            button: "#clearSceneScheduleHistoryBtn",
+            status: "#sceneScheduleHistoryStatus",
+            route: "HueSync/SceneSchedules/History",
+            successText: "2 cue runs cleared.",
+            response: { ClearedCount: 2 },
+            reload(api, state) {
+                api.loadSceneScheduleRuntimeStatus = () => {
+                    state.runtimeLoads += 1;
+                    return Promise.resolve();
+                };
+                api.loadSceneScheduleHistory = () => {
+                    state.historyLoads += 1;
+                    return Promise.resolve();
+                };
+            }
+        },
+        {
+            method: "clearSessionHistory",
+            key: "sessionHistoryClear",
+            flag: "_hueSessionHistoryClearing",
+            button: "#clearSessionHistoryBtn",
+            status: "#sessionHistoryStatus",
+            route: "HueSync/History",
+            successText: "2 sessions cleared.",
+            response: { ClearedCount: 2 },
+            reload(api, state) {
+                api.loadSessionHistory = () => {
+                    state.historyLoads += 1;
+                    return Promise.resolve();
+                };
+            }
+        }
+    ];
+
+    for (const testCase of cases) {
+        const confirmationHarness = makeHarness();
+        const confirmationPage = confirmationHarness.page;
+        const confirmationApi = confirmationHarness.api;
+        const confirmationButton = confirmationPage.querySelector(testCase.button);
+        let confirmation;
+        let confirmationCalls = 0;
+        confirmationHarness.dashboard.confirm = (_message, _title, callback) => {
+            confirmationCalls += 1;
+            confirmation = callback;
+        };
+        const confirmationOperation = confirmationApi[testCase.method](confirmationPage);
+        assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", `${testCase.method} returns a tracked confirmation promise`);
+        assert.equal(confirmationHarness.requests.length, 0, `${testCase.method} waits for confirmation before mutating history`);
+        assert.equal(confirmationCalls, 1, `${testCase.method} opens one confirmation`);
+        assert.equal(confirmationButton.disabled, true, `${testCase.method} disables its button while confirmation is open`);
+        const duplicateConfirmation = confirmationApi[testCase.method](confirmationPage);
+        await duplicateConfirmation;
+        assert.equal(confirmationCalls, 1, `${testCase.method} suppresses duplicate confirmation while pending`);
+        let confirmationSettled = false;
+        confirmationOperation.then(() => { confirmationSettled = true; });
+        confirmationApi.invalidatePageLifecycle(confirmationPage);
+        confirmationApi.beginPageLifecycle(confirmationPage);
+        assert.equal(confirmationPage[testCase.flag], false, `${testCase.method} clears its flag when pagehide cancels confirmation`);
+        assert.equal(confirmationButton.disabled, false, `${testCase.method} restores its button when pagehide cancels confirmation`);
+        assert.equal(confirmationPage._huePageRequests[testCase.key], undefined, `${testCase.method} has no request after pagehide cancels confirmation`);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(confirmationSettled, true, `${testCase.method} settles when pagehide closes the confirmation lifecycle`);
+        confirmation(true);
+        assert.equal(confirmationHarness.requests.length, 0, `${testCase.method} ignores a stale confirmation callback`);
+        await confirmationOperation;
+
+        const staleHarness = makeHarness();
+        const stalePage = staleHarness.page;
+        const staleApi = staleHarness.api;
+        const staleState = {
+            runtimeLoads: 0,
+            historyLoads: 0,
+            status: stalePage.querySelector(testCase.status),
+            button: stalePage.querySelector(testCase.button)
+        };
+        testCase.reload(staleApi, staleState);
+        let staleConfirmation;
+        staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+        const staleOperation = staleApi[testCase.method](stalePage);
+        staleConfirmation(true);
+        assert.equal(staleHarness.requests.length, 1, `${testCase.method} starts one confirmed request`);
+        assert.equal(staleHarness.requests[0].options.type, "DELETE", `${testCase.method} uses DELETE`);
+        assert.equal(staleHarness.requests[0].options.url, testCase.route, `${testCase.method} targets the history endpoint`);
+        assert.ok(stalePage._huePageRequests[testCase.key], `${testCase.method} tracks its destructive request`);
+        assert.equal(stalePage[testCase.flag], true, `${testCase.method} marks itself busy while the request is pending`);
+        assert.equal(staleState.button.disabled, true, `${testCase.method} keeps its button disabled while the request is pending`);
+        staleState.status.textContent = "unchanged after pagehide";
+        staleApi.invalidatePageLifecycle(stalePage);
+        assert.equal(staleHarness.requests[0].promise.aborted, true, `pagehide aborts ${testCase.method}`);
+        assert.equal(stalePage._huePageRequests[testCase.key], undefined, `pagehide removes ${testCase.method} request state`);
+        assert.equal(stalePage[testCase.flag], false, `pagehide clears ${testCase.method} busy state`);
+        assert.equal(staleState.button.disabled, false, `pagehide restores the ${testCase.method} button`);
+        staleHarness.requests[0].resolve({ ClearedCount: 9 });
+        await staleOperation;
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(staleState.status.textContent, "unchanged after pagehide", `stale ${testCase.method} cannot write status`);
+        assert.equal(staleState.runtimeLoads, 0, `stale ${testCase.method} cannot refresh runtime status`);
+        assert.equal(staleState.historyLoads, 0, `stale ${testCase.method} cannot refresh history`);
+
+        const currentHarness = makeHarness();
+        const currentPage = currentHarness.page;
+        const currentApi = currentHarness.api;
+        const currentState = {
+            runtimeLoads: 0,
+            historyLoads: 0,
+            status: currentPage.querySelector(testCase.status),
+            button: currentPage.querySelector(testCase.button)
+        };
+        testCase.reload(currentApi, currentState);
+        let currentConfirmation;
+        let currentConfirmationCalls = 0;
+        currentHarness.dashboard.confirm = (_message, _title, callback) => {
+            currentConfirmationCalls += 1;
+            currentConfirmation = callback;
+        };
+        const currentOperation = currentApi[testCase.method](currentPage);
+        currentConfirmation(true);
+        assert.equal(currentHarness.requests.length, 1, `current ${testCase.method} starts one request`);
+        const duplicateWhilePending = currentApi[testCase.method](currentPage);
+        await duplicateWhilePending;
+        assert.equal(currentConfirmationCalls, 1, `pending ${testCase.method} suppresses a duplicate request`);
+        assert.equal(currentHarness.requests.length, 1, `pending ${testCase.method} keeps one request in flight`);
+        currentHarness.requests[0].resolve(testCase.response);
+        await currentOperation;
+        assert.equal(currentState.status.textContent, testCase.successText, `current ${testCase.method} reports success`);
+        assert.equal(currentState.runtimeLoads, testCase.method === "clearSceneScheduleHistory" ? 1 : 0, `current ${testCase.method} refreshes runtime status when applicable`);
+        assert.equal(currentState.historyLoads, 1, `current ${testCase.method} refreshes history`);
+        assert.equal(currentPage[testCase.flag], false, `current ${testCase.method} clears its busy state`);
+        assert.equal(currentState.button.disabled, false, `current ${testCase.method} does not leave its button stuck disabled`);
+        assert.equal(currentPage._huePageRequests[testCase.key], undefined, `current ${testCase.method} removes its settled request state`);
+
+        if (testCase.method === "clearSessionHistory") {
+            const raceHarness = makeHarness();
+            const racePage = raceHarness.page;
+            const raceApi = raceHarness.api;
+            const raceContainer = racePage.querySelector("#runtimeSessionHistory");
+            const raceRefreshButton = racePage.querySelector("#refreshSessionHistoryBtn");
+            let raceConfirmation;
+            raceHarness.dashboard.confirm = (_message, _title, callback) => { raceConfirmation = callback; };
+            const staleHistoryLoad = raceApi.loadSessionHistory(racePage);
+            const staleHistoryRequest = raceHarness.requests[0];
+            assert.equal(raceHarness.requests.length, 1, "session history stale-race starts with one GET");
+            const raceClearOperation = raceApi.clearSessionHistory(racePage);
+            raceConfirmation(true);
+            assert.equal(staleHistoryRequest.promise.aborted, true, "session history clear aborts the pending history GET");
+            assert.equal(racePage._hueSessionHistoryLoading, false, "session history clear resets the canceled GET loading state");
+            assert.equal(raceRefreshButton.disabled, false, "session history clear restores the refresh button after canceling the GET");
+            assert.equal(raceHarness.requests.length, 2, "session history stale-race starts DELETE after canceling the GET");
+            raceHarness.requests[1].resolve({ ClearedCount: 0 });
+            staleHistoryRequest.resolve({ Sessions: [{ UserName: "stale-private-row" }] });
+            await staleHistoryLoad;
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(raceHarness.requests.length, 3, "session history clear forces a fresh GET after DELETE success");
+            assert.equal(raceHarness.requests[2].options.type, "GET", "session history post-clear refresh uses GET");
+            assert.equal(raceHarness.requests[2].options.url, "HueSync/History?limit=20&outcome=Stopped", "session history post-clear refresh preserves the active filter");
+            assert.equal(raceContainer.textContent.includes("stale-private-row"), false, "stale session history completion cannot repopulate cleared rows");
+            raceHarness.requests[2].resolve({ Sessions: [] });
+            await raceClearOperation;
+            assert.equal(raceContainer.textContent, "No completed Hue sessions matching 'Stopped' have been recorded since the service started.", "session history clear renders the fresh empty result");
+            assert.equal(racePage._hueSessionHistoryClearing, false, "session history stale-race clears its busy state");
+            assert.equal(racePage.querySelector(testCase.button).disabled, false, "session history stale-race does not leave the clear button stuck disabled");
+        }
+    }
+}
+
 async function testRuntimeStopLifecycleGuards() {
     const cases = [
         {
@@ -3924,6 +4095,7 @@ await testColorPresetBulkErrorDetailsAndRetry();
 await testColorPresetRenameLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testScenePlaylistBulkLifecycleGuards();
+await testHistoryClearLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
 await testSceneScheduleDeleteLifecycleGuards();
 await testSceneScheduleRunCancellationUsesActiveId();
@@ -3937,4 +4109,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/bulk-delete/bulk-duplicate/schedule-delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/bulk-delete/bulk-duplicate/history-clear/schedule-delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

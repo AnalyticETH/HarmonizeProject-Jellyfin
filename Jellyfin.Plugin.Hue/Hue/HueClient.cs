@@ -557,6 +557,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     }
 
                     var hasResourceIds = false;
+                    JsonElement? matchingConfiguration = null;
                     foreach (var candidate in data.EnumerateArray())
                     {
                         // Preserve the legacy first-entry fallback only when every
@@ -582,9 +583,22 @@ namespace Jellyfin.Plugin.Hue.Hue
                             areaId.Trim(),
                             StringComparison.OrdinalIgnoreCase))
                         {
-                            // Clone the element so the JsonDocument can be safely disposed.
-                            return (JsonElement?)candidate.Clone();
+                            if (matchingConfiguration.HasValue)
+                            {
+                                // Multiple entries for the requested resource are ambiguous;
+                                // do not select a channel layout based on response ordering.
+                                _logger.LogWarning("Entertainment configuration response contained duplicate area identifiers");
+                                return (JsonElement?)null;
+                            }
+
+                            matchingConfiguration = candidate;
                         }
+                    }
+
+                    if (matchingConfiguration.HasValue)
+                    {
+                        // Clone the element so the JsonDocument can be safely disposed.
+                        return (JsonElement?)matchingConfiguration.Value.Clone();
                     }
 
                     if (hasResourceIds)

@@ -52,6 +52,14 @@ namespace Jellyfin.Plugin.Hue.Api
         /// </summary>
         internal const long MaxConfigurationImportRequestBodyBytes = 8 * 1024 * 1024;
         /// <summary>
+        /// Bounds direct configuration settings before ASP.NET model binding traverses
+        /// their certificate-pin dictionary and administrator-supplied text fields. One
+        /// MiB leaves substantial headroom above the maximum validated settings payload
+        /// while preventing an authenticated administrator request from allocating an
+        /// unbounded JSON body.
+        /// </summary>
+        internal const long MaxConfigurationRequestBodyBytes = 1 * 1024 * 1024;
+        /// <summary>
         /// Bounds write-only per-user mapping documents before their extension-data tree
         /// is recursively inspected or re-serialized. One MiB leaves substantial headroom
         /// over 25 device targets with maximum channel-profile text while bounding unknown
@@ -9532,6 +9540,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// per-user mappings (and their stored credentials) untouched.
         /// </summary>
         [HttpPost("Configuration")]
+        [RequestSizeLimit(MaxConfigurationRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
