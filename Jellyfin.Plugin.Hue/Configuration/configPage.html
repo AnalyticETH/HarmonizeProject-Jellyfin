@@ -2983,6 +2983,12 @@
                         if (deleteButton) deleteButton.disabled = false;
                         page._hueUserMappingDeleteButton = null;
                     }
+                    if (key === 'userMappingCleanupReport' || key === 'userMappingCleanup') {
+                        page._hueUserMappingCleanupRunning = false;
+                        var cleanupButton = page._hueUserMappingCleanupButton;
+                        if (cleanupButton) cleanupButton.disabled = false;
+                        page._hueUserMappingCleanupButton = null;
+                    }
                     if (key === 'sceneScheduleDelete') {
                         page._hueSceneScheduleDeleting = false;
                         var sceneScheduleDeleteButton = page._hueSceneScheduleDeleteButton;
@@ -3021,6 +3027,12 @@
                         if (pendingDeleteConfirmation.button) pendingDeleteConfirmation.button.disabled = false;
                     }
                     page._hueUserMappingDeleteConfirmation = null;
+                    var pendingUserMappingCleanupConfirmation = page._hueUserMappingCleanupConfirmation;
+                    if (pendingUserMappingCleanupConfirmation) {
+                        pendingUserMappingCleanupConfirmation.canceled = true;
+                        if (pendingUserMappingCleanupConfirmation.button) pendingUserMappingCleanupConfirmation.button.disabled = false;
+                    }
+                    page._hueUserMappingCleanupConfirmation = null;
                     var pendingSceneScheduleDeleteConfirmation = page._hueSceneScheduleDeleteConfirmation;
                     if (pendingSceneScheduleDeleteConfirmation) {
                         pendingSceneScheduleDeleteConfirmation.canceled = true;
@@ -3076,6 +3088,9 @@
                     page._hueUserMappingDeleting = false;
                     if (page._hueUserMappingDeleteButton) page._hueUserMappingDeleteButton.disabled = false;
                     page._hueUserMappingDeleteButton = null;
+                    page._hueUserMappingCleanupRunning = false;
+                    if (page._hueUserMappingCleanupButton) page._hueUserMappingCleanupButton.disabled = false;
+                    page._hueUserMappingCleanupButton = null;
                     page._hueSceneScheduleDeleting = false;
                     if (page._hueSceneScheduleDeleteButton) page._hueSceneScheduleDeleteButton.disabled = false;
                     page._hueSceneScheduleDeleteButton = null;
@@ -12644,8 +12659,14 @@
                         });
                 },
                 cleanupStaleUserMappings: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueUserMappingCleanupRunning === true || page._hueUserMappingCleanupConfirmation) return Promise.resolve();
                     var button = page.querySelector('#cleanupStaleUserMappingsBtn');
                     var statusEl = page.querySelector('#userMappingReconcileStatus');
+                    page._hueUserMappingCleanupRunning = true;
+                    page._hueUserMappingCleanupButton = button || null;
                     if (button) button.disabled = true;
                     if (statusEl) {
                         statusEl.textContent = "Checking for stale mappings that can be removed safely...";
@@ -12660,8 +12681,17 @@
                                 ? response[pascalName]
                                 : fallback;
                     };
-                    ApiClient.getJSON(ApiClient.getUrl("HueSync/UserMappings/Reconcile"))
+                    var reportRequest = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'userMappingCleanupReport',
+                        ApiClient.getUrl("HueSync/UserMappings/Reconcile"));
+                    var isReportCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, reportRequest);
+                    };
+                    return reportRequest
                         .then(function (report) {
+                            if (!isReportCurrent()) return;
                             var reportVersion = readValue(report, 'ReportVersion', 'reportVersion', '');
                             var entries = readValue(report, 'Mappings', 'mappings', []);
                             entries = Array.isArray(entries) ? entries : [];
@@ -12678,43 +12708,71 @@
                                 return;
                             }
 
-                            Dashboard.confirm(
-                                "Delete " + staleEntries.length + " exact stale mapping row(s)? Referenced rows will block the whole operation, and duplicate mappings will remain unchanged.",
-                                "Clean Stale Mappings",
-                                function (confirmed) {
-                                    if (!confirmed) {
-                                        if (statusEl) statusEl.textContent = "Stale mapping report reviewed; no rows were deleted.";
-                                        return;
-                                    }
-                                    if (statusEl) statusEl.textContent = "Deleting selected stale mappings atomically...";
-                                    ApiClient.ajax({
-                                        type: "POST",
-                                        url: ApiClient.getUrl("HueSync/UserMappings/Cleanup"),
-                                        data: JSON.stringify({
-                                            mappingIds: staleEntries.map(function (entry) {
-                                                return readValue(entry, 'MappingId', 'mappingId', '');
-                                            }),
-                                            expectedReportVersion: reportVersion
-                                        }),
-                                        contentType: "application/json",
-                                        dataType: "json"
-                                    }).then(function (result) {
-                                        var deleted = readValue(result, 'DeletedCount', 'deletedCount', 0);
-                                        if (statusEl) {
-                                            statusEl.textContent = "Deleted " + deleted + " stale mapping row(s). Duplicate and referenced rows were protected.";
-                                            statusEl.style.color = "#8bc34a";
+                            var confirmation = {
+                                generation: pageGeneration,
+                                button: button || null,
+                                canceled: false
+                            };
+                            page._hueUserMappingCleanupConfirmation = confirmation;
+                            return new Promise(function (resolve) {
+                                Dashboard.confirm(
+                                    "Delete " + staleEntries.length + " exact stale mapping row(s)? Referenced rows will block the whole operation, and duplicate mappings will remain unchanged.",
+                                    "Clean Stale Mappings",
+                                    function (confirmed) {
+                                        var ownsConfirmation = page._hueUserMappingCleanupConfirmation === confirmation;
+                                        if (ownsConfirmation) page._hueUserMappingCleanupConfirmation = null;
+                                        var currentPage = HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration);
+                                        if (!ownsConfirmation || confirmation.canceled || !currentPage || !isReportCurrent()) {
+                                            if (ownsConfirmation && button) button.disabled = false;
+                                            resolve();
+                                            return;
                                         }
-                                        HueConfigurationPage.loadUserMappings(page);
-                                    }).catch(function (err) {
-                                        console.error("Failed to clean stale user mappings:", err);
-                                        if (statusEl) {
-                                            statusEl.textContent = "No stale mapping changed. Refresh reconciliation; a dependency, duplicate, stale report, or persistence failure blocked the atomic operation.";
-                                            statusEl.style.color = "#d9534f";
+                                        if (!confirmed) {
+                                            if (statusEl) statusEl.textContent = "Stale mapping report reviewed; no rows were deleted.";
+                                            resolve();
+                                            return;
                                         }
+                                        if (statusEl) statusEl.textContent = "Deleting selected stale mappings atomically...";
+                                        var cleanupRequest = HueConfigurationPage.getPageLifecycleRequest(
+                                            page,
+                                            pageGeneration,
+                                            'userMappingCleanup',
+                                            ApiClient.getUrl("HueSync/UserMappings/Cleanup"),
+                                            {
+                                                type: "POST",
+                                                data: JSON.stringify({
+                                                    mappingIds: staleEntries.map(function (entry) {
+                                                        return readValue(entry, 'MappingId', 'mappingId', '');
+                                                    }),
+                                                    expectedReportVersion: reportVersion
+                                                }),
+                                                contentType: "application/json",
+                                                dataType: "json"
+                                            });
+                                        var isCurrent = function () {
+                                            return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, cleanupRequest);
+                                        };
+                                        resolve(cleanupRequest.then(function (result) {
+                                            if (!isCurrent()) return;
+                                            var deleted = readValue(result, 'DeletedCount', 'deletedCount', 0);
+                                            if (statusEl) {
+                                                statusEl.textContent = "Deleted " + deleted + " stale mapping row(s). Duplicate and referenced rows were protected.";
+                                                statusEl.style.color = "#8bc34a";
+                                            }
+                                            HueConfigurationPage.loadUserMappings(page);
+                                        }).catch(function (err) {
+                                            if (!isCurrent()) return;
+                                            console.error("Failed to clean stale user mappings:", err);
+                                            if (statusEl) {
+                                                statusEl.textContent = "No stale mapping changed. Refresh reconciliation; a dependency, duplicate, stale report, or persistence failure blocked the atomic operation.";
+                                                statusEl.style.color = "#d9534f";
+                                            }
+                                        }));
                                     });
                                 });
                         })
                         .catch(function (err) {
+                            if (!isReportCurrent()) return;
                             console.error("Failed to inspect stale user mappings:", err);
                             if (statusEl) {
                                 statusEl.textContent = "Unable to inspect stale mappings. Jellyfin's user directory may be unavailable.";
@@ -12722,7 +12780,22 @@
                             }
                         })
                         .finally(function () {
-                            if (button) button.disabled = false;
+                            var current = HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration);
+                            var reportRecord = reportRequest && reportRequest._huePageRequestRecord;
+                            var reportTracked = page && page._huePageRequests &&
+                                page._huePageRequests.userMappingCleanupReport === reportRecord;
+                            var cleanupRecord = page && page._huePageRequests &&
+                                page._huePageRequests.userMappingCleanup;
+                            var cleanupTracked = !!cleanupRecord;
+                            if (current || reportTracked || cleanupTracked) {
+                                page._hueUserMappingCleanupRunning = false;
+                                if (page._hueUserMappingCleanupButton === button) {
+                                    if (button) button.disabled = false;
+                                    page._hueUserMappingCleanupButton = null;
+                                }
+                                if (reportTracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingCleanupReport');
+                                if (cleanupTracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingCleanup');
+                            }
                         });
                 },
                 selectAllUserMappings: function (page) {

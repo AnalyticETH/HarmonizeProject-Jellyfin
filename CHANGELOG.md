@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.391] - 2026-08-29
+
+### Scheduler, lifecycle, and CI contract hardening
+- **One-time cancellation recovery**: automatic one-time cues restore their enabled state when host cancellation interrupts bridge work, retain deferred occurrences, and remain eligible for a safe retry after restart.
+- **Restoration persistence repair**: failed cancellation-restoration writes are retried on the next scheduler pass while ambiguous durable state fails closed against replay.
+- **Stale mapping cleanup lifecycle**: reconciliation and destructive stale-mapping cleanup are generation-owned, canceled on page teardown, and prevented from applying stale confirmation, status, or reload callbacks.
+- **Pinned SDK parity**: trusted and pull-request workflows now verify that their .NET SDK pin exactly matches `global.json` before building.
+- **Regression coverage**: scheduler cancellation/restart, cleanup lifecycle, and SDK parity contracts cover the new boundaries.
+
 ## [1.5.390] - 2026-08-29
 
 ### Workflow and trust lifecycle hardening

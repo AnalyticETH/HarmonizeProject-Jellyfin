@@ -488,7 +488,17 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.390 (Current)
+### Version 1.5.391 (Current)
+
+- **One-time cancellation recovery**: automatic one-time cues restore their enabled state when host cancellation interrupts bridge work, retain deferred occurrences, and remain eligible for a safe retry after restart.
+
+- **Restoration persistence repair**: failed cancellation-restoration writes are retried on the next scheduler pass while ambiguous durable state fails closed against replay.
+
+- **Stale mapping cleanup lifecycle**: reconciliation and destructive stale-mapping cleanup are generation-owned, canceled on page teardown, and prevented from applying stale confirmation, status, or reload callbacks.
+
+- **Pinned SDK parity**: trusted and pull-request workflows now verify that their .NET SDK pin exactly matches `global.json` before building.
+
+- **Regression coverage**: scheduler cancellation/restart, cleanup lifecycle, and SDK parity contracts cover the new boundaries.
 
 - **Trusted-workflow parity**: pull-request validation now executes the trusted-workflow boundary contract, covering exact triggers, permissions, release provenance, immutable actions, and security-scan boundaries before merge.
 

@@ -41,6 +41,9 @@ jobs:
         fetch-depth: 0  # Shallow clones disabled for better analysis
         persist-credentials: false
 
+    - name: Validate pinned .NET SDK parity
+      run: node scripts/validate-dotnet-sdk.mjs
+
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
       with:

@@ -819,6 +819,92 @@ async function testUserMappingDeleteLifecycleGuards() {
     assert.equal(currentPage._huePageRequests.userMappingDelete, undefined, "current delete removes its settled lifecycle record");
 }
 
+async function testUserMappingCleanupLifecycleGuards() {
+    const report = {
+        ReportVersion: "report-one",
+        Mappings: [{ MappingId: "mapping-one", Status: "MissingUser" }]
+    };
+
+    const confirmationHarness = makeHarness();
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    let confirmation;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => { confirmation = callback; };
+    const confirmationOperation = confirmationApi.cleanupStaleUserMappings(confirmationPage);
+    assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "stale-mapping cleanup returns a promise");
+    assert.equal(confirmationHarness.requests.length, 1, "stale-mapping cleanup starts one reconciliation report request");
+    assert.equal(confirmationHarness.requests[0].options.type, "GET", "stale-mapping cleanup report uses GET");
+    assert.equal(
+        confirmationHarness.requests[0].options.url,
+        "HueSync/UserMappings/Reconcile",
+        "stale-mapping cleanup report uses the reconciliation endpoint");
+    assert.equal(confirmationPage._hueUserMappingCleanupRunning, true, "stale-mapping cleanup marks the page busy while reviewing the report");
+    confirmationHarness.requests[0].resolve(report);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(typeof confirmation, "function", "a current stale-mapping report asks for confirmation");
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    assert.equal(confirmationHarness.requests[0].promise.aborted, true, "pagehide aborts the stale-mapping report request");
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 1, "a stale cleanup confirmation cannot start a destructive request");
+    await confirmationOperation;
+
+    const staleHarness = makeHarness();
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    const staleFollowUps = [];
+    let staleConfirmation;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+    staleApi.loadUserMappings = () => { staleFollowUps.push("mappings"); };
+    const staleOperation = staleApi.cleanupStaleUserMappings(stalePage);
+    staleHarness.requests[0].resolve(report);
+    await new Promise(resolve => setImmediate(resolve));
+    staleConfirmation(true);
+    assert.equal(staleHarness.requests.length, 2, "confirmed cleanup starts one destructive request");
+    assert.equal(staleHarness.requests[1].options.type, "POST", "stale-mapping cleanup uses POST");
+    assert.equal(staleHarness.requests[1].options.url, "HueSync/UserMappings/Cleanup", "stale-mapping cleanup uses the cleanup endpoint");
+    assert.deepEqual(
+        JSON.parse(staleHarness.requests[1].options.data),
+        { mappingIds: ["mapping-one"], expectedReportVersion: "report-one" },
+        "stale-mapping cleanup scopes the request to the reviewed row and report version");
+    assert.ok(stalePage._huePageRequests.userMappingCleanup, "stale-mapping cleanup is tracked by the page lifecycle");
+    stalePage.querySelector("#userMappingReconcileStatus").textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[1].promise.aborted, true, "pagehide aborts an in-flight stale-mapping cleanup");
+    assert.equal(stalePage._huePageRequests.userMappingCleanup, undefined, "pagehide removes stale-mapping cleanup request state");
+    assert.equal(stalePage._hueUserMappingCleanupRunning, false, "pagehide clears stale-mapping cleanup busy state");
+    staleHarness.requests[1].resolve({ DeletedCount: 1 });
+    await staleOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(staleFollowUps, [], "invalidated cleanup cannot reload user mappings");
+    assert.equal(
+        stalePage.querySelector("#userMappingReconcileStatus").textContent,
+        "unchanged after pagehide",
+        "invalidated cleanup cannot update hidden-page status");
+
+    const currentHarness = makeHarness();
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    const currentFollowUps = [];
+    let currentConfirmation;
+    currentHarness.dashboard.confirm = (_message, _title, callback) => { currentConfirmation = callback; };
+    currentApi.loadUserMappings = () => { currentFollowUps.push("mappings"); };
+    const currentOperation = currentApi.cleanupStaleUserMappings(currentPage);
+    currentHarness.requests[0].resolve(report);
+    await new Promise(resolve => setImmediate(resolve));
+    currentConfirmation(true);
+    assert.equal(currentHarness.requests.length, 2, "current cleanup starts one destructive request");
+    currentHarness.requests[1].resolve({ DeletedCount: 1 });
+    await currentOperation;
+    assert.deepEqual(currentFollowUps, ["mappings"], "current cleanup reloads mappings after success");
+    assert.equal(
+        currentPage.querySelector("#userMappingReconcileStatus").textContent,
+        "Deleted 1 stale mapping row(s). Duplicate and referenced rows were protected.",
+        "current cleanup reports the deleted row count");
+    assert.equal(currentPage._hueUserMappingCleanupRunning, false, "current cleanup clears its busy state");
+    assert.equal(currentPage.querySelector("#cleanupStaleUserMappingsBtn").disabled, false, "current cleanup restores its button");
+    assert.equal(currentPage._huePageRequests.userMappingCleanup, undefined, "current cleanup removes its settled lifecycle record");
+}
+
 async function testConfigurationImportValidationLifecycleGuards() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -2704,6 +2790,7 @@ for (const testCase of exportCases) {
 await testEditMappingLifecycleGuards();
 await testUserMappingSaveLifecycleGuards();
 await testUserMappingDeleteLifecycleGuards();
+await testUserMappingCleanupLifecycleGuards();
 await testConfigurationImportValidationLifecycleGuards();
 await testConfigurationImportFileLifecycleGuards();
 await testMappingDeviceRouteCredentialScope();
@@ -2737,4 +2824,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

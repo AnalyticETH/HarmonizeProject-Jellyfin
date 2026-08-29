@@ -18,6 +18,8 @@ for (const marker of [
   "permissions:\n  contents: read",
   "runs-on: ubuntu-24.04",
   "github.event.pull_request.number",
+  "Validate pinned .NET SDK parity",
+  "node scripts/validate-dotnet-sdk.mjs",
   "dotnet restore --locked-mode",
   "dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore",
   "dotnet test --configuration ${{ env.BUILD_CONFIGURATION }} --no-build",

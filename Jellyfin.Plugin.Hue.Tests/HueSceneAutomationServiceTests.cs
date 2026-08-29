@@ -3192,6 +3192,260 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_CanceledAutomaticOneTimeCueRestoresClaimForRestartRetry()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        var persistedEnabledStates = new List<bool>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Callback<object, string>((value, _) =>
+            {
+                if (value is PluginConfiguration savedConfiguration &&
+                    savedConfiguration.SceneSchedules?.FirstOrDefault() is { } savedSchedule)
+                {
+                    persistedEnabledStates.Add(savedSchedule.Enabled);
+                }
+            });
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "canceled-one-time-app-secret",
+            HueClientKey = "canceled-one-time-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Canceled one-time scene", DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "canceled-one-time-cue",
+                    Name = "Canceled one-time cue",
+                    PresetName = "Canceled one-time scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-08-18",
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new CancelThenSucceedStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using var cancellationSource = new CancellationTokenSource();
+        var automaticTask = service.RunDueSchedulesAsync(dueUtc, cancellationSource.Token);
+        await streamTester.FirstPreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        cancellationSource.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => automaticTask);
+
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.False(service.HasPendingOneTimeCancellationPersistence);
+        Assert.Contains(false, persistedEnabledStates);
+        Assert.Contains(true, persistedEnabledStates);
+
+        // Recreate the service from the configuration snapshot that contains the restored
+        // enabled state. The canceled one-time occurrence must be eligible after restart.
+        InstallConfiguration(configuration, serializer.Object);
+        using var restartedHttpClient = new HttpClient(new AreaConfigurationHandler());
+        var restartedStreamTester = new RecordingStreamTester();
+        var restartedService = new HueSceneAutomationService(
+            restartedStreamTester,
+            new HueClient(restartedHttpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await restartedService.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.Single(restartedStreamTester.Invocations);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_CanceledAutomaticOneTimeCueRetriesRestoreAfterPersistenceFailure()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        var serializationCalls = 0;
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Callback<object, string>((value, _) =>
+            {
+                serializationCalls++;
+                if (serializationCalls is 2 or 3)
+                    throw new InvalidOperationException("simulated cancellation restore persistence failure");
+            });
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "canceled-one-time-repair-app-secret",
+            HueClientKey = "canceled-one-time-repair-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Canceled one-time repair scene", DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "canceled-one-time-repair-cue",
+                    Name = "Canceled one-time repair cue",
+                    PresetName = "Canceled one-time repair scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-08-18",
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new CancelThenSucceedStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using var cancellationSource = new CancellationTokenSource();
+        var automaticTask = service.RunDueSchedulesAsync(dueUtc, cancellationSource.Token);
+        await streamTester.FirstPreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        cancellationSource.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => automaticTask);
+
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.True(service.HasPendingOneTimeCancellationPersistence);
+
+        // A later scheduler pass repairs the enabled state before claiming the retry.
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.False(service.HasPendingOneTimeCancellationPersistence);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.Equal(2, streamTester.PreviewCount);
+        Assert.True(serializationCalls >= 6);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_CanceledDeferredOneTimeCueRestoresClaimForRestartRetry()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        var persistedSnapshots = new List<(bool Enabled, int DeferredCount)>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Callback<object, string>((value, _) =>
+            {
+                if (value is PluginConfiguration savedConfiguration &&
+                    savedConfiguration.SceneSchedules?.FirstOrDefault() is { } savedSchedule)
+                {
+                    persistedSnapshots.Add((
+                        savedSchedule.Enabled,
+                        savedConfiguration.PersistedSceneAutomationDeferredRuns?.Count ?? 0));
+                }
+            });
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
+            SceneAutomationDeferMinutes = 10,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "canceled-deferred-one-time-app-secret",
+            HueClientKey = "canceled-deferred-one-time-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Canceled deferred one-time scene", DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "canceled-deferred-one-time-cue",
+                    Name = "Canceled deferred one-time cue",
+                    PresetName = "Canceled deferred one-time scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-08-18",
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration, serializer.Object);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var streamTester = new CancelThenSucceedStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        using (var playbackLease = lifecycleGate.TryEnterPlayback("canceled-deferred-one-time-target"))
+        {
+            Assert.NotNull(playbackLease);
+            await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+        }
+
+        var deferredBeforeRun = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        using var cancellationSource = new CancellationTokenSource();
+        var automaticTask = service.RunDueSchedulesAsync(
+            dueUtc.AddMinutes(1),
+            cancellationSource.Token);
+        await streamTester.FirstPreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        cancellationSource.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => automaticTask);
+
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(0, configuration.SceneSchedules[0].RunCount);
+        Assert.False(service.HasPendingOneTimeCancellationPersistence);
+        var retainedDeferred = Assert.Single(configuration.PersistedSceneAutomationDeferredRuns);
+        Assert.Equal(deferredBeforeRun.OccurrenceSlot, retainedDeferred.OccurrenceSlot);
+        Assert.Contains(
+            persistedSnapshots,
+            snapshot => snapshot.Enabled && snapshot.DeferredCount == 1);
+
+        // The persisted enabled gate and deferred occurrence must survive a service restart
+        // together so the original occurrence can be retried rather than pruned.
+        InstallConfiguration(configuration, serializer.Object);
+        using var restartedHttpClient = new HttpClient(new AreaConfigurationHandler());
+        var restartedStreamTester = new RecordingStreamTester();
+        var restartedService = new HueSceneAutomationService(
+            restartedStreamTester,
+            new HueClient(restartedHttpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await restartedService.RunDueSchedulesAsync(dueUtc.AddMinutes(1), CancellationToken.None);
+
+        Assert.Single(restartedStreamTester.Invocations);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+    }
+
+    [Fact]
     public async Task ClearHistory_PreservesPendingDeferredCueForStatusAndRetry()
     {
         var configuration = new PluginConfiguration

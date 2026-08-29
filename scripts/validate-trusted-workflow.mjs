@@ -22,6 +22,8 @@ for (const marker of [
   "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
   "permissions:\n      contents: write",
   "uses: ./.github/workflows/security-scan.yml",
+  "Validate pinned .NET SDK parity",
+  "node scripts/validate-dotnet-sdk.mjs",
   "jq -er '.version | strings | select(test(\"^[0-9]+\\\\.[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"))'",
   'local_tag_ref="refs/tags/${TAG}"',
   'git show-ref --verify --quiet "$local_tag_ref"',

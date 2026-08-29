@@ -41,6 +41,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     private readonly object _runtimeStateLock = new();
     private readonly Dictionary<string, HueSceneScheduleRuntimeState> _runtimeStates = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _oneTimeCompletionPersistencePending = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _oneTimeCancellationPersistencePending = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _automaticOccurrenceClaimLock = new();
     private readonly Dictionary<string, HueSceneAutomationOccurrenceClaim> _automaticOccurrenceClaims = new(StringComparer.OrdinalIgnoreCase);
     private bool _automaticOccurrenceClaimsLoaded;
@@ -163,6 +164,22 @@ public sealed class HueSceneAutomationService : BackgroundService
             lock (_runtimeStateLock)
             {
                 return _oneTimeCompletionPersistencePending.Count > 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reports whether a canceled one-time cue still needs its restored enabled state
+    /// persisted. The cue remains eligible in memory while the next scheduler pass retries
+    /// this repair; a restart still honors the durable pre-run claim until that write wins.
+    /// </summary>
+    internal bool HasPendingOneTimeCancellationPersistence
+    {
+        get
+        {
+            lock (_runtimeStateLock)
+            {
+                return _oneTimeCancellationPersistencePending.Count > 0;
             }
         }
     }
@@ -5042,6 +5059,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         // write failed. Repair that write before evaluating due schedules so a retry never
         // needs to replay bridge activity.
         await RetryPendingScheduledCleanupsAsync(config, cancellationToken).ConfigureAwait(false);
+        RetryPendingOneTimeCancellations(config);
         RetryPendingOneTimeCompletions(config);
         if (!config.SceneAutomationEnabled)
             return;
@@ -5297,6 +5315,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 schedule,
                 cancellationToken,
                 automaticRun: true,
+                automaticOneTimeClaimed: automaticOneTimeClaimed,
                 wasCatchUp: wasCatchUp,
                 wasDeferred: hasDeferredRun,
                 wasDeferredRestored: wasDeferredRestored,
@@ -5413,6 +5432,44 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             configuredSchedule.Enabled = true;
             configuredSchedule.SkipNextOccurrence = false;
+        }
+    }
+
+    private void RestoreAutomaticOneTimeScheduleAfterCancellation(
+        PluginConfiguration config,
+        HueSceneSchedule schedule)
+    {
+        var key = schedule.Id?.Trim() ?? string.Empty;
+        var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+            candidate != null &&
+            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
+        if (configuredSchedule == null)
+            return;
+
+        // The one-time claim is persisted before bridge work begins. A host cancellation
+        // means the automatic run did not complete, so restore the durable eligibility
+        // gate before the scheduler lifecycle ends. This also keeps a deferred occurrence
+        // discoverable after a restart. If this repair write fails, retain the eligible
+        // in-memory state and retry it before the next scheduler evaluation. The durable
+        // pre-run claim remains disabled until that repair succeeds, so an intervening
+        // restart fails closed instead of replaying an ambiguous run.
+        lock (_runtimeStateLock)
+        {
+            configuredSchedule.Enabled = true;
+            configuredSchedule.SkipNextOccurrence = false;
+            try
+            {
+                Plugin.Instance?.SaveConfiguration();
+                ClearOneTimeCancellationPersistencePending(new[] { configuredSchedule.Id ?? string.Empty });
+            }
+            catch (Exception ex)
+            {
+                MarkOneTimeCancellationPersistencePending(configuredSchedule.Id);
+                _logger.LogWarning(
+                    ex,
+                    "Canceled one-time Hue scene schedule {0} could not persist its restored enabled state",
+                    schedule.Name);
+            }
         }
     }
 
@@ -5664,6 +5721,71 @@ public sealed class HueSceneAutomationService : BackgroundService
             MarkOneTimeCompletionPersistencePending(configuredSchedule.Id);
     }
 
+    private void RetryPendingOneTimeCancellations(PluginConfiguration config)
+    {
+        string[] pendingIds;
+        lock (_runtimeStateLock)
+        {
+            pendingIds = _oneTimeCancellationPersistencePending.ToArray();
+        }
+
+        if (pendingIds.Length == 0)
+            return;
+
+        var pendingSchedules = new List<HueSceneSchedule>(pendingIds.Length);
+        var staleIds = new List<string>();
+        foreach (var pendingId in pendingIds)
+        {
+            var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
+                candidate != null &&
+                string.Equals(candidate.Id?.Trim(), pendingId, StringComparison.OrdinalIgnoreCase));
+            if (configuredSchedule == null ||
+                string.IsNullOrWhiteSpace(configuredSchedule.RunDate) ||
+                !configuredSchedule.Enabled)
+            {
+                // A deleted, converted, or deliberately disabled cue no longer has a
+                // cancellation restoration to repair. Respect that administrator state.
+                staleIds.Add(pendingId);
+                continue;
+            }
+
+            pendingSchedules.Add(configuredSchedule);
+        }
+
+        if (staleIds.Count > 0)
+            ClearOneTimeCancellationPersistencePending(staleIds);
+        if (pendingSchedules.Count == 0)
+            return;
+
+        try
+        {
+            lock (_runtimeStateLock)
+            {
+                foreach (var schedule in pendingSchedules)
+                {
+                    schedule.Enabled = true;
+                    schedule.SkipNextOccurrence = false;
+                }
+
+                Plugin.Instance?.SaveConfiguration();
+            }
+
+            ClearOneTimeCancellationPersistencePending(pendingSchedules
+                .Select(schedule => schedule.Id?.Trim() ?? string.Empty)
+                .Where(id => !string.IsNullOrWhiteSpace(id)));
+        }
+        catch (Exception ex)
+        {
+            foreach (var schedule in pendingSchedules)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Canceled one-time Hue scene schedule {0} could not persist its restored enabled state",
+                    schedule.Name);
+            }
+        }
+    }
+
     private void RetryPendingOneTimeCompletions(PluginConfiguration config)
     {
         string[] pendingIds;
@@ -5735,6 +5857,31 @@ public sealed class HueSceneAutomationService : BackgroundService
         lock (_runtimeStateLock)
         {
             _oneTimeCompletionPersistencePending.Add(key);
+        }
+    }
+
+    private void MarkOneTimeCancellationPersistencePending(string? scheduleId)
+    {
+        var key = scheduleId?.Trim();
+        if (string.IsNullOrWhiteSpace(key))
+            return;
+
+        lock (_runtimeStateLock)
+        {
+            _oneTimeCancellationPersistencePending.Add(key);
+        }
+    }
+
+    private void ClearOneTimeCancellationPersistencePending(IEnumerable<string> scheduleIds)
+    {
+        lock (_runtimeStateLock)
+        {
+            foreach (var scheduleId in scheduleIds)
+            {
+                var key = scheduleId?.Trim();
+                if (!string.IsNullOrWhiteSpace(key))
+                    _oneTimeCancellationPersistencePending.Remove(key);
+            }
         }
     }
 
@@ -6190,6 +6337,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneSchedule schedule,
         CancellationToken cancellationToken,
         bool automaticRun = false,
+        bool automaticOneTimeClaimed = false,
         bool wasCatchUp = false,
         bool wasDeferred = false,
         bool wasDeferredRestored = false,
@@ -6225,6 +6373,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                 ReleaseRunSlot(schedule.Id, runAtUtcOverride.Value);
                 ReleaseAutomaticOccurrenceClaim(config, schedule, runAtUtcOverride.Value);
             }
+
+            // The one-time claim is taken immediately before entering this method. If a
+            // concurrent manual run or finite-run guard rejects the lifecycle, no bridge
+            // work started and the claim must not strand the cue disabled.
+            if (automaticOneTimeClaimed)
+                RestoreAutomaticOneTimeScheduleAfterCancellation(config, schedule);
 
             var exhausted = Failure(
                 schedule.Id,
@@ -6287,6 +6441,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                 if (automaticRun)
                     ReleaseAutomaticOccurrenceClaim(config, schedule, runAtUtcOverride.Value);
             }
+
+            if (automaticCancellationBeforeCompletion && automaticOneTimeClaimed)
+                RestoreAutomaticOneTimeScheduleAfterCancellation(config, schedule);
 
             CompleteRun(
                 config,
@@ -6669,10 +6826,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                             candidate != null &&
                             string.Equals(candidate.Id?.Trim(), group.Key, StringComparison.OrdinalIgnoreCase))?
                         .RunCount ?? 0;
-                    // Skipped occurrences are audit records, not executions. They must
-                    // not exhaust a finite cue when history is rehydrated after restart.
-                    var inferredRunCount = group.Count(result => !result.Skipped);
-                    state.RunCount = Math.Max(configuredRunCount, Math.Max(latest.RunCount, inferredRunCount));
+                    // The persisted schedule counter and each history row's RunCount are
+                    // authoritative. Do not infer executions from history-row count: an
+                    // automatic cancellation is intentionally retained in history with
+                    // the prior RunCount so a restart can retry it without consuming a run.
+                    var persistedHistoryRunCount = group.Max(result => result.RunCount);
+                    state.RunCount = Math.Max(configuredRunCount, persistedHistoryRunCount);
                     state.LastRunAtUtc = latest.RunAtUtc;
                     state.LastSucceeded = latest.Succeeded;
                     state.LastSkipped = latest.Skipped;
