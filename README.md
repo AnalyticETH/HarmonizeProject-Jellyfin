@@ -492,6 +492,8 @@ Benchmarks measure:
 
 - **Regression coverage**: the Hue streamer suite exercises preparation cancellation from an unrelated token and verifies the scheduled reconnect observation completes cleanly.
 
+- **Semgrep snapshot integrity**: the blocking default ruleset pin is refreshed after the registry rotation and continues to fail closed on any unreviewed snapshot change.
+
 - **Staged device-route diagnostics**: Test Connection and color Preview now send the staged route App Key and Client Key from the matching editor, so a newly staged route can be verified before the parent mapping is saved while persisted routes keep server-side credential fallback.
 
 - **Regression coverage**: the configuration lifecycle contract verifies staged route credentials in both connection-test and preview payloads.

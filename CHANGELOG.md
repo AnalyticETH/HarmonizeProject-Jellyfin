@@ -14,6 +14,7 @@ No unreleased changes.
 ### Reconnect lifecycle safety
 - **Cancellation-safe reconnect observation**: background DTLS reconnect continuations now handle canceled tasks without reading `Task.Result`, preventing unobserved cancellation exceptions during callback and lifecycle races.
 - **Regression coverage**: the Hue streamer suite exercises preparation cancellation from an unrelated token and verifies the scheduled reconnect observation completes cleanly.
+- **Semgrep snapshot integrity**: refresh the reviewed SHA-256 pin for the current default ruleset snapshot after the registry rotated; blocking scans continue to fail closed on any unreviewed change.
 
 ## [1.5.368] - 2026-08-29
 
