@@ -2966,6 +2966,211 @@ async function testScenePlaylistSaveLifecycleGuards() {
     assert.equal(currentState.buttonUpdates, 1, "current scene playlist save refreshes current-page controls");
 }
 
+function configureScenePlaylistBulkHarness(harness) {
+    const { page } = harness;
+    const bulkSelect = page.querySelector("#scenePlaylistBulkSelect");
+    bulkSelect.options = [
+        { value: "playlist-1", selected: true },
+        { value: "playlist-2", selected: true }
+    ];
+    Object.defineProperty(bulkSelect, "selectedOptions", {
+        configurable: true,
+        get() {
+            return this.options.filter(option => option && option.selected);
+        }
+    });
+    page.querySelector("#sceneScheduleSelect").value = "cue-1";
+    return {
+        button: page.querySelector("#deleteSelectedScenePlaylistsBtn"),
+        duplicateButton: page.querySelector("#duplicateSelectedScenePlaylistsBtn"),
+        status: page.querySelector("#scenePlaylistBulkStatus"),
+        bulkSelect,
+        playlistLoads: 0,
+        scheduleLoads: 0
+    };
+}
+
+function scenePlaylistBulkControlSelectors() {
+    return [
+        "#scenePlaylistBulkSelect",
+        "#selectAllScenePlaylistsBtn",
+        "#clearSelectedScenePlaylistsBtn",
+        "#duplicateSelectedScenePlaylistsBtn",
+        "#deleteSelectedScenePlaylistsBtn"
+    ];
+}
+
+async function testScenePlaylistBulkLifecycleGuards() {
+    const confirmationHarness = makeHarness();
+    const confirmationState = configureScenePlaylistBulkHarness(confirmationHarness);
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    let confirmation;
+    let confirmationCalls = 0;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => {
+        confirmationCalls += 1;
+        confirmation = callback;
+    };
+    const confirmationOperation = confirmationApi.duplicateScenePlaylistsBulk(confirmationPage);
+    assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "bulk scene playlist duplicate returns a promise");
+    assert.equal(confirmationHarness.requests.length, 0, "bulk scene playlist duplicate waits for confirmation before mutating configuration");
+    assert.equal(confirmationCalls, 1, "bulk scene playlist duplicate asks for one confirmation");
+    assert.equal(confirmationState.duplicateButton.disabled, true, "pending bulk scene playlist duplicate disables its button");
+    for (const selector of scenePlaylistBulkControlSelectors()) {
+        assert.equal(confirmationPage.querySelector(selector).disabled, true, `pending bulk scene playlist duplicate disables ${selector}`);
+    }
+    const pendingConfirmation = confirmationPage._hueScenePlaylistBulkDuplicateConfirmation;
+    const duplicateConfirmation = confirmationApi.duplicateScenePlaylistsBulk(confirmationPage);
+    const deleteSuppressed = confirmationApi.deleteScenePlaylistsBulk(confirmationPage);
+    await Promise.all([duplicateConfirmation, deleteSuppressed]);
+    assert.equal(confirmationCalls, 1, "duplicate and opposite bulk scene playlist actions do not open another confirmation");
+    assert.equal(confirmationHarness.requests.length, 0, "duplicate and opposite bulk scene playlist actions do not submit before confirmation");
+    let confirmationSettled = false;
+    confirmationOperation.then(() => { confirmationSettled = true; });
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    confirmationApi.beginPageLifecycle(confirmationPage);
+    assert.equal(pendingConfirmation.canceled, true, "pagehide cancels pending bulk scene playlist duplicate confirmation");
+    assert.equal(confirmationPage._hueScenePlaylistBulkMutation, null, "pagehide releases pending bulk scene playlist duplicate lock");
+    for (const selector of scenePlaylistBulkControlSelectors()) {
+        assert.equal(confirmationPage.querySelector(selector).disabled, false, `pagehide restores ${selector} after bulk scene playlist duplicate confirmation`);
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(confirmationSettled, true, "pagehide settles bulk scene playlist duplicate confirmation when its dialog callback never runs");
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 0, "stale bulk scene playlist duplicate confirmation cannot start a request after pagehide");
+    await confirmationOperation;
+
+    const staleHarness = makeHarness();
+    const staleState = configureScenePlaylistBulkHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    staleApi.loadScenePlaylists = () => {
+        staleState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadSceneSchedules = () => {
+        staleState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let staleConfirmation;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+    const staleOperation = staleApi.deleteScenePlaylistsBulk(stalePage);
+    staleConfirmation(true);
+    assert.equal(staleHarness.requests.length, 1, "confirmed bulk scene playlist delete starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "bulk scene playlist delete uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/ScenePlaylists/BulkDelete", "bulk scene playlist delete uses the bulk route");
+    assert.deepEqual(JSON.parse(staleHarness.requests[0].options.data), {
+        playlistIds: ["playlist-1", "playlist-2"]
+    }, "bulk scene playlist delete snapshots selected playlist IDs");
+    assert.ok(stalePage._huePageRequests.scenePlaylistBulkDelete, "bulk scene playlist delete is tracked by the page lifecycle");
+    assert.equal(stalePage._hueScenePlaylistBulkDeleting, true, "bulk scene playlist delete marks the page busy");
+    assert.equal(staleState.button.disabled, true, "bulk scene playlist delete keeps its button disabled while pending");
+    staleState.status.textContent = "unchanged after pagehide";
+    staleState.bulkSelect.options[0].selected = false;
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight bulk scene playlist delete");
+    assert.equal(stalePage._huePageRequests.scenePlaylistBulkDelete, undefined, "pagehide removes bulk scene playlist delete request state");
+    assert.equal(stalePage._hueScenePlaylistBulkDeleting, false, "pagehide clears bulk scene playlist delete busy state");
+    assert.equal(stalePage._hueScenePlaylistBulkMutation, null, "pagehide releases in-flight bulk scene playlist delete lock");
+    for (const selector of scenePlaylistBulkControlSelectors()) {
+        assert.equal(stalePage.querySelector(selector).disabled, false, `pagehide restores ${selector} after bulk scene playlist delete`);
+    }
+    staleHarness.requests[0].resolve({ deletedCount: 2 });
+    await staleOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale bulk scene playlist delete cannot write hidden-page status");
+    assert.equal(staleState.bulkSelect.options[0].selected, false, "stale bulk scene playlist delete cannot rewrite reused page selection");
+    assert.equal(staleState.bulkSelect.options[1].selected, true, "stale bulk scene playlist delete preserves reused page selection");
+    assert.equal(staleState.playlistLoads, 0, "stale bulk scene playlist delete cannot reload playlists");
+    assert.equal(staleState.scheduleLoads, 0, "stale bulk scene playlist delete cannot reload schedules");
+
+    const currentHarness = makeHarness();
+    const currentState = configureScenePlaylistBulkHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    currentApi.loadScenePlaylists = (_page, selectedName) => {
+        currentState.playlistLoads += 1;
+        assert.equal(selectedName, "Playlist One Copy", "current bulk scene playlist duplicate selects the first returned copy");
+        return Promise.resolve();
+    };
+    currentApi.loadSceneSchedules = () => {
+        currentState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let currentConfirmation;
+    let currentConfirmationCalls = 0;
+    currentHarness.dashboard.confirm = (_message, _title, callback) => {
+        currentConfirmationCalls += 1;
+        currentConfirmation = callback;
+    };
+    const currentOperation = currentApi.duplicateScenePlaylistsBulk(currentPage);
+    currentConfirmation(true);
+    assert.equal(currentHarness.requests.length, 1, "current bulk scene playlist duplicate starts one request");
+    assert.equal(currentHarness.requests[0].options.url, "HueSync/ScenePlaylists/BulkDuplicate", "bulk scene playlist duplicate uses the bulk route");
+    const duplicateWhilePending = currentApi.duplicateScenePlaylistsBulk(currentPage);
+    const deleteWhileDuplicatePending = currentApi.deleteScenePlaylistsBulk(currentPage);
+    await Promise.all([duplicateWhilePending, deleteWhileDuplicatePending]);
+    assert.equal(currentConfirmationCalls, 1, "pending bulk scene playlist duplicate suppresses duplicate and delete confirmation");
+    assert.equal(currentHarness.requests.length, 1, "pending bulk scene playlist duplicate keeps one request in flight");
+    assert.equal(currentPage._hueScenePlaylistBulkMutation.key, "scenePlaylistBulkDuplicate", "bulk scene playlist duplicate owns the shared mutation lock");
+    for (const selector of scenePlaylistBulkControlSelectors()) {
+        assert.equal(currentPage.querySelector(selector).disabled, true, `pending bulk scene playlist duplicate keeps ${selector} disabled`);
+    }
+    currentApi.clearSelectedScenePlaylists(currentPage);
+    currentApi.selectAllScenePlaylists(currentPage);
+    assert.equal(currentState.bulkSelect.options[0].selected, true, "bulk scene playlist duplicate blocks clear-selection mutation");
+    assert.equal(currentState.bulkSelect.options[1].selected, true, "bulk scene playlist duplicate blocks select-all mutation");
+    currentHarness.requests[0].resolve({
+        message: "Created two independent playlist copies atomically.",
+        playlists: [{ name: "Playlist One Copy" }, { name: "Playlist Two Copy" }]
+    });
+    await currentOperation;
+    assert.equal(currentState.status.textContent, "Created two independent playlist copies atomically.", "current bulk scene playlist duplicate reports success");
+    assert.equal(currentState.bulkSelect.options[0].selected, false, "current bulk scene playlist duplicate clears the first selection");
+    assert.equal(currentState.bulkSelect.options[1].selected, false, "current bulk scene playlist duplicate clears the second selection");
+    assert.equal(currentState.playlistLoads, 1, "current bulk scene playlist duplicate reloads playlists once");
+    assert.equal(currentState.scheduleLoads, 1, "current bulk scene playlist duplicate reloads schedules once");
+    assert.equal(currentPage._hueScenePlaylistBulkDuplicating, false, "current bulk scene playlist duplicate clears busy state");
+    assert.equal(currentPage._hueScenePlaylistBulkMutation, null, "current bulk scene playlist duplicate releases shared mutation lock");
+    assert.equal(currentState.duplicateButton.disabled, true, "current bulk scene playlist duplicate leaves duplicate disabled with no selection");
+    assert.equal(currentPage.querySelector("#deleteSelectedScenePlaylistsBtn").disabled, true, "current bulk scene playlist duplicate leaves delete disabled with no selection");
+    assert.equal(currentPage._huePageRequests.scenePlaylistBulkDuplicate, undefined, "current bulk scene playlist duplicate removes settled lifecycle state");
+
+    const deleteHarness = makeHarness();
+    const deleteState = configureScenePlaylistBulkHarness(deleteHarness);
+    const deletePage = deleteHarness.page;
+    const deleteApi = deleteHarness.api;
+    deleteApi.loadScenePlaylists = () => {
+        deleteState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    deleteApi.loadSceneSchedules = () => {
+        deleteState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let deleteConfirmation;
+    deleteHarness.dashboard.confirm = (_message, _title, callback) => { deleteConfirmation = callback; };
+    const deleteOperation = deleteApi.deleteScenePlaylistsBulk(deletePage);
+    deleteConfirmation(true);
+    assert.equal(deleteHarness.requests.length, 1, "current bulk scene playlist delete starts one request");
+    assert.equal(deleteHarness.requests[0].options.url, "HueSync/ScenePlaylists/BulkDelete", "current bulk scene playlist delete uses the bulk route");
+    deleteHarness.requests[0].resolve({
+        message: "Deleted 2 scene playlist(s); scheduled-cue references were checked atomically.",
+        deletedCount: 2
+    });
+    await deleteOperation;
+    assert.equal(deleteState.status.textContent, "Deleted 2 scene playlist(s); scheduled-cue references were checked atomically.", "current bulk scene playlist delete reports success");
+    assert.equal(deleteState.bulkSelect.options[0].selected, false, "current bulk scene playlist delete clears the first selection");
+    assert.equal(deleteState.bulkSelect.options[1].selected, false, "current bulk scene playlist delete clears the second selection");
+    assert.equal(deleteState.playlistLoads, 1, "current bulk scene playlist delete reloads playlists once");
+    assert.equal(deleteState.scheduleLoads, 1, "current bulk scene playlist delete reloads schedules once");
+    assert.equal(deletePage._hueScenePlaylistBulkDeleting, false, "current bulk scene playlist delete clears busy state");
+    assert.equal(deletePage._hueScenePlaylistBulkMutation, null, "current bulk scene playlist delete releases shared mutation lock");
+    assert.equal(deleteState.button.disabled, true, "current bulk scene playlist delete leaves delete disabled with no selection");
+    assert.equal(deleteState.duplicateButton.disabled, true, "current bulk scene playlist delete leaves duplicate disabled with no selection");
+    assert.equal(deletePage._huePageRequests.scenePlaylistBulkDelete, undefined, "current bulk scene playlist delete removes settled lifecycle state");
+}
+
 function configureSceneScheduleSaveHarness(harness) {
     const { page, api } = harness;
     api.requireSceneScheduleMetadata = () => true;
@@ -3718,6 +3923,7 @@ await testColorPresetBulkDuplicateLifecycleGuards();
 await testColorPresetBulkErrorDetailsAndRetry();
 await testColorPresetRenameLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
+await testScenePlaylistBulkLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
 await testSceneScheduleDeleteLifecycleGuards();
 await testSceneScheduleRunCancellationUsesActiveId();
@@ -3731,4 +3937,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/bulk-delete/bulk-duplicate/schedule-delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

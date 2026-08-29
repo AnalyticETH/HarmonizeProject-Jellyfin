@@ -51,6 +51,13 @@ namespace Jellyfin.Plugin.Hue.Api
         /// administrator payload from consuming unbounded request memory.
         /// </summary>
         internal const long MaxConfigurationImportRequestBodyBytes = 8 * 1024 * 1024;
+        /// <summary>
+        /// Bounds write-only per-user mapping documents before their extension-data tree
+        /// is recursively inspected or re-serialized. One MiB leaves substantial headroom
+        /// over 25 device targets with maximum channel-profile text while bounding unknown
+        /// JSON fields that are not part of the persisted mapping contract.
+        /// </summary>
+        internal const long MaxUserMappingRequestBodyBytes = 1 * 1024 * 1024;
 
         public HueApiController(HueClient hueClient, IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices)
             : this(hueClient, hostedServices, null, null, null, null, null)
@@ -10569,6 +10576,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// capture-performance, execution, channel selection, or light-restoration settings.
         /// </summary>
         [HttpPost("UserMappings")]
+        [RequestSizeLimit(MaxUserMappingRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]

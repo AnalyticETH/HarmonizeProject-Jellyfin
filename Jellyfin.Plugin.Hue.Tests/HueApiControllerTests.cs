@@ -64,6 +64,63 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMappingEndpointDeclaresBoundedPreBindingRequestBodyLimit()
+    {
+        var method = typeof(HueApiController).GetMethod(
+            "SaveUserMapping",
+            BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(method);
+        var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+        Assert.NotNull(limit);
+        var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+        Assert.Equal((long?)HueApiController.MaxUserMappingRequestBodyBytes, metadata.MaxRequestBodySize);
+    }
+
+    [Fact]
+    public void MaximumSupportedUserMappingPayloadFitsRequestBodyLimit()
+    {
+        var channelIds = string.Join(',', Enumerable.Range(0, 1024));
+        var payload = new
+        {
+            MappingId = new string('m', 64),
+            UserId = "11111111-1111-1111-1111-111111111111",
+            UserName = new string('u', 256),
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = new string('a', 64),
+            HueClientKey = new string('c', 64),
+            EntertainmentAreaId = new string('e', 64),
+            EntertainmentAreaName = new string('n', 256),
+            DeviceTargets = Enumerable.Range(0, PluginConfiguration.MaxDeviceTargetsPerUser)
+                .Select(index => new
+                {
+                    DeviceId = $"device-{index}",
+                    DeviceName = new string('d', 256),
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = new string('b', 64),
+                    HueClientKey = new string('k', 64),
+                    EntertainmentAreaId = new string('r', 64),
+                    EntertainmentAreaName = new string('s', 256),
+                    ChannelIdsOverride = channelIds
+                })
+                .ToArray()
+        };
+
+        var serialized = JsonSerializer.SerializeToUtf8Bytes(payload);
+        Assert.InRange(
+            serialized.Length,
+            1,
+            (int)HueApiController.MaxUserMappingRequestBodyBytes);
+
+        var request = JsonSerializer.Deserialize<HueUserMappingRequest>(serialized);
+        Assert.NotNull(request);
+        Assert.True(request!.TryGetDeviceTargetCount(out var deviceTargetCount));
+        Assert.Equal(PluginConfiguration.MaxDeviceTargetsPerUser, deviceTargetCount);
+        var mapping = request.ToConfigurationMapping();
+        Assert.Empty(PluginConfiguration.ValidateDeviceTargets(mapping));
+    }
+
+    [Fact]
     public void UserMappingSummariesAndExportsIgnoreNullEntries()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

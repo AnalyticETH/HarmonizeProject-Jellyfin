@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.398] - 2026-08-29
+
+### Runtime, administrator, and request-boundary hardening
+- **Saved-playlist mutation lifecycle**: bulk duplicate/delete confirmations, selection, requests, and refreshes now share page-generation ownership, abort on teardown, suppress opposite actions, and ignore stale completion callbacks.
+- **Bounded entertainment-area discovery**: bridge responses with more than 256 areas fail closed before list materialization, while the exact boundary remains accepted.
+- **User-mapping request bound**: `POST /HueSync/UserMappings` rejects bodies over 1 MiB before recursive extension-data validation or re-serialization.
+- **Regression coverage**: saved-playlist lifecycle, entertainment-area response, and maximum-valid user-mapping payload contracts cover the new boundaries.
+
 ## [1.5.397] - 2026-08-29
 
 ### Runtime, administrator, and request-boundary hardening

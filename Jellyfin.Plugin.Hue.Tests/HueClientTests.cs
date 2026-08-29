@@ -334,6 +334,39 @@ public class HueClientTests : IDisposable
         Assert.Equal("Living Room", area.Name);
     }
 
+    [Fact]
+    public async Task GetEntertainmentAreas_AcceptsMaximumAreaCount()
+    {
+        var areas = string.Join(
+            ",",
+            Enumerable.Range(0, HueClient.MaxEntertainmentAreas)
+                .Select(index => $"{{\"id\":\"area-{index}\"}}"));
+        SetupHttpResponse(HttpStatusCode.OK, $"{{\"data\":[{areas}]}}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentAreas("192.168.1.100", "test-app-key");
+
+        Assert.NotNull(result);
+        Assert.Equal(HueClient.MaxEntertainmentAreas, result.Count);
+        Assert.Equal("area-0", result[0].Id);
+        Assert.Equal($"area-{HueClient.MaxEntertainmentAreas - 1}", result[^1].Id);
+    }
+
+    [Fact]
+    public async Task GetEntertainmentAreas_OverMaximumAreaCount_ReturnsNull()
+    {
+        var areas = string.Join(
+            ",",
+            Enumerable.Range(0, HueClient.MaxEntertainmentAreas + 1)
+                .Select(index => $"{{\"id\":\"area-{index}\"}}"));
+        SetupHttpResponse(HttpStatusCode.OK, $"{{\"data\":[{areas}]}}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentAreas("192.168.1.100", "test-app-key");
+
+        Assert.Null(result);
+    }
+
     [Theory]
     [InlineData("fe80::50%42")]
     [InlineData("[fe80::50%42]")]

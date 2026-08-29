@@ -28,6 +28,11 @@ namespace Jellyfin.Plugin.Hue.Hue
         // enough headroom for installations with many resources while preventing a
         // compromised bridge or discovery endpoint from forcing an unbounded buffer.
         internal const int MaxResponseBodyBytes = 1024 * 1024;
+        /// <summary>
+        /// Maximum number of entertainment areas accepted from one bridge response.
+        /// Keep area discovery bounded before materializing every returned resource.
+        /// </summary>
+        internal const int MaxEntertainmentAreas = 256;
         private const int MaxLightStateTokenLength = 128;
         /// <summary>
         /// Maximum number of unique light resources captured from one entertainment
@@ -761,6 +766,14 @@ namespace Jellyfin.Plugin.Hue.Hue
                     var results = new List<EntertainmentArea>();
                     if (doc.RootElement.TryGetProperty("data", out var dataElement) && dataElement.ValueKind == JsonValueKind.Array)
                     {
+                        if (dataElement.GetArrayLength() > MaxEntertainmentAreas)
+                        {
+                            _logger.LogWarning(
+                                "Hue bridge returned more than the maximum allowed entertainment areas ({0})",
+                                MaxEntertainmentAreas);
+                            return null;
+                        }
+
                         foreach (var area in dataElement.EnumerateArray())
                         {
                             var id = area.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String
