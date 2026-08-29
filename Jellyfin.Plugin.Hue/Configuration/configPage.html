@@ -2956,6 +2956,7 @@
                         sessionHistoryCsvExport: { property: '_hueSessionHistoryCsvExporting', selector: '#exportSessionHistoryCsvBtn' },
                         configurationExport: { property: '_hueConfigurationExporting', selector: '#exportConfigurationBtn' },
                         configurationSave: { property: '_hueConfigurationSaving', selector: '#saveConfigurationBtn' },
+                        userMappingSave: { property: '_hueUserMappingSaving', selector: '#addMappingBtn' },
                         colorPresetSave: { property: '_hueColorPresetSaving', selector: '#savePreviewPresetBtn' },
                         colorPresetDuplicate: { property: '_hueColorPresetDuplicating', selector: '#duplicatePreviewPresetBtn' },
                         scenePlaylistSave: { property: '_hueScenePlaylistSaving', selector: '#saveScenePlaylistBtn' },
@@ -3029,6 +3030,7 @@
                     page._hueSessionHistoryCsvExporting = false;
                     page._hueConfigurationExporting = false;
                     page._hueConfigurationSaving = false;
+                    page._hueUserMappingSaving = false;
                     page._hueColorPresetSaving = false;
                     page._hueColorPresetDuplicating = false;
                     page._hueDiagnosticsLoading = false;
@@ -13590,6 +13592,10 @@
 
                 addUserMapping: function () {
                     var page = document.querySelector('.pluginConfigurationPage');
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueUserMappingSaving) return Promise.resolve();
                     var userSelect = document.getElementById('mappingUserSelect');
                     var areaSelect = document.getElementById('mappingAreaSelect');
                     var bridgeIpEl = document.getElementById('mappingBridgeIp');
@@ -13768,12 +13774,25 @@
                         ChannelIdsOverride: readOptionalString('mappingChannelIdsOverride')
                     };
 
-                    ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/UserMappings"),
-                        data: JSON.stringify(mapping),
-                        contentType: "application/json"
-                    }).then(function () {
+                    var saveButton = page.querySelector('#addMappingBtn');
+                    page._hueUserMappingSaving = true;
+                    if (saveButton) saveButton.disabled = true;
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'userMappingSave',
+                        ApiClient.getUrl("HueSync/UserMappings"),
+                        {
+                            type: "POST",
+                            data: JSON.stringify(mapping),
+                            contentType: "application/json",
+                            dataType: "json"
+                        });
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function () {
+                        if (!isCurrent()) return;
                         var wasEditing = !!HueConfigurationPage.mappingEditingUserId;
                         Dashboard.alert(wasEditing ? "User mapping updated successfully!" : "User mapping saved successfully!");
                         if (page) {
@@ -13781,8 +13800,19 @@
                             HueConfigurationPage.resetMappingForm(page);
                         }
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to save user mapping:", err);
                         Dashboard.alert("Failed to save user mapping: " + (err.message || err));
+                    }).finally(function () {
+                        var current = isCurrent();
+                        var requestRecord = request && request._huePageRequestRecord;
+                        var tracked = page && page._huePageRequests &&
+                            page._huePageRequests.userMappingSave === requestRecord;
+                        if (current || tracked) {
+                            page._hueUserMappingSaving = false;
+                            if (saveButton) saveButton.disabled = false;
+                            if (!current) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingSave');
+                        }
                     });
                 },
 
@@ -14127,6 +14157,7 @@
                 },
 
                 cancelMappingEdit: function (page) {
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingSave');
                     HueConfigurationPage.resetMappingForm(page);
                 },
 

@@ -487,7 +487,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.374 (Current)
+### Version 1.5.375 (Current)
+
+- **User-mapping save lifecycle safety**: mapping saves are tracked against the active configuration page, duplicate submissions are bounded, teardown and edit cancellation abort in-flight writes, and stale callbacks cannot alert, reload mappings, or reset a newer draft.
+
+- **Regression coverage**: configuration contracts cover complete mapping payloads, duplicate-submit protection, pagehide cancellation, stale callback suppression, success reloads, and button-state restoration.
 
 - **Scheduled-run identity safety**: manual Run Now cancellation remains bound to the cue ID that started the run, even if the administrator changes the selection; stale run callbacks cannot mutate a reused page.
 

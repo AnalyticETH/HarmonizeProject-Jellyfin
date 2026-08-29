@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.375] - 2026-08-29
+
+### Administrator lifecycle safety
+- **User-mapping save lifecycle safety**: mapping saves are tracked against the active configuration page, duplicate submissions are bounded, teardown and edit cancellation abort in-flight writes, and stale callbacks cannot alert, reload mappings, or reset a newer draft.
+- **Regression coverage**: configuration contracts cover complete mapping payloads, duplicate-submit protection, pagehide cancellation, stale callback suppression, success reloads, and button-state restoration.
+
 ## [1.5.374] - 2026-08-29
 
 ### Scheduler and administrator lifecycle hardening

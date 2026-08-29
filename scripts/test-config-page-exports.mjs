@@ -617,6 +617,127 @@ async function testEditMappingLifecycleGuards() {
         "invalidated mapping edit cannot overwrite the hidden page");
 }
 
+async function testUserMappingSaveLifecycleGuards() {
+    const staleHarness = makeHarness();
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    const staleUserSelect = stalePage.querySelector("#mappingUserSelect");
+    staleUserSelect.value = "user-one";
+    staleUserSelect.selectedOptions = [{ dataset: { userName: "User One" } }];
+    stalePage.querySelector("#mappingAreaSelect").selectedOptions = [];
+    stalePage.querySelector("#mappingSyncEnabled").checked = false;
+    const staleFollowUps = [];
+    staleApi.loadUserMappings = () => { staleFollowUps.push("mappings"); };
+    staleApi.resetMappingForm = () => { staleFollowUps.push("reset"); };
+
+    const staleOperation = staleApi.addUserMapping();
+    assert.ok(staleOperation && typeof staleOperation.then === "function", "user-mapping save returns a promise");
+    assert.equal(staleHarness.requests.length, 1, "user-mapping save starts one tracked request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "user-mapping save uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/UserMappings", "user-mapping save uses the mapping endpoint");
+    assert.deepEqual(
+        JSON.parse(staleHarness.requests[0].options.data),
+        {
+            MappingId: "",
+            UserId: "user-one",
+            UserName: "User One",
+            SyncEnabled: false,
+            HueBridgeIp: "",
+            HueAppKey: "",
+            HueClientKey: "",
+            EntertainmentAreaId: "",
+            EntertainmentAreaName: "",
+            DeviceTargets: [],
+            UseCinemaModeOverride: null,
+            PlaybackMediaFilterOverride: null,
+            AudioSensitivityPercentOverride: null,
+            AudioNoiseGatePercentOverride: null,
+            AudioLowFrequencyHzOverride: null,
+            AudioMidFrequencyHzOverride: null,
+            AudioHighFrequencyHzOverride: null,
+            AudioLowGainPercentOverride: null,
+            AudioMidGainPercentOverride: null,
+            AudioHighGainPercentOverride: null,
+            AudioResponseSmoothingPercentOverride: null,
+            AudioBandSpreadPercentOverride: null,
+            AudioBeatPulsePercentOverride: null,
+            AudioBeatPulseDecayPercentOverride: null,
+            AudioBeatPulseThresholdPercentOverride: null,
+            AudioColorPaletteOverride: null,
+            AudioSpatialModeOverride: null,
+            AudioChannelModeOverride: null,
+            BrightnessDimLevelOverride: null,
+            PauseBehaviorOverride: null,
+            RestoreLightStateOverride: null,
+            BrightnessBoostOverride: null,
+            RedGainOverride: null,
+            GreenGainOverride: null,
+            BlueGainOverride: null,
+            ColorSaturationOverride: null,
+            HueShiftDegreesOverride: null,
+            OutputBrightnessPercentOverride: null,
+            GammaCorrectionOverride: null,
+            ContrastPercentOverride: null,
+            ColorTemperatureKelvinOverride: null,
+            BlackoutThresholdOverride: null,
+            BlackoutBehaviorOverride: null,
+            ColorChangeThresholdOverride: null,
+            TargetFpsOverride: null,
+            FrameResolutionOverride: null,
+            VideoScalingModeOverride: null,
+            VideoDeinterlaceModeOverride: null,
+            SamplingBreadthPercentOverride: null,
+            SamplingModeOverride: null,
+            SpatialOrientationOverride: null,
+            ColorSmoothingPercentOverride: null,
+            UseGpuOverride: null,
+            CustomFfmpegFlagsOverride: null,
+            FfmpegStallTimeoutSecondsOverride: null,
+            NetworkRetryAttemptsOverride: null,
+            ChannelIdsOverride: null
+        },
+        "user-mapping save sends the complete credential-free mapping payload"
+    );
+    assert.equal(stalePage._hueUserMappingSaving, true, "user-mapping save marks the form busy");
+    assert.equal(stalePage.querySelector("#addMappingBtn").disabled, true, "user-mapping save disables its button");
+
+    const duplicate = staleApi.addUserMapping();
+    assert.ok(duplicate && typeof duplicate.then === "function", "duplicate user-mapping save returns a settled no-op promise");
+    assert.equal(staleHarness.requests.length, 1, "duplicate user-mapping save does not submit twice");
+
+    stalePage.querySelector("#mappingBridgeStatus").textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts the user-mapping save");
+    assert.equal(stalePage._huePageRequests.userMappingSave, undefined, "pagehide removes the user-mapping save record");
+    assert.equal(stalePage._hueUserMappingSaving, false, "pagehide clears the user-mapping busy state");
+    assert.equal(stalePage.querySelector("#addMappingBtn").disabled, false, "pagehide restores the user-mapping button");
+    staleHarness.requests[0].resolve({ message: "stale save" });
+    await staleOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(stalePage.querySelector("#mappingBridgeStatus").textContent, "unchanged after pagehide", "stale save cannot update the hidden page");
+    assert.deepEqual(staleFollowUps, [], "stale save cannot reload mappings or reset a new draft");
+    assert.deepEqual(staleHarness.dashboard.alerts, [], "stale save cannot alert after pagehide");
+
+    const currentHarness = makeHarness();
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    const currentUserSelect = currentPage.querySelector("#mappingUserSelect");
+    currentUserSelect.value = "user-two";
+    currentUserSelect.selectedOptions = [{ dataset: { userName: "User Two" } }];
+    currentPage.querySelector("#mappingAreaSelect").selectedOptions = [];
+    currentPage.querySelector("#mappingSyncEnabled").checked = false;
+    const currentFollowUps = [];
+    currentApi.loadUserMappings = () => { currentFollowUps.push("mappings"); };
+    currentApi.resetMappingForm = () => { currentFollowUps.push("reset"); };
+    const currentOperation = currentApi.addUserMapping();
+    currentHarness.requests[0].resolve({ message: "saved" });
+    await currentOperation;
+    assert.deepEqual(currentFollowUps, ["mappings", "reset"], "current save reloads mappings and resets the form");
+    assert.equal(currentHarness.dashboard.alerts.length, 1, "current save reports success");
+    assert.equal(currentPage._hueUserMappingSaving, false, "current save clears the busy state");
+    assert.equal(currentPage.querySelector("#addMappingBtn").disabled, false, "current save restores the button");
+}
+
 async function testConfigurationImportValidationLifecycleGuards() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -2208,6 +2329,7 @@ for (const testCase of exportCases) {
 }
 
 await testEditMappingLifecycleGuards();
+await testUserMappingSaveLifecycleGuards();
 await testConfigurationImportValidationLifecycleGuards();
 await testConfigurationImportFileLifecycleGuards();
 await testMappingDeviceRouteCredentialScope();
@@ -2238,4 +2360,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
