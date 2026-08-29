@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.394] - 2026-08-29
+
+### Runtime and administrator lifecycle hardening
+- **Playback cleanup ownership**: failed restoration/deactivation retains the playback lease, blocks queued starts and same-target diagnostics, and retries with a fresh bounded cleanup token.
+- **Pause deactivation recovery**: dim/keep-last pause cleanup retries failed or thrown deactivation without restoring the saved playback snapshot.
+- **Bulk user-mapping mutation lock**: selection, bulk controls, and opposite mutations are locked to one page-generation-owned operation and recomputed safely after completion.
+- **Regression coverage**: queued-start, diagnostic arbitration, pause retry/transport failure, and bulk mapping lifecycle contracts cover these boundaries.
+
 ## [1.5.393] - 2026-08-29
 
 ### Runtime, administrator, and release-helper hardening

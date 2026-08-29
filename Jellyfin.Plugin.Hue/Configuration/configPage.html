@@ -2985,15 +2985,23 @@
                         page._hueUserMappingDeleteButton = null;
                     }
                     if (key === 'userMappingBulkDelete') {
+                        var bulkDeleteMutation = page._hueUserMappingBulkMutation;
+                        if (bulkDeleteMutation && bulkDeleteMutation.key === key) {
+                            HueConfigurationPage.releaseUserMappingBulkMutation(page, bulkDeleteMutation, false, false);
+                        }
                         page._hueUserMappingBulkDeleting = false;
                         var bulkDeleteButton = page._hueUserMappingBulkDeleteButton;
-                        if (bulkDeleteButton) bulkDeleteButton.disabled = false;
+                        if (!bulkDeleteMutation && bulkDeleteButton) bulkDeleteButton.disabled = false;
                         page._hueUserMappingBulkDeleteButton = null;
                     }
                     if (key === 'userMappingBulkEnabled') {
+                        var bulkEnabledMutation = page._hueUserMappingBulkMutation;
+                        if (bulkEnabledMutation && bulkEnabledMutation.key === key) {
+                            HueConfigurationPage.releaseUserMappingBulkMutation(page, bulkEnabledMutation, false, false);
+                        }
                         page._hueUserMappingBulkUpdating = false;
                         var bulkEnabledButtons = page._hueUserMappingBulkEnabledButtons;
-                        if (Array.isArray(bulkEnabledButtons)) {
+                        if (!bulkEnabledMutation && Array.isArray(bulkEnabledButtons)) {
                             bulkEnabledButtons.forEach(function (button) {
                                 if (button) button.disabled = false;
                             });
@@ -3060,6 +3068,15 @@
                         }
                     }
                     page._hueUserMappingBulkEnabledConfirmation = null;
+                    var pendingUserMappingBulkMutation = page._hueUserMappingBulkMutation;
+                    if (pendingUserMappingBulkMutation) {
+                        pendingUserMappingBulkMutation.canceled = true;
+                        HueConfigurationPage.releaseUserMappingBulkMutation(
+                            page,
+                            pendingUserMappingBulkMutation,
+                            false,
+                            true);
+                    }
                     var pendingUserMappingCleanupConfirmation = page._hueUserMappingCleanupConfirmation;
                     if (pendingUserMappingCleanupConfirmation) {
                         pendingUserMappingCleanupConfirmation.canceled = true;
@@ -12428,6 +12445,12 @@
                         .map(function (option) { return option.dataset.mappingid; });
                 },
                 updateUserMappingBulkButtons: function (page) {
+                    if (!page) return;
+                    var bulkMutation = page._hueUserMappingBulkMutation;
+                    if (bulkMutation) {
+                        (bulkMutation.controls || []).forEach(function (control) { control.disabled = true; });
+                        return;
+                    }
                     var bulkSelect = page.querySelector('#userMappingBulkSelect');
                     var selectedCount = HueConfigurationPage.getSelectedUserMappingBulkIds(page).length;
                     var hasOptions = !!bulkSelect && bulkSelect.options.length > 0;
@@ -12869,21 +12892,68 @@
                         });
                 },
                 selectAllUserMappings: function (page) {
+                    if (!page || page._hueUserMappingBulkMutation) return;
                     var bulkSelect = page.querySelector('#userMappingBulkSelect');
                     if (!bulkSelect) return;
                     Array.prototype.forEach.call(bulkSelect.options, function (option) { option.selected = true; });
                     HueConfigurationPage.updateUserMappingBulkButtons(page);
                 },
-                clearSelectedUserMappings: function (page) {
+                clearSelectedUserMappings: function (page, owner) {
+                    if (!page || (page._hueUserMappingBulkMutation && page._hueUserMappingBulkMutation !== owner)) return;
                     var bulkSelect = page.querySelector('#userMappingBulkSelect');
                     if (!bulkSelect) return;
                     Array.prototype.forEach.call(bulkSelect.options, function (option) { option.selected = false; });
-                    HueConfigurationPage.updateUserMappingBulkButtons(page);
+                    if (!owner) HueConfigurationPage.updateUserMappingBulkButtons(page);
+                },
+                getUserMappingBulkControls: function (page) {
+                    if (!page) return [];
+                    return [
+                        page.querySelector('#userMappingBulkSelect'),
+                        page.querySelector('#selectAllUserMappingsBtn'),
+                        page.querySelector('#clearSelectedUserMappingsBtn'),
+                        page.querySelector('#enableSelectedUserMappingsBtn'),
+                        page.querySelector('#disableSelectedUserMappingsBtn'),
+                        page.querySelector('#deleteSelectedUserMappingsBtn')
+                    ].filter(function (control) { return !!control; });
+                },
+                beginUserMappingBulkMutation: function (page, generation, key) {
+                    if (!page || page._hueUserMappingBulkMutation) return null;
+                    var controls = HueConfigurationPage.getUserMappingBulkControls(page);
+                    var mutation = {
+                        generation: generation,
+                        key: key,
+                        controls: controls,
+                        previousDisabled: controls.map(function (control) { return control.disabled === true; }),
+                        canceled: false
+                    };
+                    page._hueUserMappingBulkMutation = mutation;
+                    controls.forEach(function (control) { control.disabled = true; });
+                    return mutation;
+                },
+                releaseUserMappingBulkMutation: function (page, mutation, recompute, force) {
+                    if (!page || !mutation || page._hueUserMappingBulkMutation !== mutation) return false;
+                    var current = HueConfigurationPage.isPageLifecycleCurrent(page, mutation.generation);
+                    page._hueUserMappingBulkMutation = null;
+                    if (!current && !force) return false;
+                    (mutation.controls || []).forEach(function (control, index) {
+                        if (control) control.disabled = mutation.previousDisabled[index] === true;
+                    });
+                    if (mutation.key === 'userMappingBulkDelete' &&
+                        page._hueUserMappingBulkDeleteButton === mutation.button) {
+                        page._hueUserMappingBulkDeleteButton = null;
+                    }
+                    if (mutation.key === 'userMappingBulkEnabled' &&
+                        page._hueUserMappingBulkEnabledButtons === mutation.buttons) {
+                        page._hueUserMappingBulkEnabledButtons = null;
+                    }
+                    if (recompute && current) HueConfigurationPage.updateUserMappingBulkButtons(page);
+                    return true;
                 },
                 setUserMappingsEnabledBulk: function (page, syncEnabled) {
                     if (!page) return Promise.resolve();
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueUserMappingBulkMutation ||
                         page._hueUserMappingBulkUpdating === true || page._hueUserMappingBulkEnabledConfirmation) return Promise.resolve();
                     var userIds = HueConfigurationPage.getSelectedUserMappingBulkIds(page);
                     var mappingIds = HueConfigurationPage.getSelectedUserMappingBulkMappingIds(page);
@@ -12900,16 +12970,22 @@
                     var enableButton = page.querySelector('#enableSelectedUserMappingsBtn');
                     var disableButton = page.querySelector('#disableSelectedUserMappingsBtn');
                     var buttons = [enableButton, disableButton].filter(function (button) { return !!button; });
-                    var confirmation = { generation: pageGeneration, buttons: buttons, canceled: false };
+                    var mutation = HueConfigurationPage.beginUserMappingBulkMutation(
+                        page,
+                        pageGeneration,
+                        'userMappingBulkEnabled');
+                    if (!mutation) return Promise.resolve();
+                    mutation.buttons = buttons;
+                    var confirmation = { generation: pageGeneration, buttons: buttons, mutation: mutation, canceled: false };
                     page._hueUserMappingBulkEnabledConfirmation = confirmation;
-                    buttons.forEach(function (button) { button.disabled = true; });
                     return new Promise(function (resolve) {
                         Dashboard.confirm(action + " " + userIds.length + " selected user mapping(s)? " + dependencyWarning, action + " Selected Mappings", function (confirmed) {
                             var ownsConfirmation = page._hueUserMappingBulkEnabledConfirmation === confirmation;
+                            var ownsMutation = page._hueUserMappingBulkMutation === mutation;
                             if (ownsConfirmation) page._hueUserMappingBulkEnabledConfirmation = null;
-                            if (!ownsConfirmation || confirmation.canceled || !confirmed ||
+                            if (!ownsConfirmation || !ownsMutation || confirmation.canceled || !confirmed ||
                                 !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
-                                if (ownsConfirmation) buttons.forEach(function (button) { button.disabled = false; });
+                                if (ownsMutation) HueConfigurationPage.releaseUserMappingBulkMutation(page, mutation, true, false);
                                 resolve();
                                 return;
                             }
@@ -12945,7 +13021,7 @@
                                     statusEl.textContent = (syncEnabled ? "Enabled " : "Disabled ") + updatedCount + " user mapping(s).";
                                     statusEl.style.color = "#8bc34a";
                                 }
-                                HueConfigurationPage.clearSelectedUserMappings(page);
+                                HueConfigurationPage.clearSelectedUserMappings(page, mutation);
                                 return HueConfigurationPage.loadUserMappings(page);
                             }).catch(function (err) {
                                 if (!isCurrent()) return;
@@ -12962,11 +13038,9 @@
                                     page._huePageRequests.userMappingBulkEnabled === requestRecord;
                                 if (current || tracked) {
                                     page._hueUserMappingBulkUpdating = false;
-                                    if (Array.isArray(page._hueUserMappingBulkEnabledButtons) &&
-                                        page._hueUserMappingBulkEnabledButtons === buttons) {
-                                        buttons.forEach(function (button) { button.disabled = false; });
-                                        page._hueUserMappingBulkEnabledButtons = null;
-                                    }
+                                    if (current) HueConfigurationPage.releaseUserMappingBulkMutation(page, mutation, true, false);
+                                    else HueConfigurationPage.releaseUserMappingBulkMutation(page, mutation, false, false);
+                                    if (page._hueUserMappingBulkEnabledButtons === buttons) page._hueUserMappingBulkEnabledButtons = null;
                                     if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingBulkEnabled');
                                 }
                             }));
@@ -12977,6 +13051,7 @@
                     if (!page) return Promise.resolve();
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueUserMappingBulkMutation ||
                         page._hueUserMappingBulkDeleting === true || page._hueUserMappingBulkDeleteConfirmation) return Promise.resolve();
                     var userIds = HueConfigurationPage.getSelectedUserMappingBulkIds(page);
                     var mappingIds = HueConfigurationPage.getSelectedUserMappingBulkMappingIds(page);
@@ -12987,16 +13062,22 @@
                     }
 
                     var button = page.querySelector('#deleteSelectedUserMappingsBtn');
-                    var confirmation = { generation: pageGeneration, button: button || null, canceled: false };
+                    var mutation = HueConfigurationPage.beginUserMappingBulkMutation(
+                        page,
+                        pageGeneration,
+                        'userMappingBulkDelete');
+                    if (!mutation) return Promise.resolve();
+                    mutation.button = button || null;
+                    var confirmation = { generation: pageGeneration, button: button || null, mutation: mutation, canceled: false };
                     page._hueUserMappingBulkDeleteConfirmation = confirmation;
-                    if (button) button.disabled = true;
                     return new Promise(function (resolve) {
                         Dashboard.confirm("Delete " + userIds.length + " selected user mapping(s)? Any scheduled-cue or saved-playlist target dependency blocks the complete operation.", "Delete Selected Mappings", function (confirmed) {
                             var ownsConfirmation = page._hueUserMappingBulkDeleteConfirmation === confirmation;
+                            var ownsMutation = page._hueUserMappingBulkMutation === mutation;
                             if (ownsConfirmation) page._hueUserMappingBulkDeleteConfirmation = null;
-                            if (!ownsConfirmation || confirmation.canceled || !confirmed ||
+                            if (!ownsConfirmation || !ownsMutation || confirmation.canceled || !confirmed ||
                                 !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
-                                if (ownsConfirmation && button) button.disabled = false;
+                                if (ownsMutation) HueConfigurationPage.releaseUserMappingBulkMutation(page, mutation, true, false);
                                 resolve();
                                 return;
                             }
@@ -13030,7 +13111,7 @@
                                     statusEl.textContent = "Deleted " + deletedCount + " user mapping(s).";
                                     statusEl.style.color = "#8bc34a";
                                 }
-                                HueConfigurationPage.clearSelectedUserMappings(page);
+                                HueConfigurationPage.clearSelectedUserMappings(page, mutation);
                                 return HueConfigurationPage.loadUserMappings(page);
                             }).catch(function (err) {
                                 if (!isCurrent()) return;
@@ -13047,10 +13128,9 @@
                                     page._huePageRequests.userMappingBulkDelete === requestRecord;
                                 if (current || tracked) {
                                     page._hueUserMappingBulkDeleting = false;
-                                    if (page._hueUserMappingBulkDeleteButton === button) {
-                                        if (button) button.disabled = false;
-                                        page._hueUserMappingBulkDeleteButton = null;
-                                    }
+                                    if (current) HueConfigurationPage.releaseUserMappingBulkMutation(page, mutation, true, false);
+                                    else HueConfigurationPage.releaseUserMappingBulkMutation(page, mutation, false, false);
+                                    if (page._hueUserMappingBulkDeleteButton === button) page._hueUserMappingBulkDeleteButton = null;
                                     if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingBulkDelete');
                                 }
                             }));

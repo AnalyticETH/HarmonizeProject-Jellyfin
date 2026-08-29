@@ -914,6 +914,10 @@ function configureUserMappingBulkDeleteHarness(harness) {
     ];
     return {
         bulkSelect,
+        selectAllButton: page.querySelector("#selectAllUserMappingsBtn"),
+        clearButton: page.querySelector("#clearSelectedUserMappingsBtn"),
+        enableButton: page.querySelector("#enableSelectedUserMappingsBtn"),
+        disableButton: page.querySelector("#disableSelectedUserMappingsBtn"),
         button: page.querySelector("#deleteSelectedUserMappingsBtn"),
         status: page.querySelector("#userMappingBulkStatus"),
         mappingLoads: 0,
@@ -936,9 +940,16 @@ async function testUserMappingBulkDeleteLifecycleGuards() {
     assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "bulk user-mapping delete returns a promise");
     assert.equal(confirmationHarness.requests.length, 0, "bulk user-mapping delete waits for confirmation before mutating configuration");
     assert.equal(confirmationCalls, 1, "bulk user-mapping delete asks for one confirmation");
+    assert.equal(confirmationState.bulkSelect.disabled, true, "pending bulk user-mapping delete disables selection");
+    assert.equal(confirmationState.selectAllButton.disabled, true, "pending bulk user-mapping delete disables select all");
+    assert.equal(confirmationState.clearButton.disabled, true, "pending bulk user-mapping delete disables clear selection");
+    assert.equal(confirmationState.enableButton.disabled, true, "pending bulk user-mapping delete disables enable");
+    assert.equal(confirmationState.disableButton.disabled, true, "pending bulk user-mapping delete disables disable");
     assert.equal(confirmationState.button.disabled, true, "pending bulk user-mapping delete disables its button");
     confirmationApi.invalidatePageLifecycle(confirmationPage);
     confirmationApi.beginPageLifecycle(confirmationPage);
+    assert.equal(confirmationPage._hueUserMappingBulkMutation, null, "pagehide releases the pending bulk user-mapping delete owner");
+    assert.equal(confirmationState.bulkSelect.disabled, false, "pagehide restores bulk user-mapping selection");
     assert.equal(confirmationState.button.disabled, false, "pagehide restores the pending bulk user-mapping delete button");
     confirmation(true);
     assert.equal(confirmationHarness.requests.length, 0, "stale bulk user-mapping delete confirmation cannot start a request after pagehide");
@@ -969,11 +980,17 @@ async function testUserMappingBulkDeleteLifecycleGuards() {
     );
     assert.ok(stalePage._huePageRequests.userMappingBulkDelete, "bulk user-mapping delete is tracked by the page lifecycle");
     assert.equal(stalePage._hueUserMappingBulkDeleting, true, "bulk user-mapping delete marks the page busy");
+    assert.equal(staleState.bulkSelect.disabled, true, "bulk user-mapping delete disables selection while pending");
+    assert.equal(staleState.selectAllButton.disabled, true, "bulk user-mapping delete disables select all while pending");
+    assert.equal(staleState.clearButton.disabled, true, "bulk user-mapping delete disables clear selection while pending");
+    assert.equal(staleState.enableButton.disabled, true, "bulk user-mapping delete disables enable while pending");
+    assert.equal(staleState.disableButton.disabled, true, "bulk user-mapping delete disables disable while pending");
     assert.equal(staleState.button.disabled, true, "bulk user-mapping delete keeps its button disabled while pending");
     staleState.status.textContent = "unchanged after pagehide";
     staleApi.invalidatePageLifecycle(stalePage);
     assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight bulk user-mapping delete");
     assert.equal(stalePage._huePageRequests.userMappingBulkDelete, undefined, "pagehide removes the bulk user-mapping delete request record");
+    assert.equal(stalePage._hueUserMappingBulkMutation, null, "pagehide releases the bulk user-mapping delete owner");
     assert.equal(stalePage._hueUserMappingBulkDeleting, false, "pagehide clears bulk user-mapping delete state");
     assert.equal(staleState.button.disabled, false, "pagehide restores the bulk user-mapping delete button");
     staleState.bulkSelect.options = [
@@ -995,8 +1012,10 @@ async function testUserMappingBulkDeleteLifecycleGuards() {
         currentState.mappingLoads += 1;
         return Promise.resolve();
     };
-    currentApi.updateUserMappingBulkButtons = () => {
+    const updateCurrentBulkButtons = currentApi.updateUserMappingBulkButtons;
+    currentApi.updateUserMappingBulkButtons = page => {
         currentState.buttonUpdates += 1;
+        updateCurrentBulkButtons(page);
     };
     let currentConfirmation;
     let currentConfirmationCalls = 0;
@@ -1010,17 +1029,30 @@ async function testUserMappingBulkDeleteLifecycleGuards() {
     assert.equal(currentHarness.requests.length, 0, "duplicate bulk user-mapping delete does not submit before confirmation");
     await duplicateBeforeConfirmation;
     currentConfirmation(true);
+    assert.equal(currentState.bulkSelect.disabled, true, "confirmed bulk user-mapping delete disables selection while pending");
+    assert.equal(currentState.selectAllButton.disabled, true, "confirmed bulk user-mapping delete disables select all while pending");
+    assert.equal(currentState.clearButton.disabled, true, "confirmed bulk user-mapping delete disables clear selection while pending");
+    assert.equal(currentState.enableButton.disabled, true, "confirmed bulk user-mapping delete disables enable while pending");
+    assert.equal(currentState.disableButton.disabled, true, "confirmed bulk user-mapping delete disables disable while pending");
+    currentApi.clearSelectedUserMappings(currentPage);
+    currentApi.selectAllUserMappings(currentPage);
+    assert.equal(currentState.bulkSelect.options.every(option => option.selected === true), true, "locked bulk user-mapping delete ignores selection helper mutations");
+    const duplicateEnabledWhilePending = currentApi.setUserMappingsEnabledBulk(currentPage, true);
+    assert.ok(duplicateEnabledWhilePending && typeof duplicateEnabledWhilePending.then === "function", "cross-action bulk mutation returns a settled no-op while delete is pending");
     const duplicateWhilePending = currentApi.deleteUserMappingsBulk(currentPage);
     assert.ok(duplicateWhilePending && typeof duplicateWhilePending.then === "function", "duplicate pending bulk user-mapping delete returns a settled no-op");
     assert.equal(currentHarness.requests.length, 1, "pending bulk user-mapping delete keeps one request in flight");
     currentHarness.requests[0].resolve({ deletedCount: 2 });
-    await Promise.all([currentOperation, duplicateWhilePending]);
+    await Promise.all([currentOperation, duplicateWhilePending, duplicateEnabledWhilePending]);
     assert.equal(currentState.status.textContent, "Deleted 2 user mapping(s).", "current bulk user-mapping delete reports success");
     assert.equal(currentState.bulkSelect.options.every(option => option.selected === false), true, "current bulk user-mapping delete clears the selected rows");
     assert.equal(currentState.mappingLoads, 1, "current bulk user-mapping delete reloads mappings once");
     assert.equal(currentPage._hueUserMappingBulkDeleting, false, "current bulk user-mapping delete clears its busy state");
-    assert.equal(currentState.button.disabled, false, "current bulk user-mapping delete restores its button");
+    assert.equal(currentState.button.disabled, true, "current bulk user-mapping delete keeps its button disabled with no selection");
+    assert.equal(currentState.enableButton.disabled, true, "current bulk user-mapping delete keeps enable disabled with no selection");
+    assert.equal(currentState.disableButton.disabled, true, "current bulk user-mapping delete keeps disable disabled with no selection");
     assert.equal(currentState.buttonUpdates, 1, "current bulk user-mapping delete refreshes current-page controls once");
+    assert.equal(currentPage._hueUserMappingBulkMutation, null, "current bulk user-mapping delete releases its owner");
     assert.equal(currentPage._huePageRequests.userMappingBulkDelete, undefined, "current bulk user-mapping delete removes its settled lifecycle record");
 }
 
@@ -1033,8 +1065,11 @@ function configureUserMappingBulkEnabledHarness(harness) {
     ];
     return {
         bulkSelect,
+        selectAllButton: page.querySelector("#selectAllUserMappingsBtn"),
+        clearButton: page.querySelector("#clearSelectedUserMappingsBtn"),
         enableButton: page.querySelector("#enableSelectedUserMappingsBtn"),
         disableButton: page.querySelector("#disableSelectedUserMappingsBtn"),
+        deleteButton: page.querySelector("#deleteSelectedUserMappingsBtn"),
         status: page.querySelector("#userMappingBulkStatus"),
         mappingLoads: 0,
         buttonUpdates: 0
@@ -1056,10 +1091,16 @@ async function testUserMappingBulkEnabledLifecycleGuards() {
     assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "bulk user-mapping enabled update returns a promise");
     assert.equal(confirmationHarness.requests.length, 0, "bulk user-mapping enabled update waits for confirmation before mutating configuration");
     assert.equal(confirmationCalls, 1, "bulk user-mapping enabled update asks for one confirmation");
+    assert.equal(confirmationState.bulkSelect.disabled, true, "pending bulk user-mapping enabled update disables selection");
+    assert.equal(confirmationState.selectAllButton.disabled, true, "pending bulk user-mapping enabled update disables select all");
+    assert.equal(confirmationState.clearButton.disabled, true, "pending bulk user-mapping enabled update disables clear selection");
     assert.equal(confirmationState.enableButton.disabled, true, "pending bulk user-mapping enabled update disables the enable button");
     assert.equal(confirmationState.disableButton.disabled, true, "pending bulk user-mapping enabled update disables the disable button");
+    assert.equal(confirmationState.deleteButton.disabled, true, "pending bulk user-mapping enabled update disables delete");
     confirmationApi.invalidatePageLifecycle(confirmationPage);
     confirmationApi.beginPageLifecycle(confirmationPage);
+    assert.equal(confirmationPage._hueUserMappingBulkMutation, null, "pagehide releases the pending bulk user-mapping enabled owner");
+    assert.equal(confirmationState.bulkSelect.disabled, false, "pagehide restores bulk user-mapping selection");
     assert.equal(confirmationState.enableButton.disabled, false, "pagehide restores the pending bulk enabled enable button");
     assert.equal(confirmationState.disableButton.disabled, false, "pagehide restores the pending bulk enabled disable button");
     confirmation(true);
@@ -1091,12 +1132,17 @@ async function testUserMappingBulkEnabledLifecycleGuards() {
     );
     assert.ok(stalePage._huePageRequests.userMappingBulkEnabled, "bulk user-mapping enabled update is tracked by the page lifecycle");
     assert.equal(stalePage._hueUserMappingBulkUpdating, true, "bulk user-mapping enabled update marks the page busy");
+    assert.equal(staleState.bulkSelect.disabled, true, "bulk user-mapping enabled update disables selection while pending");
+    assert.equal(staleState.selectAllButton.disabled, true, "bulk user-mapping enabled update disables select all while pending");
+    assert.equal(staleState.clearButton.disabled, true, "bulk user-mapping enabled update disables clear selection while pending");
     assert.equal(staleState.enableButton.disabled, true, "bulk user-mapping enabled update keeps the enable button disabled while pending");
     assert.equal(staleState.disableButton.disabled, true, "bulk user-mapping enabled update keeps the disable button disabled while pending");
+    assert.equal(staleState.deleteButton.disabled, true, "bulk user-mapping enabled update disables delete while pending");
     staleState.status.textContent = "unchanged after pagehide";
     staleApi.invalidatePageLifecycle(stalePage);
     assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight bulk user-mapping enabled update");
     assert.equal(stalePage._huePageRequests.userMappingBulkEnabled, undefined, "pagehide removes the bulk enabled request record");
+    assert.equal(stalePage._hueUserMappingBulkMutation, null, "pagehide releases the bulk user-mapping enabled owner");
     assert.equal(stalePage._hueUserMappingBulkUpdating, false, "pagehide clears bulk user-mapping enabled state");
     assert.equal(staleState.enableButton.disabled, false, "pagehide restores the bulk enabled enable button");
     assert.equal(staleState.disableButton.disabled, false, "pagehide restores the bulk enabled disable button");
@@ -1119,8 +1165,10 @@ async function testUserMappingBulkEnabledLifecycleGuards() {
         currentState.mappingLoads += 1;
         return Promise.resolve();
     };
-    currentApi.updateUserMappingBulkButtons = () => {
+    const updateCurrentBulkButtons = currentApi.updateUserMappingBulkButtons;
+    currentApi.updateUserMappingBulkButtons = page => {
         currentState.buttonUpdates += 1;
+        updateCurrentBulkButtons(page);
     };
     let currentConfirmation;
     let currentConfirmationCalls = 0;
@@ -1134,18 +1182,31 @@ async function testUserMappingBulkEnabledLifecycleGuards() {
     assert.equal(currentHarness.requests.length, 0, "duplicate bulk user-mapping enabled update does not submit before confirmation");
     await duplicateBeforeConfirmation;
     currentConfirmation(true);
+    assert.equal(currentState.bulkSelect.disabled, true, "confirmed bulk user-mapping enabled update disables selection while pending");
+    assert.equal(currentState.selectAllButton.disabled, true, "confirmed bulk user-mapping enabled update disables select all while pending");
+    assert.equal(currentState.clearButton.disabled, true, "confirmed bulk user-mapping enabled update disables clear selection while pending");
+    assert.equal(currentState.enableButton.disabled, true, "confirmed bulk user-mapping enabled update keeps enable disabled while pending");
+    assert.equal(currentState.disableButton.disabled, true, "confirmed bulk user-mapping enabled update keeps disable disabled while pending");
+    assert.equal(currentState.deleteButton.disabled, true, "confirmed bulk user-mapping enabled update keeps delete disabled while pending");
+    currentApi.clearSelectedUserMappings(currentPage);
+    currentApi.selectAllUserMappings(currentPage);
+    assert.equal(currentState.bulkSelect.options.every(option => option.selected === true), true, "locked bulk user-mapping enabled update ignores selection helper mutations");
+    const duplicateDeleteWhilePending = currentApi.deleteUserMappingsBulk(currentPage);
+    assert.ok(duplicateDeleteWhilePending && typeof duplicateDeleteWhilePending.then === "function", "cross-action bulk mutation returns a settled no-op while enabled update is pending");
     const duplicateWhilePending = currentApi.setUserMappingsEnabledBulk(currentPage, false);
     assert.ok(duplicateWhilePending && typeof duplicateWhilePending.then === "function", "duplicate pending bulk enabled update returns a settled no-op");
     assert.equal(currentHarness.requests.length, 1, "pending bulk user-mapping enabled update keeps one request in flight");
     currentHarness.requests[0].resolve({ updatedCount: 2 });
-    await Promise.all([currentOperation, duplicateWhilePending]);
+    await Promise.all([currentOperation, duplicateWhilePending, duplicateDeleteWhilePending]);
     assert.equal(currentState.status.textContent, "Disabled 2 user mapping(s).", "current bulk user-mapping enabled update reports success");
     assert.equal(currentState.bulkSelect.options.every(option => option.selected === false), true, "current bulk enabled update clears the selected rows");
     assert.equal(currentState.mappingLoads, 1, "current bulk enabled update reloads mappings once");
     assert.equal(currentPage._hueUserMappingBulkUpdating, false, "current bulk enabled update clears its busy state");
-    assert.equal(currentState.enableButton.disabled, false, "current bulk enabled update restores the enable button");
-    assert.equal(currentState.disableButton.disabled, false, "current bulk enabled update restores the disable button");
+    assert.equal(currentState.enableButton.disabled, true, "current bulk enabled update keeps enable disabled with no selection");
+    assert.equal(currentState.disableButton.disabled, true, "current bulk enabled update keeps disable disabled with no selection");
+    assert.equal(currentState.deleteButton.disabled, true, "current bulk enabled update keeps delete disabled with no selection");
     assert.equal(currentState.buttonUpdates, 1, "current bulk enabled update refreshes current-page controls once");
+    assert.equal(currentPage._hueUserMappingBulkMutation, null, "current bulk user-mapping enabled update releases its owner");
     assert.equal(currentPage._huePageRequests.userMappingBulkEnabled, undefined, "current bulk enabled update removes its settled lifecycle record");
 }
 

@@ -2610,18 +2610,49 @@ namespace Jellyfin.Plugin.Hue.Service
                         }
                     }
 
-                    var deactivated = await _hueClient.StopEntertainmentAreaWithResult(
-                        bridgeConfig.Value.BridgeIp,
-                        bridgeConfig.Value.AppKey,
-                        bridgeConfig.Value.AreaId,
-                        cleanupToken).ConfigureAwait(false);
+                    bool deactivated;
+                    try
+                    {
+                        deactivated = await _hueClient.StopEntertainmentAreaWithResult(
+                            bridgeConfig.Value.BridgeIp,
+                            bridgeConfig.Value.AppKey,
+                            bridgeConfig.Value.AreaId,
+                            cleanupToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Deactivation is part of the pause lifecycle, so an unexpected
+                        // transport failure must follow the same retained-cleanup path as
+                        // a false result. Do not let it bypass the lease/pending markers.
+                        _logger.LogWarning(ex, "Exception deactivating entertainment area after playback pause");
+                        deactivated = false;
+                    }
                     _bridgeAreaDeactivated = deactivated;
                     if (!deactivated)
                     {
+                        var pauseStatusMessage = pauseMessage;
                         pauseMessage = $"{pauseMessage} The entertainment area could not be deactivated; cleanup will retry.";
                         SetCleanupWarning("The entertainment area could not be deactivated after playback pause; cleanup will retry.");
+                        lock (_syncLock)
+                        {
+                            // Dim/keep-last pause intentionally retains the snapshot for
+                            // a later resume or natural stop. Mark only the failed area
+                            // deactivation for retry; the retry must not restore that
+                            // snapshot while playback remains paused.
+                            _playbackCleanupRetryPending = true;
+                        }
+                        ScheduleDeferredPlaybackCleanup(
+                            playSessionId,
+                            pauseCleanup: true,
+                            bridgeConfig,
+                            savedLightStates,
+                            restoreLightState: false,
+                            pauseStatusMessage: pauseStatusMessage);
                     }
-                    ReleasePlaybackLifecycleLease();
+                    else
+                    {
+                        ReleasePlaybackLifecycleLease();
+                    }
                     SetRuntimeStatus("Paused", pauseMessage);
                 }
                 else
@@ -4975,7 +5006,11 @@ namespace Jellyfin.Plugin.Hue.Service
                 await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
                 lock (_syncLock)
                 {
-                    if (_isStopping)
+                    // A stop that was already queued ahead of this startup may have
+                    // discovered incomplete bridge cleanup while we waited. Re-check
+                    // the retained-cleanup guard under the lifecycle lock so a queued
+                    // start cannot overwrite its snapshot or target.
+                    if (_isStopping || _playbackCleanupRetryPending)
                         return;
                 }
 
@@ -5010,7 +5045,9 @@ namespace Jellyfin.Plugin.Hue.Service
             string? capturedPlaybackMediaFilter;
             lock (_syncLock)
             {
-                if (_isStopping || startupToken.IsCancellationRequested)
+                if (_isStopping ||
+                    _playbackCleanupRetryPending ||
+                    startupToken.IsCancellationRequested)
                     return;
 
                 capturedPlaybackMediaFilter = string.Equals(
@@ -5806,7 +5843,11 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     RecordSessionSummary(sessionSummarySeed, cleanupWarning);
                 }
-                ReleasePlaybackLifecycleLease();
+                // Keep the target's playback lease while a deferred cleanup owns the
+                // retained snapshot/config. Otherwise a same-target diagnostic could
+                // mutate the bridge between the failed attempt and its retry.
+                if (!cleanupRequiresRetry && !cleanupInterrupted)
+                    ReleasePlaybackLifecycleLease();
             }
 
             return !cleanupRequiresRetry;
@@ -6091,7 +6132,9 @@ namespace Jellyfin.Plugin.Hue.Service
             string? playSessionId,
             bool pauseCleanup,
             (string BridgeIp, string AppKey, string ClientKey, string AreaId)? bridgeConfig,
-            List<HueClient.LightState>? savedLightStates)
+            List<HueClient.LightState>? savedLightStates,
+            bool restoreLightState = true,
+            string? pauseStatusMessage = null)
         {
             Task cleanupTask;
             lock (_syncLock)
@@ -6107,7 +6150,9 @@ namespace Jellyfin.Plugin.Hue.Service
                     playSessionId,
                     pauseCleanup,
                     bridgeConfig.Value,
-                    savedLightStates));
+                    savedLightStates,
+                    restoreLightState,
+                    pauseStatusMessage));
                 _deferredPlaybackCleanupTask = cleanupTask;
             }
 
@@ -6130,7 +6175,9 @@ namespace Jellyfin.Plugin.Hue.Service
             string? playSessionId,
             bool pauseCleanup,
             (string BridgeIp, string AppKey, string ClientKey, string AreaId) bridgeConfig,
-            List<HueClient.LightState>? savedLightStates)
+            List<HueClient.LightState>? savedLightStates,
+            bool restoreLightState,
+            string? pauseStatusMessage)
         {
             try
             {
@@ -6161,18 +6208,35 @@ namespace Jellyfin.Plugin.Hue.Service
                         return;
                     }
 
-                    var config = Plugin.Instance?.Configuration;
-                    var cleanupCompleted = await RestoreAndDeactivateAsync(
-                        config,
-                        bridgeConfig,
-                        savedLightStates,
-                        publishIdleStatus: false,
-                        clearCurrentItem: false,
-                        sessionOutcome: "CleanupRetry",
-                        recordSessionSummary: false).ConfigureAwait(false);
-                    if (cleanupCompleted && pauseCleanup)
+                    bool cleanupCompleted;
+                    if (restoreLightState)
                     {
-                        SetRuntimeStatus("Paused", "Playback paused; original light state restored.");
+                        var config = Plugin.Instance?.Configuration;
+                        cleanupCompleted = await RestoreAndDeactivateAsync(
+                            config,
+                            bridgeConfig,
+                            savedLightStates,
+                            publishIdleStatus: false,
+                            clearCurrentItem: false,
+                            sessionOutcome: "CleanupRetry",
+                            recordSessionSummary: false).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        cleanupCompleted = await RetryDeferredPauseDeactivationAsync(bridgeConfig).ConfigureAwait(false);
+                    }
+
+                    if (pauseCleanup)
+                    {
+                        SetRuntimeStatus(
+                            "Paused",
+                            cleanupCompleted
+                                ? restoreLightState
+                                    ? "Playback paused; original light state restored."
+                                    : pauseStatusMessage ?? "Playback paused; waiting to resume."
+                                : restoreLightState
+                                    ? "Playback paused; light restoration remains pending cleanup retry."
+                                    : $"{pauseStatusMessage ?? "Playback paused; waiting to resume."} The entertainment area could not be deactivated; cleanup will retry.");
                     }
                 }
                 finally
@@ -6185,6 +6249,47 @@ namespace Jellyfin.Plugin.Hue.Service
                 _logger.LogWarning(ex, "Playback cleanup retry failed");
                 SetCleanupWarning("Playback cleanup retry failed; cleanup remains pending.");
             }
+        }
+
+        private async Task<bool> RetryDeferredPauseDeactivationAsync(
+            (string BridgeIp, string AppKey, string ClientKey, string AreaId) bridgeConfig)
+        {
+            bool deactivated;
+            try
+            {
+                using var cleanupCancellation = HueCleanupBudget.CreateCancellationSource();
+                deactivated = await _hueClient.StopEntertainmentAreaWithResult(
+                    bridgeConfig.BridgeIp,
+                    bridgeConfig.AppKey,
+                    bridgeConfig.AreaId,
+                    cleanupCancellation.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Exception retrying entertainment-area deactivation after playback pause");
+                deactivated = false;
+            }
+
+            _bridgeAreaDeactivated = deactivated;
+            if (!deactivated)
+            {
+                SetCleanupWarning("The entertainment area could not be deactivated after playback pause; cleanup will retry.");
+                lock (_syncLock)
+                {
+                    _playbackCleanupRetryPending = true;
+                }
+                return false;
+            }
+
+            lock (_syncLock)
+            {
+                _playbackCleanupRetryPending = false;
+            }
+            SetCleanupWarning(null);
+            // Pause cleanup retains the saved snapshot and active pause policy so a
+            // resume can continue using them. Only the area deactivation lease ends here.
+            ReleasePlaybackLifecycleLease();
+            return true;
         }
 
         /// <summary>
