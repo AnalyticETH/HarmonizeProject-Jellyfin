@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -869,6 +870,115 @@ public sealed class HueSceneAutomationServiceTests
         Assert.Null(HueSceneAutomationService.GetNextRunLocal(
             new HueSceneSchedule { Enabled = false, TimeOfDay = "07:05", DaysOfWeekMask = 127 },
             new DateTime(2026, 8, 17, 6, 59, 0)));
+    }
+
+    [Theory]
+    [InlineData(
+        PluginConfiguration.SceneScheduleRecurrenceWeekly,
+        53,
+        "2026-01-05",
+        2027,
+        1,
+        12,
+        2028,
+        1,
+        17)]
+    [InlineData(
+        PluginConfiguration.SceneScheduleRecurrenceMonthly,
+        13,
+        "2026-01-01",
+        2027,
+        2,
+        2,
+        2028,
+        3,
+        1)]
+    [InlineData(
+        PluginConfiguration.SceneScheduleRecurrenceYearly,
+        2,
+        "2026-01-01",
+        2028,
+        1,
+        2,
+        2030,
+        1,
+        1)]
+    public void GetNextRunUtc_UsesRecurrenceSpecificHorizon(
+        string recurrence,
+        int recurrenceInterval,
+        string startDate,
+        int nowYear,
+        int nowMonth,
+        int nowDay,
+        int expectedYear,
+        int expectedMonth,
+        int expectedDay)
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = recurrence,
+            RecurrenceInterval = recurrenceInterval,
+            StartDate = startDate,
+            DayOfMonth = 1,
+            MonthOfYear = 1,
+            DaysOfWeekMask = recurrence == PluginConfiguration.SceneScheduleRecurrenceWeekly
+                ? 1 << (int)DayOfWeek.Monday
+                : 0
+        };
+        var nowUtc = new DateTime(nowYear, nowMonth, nowDay, 7, 6, 0, DateTimeKind.Utc);
+        var serverLocalNow = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, TimeZoneInfo.Local);
+        var expectedUtc = new DateTime(expectedYear, expectedMonth, expectedDay, 7, 5, 0, DateTimeKind.Utc);
+
+        // The public preview remains intentionally bounded to 366 days.
+        Assert.Empty(HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule,
+            serverLocalNow,
+            maxOccurrences: 1,
+            horizonDays: HueSceneAutomationService.MaxUpcomingHorizonDays));
+        Assert.Equal(expectedUtc, HueSceneAutomationService.GetNextRunUtc(schedule, serverLocalNow));
+    }
+
+    [Fact]
+    public void SetScheduleSkipNextOccurrence_AcceptsLongIntervalCue()
+    {
+        var now = DateTime.Now.Date;
+        var daysSinceMonday = ((int)now.DayOfWeek + 6) % 7;
+        var anchorDate = now.AddDays(-(daysSinceMonday == 0 ? 7 : daysSinceMonday));
+        var configuration = new PluginConfiguration
+        {
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "long-interval-skip",
+                    Name = "Long interval skip",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceWeekly,
+                    RecurrenceInterval = 54,
+                    StartDate = anchorDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    DaysOfWeekMask = 1 << (int)DayOfWeek.Monday,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        Assert.True(service.TrySetScheduleSkipNextOccurrence(
+            "long-interval-skip",
+            true,
+            out var message));
+        Assert.Contains("marked", message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(configuration.SceneSchedules[0].SkipNextOccurrence);
     }
 
     [Fact]

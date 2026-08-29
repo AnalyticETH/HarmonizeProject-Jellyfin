@@ -487,7 +487,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.372 (Current)
+### Version 1.5.373 (Current)
+
+- **Long-interval recurrence visibility**: internal next-run and Skip Next resolution now search beyond the public 366-day preview horizon, so valid weekly, monthly, and yearly cues with large configured intervals remain actionable.
+
+- **Stale certificate trust-prompt cancellation**: approving a bridge certificate prompt after the configuration page is hidden now fails closed without mutating the server trust store.
+
+- **Regression coverage**: scheduler tests cover long recurrence intervals and the administrator configuration contract covers stale certificate trust prompts.
 
 - **Audio terminal status**: naturally completed audio playback now reports an audio stream ending after shared cleanup instead of the video terminal message.
 

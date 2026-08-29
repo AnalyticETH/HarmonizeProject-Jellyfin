@@ -1673,7 +1673,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? brightnessOverride = null,
         int? redOverride = null,
         int? greenOverride = null,
-        int? blueOverride = null)
+        int? blueOverride = null,
+        int? horizonLimitDays = null)
     {
         var occurrences = new List<HueSceneScheduleOccurrence>();
         var boundedOccurrences = Math.Clamp(
@@ -1683,7 +1684,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         var boundedHorizon = Math.Clamp(
             horizonDays,
             1,
-            MaxUpcomingHorizonDays);
+            Math.Max(1, horizonLimitDays ?? MaxUpcomingHorizonDays));
 
         if (schedule == null || !schedule.Enabled ||
             IsRunLimitReached(schedule) ||
@@ -3714,19 +3715,49 @@ public sealed class HueSceneAutomationService : BackgroundService
         out DateTime? nextRunUtc)
     {
         nextRunUtc = null;
-        // Daily and weekly cues always find a match within one or seven days, while monthly/yearly
-        // dates can be more than a week away. Use the bounded public horizon so every valid cue
-        // reports its next run instead of appearing idle for part of the month.
+        var searchHorizonDays = GetNextRunSearchHorizonDays(schedule);
         var occurrence = GetUpcomingOccurrences(
             schedule,
             serverLocalNow,
             1,
-            MaxUpcomingHorizonDays).FirstOrDefault();
+            searchHorizonDays,
+            includeFutureStartBeyondHorizon: true,
+            horizonLimitDays: searchHorizonDays).FirstOrDefault();
         if (occurrence == null)
             return null;
 
         nextRunUtc = occurrence.UtcTime;
         return occurrence.LocalTime;
+    }
+
+    private static int GetNextRunSearchHorizonDays(HueSceneSchedule? schedule)
+    {
+        if (schedule == null ||
+            !PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var recurrence))
+        {
+            return MaxUpcomingHorizonDays;
+        }
+
+        var interval = Math.Clamp(
+            schedule.RecurrenceInterval,
+            PluginConfiguration.MinSceneScheduleRecurrenceInterval,
+            PluginConfiguration.MaxSceneScheduleRecurrenceInterval);
+        var requiredOccurrences = schedule.SkipNextOccurrence ? 2 : 1;
+        var recurrenceHorizon = recurrence switch
+        {
+            PluginConfiguration.SceneScheduleRecurrenceDaily => (interval * requiredOccurrences) + 1,
+            PluginConfiguration.SceneScheduleRecurrenceWeekly => (interval * 7 * requiredOccurrences) + 7,
+            PluginConfiguration.SceneScheduleRecurrenceMonthly => (interval * 31 * requiredOccurrences) + 32,
+            PluginConfiguration.SceneScheduleRecurrenceMonthlyWeekday => (interval * 31 * requiredOccurrences) + 32,
+            PluginConfiguration.SceneScheduleRecurrenceYearly => (interval * 366 * requiredOccurrences) + 367,
+            _ => MaxUpcomingHorizonDays
+        };
+
+        // Preserve the existing 366-day behavior for ordinary schedules and provide
+        // enough room for the next anchored interval when a cue uses Every > 1. A
+        // pending skip marker needs room for the following occurrence as well. The
+        // public occurrence/conflict/export endpoints continue to use their own cap.
+        return Math.Max(MaxUpcomingHorizonDays, recurrenceHorizon);
     }
 
     /// <summary>

@@ -317,6 +317,15 @@ function makeHarness() {
         getUrl(value) {
             return value;
         },
+        getJSON(url) {
+            const deferred = makeDeferred({
+                type: "GET",
+                url,
+                dataType: "json"
+            });
+            requests.push(deferred);
+            return deferred.promise;
+        },
         ajax(options) {
             const deferred = makeDeferred(options);
             requests.push(deferred);
@@ -841,6 +850,34 @@ async function testCredentialPreflightPagehideGuard() {
 
     await assert.rejects(request, error => error && error.huePageLifecycleStale === true, "stale preflight rejects with a lifecycle marker");
     assert.equal(actionCalls, 0, "a certificate approval completed after pagehide cannot start a credential request");
+}
+
+async function testBridgeCertificateTrustPromptPagehideGuard() {
+    const harness = makeHarness();
+    const { page, api, requests, dashboard } = harness;
+    let confirm;
+    dashboard.confirm = (_message, _title, callback) => { confirm = callback; };
+
+    const generation = api.ensurePageLifecycle(page);
+    const operation = api.ensureBridgeCertificate(
+        page,
+        "192.168.1.50",
+        page.querySelector("#bridgeStatus"),
+        generation);
+    assert.equal(requests.length, 1, "certificate verification starts one probe request");
+    assert.equal(requests[0].options.url, "HueSync/BridgeCertificate?ipAddress=192.168.1.50", "certificate verification scopes the probe to the bridge");
+
+    requests[0].resolve({ fingerprint: "AA:BB", isPinned: false });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(typeof confirm, "function", "untrusted certificate asks for explicit approval");
+
+    api.invalidatePageLifecycle(page);
+    confirm(true);
+    await assert.rejects(
+        operation,
+        error => error && error.huePageLifecycleStale === true,
+        "approval of a hidden-page trust prompt rejects with a lifecycle marker");
+    assert.equal(requests.length, 1, "approval of a stale trust prompt sends no trust mutation");
 }
 
 async function testCredentialPreflightCancelGuard() {
@@ -2030,6 +2067,7 @@ await testConfigurationImportFileLifecycleGuards();
 await testMappingDeviceRouteCredentialScope();
 await testStoredDeviceRouteCredentialFlags();
 await testCredentialPreflightPagehideGuard();
+await testBridgeCertificateTrustPromptPagehideGuard();
 await testCredentialPreflightCancelGuard();
 await testCredentialPreflightTargetMutationGuard();
 await testCredentialLifecyclePreflightPagehideGuard();
@@ -2051,4 +2089,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

@@ -2237,6 +2237,16 @@
                                         resolve(false);
                                         return;
                                     }
+                                    // A trust prompt can remain open while the
+                                    // configuration page is hidden. Do not let
+                                    // approval of that stale prompt mutate the
+                                    // server's trust store after pagehide.
+                                    if (!canWritePage()) {
+                                        var staleError = new Error('Bridge certificate trust was canceled because the configuration page is no longer active.');
+                                        staleError.huePageLifecycleStale = true;
+                                        reject(staleError);
+                                        return;
+                                    }
                                     ApiClient.ajax({
                                         type: 'POST',
                                         url: ApiClient.getUrl('HueSync/BridgeCertificate/Trust'),
