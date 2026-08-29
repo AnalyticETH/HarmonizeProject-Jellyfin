@@ -488,7 +488,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.382 (Current)
+### Version 1.5.383 (Current)
+
+- **Run-scoped Semgrep isolation**: self-hosted and pull-request security scans isolate their hash-locked virtual environment, reviewed rule snapshots, extracted administrator JavaScript, and reports by workflow run/attempt, so canceled-run cleanup cannot invalidate a newer scan.
+
+- **Security workflow contract**: the Semgrep validator requires isolated run-scoped paths and rejects the legacy shared `RUNNER_TEMP` scanner state while keeping every finding, scanner error, and timeout fail-closed.
 
 - **Scoped IPv6 bridge transport**: mDNS-discovered link-local IPv6 addresses preserve their interface scope in HTTPS request URIs, allowing bridges on multi-interface hosts to remain reachable.
 

@@ -117,57 +117,61 @@ const pinnedConfigSources = [
     ["SEMGREP_PYTHON_CONFIG_URL", "https://semgrep.dev/c/p/python"]
 ];
 const pinnedConfigRuntimeMarkers = [
+    'semgrep_work_dir="$RUNNER_TEMP/semgrep-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+    'semgrep_venv="$semgrep_work_dir/venv"',
+    'echo "SEMGREP_WORK_DIR=$semgrep_work_dir" >> "$GITHUB_ENV"',
+    'echo "SEMGREP_BIN=$SEMGREP_BIN" >> "$GITHUB_ENV"',
     'default_source_path="$GITHUB_WORKSPACE/$SEMGREP_DEFAULT_CONFIG_PATH"',
     'javascript_source_path="$GITHUB_WORKSPACE/$SEMGREP_JAVASCRIPT_CONFIG_PATH"',
     'python_source_path="$GITHUB_WORKSPACE/$SEMGREP_PYTHON_CONFIG_PATH"',
-    'default_config_path="$RUNNER_TEMP/semgrep-default.yml"',
-    'javascript_config_path="$RUNNER_TEMP/semgrep-javascript.yml"',
-    'python_config_path="$RUNNER_TEMP/semgrep-python.yml"',
+    'default_config_path="$semgrep_work_dir/semgrep-default.yml"',
+    'javascript_config_path="$semgrep_work_dir/semgrep-javascript.yml"',
+    'python_config_path="$semgrep_work_dir/semgrep-python.yml"',
     'test -s "$default_source_path"',
     'test -s "$javascript_source_path"',
     'test -s "$python_source_path"',
     'cp -- "$default_source_path" "$default_config_path"',
     'cp -- "$javascript_source_path" "$javascript_config_path"',
     'cp -- "$python_source_path" "$python_config_path"',
-    '"$semgrep_venv/bin/semgrep" validate "$default_config_path"',
-    '"$semgrep_venv/bin/semgrep" validate "$javascript_config_path"',
-    '"$semgrep_venv/bin/semgrep" validate "$python_config_path"',
+    '"$SEMGREP_BIN" validate "$default_config_path"',
+    '"$SEMGREP_BIN" validate "$javascript_config_path"',
+    '"$SEMGREP_BIN" validate "$python_config_path"',
     "$SEMGREP_DEFAULT_CONFIG_SHA256",
     "$SEMGREP_JAVASCRIPT_CONFIG_SHA256",
     "$SEMGREP_PYTHON_CONFIG_SHA256",
     "node scripts/extract-inline-javascript.mjs",
     "Jellyfin.Plugin.Hue/Configuration/configPage.html",
-    '"$RUNNER_TEMP/config-page-inline.js"',
-    'config_rule_prefix="${RUNNER_TEMP#/}"',
+    '"$semgrep_work_dir/config-page-inline.js"',
+    'config_rule_prefix="${SEMGREP_WORK_DIR#/}"',
     'config_rule_prefix="${config_rule_prefix//\\//.}"',
     "done < .github/semgrep/config-page-excludes.txt",
     'test "${#config_page_rule_excludes[@]}" -eq 35',
-    'script_rule_prefix="${RUNNER_TEMP#/}"',
+    'script_rule_prefix="${SEMGREP_WORK_DIR#/}"',
     'script_rule_prefix="${script_rule_prefix//\\//.}"',
     "done < .github/semgrep/script-excludes.txt",
     'test "${#script_rule_excludes[@]}" -eq 1'
 ];
 const productionScanMarkers = [
-    "--config \"$RUNNER_TEMP/semgrep-default.yml\" --metrics off --jobs 1 --timeout 300",
+    "--config \"$SEMGREP_WORK_DIR/semgrep-default.yml\" --metrics off --jobs 1 --timeout 300",
     "--include='*.cs' --include='*.yml' --include='*.yaml'",
     "--include='*.json' --include='*.ps1' --include='*.sh'",
     "--exclude .github/semgrep/rules",
-    "--json --output semgrep-production.json ."
+    "--json --output \"$SEMGREP_WORK_DIR/semgrep-production.json\" ."
 ];
 const scriptScanMarkers = [
-    "--config \"$RUNNER_TEMP/semgrep-javascript.yml\" --metrics off --timeout 120",
+    "--config \"$SEMGREP_WORK_DIR/semgrep-javascript.yml\" --metrics off --timeout 120",
     "--include='*.mjs'",
-    "--json --output semgrep-scripts.json scripts"
+    "--json --output \"$SEMGREP_WORK_DIR/semgrep-scripts.json\" scripts"
 ];
 const pythonScanMarkers = [
-    "--config \"$RUNNER_TEMP/semgrep-python.yml\" --metrics off --timeout 120",
+    "--config \"$SEMGREP_WORK_DIR/semgrep-python.yml\" --metrics off --timeout 120",
     "--include='*.py'",
-    "--json --output semgrep-python.json scripts"
+    "--json --output \"$SEMGREP_WORK_DIR/semgrep-python.json\" scripts"
 ];
 const embeddedJavaScriptScanMarkers = [
-    "--config \"$RUNNER_TEMP/semgrep-javascript.yml\" --metrics off --timeout 120",
+    "--config \"$SEMGREP_WORK_DIR/semgrep-javascript.yml\" --metrics off --timeout 120",
     "--include='*.js'",
-    "--json --output semgrep-config-page.json \"$RUNNER_TEMP/config-page-inline.js\""
+    "--json --output \"$SEMGREP_WORK_DIR/semgrep-config-page.json\" \"$SEMGREP_WORK_DIR/config-page-inline.js\""
 ];
 
 function countOccurrences(value, marker) {
@@ -227,6 +231,10 @@ for (const workflowPath of semgrepWorkflows) {
         if (!workflow.includes(marker)) {
             throw new Error(`${workflowPath}: Semgrep config pinning is missing marker: ${marker}`);
         }
+    }
+    if (workflow.includes('semgrep_venv="$RUNNER_TEMP/semgrep-venv"') ||
+        workflow.includes('"$RUNNER_TEMP/config-page-inline.js"')) {
+        throw new Error(`${workflowPath}: Semgrep scanner state must not use shared RUNNER_TEMP paths`);
     }
     for (const marker of [
         ...productionScanMarkers,

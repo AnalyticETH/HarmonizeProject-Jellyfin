@@ -189,7 +189,16 @@ jobs:
         id: install-semgrep
         run: |
           set -euo pipefail
-          semgrep_venv="$RUNNER_TEMP/semgrep-venv"
+          # Keep every run's generated snapshots, extracted page, and scanner
+          # environment isolated. A canceled attempt can finish cleanup after
+          # the next attempt starts, so shared RUNNER_TEMP paths are unsafe.
+          semgrep_work_dir="$RUNNER_TEMP/semgrep-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$semgrep_work_dir"
+          chmod 0700 "$semgrep_work_dir"
+          semgrep_venv="$semgrep_work_dir/venv"
+          SEMGREP_BIN="$semgrep_venv/bin/semgrep"
+          echo "SEMGREP_WORK_DIR=$semgrep_work_dir" >> "$GITHUB_ENV"
+          echo "SEMGREP_BIN=$SEMGREP_BIN" >> "$GITHUB_ENV"
           python3 -c 'import sys; sys.exit("Semgrep lock requires Python 3.12") if sys.version_info[:2] != (3, 12) else None'
           python3 -m venv "$semgrep_venv"
           "$semgrep_venv/bin/python" -m pip install \
@@ -204,9 +213,9 @@ jobs:
           default_source_path="$GITHUB_WORKSPACE/$SEMGREP_DEFAULT_CONFIG_PATH"
           javascript_source_path="$GITHUB_WORKSPACE/$SEMGREP_JAVASCRIPT_CONFIG_PATH"
           python_source_path="$GITHUB_WORKSPACE/$SEMGREP_PYTHON_CONFIG_PATH"
-          default_config_path="$RUNNER_TEMP/semgrep-default.yml"
-          javascript_config_path="$RUNNER_TEMP/semgrep-javascript.yml"
-          python_config_path="$RUNNER_TEMP/semgrep-python.yml"
+          default_config_path="$semgrep_work_dir/semgrep-default.yml"
+          javascript_config_path="$semgrep_work_dir/semgrep-javascript.yml"
+          python_config_path="$semgrep_work_dir/semgrep-python.yml"
           test -s "$default_source_path"
           test -s "$javascript_source_path"
           test -s "$python_source_path"
@@ -219,12 +228,12 @@ jobs:
           cp -- "$default_source_path" "$default_config_path"
           cp -- "$javascript_source_path" "$javascript_config_path"
           cp -- "$python_source_path" "$python_config_path"
-          "$semgrep_venv/bin/semgrep" validate "$default_config_path" >/dev/null
-          "$semgrep_venv/bin/semgrep" validate "$javascript_config_path" >/dev/null
-          "$semgrep_venv/bin/semgrep" validate "$python_config_path" >/dev/null
+          "$SEMGREP_BIN" validate "$default_config_path" >/dev/null
+          "$SEMGREP_BIN" validate "$javascript_config_path" >/dev/null
+          "$SEMGREP_BIN" validate "$python_config_path" >/dev/null
           node scripts/extract-inline-javascript.mjs \
             Jellyfin.Plugin.Hue/Configuration/configPage.html \
-            "$RUNNER_TEMP/config-page-inline.js"
+            "$semgrep_work_dir/config-page-inline.js"
 
       - name: Scan production source and repository configuration with Semgrep
         run: |
@@ -234,18 +243,18 @@ jobs:
           # on the shared runner; keep the gate fail-closed while allowing a
           # bounded five-minute per-file analysis window. Serial execution
           # keeps taint fixpoint analysis stable on the shared host.
-          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
-            --config "$RUNNER_TEMP/semgrep-default.yml" --metrics off --jobs 1 --timeout 300 \
+          "$SEMGREP_BIN" scan \
+            --config "$SEMGREP_WORK_DIR/semgrep-default.yml" --metrics off --jobs 1 --timeout 300 \
             --include='*.cs' --include='*.yml' --include='*.yaml' \
             --include='*.json' --include='*.ps1' --include='*.sh' \
             --exclude .github/semgrep/rules \
-            --json --output semgrep-production.json .
+            --json --output "$SEMGREP_WORK_DIR/semgrep-production.json" .
           scan_status=$?
           set -e
-          test -f semgrep-production.json
-          COUNT=$(jq '.results | length' semgrep-production.json)
-          ERRORS=$(jq '.errors | length' semgrep-production.json)
-          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' semgrep-production.json)
+          test -f "$SEMGREP_WORK_DIR/semgrep-production.json"
+          COUNT=$(jq '.results | length' "$SEMGREP_WORK_DIR/semgrep-production.json")
+          ERRORS=$(jq '.errors | length' "$SEMGREP_WORK_DIR/semgrep-production.json")
+          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' "$SEMGREP_WORK_DIR/semgrep-production.json")
           {
             echo "### Static analysis (semgrep: production source/configuration)"
             echo "Findings: **$COUNT** (blocking)"
@@ -266,7 +275,7 @@ jobs:
         if: always() && steps.install-semgrep.outcome == 'success'
         run: |
           set -euo pipefail
-          script_rule_prefix="${RUNNER_TEMP#/}"
+          script_rule_prefix="${SEMGREP_WORK_DIR#/}"
           script_rule_prefix="${script_rule_prefix//\//.}"
           script_rule_excludes=()
           while IFS= read -r rule; do
@@ -277,17 +286,17 @@ jobs:
           done < .github/semgrep/script-excludes.txt
           test "${#script_rule_excludes[@]}" -eq 1
           set +e
-          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
-            --config "$RUNNER_TEMP/semgrep-javascript.yml" --metrics off --timeout 120 \
+          "$SEMGREP_BIN" scan \
+            --config "$SEMGREP_WORK_DIR/semgrep-javascript.yml" --metrics off --timeout 120 \
             --include='*.mjs' \
             "${script_rule_excludes[@]}" \
-            --json --output semgrep-scripts.json scripts
+            --json --output "$SEMGREP_WORK_DIR/semgrep-scripts.json" scripts
           scan_status=$?
           set -e
-          test -f semgrep-scripts.json
-          COUNT=$(jq '.results | length' semgrep-scripts.json)
-          ERRORS=$(jq '.errors | length' semgrep-scripts.json)
-          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' semgrep-scripts.json)
+          test -f "$SEMGREP_WORK_DIR/semgrep-scripts.json"
+          COUNT=$(jq '.results | length' "$SEMGREP_WORK_DIR/semgrep-scripts.json")
+          ERRORS=$(jq '.errors | length' "$SEMGREP_WORK_DIR/semgrep-scripts.json")
+          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' "$SEMGREP_WORK_DIR/semgrep-scripts.json")
           {
             echo "### Static analysis (semgrep: repository scripts)"
             echo "Findings: **$COUNT** (blocking)"
@@ -308,16 +317,16 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
-            --config "$RUNNER_TEMP/semgrep-python.yml" --metrics off --timeout 120 \
+          "$SEMGREP_BIN" scan \
+            --config "$SEMGREP_WORK_DIR/semgrep-python.yml" --metrics off --timeout 120 \
             --include='*.py' \
-            --json --output semgrep-python.json scripts
+            --json --output "$SEMGREP_WORK_DIR/semgrep-python.json" scripts
           scan_status=$?
           set -e
-          test -f semgrep-python.json
-          COUNT=$(jq '.results | length' semgrep-python.json)
-          ERRORS=$(jq '.errors | length' semgrep-python.json)
-          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' semgrep-python.json)
+          test -f "$SEMGREP_WORK_DIR/semgrep-python.json"
+          COUNT=$(jq '.results | length' "$SEMGREP_WORK_DIR/semgrep-python.json")
+          ERRORS=$(jq '.errors | length' "$SEMGREP_WORK_DIR/semgrep-python.json")
+          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' "$SEMGREP_WORK_DIR/semgrep-python.json")
           {
             echo "### Static analysis (semgrep: repository Python scripts)"
             echo "Findings: **$COUNT** (blocking)"
@@ -337,7 +346,7 @@ jobs:
         if: always() && steps.install-semgrep.outcome == 'success'
         run: |
           set -euo pipefail
-          config_rule_prefix="${RUNNER_TEMP#/}"
+          config_rule_prefix="${SEMGREP_WORK_DIR#/}"
           config_rule_prefix="${config_rule_prefix//\//.}"
           config_page_rule_excludes=()
           while IFS= read -r rule; do
@@ -348,17 +357,17 @@ jobs:
           done < .github/semgrep/config-page-excludes.txt
           test "${#config_page_rule_excludes[@]}" -eq 35
           set +e
-          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan \
-            --config "$RUNNER_TEMP/semgrep-javascript.yml" --metrics off --timeout 120 \
+          "$SEMGREP_BIN" scan \
+            --config "$SEMGREP_WORK_DIR/semgrep-javascript.yml" --metrics off --timeout 120 \
             --include='*.js' \
             "${config_page_rule_excludes[@]}" \
-            --json --output semgrep-config-page.json "$RUNNER_TEMP/config-page-inline.js"
+            --json --output "$SEMGREP_WORK_DIR/semgrep-config-page.json" "$SEMGREP_WORK_DIR/config-page-inline.js"
           scan_status=$?
           set -e
-          test -f semgrep-config-page.json
-          COUNT=$(jq '.results | length' semgrep-config-page.json)
-          ERRORS=$(jq '.errors | length' semgrep-config-page.json)
-          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' semgrep-config-page.json)
+          test -f "$SEMGREP_WORK_DIR/semgrep-config-page.json"
+          COUNT=$(jq '.results | length' "$SEMGREP_WORK_DIR/semgrep-config-page.json")
+          ERRORS=$(jq '.errors | length' "$SEMGREP_WORK_DIR/semgrep-config-page.json")
+          TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' "$SEMGREP_WORK_DIR/semgrep-config-page.json")
           {
             echo "### Static analysis (semgrep: embedded administrator JavaScript)"
             echo "Findings: **$COUNT** (blocking)"

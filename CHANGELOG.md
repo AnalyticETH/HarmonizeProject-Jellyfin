@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.383] - 2026-08-29
+
+### Isolated Semgrep scanner state
+The existing install-failure isolation boundary now extends to a run-scoped virtual environment, reviewed snapshots, extracted administrator JavaScript, and JSON reports, preventing canceled-run cleanup from invalidating a newer scan.
+- **Install-failure isolation**: sub-scans only run after a successful hash-locked Semgrep install, preventing stale runner-temp files from being mistaken for current scan inputs.
+- **Regression coverage**: the Semgrep lock validator verifies snapshot paths, file digests, workflow parity, and safe scan gating.
+
 ## [1.5.382] - 2026-08-29
 
 ### IPv6 bridge discovery parity
