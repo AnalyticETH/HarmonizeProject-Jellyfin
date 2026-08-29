@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 
 const lockPath = process.argv[2] || ".github/semgrep/requirements.txt";
@@ -116,14 +117,18 @@ const pinnedConfigSources = [
     ["SEMGREP_PYTHON_CONFIG_URL", "https://semgrep.dev/c/p/python"]
 ];
 const pinnedConfigRuntimeMarkers = [
+    'default_source_path="$GITHUB_WORKSPACE/$SEMGREP_DEFAULT_CONFIG_PATH"',
+    'javascript_source_path="$GITHUB_WORKSPACE/$SEMGREP_JAVASCRIPT_CONFIG_PATH"',
+    'python_source_path="$GITHUB_WORKSPACE/$SEMGREP_PYTHON_CONFIG_PATH"',
     'default_config_path="$RUNNER_TEMP/semgrep-default.yml"',
     'javascript_config_path="$RUNNER_TEMP/semgrep-javascript.yml"',
     'python_config_path="$RUNNER_TEMP/semgrep-python.yml"',
-    'semgrep_cache_buster="$(date -u +%Y%m%d%H%M%S)-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"',
-    'curl -sSfL --retry 3 --retry-all-errors',
-    '"${SEMGREP_DEFAULT_CONFIG_URL}?cachebust=${semgrep_cache_buster}"',
-    '"${SEMGREP_JAVASCRIPT_CONFIG_URL}?cachebust=${semgrep_cache_buster}"',
-    '"${SEMGREP_PYTHON_CONFIG_URL}?cachebust=${semgrep_cache_buster}"',
+    'test -s "$default_source_path"',
+    'test -s "$javascript_source_path"',
+    'test -s "$python_source_path"',
+    'cp -- "$default_source_path" "$default_config_path"',
+    'cp -- "$javascript_source_path" "$javascript_config_path"',
+    'cp -- "$python_source_path" "$python_config_path"',
     '"$semgrep_venv/bin/semgrep" validate "$default_config_path"',
     '"$semgrep_venv/bin/semgrep" validate "$javascript_config_path"',
     '"$semgrep_venv/bin/semgrep" validate "$python_config_path"',
@@ -146,6 +151,7 @@ const productionScanMarkers = [
     "--config \"$RUNNER_TEMP/semgrep-default.yml\" --metrics off --jobs 1 --timeout 300",
     "--include='*.cs' --include='*.yml' --include='*.yaml'",
     "--include='*.json' --include='*.ps1' --include='*.sh'",
+    "--exclude .github/semgrep/rules",
     "--json --output semgrep-production.json ."
 ];
 const scriptScanMarkers = [
@@ -169,9 +175,11 @@ function countOccurrences(value, marker) {
 }
 
 let baselineWorkflowHashes = null;
+let baselineWorkflowPaths = null;
 for (const workflowPath of semgrepWorkflows) {
     const workflow = fs.readFileSync(workflowPath, "utf8");
     const workflowHashes = [];
+    const workflowPaths = [];
     for (const marker of [timeoutCountExpression, timeoutSummaryMarker, timeoutGateMarker]) {
         if (countOccurrences(workflow, marker) < 4) {
             throw new Error(`${workflowPath}: Semgrep timeout gate is missing marker: ${marker}`);
@@ -187,15 +195,34 @@ for (const workflowPath of semgrepWorkflows) {
             throw new Error(`${workflowPath}: ${hashVariable} must be a 64-character SHA-256 digest`);
         }
         workflowHashes.push(hashMatch[1]);
-    }
-    if (countOccurrences(workflow, 'semgrep_cache_buster="') !== 1 ||
-        countOccurrences(workflow, 'GITHUB_RUN_ATTEMPT:-1') !== 1) {
-        throw new Error(`${workflowPath}: Semgrep downloads must use one per-attempt cache-buster`);
+        const pathVariable = `${variable.replace(/_URL$/, "")}_PATH`;
+        const pathMatch = workflow.match(new RegExp(`${pathVariable}: ['\"]([^'\"]+)['\"]`));
+        if (!pathMatch || !/^\.github\/semgrep\/rules\/(default|javascript|python)\.yml$/.test(pathMatch[1])) {
+            throw new Error(`${workflowPath}: ${pathVariable} must point to a reviewed local Semgrep snapshot`);
+        }
+        const configPath = pathMatch[1];
+        const configHash = crypto
+            .createHash("sha256")
+            .update(fs.readFileSync(configPath))
+            .digest("hex");
+        if (configHash !== hashMatch[1]) {
+            throw new Error(
+                `${workflowPath}: ${configPath} hash ${configHash} does not match ${hashVariable} ${hashMatch[1]}`
+            );
+        }
+        workflowPaths.push(configPath);
     }
     if (baselineWorkflowHashes && workflowHashes.some((hash, index) => hash !== baselineWorkflowHashes[index])) {
         throw new Error(`${workflowPath}: Semgrep SHA-256 pins must match the other blocking workflow`);
     }
+    if (baselineWorkflowPaths && workflowPaths.some((path, index) => path !== baselineWorkflowPaths[index])) {
+        throw new Error(`${workflowPath}: Semgrep snapshot paths must match the other blocking workflow`);
+    }
     baselineWorkflowHashes = baselineWorkflowHashes || workflowHashes;
+    baselineWorkflowPaths = baselineWorkflowPaths || workflowPaths;
+    if (countOccurrences(workflow, "if: always() && steps.install-semgrep.outcome == 'success'") < 3) {
+        throw new Error(`${workflowPath}: Semgrep scans must run after scan failures but skip a failed install`);
+    }
     for (const marker of pinnedConfigRuntimeMarkers) {
         if (!workflow.includes(marker)) {
             throw new Error(`${workflowPath}: Semgrep config pinning is missing marker: ${marker}`);

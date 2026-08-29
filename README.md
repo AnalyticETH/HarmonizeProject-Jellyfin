@@ -487,7 +487,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.376 (Current)
+### Version 1.5.377 (Current)
+
+- **Reviewed Semgrep snapshots**: blocking self-hosted and PR scans now use SHA-256-verified local registry snapshots, preventing mutable aliases or CDN responses from changing policy mid-run.
+
+- **Install-failure isolation**: sub-scans only run after a successful hash-locked Semgrep install, preventing stale runner-temp files from being mistaken for current scan inputs.
+
+- **Regression coverage**: the Semgrep lock validator verifies snapshot paths, file digests, workflow parity, and safe scan gating.
 
 - **Certificate trust alias safety**: bridge certificate pins now resolve IP and .local aliases against a single vetted local address, fail closed on conflicting fingerprints, and keep registration, credential-free probes, transport TLS validation, playback arbitration, and pin management aligned.
 

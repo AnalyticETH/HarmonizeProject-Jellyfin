@@ -5,7 +5,9 @@ name: Pull Request Validation
 # reserved for trusted main pushes and the default-branch scheduled scan. Semgrep
 # scans all tracked production source/configuration with p/default and repository
 # scripts with p/javascript/p/python, plus embedded administrator-page JavaScript;
-# every report blocks findings, scanner errors, and timeouts.
+# every report blocks findings, scanner errors, and timeouts. Reviewed Semgrep
+# registry snapshots are committed under .github/semgrep/rules so mutable
+# registry aliases cannot change policy during a run.
 on:
   pull_request:
     branches: [main]
@@ -24,13 +26,18 @@ env:
   GITLEAKS_VERSION: '8.30.1'
   GITLEAKS_CHECKSUMS_SHA256: '061476c21adaf5441516f96f185c1a4706a83cd6329b9b38762271b3d4a52fae'
   SEMGREP_VERSION: '1.175.0'
-  # Registry aliases are fetched as reviewed, SHA-256-pinned snapshots. A changed
-  # ruleset fails closed instead of silently changing the security policy.
+  # These URLs document the official Semgrep registry sources for the reviewed,
+  # SHA-256-pinned snapshots committed under .github/semgrep/rules. A changed
+  # snapshot is reviewed and refreshed intentionally instead of changing policy
+  # during a run.
   SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'
-  SEMGREP_DEFAULT_CONFIG_SHA256: '749b9d72fccbc2a1cdbebcf0f853cd6b563098b876b2fe86777acb207d7ca206'
+  SEMGREP_DEFAULT_CONFIG_PATH: '.github/semgrep/rules/default.yml'
+  SEMGREP_DEFAULT_CONFIG_SHA256: 'db260499bbf619dae4dbf75d6754a39e4790d443b2c5d9a098c318d7036dd998'
   SEMGREP_JAVASCRIPT_CONFIG_URL: 'https://semgrep.dev/c/p/javascript'
+  SEMGREP_JAVASCRIPT_CONFIG_PATH: '.github/semgrep/rules/javascript.yml'
   SEMGREP_JAVASCRIPT_CONFIG_SHA256: 'e65e8449157ef5d587f2c2a0c17ed388910ca90336e514d27941ccd25543cf4e'
   SEMGREP_PYTHON_CONFIG_URL: 'https://semgrep.dev/c/p/python'
+  SEMGREP_PYTHON_CONFIG_PATH: '.github/semgrep/rules/python.yml'
   SEMGREP_PYTHON_CONFIG_SHA256: '31c1dfa46e8ddd97f9ac98c607ddd77b20a2c3356d7ec987359961d47ec27035'
 
 jobs:
@@ -175,6 +182,7 @@ jobs:
           node scripts/validate-semgrep-lock.mjs .github/semgrep/requirements.txt "$SEMGREP_VERSION"
 
       - name: Install Semgrep from hash-locked requirements
+        id: install-semgrep
         run: |
           set -euo pipefail
           semgrep_venv="$RUNNER_TEMP/semgrep-venv"
@@ -189,24 +197,24 @@ jobs:
             --requirement .github/semgrep/requirements.txt
           "$semgrep_venv/bin/python" -m pip check
           test "$("$semgrep_venv/bin/semgrep" --version)" = "$SEMGREP_VERSION"
+          default_source_path="$GITHUB_WORKSPACE/$SEMGREP_DEFAULT_CONFIG_PATH"
+          javascript_source_path="$GITHUB_WORKSPACE/$SEMGREP_JAVASCRIPT_CONFIG_PATH"
+          python_source_path="$GITHUB_WORKSPACE/$SEMGREP_PYTHON_CONFIG_PATH"
           default_config_path="$RUNNER_TEMP/semgrep-default.yml"
           javascript_config_path="$RUNNER_TEMP/semgrep-javascript.yml"
           python_config_path="$RUNNER_TEMP/semgrep-python.yml"
-          # Vary each request per run/attempt where intermediaries honor query
-          # keys; a changed snapshot still fails closed until its hash is reviewed.
-          semgrep_cache_buster="$(date -u +%Y%m%d%H%M%S)-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
-          curl -sSfL --retry 3 --retry-all-errors \
-            -o "$default_config_path" "${SEMGREP_DEFAULT_CONFIG_URL}?cachebust=${semgrep_cache_buster}"
-          curl -sSfL --retry 3 --retry-all-errors \
-            -o "$javascript_config_path" "${SEMGREP_JAVASCRIPT_CONFIG_URL}?cachebust=${semgrep_cache_buster}"
-          curl -sSfL --retry 3 --retry-all-errors \
-            -o "$python_config_path" "${SEMGREP_PYTHON_CONFIG_URL}?cachebust=${semgrep_cache_buster}"
-          printf '%s  %s\n' "$SEMGREP_DEFAULT_CONFIG_SHA256" "$default_config_path" \
+          test -s "$default_source_path"
+          test -s "$javascript_source_path"
+          test -s "$python_source_path"
+          printf '%s  %s\n' "$SEMGREP_DEFAULT_CONFIG_SHA256" "$default_source_path" \
             | sha256sum --check --strict -
-          printf '%s  %s\n' "$SEMGREP_JAVASCRIPT_CONFIG_SHA256" "$javascript_config_path" \
+          printf '%s  %s\n' "$SEMGREP_JAVASCRIPT_CONFIG_SHA256" "$javascript_source_path" \
             | sha256sum --check --strict -
-          printf '%s  %s\n' "$SEMGREP_PYTHON_CONFIG_SHA256" "$python_config_path" \
+          printf '%s  %s\n' "$SEMGREP_PYTHON_CONFIG_SHA256" "$python_source_path" \
             | sha256sum --check --strict -
+          cp -- "$default_source_path" "$default_config_path"
+          cp -- "$javascript_source_path" "$javascript_config_path"
+          cp -- "$python_source_path" "$python_config_path"
           "$semgrep_venv/bin/semgrep" validate "$default_config_path" >/dev/null
           "$semgrep_venv/bin/semgrep" validate "$javascript_config_path" >/dev/null
           "$semgrep_venv/bin/semgrep" validate "$python_config_path" >/dev/null
@@ -226,6 +234,7 @@ jobs:
             --config "$RUNNER_TEMP/semgrep-default.yml" --metrics off --jobs 1 --timeout 300 \
             --include='*.cs' --include='*.yml' --include='*.yaml' \
             --include='*.json' --include='*.ps1' --include='*.sh' \
+            --exclude .github/semgrep/rules \
             --json --output semgrep-production.json .
           scan_status=$?
           set -e
@@ -250,7 +259,7 @@ jobs:
           fi
 
       - name: Scan repository scripts with Semgrep JavaScript rules
-        if: always()
+        if: always() && steps.install-semgrep.outcome == 'success'
         run: |
           set -euo pipefail
           script_rule_prefix="${RUNNER_TEMP#/}"
@@ -291,7 +300,7 @@ jobs:
             exit 1
           fi
       - name: Scan repository Python scripts with Semgrep Python rules
-        if: always()
+        if: always() && steps.install-semgrep.outcome == 'success'
         run: |
           set -euo pipefail
           set +e
@@ -321,7 +330,7 @@ jobs:
             exit 1
           fi
       - name: Scan embedded administrator JavaScript with Semgrep JavaScript rules
-        if: always()
+        if: always() && steps.install-semgrep.outcome == 'success'
         run: |
           set -euo pipefail
           config_rule_prefix="${RUNNER_TEMP#/}"
