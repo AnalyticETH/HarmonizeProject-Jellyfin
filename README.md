@@ -490,7 +490,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.400 (Current)
+### Version 1.5.401 (Current)
+
+- **Direct playlist mutation lock**: save, duplicate, rename, and delete now share one page-generation-owned lock, suppress opposite actions, and restore every mutation control safely on cancellation or teardown.
+
+- **Selection ownership**: individual playlist mutations ignore stale completions when the administrator changes the selected playlist, preventing an older response from clearing or reloading a newer draft.
+
+- **Regression coverage**: cross-action lock suppression, selection-change stale completions, pagehide release, and successful refresh contracts cover direct playlist mutations.
+
+### Version 1.5.400
 
 - **Saved-playlist mutation lifecycle**: individual playlist delete, duplicate, and rename confirmations/requests are page-generation-owned, canceled on teardown, stale-safe, duplicate-suppressed, and leave no stuck controls.
 

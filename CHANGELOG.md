@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.401] - 2026-08-29
+
+### Administrator playlist mutation integrity
+- **Direct playlist mutation lock**: save, duplicate, rename, and delete now share one page-generation-owned lock, suppress opposite actions, and restore every mutation control safely on cancellation or teardown.
+- **Selection ownership**: individual playlist mutations ignore stale completions when the administrator changes the selected playlist, preventing an older response from clearing or reloading a newer draft.
+- **Regression coverage**: cross-action lock suppression, selection-change stale completions, pagehide release, and successful refresh contracts cover direct playlist mutations.
+
 ## [1.5.400] - 2026-08-29
 
 ### Administrator lifecycle and request-boundary hardening

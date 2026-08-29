@@ -2950,6 +2950,14 @@
                     if (!record) return;
                     delete requests[key];
                     HueConfigurationPage.abortPageLifecycleRequest(record);
+                    var directScenePlaylistMutation = page._hueScenePlaylistMutation;
+                    if (directScenePlaylistMutation && directScenePlaylistMutation.key === key) {
+                        if (key === 'scenePlaylistSave') page._hueScenePlaylistSaving = false;
+                        if (key === 'scenePlaylistDuplicate') page._hueScenePlaylistDuplicating = false;
+                        if (key === 'scenePlaylistRename') page._hueScenePlaylistRenaming = false;
+                        if (key === 'scenePlaylistDelete') page._hueScenePlaylistDeleting = false;
+                        HueConfigurationPage.releaseScenePlaylistMutation(page, directScenePlaylistMutation, true, false);
+                    }
                     var exportStates = {
                         sceneScheduleConflictsExport: { property: '_hueSceneScheduleConflictsExporting', selector: '#exportSceneScheduleConflictsBtn' },
                         sceneScheduleConflictsCsvExport: { property: '_hueSceneScheduleConflictsCsvExporting', selector: '#exportSceneScheduleConflictsCsvBtn' },
@@ -3178,6 +3186,15 @@
                         if (scenePlaylistDeleteConfirmationResolver) scenePlaylistDeleteConfirmationResolver();
                     }
                     page._hueScenePlaylistDeleteConfirmation = null;
+                    var pendingScenePlaylistMutation = page._hueScenePlaylistMutation;
+                    if (pendingScenePlaylistMutation) {
+                        pendingScenePlaylistMutation.canceled = true;
+                        HueConfigurationPage.releaseScenePlaylistMutation(
+                            page,
+                            pendingScenePlaylistMutation,
+                            false,
+                            true);
+                    }
                     var pendingColorPresetBulkDeleteConfirmation = page._hueColorPresetBulkDeleteConfirmation;
                     if (pendingColorPresetBulkDeleteConfirmation) {
                         pendingColorPresetBulkDeleteConfirmation.canceled = true;
@@ -3324,6 +3341,7 @@
                     page._hueScenePlaylistRenaming = false;
                     if (page._hueScenePlaylistRenameButton) page._hueScenePlaylistRenameButton.disabled = false;
                     page._hueScenePlaylistRenameButton = null;
+                    page._hueScenePlaylistMutation = null;
                     page._hueColorPresetDeleting = false;
                     if (page._hueColorPresetDeleteButton) page._hueColorPresetDeleteButton.disabled = false;
                     page._hueColorPresetDeleteButton = null;
@@ -6948,6 +6966,50 @@
                     });
                     container.appendChild(list);
                 },
+                getScenePlaylistMutationIdentity: function (page) {
+                    var select = page && page.querySelector('#scenePlaylistSelect');
+                    return select ? String(select.value || '') : '';
+                },
+                isScenePlaylistMutationSelectionCurrent: function (page, mutation) {
+                    return !!mutation &&
+                        HueConfigurationPage.getScenePlaylistMutationIdentity(page) === mutation.selectedName;
+                },
+                getScenePlaylistMutationControls: function (page) {
+                    if (!page) return [];
+                    return [
+                        page.querySelector('#saveScenePlaylistBtn'),
+                        page.querySelector('#duplicateScenePlaylistBtn'),
+                        page.querySelector('#renameScenePlaylistBtn'),
+                        page.querySelector('#deleteScenePlaylistBtn')
+                    ].filter(function (control) { return !!control; });
+                },
+                beginScenePlaylistMutation: function (page, generation, key, selectedName) {
+                    if (!page || page._hueScenePlaylistMutation ||
+                        !HueConfigurationPage.isPageLifecycleCurrent(page, generation)) return null;
+                    var controls = HueConfigurationPage.getScenePlaylistMutationControls(page);
+                    var mutation = {
+                        generation: generation,
+                        key: key,
+                        selectedName: String(selectedName || ''),
+                        controls: controls,
+                        previousDisabled: controls.map(function (control) { return control.disabled === true; }),
+                        canceled: false
+                    };
+                    page._hueScenePlaylistMutation = mutation;
+                    controls.forEach(function (control) { control.disabled = true; });
+                    return mutation;
+                },
+                releaseScenePlaylistMutation: function (page, mutation, recompute, force) {
+                    if (!page || !mutation || page._hueScenePlaylistMutation !== mutation) return false;
+                    var current = HueConfigurationPage.isPageLifecycleCurrent(page, mutation.generation);
+                    page._hueScenePlaylistMutation = null;
+                    if (!current && !force) return false;
+                    (mutation.controls || []).forEach(function (control, index) {
+                        if (control) control.disabled = mutation.previousDisabled[index] === true;
+                    });
+                    if (recompute && current) HueConfigurationPage.updateScenePlaylistButtons(page);
+                    return true;
+                },
                 updateScenePlaylistButtons: function (page) {
                     var select = page && page.querySelector('#scenePlaylistSelect');
                     var hasSelection = !!(select && select.value);
@@ -6962,18 +7024,26 @@
                     var rename = page && page.querySelector('#renameScenePlaylistBtn');
                     var inspect = page && page.querySelector('#inspectScenePlaylistBtn');
                     var deleteButton = page && page.querySelector('#deleteScenePlaylistBtn');
+                    var save = page && page.querySelector('#saveScenePlaylistBtn');
                     var add = page && page.querySelector('#addScenePlaylistStepBtn');
+                    var mutation = page && page._hueScenePlaylistMutation;
                     var deleteBusy = !!(page && (page._hueScenePlaylistDeleting || page._hueScenePlaylistDeleteConfirmation));
                     var duplicateBusy = !!(page && page._hueScenePlaylistDuplicating);
                     var renameBusy = !!(page && page._hueScenePlaylistRenaming);
+                    var saveBusy = !!(page && page._hueScenePlaylistSaving);
+                    var mutationBusy = !!mutation;
+                    if (save) save.disabled = mutationBusy || saveBusy;
                     if (preview) preview.disabled = !hasSelection || !targetMetadataReady;
                     if (previewAll) previewAll.disabled = !hasSelection || !targetMetadataReady || duplicateTargetsBlocked;
                     if (previewTargetSelect) previewTargetSelect.disabled = !hasSelection || !targetMetadataReady;
-                    if (duplicate) duplicate.disabled = duplicateBusy || !hasSelection;
-                    if (rename) rename.disabled = renameBusy || !hasSelection;
+                    if (duplicate) duplicate.disabled = mutationBusy || duplicateBusy || !hasSelection;
+                    if (rename) rename.disabled = mutationBusy || renameBusy || !hasSelection;
                     if (inspect) inspect.disabled = !hasSelection;
-                    if (deleteButton) deleteButton.disabled = deleteBusy || !hasSelection;
+                    if (deleteButton) deleteButton.disabled = mutationBusy || deleteBusy || !hasSelection;
                     if (add) add.disabled = !source || !source.value || items.length >= 20;
+                    if (mutation) {
+                        (mutation.controls || []).forEach(function (control) { control.disabled = true; });
+                    }
                 },
                 getSelectedScenePlaylistBulkIds: function (page) {
                     var select = page && page.querySelector('#scenePlaylistBulkSelect');
@@ -7947,8 +8017,9 @@
                 saveScenePlaylist: function (page) {
                     if (!page) return Promise.resolve();
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    var selectedPlaylistName = HueConfigurationPage.getScenePlaylistMutationIdentity(page);
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
-                        page._hueScenePlaylistSaving) return Promise.resolve();
+                        page._hueScenePlaylistSaving || page._hueScenePlaylistMutation) return Promise.resolve();
                     var name = page.querySelector('#scenePlaylistName').value.trim();
                     var repeatText = page.querySelector('#scenePlaylistRepeatCount').value.trim();
                     var repeatCount = repeatText ? Number(repeatText) : 1;
@@ -8045,6 +8116,12 @@
                         return;
                     }
                     var button = page.querySelector('#saveScenePlaylistBtn');
+                    var mutation = HueConfigurationPage.beginScenePlaylistMutation(
+                        page,
+                        pageGeneration,
+                        'scenePlaylistSave',
+                        selectedPlaylistName);
+                    if (!mutation) return Promise.resolve();
                     page._hueScenePlaylistSaving = true;
                     if (button) button.disabled = true;
                     status.textContent = "Saving playlist...";
@@ -8081,47 +8158,59 @@
                             dataType: "json"
                         });
                     var isCurrent = function () {
-                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                        return page._hueScenePlaylistMutation === mutation &&
+                            HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    var isTargetCurrent = function () {
+                        return isCurrent() && HueConfigurationPage.isScenePlaylistMutationSelectionCurrent(page, mutation);
                     };
                     return request.then(function (response) {
-                        if (!isCurrent()) return;
+                        if (!isTargetCurrent()) return;
                         var savedName = response && (response.name || response.Name) || name;
                         status.textContent = "Playlist '" + savedName + "' saved.";
                         status.style.color = "#8bc34a";
+                        mutation.selectedName = String(savedName || '');
                         return HueConfigurationPage.loadScenePlaylists(page, savedName).then(function () {
+                            if (!isTargetCurrent()) return;
                             return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
                         });
                     }).catch(function (err) {
-                        if (!isCurrent()) return;
+                        if (!isTargetCurrent()) return;
                         console.error("Failed to save scene playlist:", err);
                         status.textContent = "Unable to save playlist. Check the name, target, and saved scene list.";
                         status.style.color = "#d9534f";
                     }).finally(function () {
-                        var current = isCurrent();
                         var requestRecord = request && request._huePageRequestRecord;
                         var tracked = page && page._huePageRequests &&
                             page._huePageRequests.scenePlaylistSave === requestRecord;
-                        if (current || tracked) {
+                        var ownsMutation = page && page._hueScenePlaylistMutation === mutation;
+                        if (ownsMutation) {
                             page._hueScenePlaylistSaving = false;
-                            if (button) button.disabled = false;
-                            if (current) HueConfigurationPage.updateScenePlaylistButtons(page);
-                            else HueConfigurationPage.cancelPageLifecycleRequest(page, 'scenePlaylistSave');
+                            HueConfigurationPage.releaseScenePlaylistMutation(page, mutation, true, false);
                         }
+                        if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'scenePlaylistSave');
                     });
                 },
                 duplicateScenePlaylist: function (page) {
                     if (!page) return Promise.resolve();
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
-                        page._hueScenePlaylistDuplicating) return Promise.resolve();
+                        page._hueScenePlaylistDuplicating || page._hueScenePlaylistMutation) return Promise.resolve();
                     var select = page.querySelector('#scenePlaylistSelect');
                     var name = select ? select.value : '';
+                    var selectedPlaylistName = HueConfigurationPage.getScenePlaylistMutationIdentity(page);
                     var status = page.querySelector('#scenePlaylistStatus');
                     if (!name) {
                         Dashboard.alert("Choose a saved playlist first.");
                         return;
                     }
                     var button = page.querySelector('#duplicateScenePlaylistBtn');
+                    var mutation = HueConfigurationPage.beginScenePlaylistMutation(
+                        page,
+                        pageGeneration,
+                        'scenePlaylistDuplicate',
+                        selectedPlaylistName);
+                    if (!mutation) return Promise.resolve();
                     page._hueScenePlaylistDuplicating = true;
                     page._hueScenePlaylistDuplicateButton = button || null;
                     if (button) button.disabled = true;
@@ -8139,49 +8228,52 @@
                             dataType: "json"
                         });
                     var isCurrent = function () {
-                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                        return page._hueScenePlaylistMutation === mutation &&
+                            HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    var isTargetCurrent = function () {
+                        return isCurrent() && HueConfigurationPage.isScenePlaylistMutationSelectionCurrent(page, mutation);
                     };
                     return request.then(function (response) {
-                        if (!isCurrent()) return;
+                        if (!isTargetCurrent()) return;
                         var duplicateName = response && (response.name || response.Name);
                         if (!duplicateName) throw new Error("The duplicated playlist name was not returned.");
                         if (status) {
                             status.textContent = "Playlist '" + name + "' duplicated as '" + duplicateName + "'.";
                             status.style.color = "#8bc34a";
                         }
+                        mutation.selectedName = String(duplicateName || '');
                         return HueConfigurationPage.loadScenePlaylists(page, duplicateName);
                     }).catch(function (err) {
-                        if (!isCurrent()) return;
+                        if (!isTargetCurrent()) return;
                         console.error("Failed to duplicate scene playlist:", err);
                         if (status) {
                             status.textContent = "Unable to duplicate playlist. Check the playlist limit and server log.";
                             status.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        var current = isCurrent();
                         var requestRecord = request && request._huePageRequestRecord;
                         var tracked = page && page._huePageRequests &&
                             page._huePageRequests.scenePlaylistDuplicate === requestRecord;
-                        if (current || tracked) {
+                        var ownsMutation = page && page._hueScenePlaylistMutation === mutation;
+                        if (ownsMutation) {
                             page._hueScenePlaylistDuplicating = false;
-                            if (page._hueScenePlaylistDuplicateButton === button) {
-                                if (button) button.disabled = false;
-                                page._hueScenePlaylistDuplicateButton = null;
-                            }
-                            if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'scenePlaylistDuplicate');
-                            if (current) HueConfigurationPage.updateScenePlaylistButtons(page);
+                            page._hueScenePlaylistDuplicateButton = null;
+                            HueConfigurationPage.releaseScenePlaylistMutation(page, mutation, true, false);
                         }
+                        if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'scenePlaylistDuplicate');
                     });
                 },
                 renameScenePlaylist: function (page) {
                     if (!page) return Promise.resolve();
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
-                        page._hueScenePlaylistRenaming) return Promise.resolve();
+                        page._hueScenePlaylistRenaming || page._hueScenePlaylistMutation) return Promise.resolve();
                     var select = page.querySelector('#scenePlaylistSelect');
                     var nameEl = page.querySelector('#scenePlaylistName');
                     var status = page.querySelector('#scenePlaylistStatus');
                     var name = select ? select.value : '';
+                    var selectedPlaylistName = HueConfigurationPage.getScenePlaylistMutationIdentity(page);
                     var newName = nameEl ? nameEl.value.trim() : '';
                     if (!name) {
                         Dashboard.alert("Choose a saved playlist first.");
@@ -8197,6 +8289,12 @@
                     }
 
                     var button = page.querySelector('#renameScenePlaylistBtn');
+                    var mutation = HueConfigurationPage.beginScenePlaylistMutation(
+                        page,
+                        pageGeneration,
+                        'scenePlaylistRename',
+                        selectedPlaylistName);
+                    if (!mutation) return Promise.resolve();
                     var selectedSchedule = page.querySelector('#sceneScheduleSelect');
                     var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
                     page._hueScenePlaylistRenameButton = button || null;
@@ -8218,41 +8316,43 @@
                             dataType: "json"
                         });
                     var isCurrent = function () {
-                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                        return page._hueScenePlaylistMutation === mutation &&
+                            HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    var isTargetCurrent = function () {
+                        return isCurrent() && HueConfigurationPage.isScenePlaylistMutationSelectionCurrent(page, mutation);
                     };
                     return request.then(function (response) {
-                        if (!isCurrent()) return;
+                        if (!isTargetCurrent()) return;
                         var renamedName = response && (response.name || response.Name) || newName;
                         if (nameEl) nameEl.value = renamedName;
                         if (status) {
                             status.textContent = "Playlist '" + name + "' renamed to '" + renamedName + "'; scheduled-cue references were migrated.";
                             status.style.color = "#8bc34a";
                         }
+                        mutation.selectedName = String(renamedName || '');
                         return HueConfigurationPage.loadScenePlaylists(page, renamedName).then(function () {
-                            if (!isCurrent()) return;
+                            if (!isTargetCurrent()) return;
                             return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
                         });
                     }).catch(function (err) {
-                        if (!isCurrent()) return;
+                        if (!isTargetCurrent()) return;
                         console.error("Failed to rename scene playlist:", err);
                         if (status) {
                             status.textContent = "Unable to rename the playlist. Check that the new name is valid and not already in use.";
                             status.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        var current = isCurrent();
                         var requestRecord = request && request._huePageRequestRecord;
                         var tracked = page && page._huePageRequests &&
                             page._huePageRequests.scenePlaylistRename === requestRecord;
-                        if (current || tracked) {
+                        var ownsMutation = page && page._hueScenePlaylistMutation === mutation;
+                        if (ownsMutation) {
                             page._hueScenePlaylistRenaming = false;
-                            if (page._hueScenePlaylistRenameButton === button) {
-                                if (button) button.disabled = false;
-                                page._hueScenePlaylistRenameButton = null;
-                            }
-                            if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'scenePlaylistRename');
-                            if (current) HueConfigurationPage.updateScenePlaylistButtons(page);
+                            page._hueScenePlaylistRenameButton = null;
+                            HueConfigurationPage.releaseScenePlaylistMutation(page, mutation, true, false);
                         }
+                        if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'scenePlaylistRename');
                     });
                 },
                 inspectScenePlaylistDependencies: function (page) {
@@ -8311,16 +8411,24 @@
                     if (!page) return Promise.resolve();
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
-                        page._hueScenePlaylistDeleting === true || page._hueScenePlaylistDeleteConfirmation) return Promise.resolve();
+                        page._hueScenePlaylistDeleting === true || page._hueScenePlaylistDeleteConfirmation ||
+                        page._hueScenePlaylistMutation) return Promise.resolve();
                     var select = page.querySelector('#scenePlaylistSelect');
                     var name = select ? select.value : '';
+                    var selectedPlaylistName = HueConfigurationPage.getScenePlaylistMutationIdentity(page);
                     if (!name) {
                         Dashboard.alert("Choose a saved playlist first.");
                         return;
                     }
 
                     var button = page.querySelector('#deleteScenePlaylistBtn');
-                    var confirmation = { generation: pageGeneration, button: button || null, canceled: false, resolve: null };
+                    var mutation = HueConfigurationPage.beginScenePlaylistMutation(
+                        page,
+                        pageGeneration,
+                        'scenePlaylistDelete',
+                        selectedPlaylistName);
+                    if (!mutation) return Promise.resolve();
+                    var confirmation = { generation: pageGeneration, button: button || null, mutation: mutation, canceled: false, resolve: null };
                     page._hueScenePlaylistDeleteConfirmation = confirmation;
                     if (button) button.disabled = true;
                     return new Promise(function (resolve) {
@@ -8332,10 +8440,16 @@
                         };
                         Dashboard.confirm("Delete the saved playlist '" + name + "'?", "Delete Playlist", function (confirmed) {
                             var ownsConfirmation = page._hueScenePlaylistDeleteConfirmation === confirmation;
+                            var ownsMutation = page._hueScenePlaylistMutation === mutation;
                             if (ownsConfirmation) page._hueScenePlaylistDeleteConfirmation = null;
-                            if (!ownsConfirmation || confirmation.canceled || !confirmed ||
-                                !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
-                                if (ownsConfirmation && button) button.disabled = false;
+                            if (!ownsConfirmation) {
+                                settleConfirmation();
+                                return;
+                            }
+                            if (!ownsMutation || confirmation.canceled || !confirmed ||
+                                !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.isScenePlaylistMutationSelectionCurrent(page, mutation)) {
+                                if (ownsMutation) HueConfigurationPage.releaseScenePlaylistMutation(page, mutation, true, false);
                                 settleConfirmation();
                                 return;
                             }
@@ -8353,40 +8467,42 @@
                                     dataType: "json"
                                 });
                             var isCurrent = function () {
-                                return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                                return page._hueScenePlaylistMutation === mutation &&
+                                    HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                            };
+                            var isTargetCurrent = function () {
+                                return isCurrent() && HueConfigurationPage.isScenePlaylistMutationSelectionCurrent(page, mutation);
                             };
                             settleConfirmation(request.then(function () {
-                                if (!isCurrent()) return;
+                                if (!isTargetCurrent()) return;
                                 if (status) {
                                     status.textContent = "Playlist '" + name + "' deleted.";
                                     status.style.color = "#8bc34a";
                                 }
+                                mutation.selectedName = '';
                                 HueConfigurationPage.clearScenePlaylist(page, true);
                                 return HueConfigurationPage.loadScenePlaylists(page).then(function () {
-                                    if (!isCurrent()) return;
+                                    if (!isTargetCurrent()) return;
                                     return HueConfigurationPage.loadSceneSchedules(page);
                                 });
                             }).catch(function (err) {
-                                if (!isCurrent()) return;
+                                if (!isTargetCurrent()) return;
                                 console.error("Failed to delete scene playlist:", err);
                                 if (status) {
                                     status.textContent = "Unable to delete the saved playlist. It may still be used by a scheduled cue.";
                                     status.style.color = "#d9534f";
                                 }
                             }).finally(function () {
-                                var current = isCurrent();
                                 var requestRecord = request && request._huePageRequestRecord;
                                 var tracked = page && page._huePageRequests &&
                                     page._huePageRequests.scenePlaylistDelete === requestRecord;
-                                if (current || tracked) {
+                                var ownsMutation = page && page._hueScenePlaylistMutation === mutation;
+                                if (ownsMutation) {
                                     page._hueScenePlaylistDeleting = false;
-                                    if (page._hueScenePlaylistDeleteButton === button) {
-                                        if (button) button.disabled = false;
-                                        page._hueScenePlaylistDeleteButton = null;
-                                    }
-                                    if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'scenePlaylistDelete');
-                                    if (current) HueConfigurationPage.updateScenePlaylistButtons(page);
+                                    page._hueScenePlaylistDeleteButton = null;
+                                    HueConfigurationPage.releaseScenePlaylistMutation(page, mutation, true, false);
                                 }
+                                if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'scenePlaylistDelete');
                             }));
                         });
                     });

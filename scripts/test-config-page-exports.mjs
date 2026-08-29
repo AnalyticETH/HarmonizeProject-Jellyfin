@@ -3098,6 +3098,7 @@ async function testScenePlaylistSaveLifecycleGuards() {
     assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts scene playlist save");
     assert.equal(stalePage._huePageRequests.scenePlaylistSave, undefined, "pagehide removes scene playlist save state");
     assert.equal(stalePage._hueScenePlaylistSaving, false, "pagehide clears scene playlist save state");
+    assert.equal(stalePage._hueScenePlaylistMutation, null, "pagehide releases the scene playlist save mutation lock");
     assert.equal(staleState.button.disabled, false, "pagehide re-enables the scene playlist save button");
     staleHarness.requests[0].resolve({ name: "Stale Playlist" });
     await staleSave;
@@ -3114,6 +3115,7 @@ async function testScenePlaylistSaveLifecycleGuards() {
     currentApi.loadScenePlaylists = (_page, selectedName) => {
         currentState.playlistLoads += 1;
         assert.equal(selectedName, "Saved Playlist", "current scene playlist save reloads the returned playlist");
+        currentPage.querySelector("#scenePlaylistSelect").value = selectedName;
         return Promise.resolve();
     };
     currentApi.loadSceneSchedules = (_page, selectedId) => {
@@ -3179,6 +3181,7 @@ async function testScenePlaylistDeleteLifecycleGuards() {
     assert.equal(pendingConfirmation.canceled, true, "pagehide cancels the pending scene playlist delete confirmation");
     assert.equal(confirmationState.button.disabled, false, "pagehide restores the pending scene playlist delete button");
     assert.equal(confirmationPage._hueScenePlaylistDeleteConfirmation, null, "pagehide clears the pending scene playlist delete confirmation");
+    assert.equal(confirmationPage._hueScenePlaylistMutation, null, "pagehide releases the pending scene playlist delete mutation lock");
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(confirmationSettled, true, "pagehide settles the pending scene playlist delete confirmation");
     confirmation(true);
@@ -3216,6 +3219,7 @@ async function testScenePlaylistDeleteLifecycleGuards() {
     assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight scene playlist delete");
     assert.equal(stalePage._huePageRequests.scenePlaylistDelete, undefined, "pagehide removes scene playlist delete request state");
     assert.equal(stalePage._hueScenePlaylistDeleting, false, "pagehide clears scene playlist delete busy state");
+    assert.equal(stalePage._hueScenePlaylistMutation, null, "pagehide releases the scene playlist delete mutation lock");
     assert.equal(staleState.button.disabled, false, "pagehide restores the scene playlist delete button");
     staleHarness.requests[0].resolve({ message: "stale delete" });
     await staleOperation;
@@ -3232,9 +3236,11 @@ async function testScenePlaylistDeleteLifecycleGuards() {
     currentApi.clearScenePlaylist = (_page, clearSelect) => {
         currentState.clearCalls += 1;
         assert.equal(clearSelect, true, "current scene playlist delete clears the selected playlist form");
+        currentPage.querySelector("#scenePlaylistSelect").value = "";
     };
     currentApi.loadScenePlaylists = () => {
         currentState.playlistLoads += 1;
+        currentPage.querySelector("#scenePlaylistSelect").value = "";
         return Promise.resolve();
     };
     currentApi.loadSceneSchedules = () => {
@@ -3261,7 +3267,7 @@ async function testScenePlaylistDeleteLifecycleGuards() {
     assert.equal(currentState.playlistLoads, 1, "current scene playlist delete reloads playlists once");
     assert.equal(currentState.scheduleLoads, 1, "current scene playlist delete reloads schedules once");
     assert.equal(currentPage._hueScenePlaylistDeleting, false, "current scene playlist delete clears the busy state");
-    assert.equal(currentState.button.disabled, false, "current scene playlist delete restores its button");
+    assert.equal(currentState.button.disabled, true, "current scene playlist delete leaves its button disabled with no selection");
     assert.equal(currentPage._huePageRequests.scenePlaylistDelete, undefined, "current scene playlist delete removes its settled lifecycle record");
 }
 
@@ -3340,6 +3346,7 @@ async function testScenePlaylistIndividualMutationLifecycleGuards() {
         assert.equal(staleHarness.requests[0].promise.aborted, true, `pagehide aborts in-flight ${testCase.operation} scene playlist mutation`);
         assert.equal(stalePage._huePageRequests[testCase.key], undefined, `pagehide removes ${testCase.operation} scene playlist mutation state`);
         assert.equal(stalePage[testCase.flag], false, `pagehide clears ${testCase.operation} scene playlist mutation state`);
+        assert.equal(stalePage._hueScenePlaylistMutation, null, `pagehide releases the ${testCase.operation} scene playlist mutation lock`);
         assert.equal(staleState.button.disabled, false, `pagehide restores the ${testCase.operation} scene playlist mutation button`);
         staleHarness.requests[0].resolve(testCase.response);
         await staleOperation;
@@ -3356,6 +3363,7 @@ async function testScenePlaylistIndividualMutationLifecycleGuards() {
         currentApi.loadScenePlaylists = (_page, selectedName) => {
             currentState.playlistLoads += 1;
             assert.equal(selectedName, testCase.operation === "rename" ? "Renamed Playlist" : "Playlist Copy", `current ${testCase.operation} scene playlist mutation reloads the returned playlist`);
+            currentPage.querySelector("#scenePlaylistSelect").value = selectedName;
             return Promise.resolve();
         };
         currentApi.loadSceneSchedules = (_page, selectedId) => {
@@ -3388,6 +3396,7 @@ async function testScenePlaylistIndividualMutationLifecycleGuards() {
         const duplicateApi = duplicateHarness.api;
         duplicateApi.loadScenePlaylists = () => {
             duplicateState.playlistLoads += 1;
+            duplicatePage.querySelector("#scenePlaylistSelect").value = testCase.operation === "rename" ? "Renamed Playlist" : "Playlist Copy";
             return Promise.resolve();
         };
         duplicateApi.loadSceneSchedules = () => {
@@ -3410,6 +3419,198 @@ async function testScenePlaylistIndividualMutationLifecycleGuards() {
         assert.equal(duplicateState.buttonUpdates, 1, `duplicate ${testCase.operation} scene playlist mutation refreshes controls once`);
         assert.equal(duplicatePage[testCase.flag], false, `duplicate ${testCase.operation} scene playlist mutation clears busy state`);
         assert.equal(duplicateState.button.disabled, false, `duplicate ${testCase.operation} scene playlist mutation re-enables its button`);
+    }
+}
+
+function scenePlaylistMutationControlSelectors() {
+    return [
+        "#saveScenePlaylistBtn",
+        "#duplicateScenePlaylistBtn",
+        "#renameScenePlaylistBtn",
+        "#deleteScenePlaylistBtn"
+    ];
+}
+
+function configureScenePlaylistMutationHarness(harness, operation) {
+    const { page, api } = harness;
+    api.getScenePlaylistTargetSelection = () => ({
+        targetAllEnabledMappings: false,
+        includeDefaultTarget: false,
+        targetUserIds: [],
+        targetUserId: ""
+    });
+    const select = page.querySelector("#scenePlaylistSelect");
+    select.value = "Playlist One";
+    select.selectedIndex = 0;
+    select.options = [
+        { value: "Playlist One", textContent: "Playlist One" },
+        { value: "Playlist Two", textContent: "Playlist Two" }
+    ];
+    page._hueScenePlaylistId = "playlist-1";
+    page._hueScenePlaylistItems = ["Scene One"];
+    page.querySelector("#scenePlaylistName").value = "Renamed Playlist";
+    page.querySelector("#scenePlaylistRepeatCount").value = "1";
+    page.querySelector("#scenePlaylistPlaybackOrder").value = "Sequential";
+    page.querySelector("#sceneScheduleSelect").value = "cue-1";
+    return {
+        operation,
+        buttonUpdates: 0,
+        clearCalls: 0,
+        playlistLoads: 0,
+        scheduleLoads: 0,
+        status: page.querySelector("#scenePlaylistStatus"),
+        name: page.querySelector("#scenePlaylistName"),
+        select
+    };
+}
+
+function configureScenePlaylistMutationReloads(harness, state) {
+    const { api } = harness;
+    api.loadScenePlaylists = (_page, selectedName) => {
+        state.playlistLoads += 1;
+        _page.querySelector("#scenePlaylistSelect").value = selectedName || "";
+        return Promise.resolve();
+    };
+    api.loadSceneSchedules = () => {
+        state.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    api.updateScenePlaylistButtons = () => {
+        state.buttonUpdates += 1;
+    };
+}
+
+async function testScenePlaylistMutationLockGuards() {
+    const cases = [
+        {
+            owner: "save",
+            method: "saveScenePlaylist",
+            opposite: "duplicateScenePlaylist",
+            response: { name: "Renamed Playlist" },
+            flag: "_hueScenePlaylistSaving"
+        },
+        {
+            owner: "duplicate",
+            method: "duplicateScenePlaylist",
+            opposite: "renameScenePlaylist",
+            response: { name: "Playlist Copy" },
+            flag: "_hueScenePlaylistDuplicating"
+        },
+        {
+            owner: "rename",
+            method: "renameScenePlaylist",
+            opposite: "duplicateScenePlaylist",
+            response: { name: "Renamed Playlist" },
+            flag: "_hueScenePlaylistRenaming"
+        },
+        {
+            owner: "delete",
+            method: "deleteScenePlaylist",
+            opposite: "duplicateScenePlaylist",
+            response: null,
+            flag: "_hueScenePlaylistDeleting",
+            confirmation: true
+        }
+    ];
+
+    for (const testCase of cases) {
+        const harness = makeHarness();
+        const state = configureScenePlaylistMutationHarness(harness, testCase.owner);
+        const { page, api, requests, dashboard } = harness;
+        configureScenePlaylistMutationReloads(harness, state);
+        let confirmation;
+        let confirmationCalls = 0;
+        dashboard.confirm = (_message, _title, callback) => {
+            confirmationCalls += 1;
+            confirmation = callback;
+        };
+
+        const ownerOperation = api[testCase.method](page);
+        assert.ok(ownerOperation && typeof ownerOperation.then === "function", `${testCase.owner} scene playlist mutation returns a promise`);
+        assert.equal(page._hueScenePlaylistMutation.key, `scenePlaylist${testCase.owner[0].toUpperCase()}${testCase.owner.slice(1)}`, `${testCase.owner} scene playlist mutation owns the direct lock`);
+        for (const selector of scenePlaylistMutationControlSelectors()) {
+            assert.equal(page.querySelector(selector).disabled, true, `${testCase.owner} scene playlist mutation disables ${selector}`);
+        }
+
+        const requestCount = requests.length;
+        const oppositeOperation = api[testCase.opposite](page);
+        await oppositeOperation;
+        assert.equal(requests.length, requestCount, `${testCase.owner} scene playlist mutation suppresses opposite request`);
+        assert.equal(confirmationCalls, testCase.confirmation ? 1 : 0, `${testCase.owner} scene playlist mutation suppresses opposite confirmation`);
+        assert.equal(!!page[testCase.flag], testCase.confirmation ? false : true, `${testCase.owner} scene playlist mutation retains its ownership state`);
+        for (const selector of scenePlaylistMutationControlSelectors()) {
+            assert.equal(page.querySelector(selector).disabled, true, `${testCase.owner} scene playlist mutation keeps ${selector} disabled during arbitration`);
+        }
+
+        if (testCase.confirmation) {
+            confirmation(false);
+        } else {
+            assert.equal(requests.length, 1, `${testCase.owner} scene playlist mutation starts one request`);
+            requests[0].resolve(testCase.response);
+        }
+        await ownerOperation;
+        assert.equal(page._hueScenePlaylistMutation, null, `${testCase.owner} scene playlist mutation releases the direct lock`);
+        assert.equal(!!page[testCase.flag], false, `${testCase.owner} scene playlist mutation clears its ownership state`);
+        for (const selector of scenePlaylistMutationControlSelectors()) {
+            assert.equal(page.querySelector(selector).disabled, false, `${testCase.owner} scene playlist mutation restores ${selector}`);
+        }
+    }
+}
+
+async function testScenePlaylistMutationSelectionGuards() {
+    const cases = [
+        {
+            method: "duplicateScenePlaylist",
+            response: { name: "Playlist Copy" },
+            flag: "_hueScenePlaylistDuplicating"
+        },
+        {
+            method: "renameScenePlaylist",
+            response: { name: "Renamed Playlist" },
+            flag: "_hueScenePlaylistRenaming"
+        },
+        {
+            method: "deleteScenePlaylist",
+            response: null,
+            flag: "_hueScenePlaylistDeleting",
+            confirmation: true
+        }
+    ];
+
+    for (const testCase of cases) {
+        const harness = makeHarness();
+        const state = configureScenePlaylistMutationHarness(harness, testCase.method.replace("ScenePlaylist", ""));
+        const { page, api, requests, dashboard } = harness;
+        configureScenePlaylistMutationReloads(harness, state);
+        api.clearScenePlaylist = () => {
+            state.clearCalls += 1;
+        };
+        let confirmation;
+        dashboard.confirm = (_message, _title, callback) => {
+            confirmation = callback;
+        };
+        const operation = api[testCase.method](page);
+        state.status.textContent = "unchanged after selection change";
+        state.name.value = "current draft";
+        state.select.value = "Playlist Two";
+        if (testCase.confirmation) {
+            confirmation(true);
+            assert.equal(requests.length, 0, "selection-changed delete confirmation does not start a request");
+        } else {
+            assert.equal(requests.length, 1, `${testCase.method} starts one request before selection changes`);
+            requests[0].resolve(testCase.response);
+        }
+        await operation;
+        assert.equal(state.status.textContent, "unchanged after selection change", `${testCase.method} suppresses stale status after selection changes`);
+        assert.equal(state.name.value, "current draft", `${testCase.method} preserves the current draft after selection changes`);
+        assert.equal(state.playlistLoads, 0, `${testCase.method} suppresses stale playlist reload after selection changes`);
+        assert.equal(state.scheduleLoads, 0, `${testCase.method} suppresses stale schedule reload after selection changes`);
+        assert.equal(state.clearCalls, 0, `${testCase.method} suppresses stale form clearing after selection changes`);
+        assert.equal(!!page[testCase.flag], false, `${testCase.method} clears its busy state after selection changes`);
+        assert.equal(page._hueScenePlaylistMutation, null, `${testCase.method} releases its lock after selection changes`);
+        for (const selector of scenePlaylistMutationControlSelectors()) {
+            assert.equal(page.querySelector(selector).disabled, false, `${testCase.method} restores ${selector} after selection changes`);
+        }
     }
 }
 
@@ -4372,6 +4573,8 @@ await testColorPresetRenameLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testScenePlaylistDeleteLifecycleGuards();
 await testScenePlaylistIndividualMutationLifecycleGuards();
+await testScenePlaylistMutationLockGuards();
+await testScenePlaylistMutationSelectionGuards();
 await testScenePlaylistBulkLifecycleGuards();
 await testHistoryClearLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
